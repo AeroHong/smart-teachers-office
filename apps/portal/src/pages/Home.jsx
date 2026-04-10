@@ -59,15 +59,15 @@ const SERVICES = [
 const CHANGELOG = [
   {
     version: 'v2.1',
-    date: '2026.04.08',
+    date: '2026.04.11',
     type: 'improvement',
-    items: ['사이드바 네비게이션 도입 (전 페이지 공통)', '페이지 제목 breadcrumb 표시', 'UI 색상 개편 (인디고 테마)'],
+    items: ['출결 대시보드 달력 UI 개선 (반응형 2개월/1개월 뷰)', '이벤트 요일 기반 날짜 필터링 구현', '프로젝트 문서화 구조 개선 (CLAUDE.md 분리)'],
   },
   {
     version: 'v2.0',
     date: '2026.04.08',
     type: 'major',
-    items: ['포털 React 전환 — 단일 도메인 통합 (seonyoo-system.web.app)', '보강신청 시스템 포털 통합', '스마트 출결 포털 통합', '한 번의 로그인으로 전 시스템 사용'],
+    items: ['포털 React 전환 — 단일 도메인 통합', '보강신청 + 스마트출결 시스템 통합', '사이드바 네비게이션 도입', 'UI 색상 개편 (인디고 테마)'],
   },
   {
     version: 'v1.2',
