@@ -148,8 +148,13 @@ export default function AttendanceDashboard() {
   // ── 날짜 필터 + 분류 ──────────────────────────────────────────
   const filteredLogs = event?.isRecurring
     ? logs.filter(l => {
-        const d = l.checkedAt?.toDate?.()
-        return d && d.toISOString().slice(0, 10) === selectedDate
+        const ts = l.checkedAt ?? l.recordedAt
+        const d = ts?.toDate?.()
+        if (!d) return false
+        const y = d.getFullYear()
+        const mo = String(d.getMonth() + 1).padStart(2, '0')
+        const da = String(d.getDate()).padStart(2, '0')
+        return `${y}-${mo}-${da}` === selectedDate
       })
     : logs
 
@@ -204,7 +209,7 @@ export default function AttendanceDashboard() {
         doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(student.studentId, 'absent')),
         { studentId: student.studentId, studentName: student.name,
           grade: student.grade, class: student.class, number: student.number,
-          method: 'absent', reason, recordedAt: serverTimestamp(), qrToken: event.qrToken }
+          method: 'absent', reason, checkedAt: serverTimestamp(), qrToken: event.qrToken }
       )
       setReasonDraft(prev => ({ ...prev, [student.studentId]: '' }))
     } finally { setProcessingId(null) }

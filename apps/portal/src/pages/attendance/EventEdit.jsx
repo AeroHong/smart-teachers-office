@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { doc, getDoc, updateDoc, getDocs, collection } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, getDocs, addDoc, collection, query, orderBy, serverTimestamp } from 'firebase/firestore'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -11,10 +11,13 @@ const PERIODS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
 export default function EventEdit() {
   const { eventId } = useParams()
-  const { schoolId } = useAuth()
+  const { schoolId, user } = useAuth()
   const navigate = useNavigate()
 
   const [groups, setGroups] = useState([])
+  const [courses, setCourses] = useState([])
+  const [newCourseName, setNewCourseName] = useState('')
+  const [showNewCourse, setShowNewCourse] = useState(false)
   const [isRecurring, setIsRecurring] = useState(false)
   const [schedules, setSchedules] = useState([{ dayOfWeek: 1, period: 1, useTime: false, startTime: '09:00', endTime: '09:50' }])
   const [form, setForm] = useState(null)
@@ -24,10 +27,12 @@ export default function EventEdit() {
   useEffect(() => {
     if (!schoolId) return
     const load = async () => {
-      const [eventDoc, groupsSnap] = await Promise.all([
+      const [eventDoc, groupsSnap, coursesSnap] = await Promise.all([
         getDoc(doc(db, 'schools', schoolId, 'events', eventId)),
         getDocs(collection(db, 'schools', schoolId, 'studentGroups')),
+        getDocs(query(collection(db, 'schools', schoolId, 'courses'), orderBy('name'))),
       ])
+      setCourses(coursesSnap.docs.map(d => ({ id: d.id, ...d.data() })))
 
       if (!eventDoc.exists()) { navigate('/attendance'); return }
 
@@ -58,6 +63,7 @@ export default function EventEdit() {
       setForm({
         name: data.name || '',
         type: data.type || '수업',
+        courseId: data.courseId || '',
         studentGroupId: data.studentGroupId || '',
         location: data.location || '',
         description: data.description || '',
@@ -73,6 +79,19 @@ export default function EventEdit() {
   }, [schoolId, eventId])
 
   const set = (field) => (e) => setForm(p => ({ ...p, [field]: e.target.value }))
+
+  const handleAddCourse = async () => {
+    const name = newCourseName.trim()
+    if (!name) return
+    const docRef = await addDoc(collection(db, 'schools', schoolId, 'courses'), {
+      name, createdBy: user.uid, createdAt: serverTimestamp(),
+    })
+    const newCourse = { id: docRef.id, name }
+    setCourses(prev => [...prev, newCourse].sort((a, b) => a.name.localeCompare(b.name)))
+    setForm(p => ({ ...p, courseId: docRef.id }))
+    setNewCourseName('')
+    setShowNewCourse(false)
+  }
 
   // ── 시간표 편집 ───────────────────────────────────────────────
   const addSchedule = () =>
@@ -114,6 +133,7 @@ export default function EventEdit() {
       const base = {
         name: form.name,
         type: form.type,
+        courseId: form.courseId || null,
         studentGroupId: form.studentGroupId || null,
         location: form.location,
         description: form.description,
@@ -173,6 +193,25 @@ export default function EventEdit() {
           <select value={form.type} onChange={set('type')} style={styles.input}>
             {EVENT_TYPES.map(t => <option key={t}>{t}</option>)}
           </select>
+        </Field>
+
+        <Field label="과목">
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <select value={form.courseId} onChange={set('courseId')} style={{ ...styles.input, flex: 1 }}>
+              <option value="">과목 없음</option>
+              {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button type="button" onClick={() => setShowNewCourse(p => !p)} style={styles.addCourseBtn}>+ 새 과목</button>
+          </div>
+          {showNewCourse && (
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+              <input value={newCourseName} onChange={e => setNewCourseName(e.target.value)}
+                placeholder="과목명 입력" style={{ ...styles.input, flex: 1 }}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCourse())} />
+              <button type="button" onClick={handleAddCourse}
+                disabled={!newCourseName.trim()} style={styles.addCourseBtn}>추가</button>
+            </div>
+          )}
         </Field>
 
         {form.type === '조회' && (
@@ -342,4 +381,5 @@ const styles = {
   cancelBtn2: { padding: '0.75rem 1.5rem', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#fff', cursor: 'pointer', fontSize: '0.95rem' },
   error: { color: '#d32f2f', fontSize: '0.85rem' },
   fieldHint: { fontSize: '0.76rem', color: '#888', marginTop: '0.2rem' },
+  addCourseBtn: { padding: '0.6rem 0.8rem', border: '1px solid #1a73e8', color: '#1a73e8', backgroundColor: '#fff', borderRadius: '7px', cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap' },
 }

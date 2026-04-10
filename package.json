@@ -7,8 +7,7 @@
     "dev": "vite --config apps/portal/vite.config.js",
     "build": "vite build --config apps/portal/vite.config.js",
     "deploy": "npm run build && firebase deploy --only hosting",
-    "dev:attendance": "vite --config apps/attendance/vite.config.js",
-    "build:attendance": "vite build --config apps/attendance/vite.config.js"
+    "preview": "vite preview --config apps/portal/vite.config.js"
   },
   "dependencies": {
     "@emotion/react": "^11.11.0",

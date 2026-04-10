@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy } from 'firebase/firestore'
 import { useLocation } from 'react-router-dom'
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -20,20 +20,42 @@ export default function EventCreate() {
   const cloneSource = location.state?.clone ?? null
 
   const [groups, setGroups] = useState([])
+  const [courses, setCourses] = useState([])
+  const [newCourseName, setNewCourseName] = useState('')
+  const [showNewCourse, setShowNewCourse] = useState(false)
+
   useEffect(() => {
     const load = async () => {
       const col = collection(db, 'schools', schoolId, 'studentGroups')
       const q = role === 'school_admin' ? col : query(col, where('createdBy', '==', user.uid))
-      const snap = await getDocs(q)
-      setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const [groupsSnap, coursesSnap] = await Promise.all([
+        getDocs(q),
+        getDocs(query(collection(db, 'schools', schoolId, 'courses'), orderBy('name'))),
+      ])
+      setGroups(groupsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setCourses(coursesSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     }
     if (schoolId && user) load()
   }, [schoolId, user, role])
+
+  const handleAddCourse = async () => {
+    const name = newCourseName.trim()
+    if (!name) return
+    const docRef = await addDoc(collection(db, 'schools', schoolId, 'courses'), {
+      name, createdBy: user.uid, createdAt: serverTimestamp(),
+    })
+    const newCourse = { id: docRef.id, name }
+    setCourses(prev => [...prev, newCourse].sort((a, b) => a.name.localeCompare(b.name)))
+    setForm(p => ({ ...p, courseId: docRef.id }))
+    setNewCourseName('')
+    setShowNewCourse(false)
+  }
 
   // ── 초기 폼 값 ────────────────────────────────────────────────
   const buildInitialForm = (src) => ({
     name: src ? `${src.name} (복제)` : '',
     type: src?.type ?? '수업',
+    courseId: src?.courseId ?? '',
     studentGroupId: src?.studentGroupId ?? '',
     location: src?.location ?? '',
     description: src?.description ?? '',
@@ -120,6 +142,7 @@ export default function EventCreate() {
       const base = {
         name: form.name,
         type: form.type,
+        courseId: form.courseId || null,
         studentGroupId: form.studentGroupId || null,
         location: form.location,
         description: form.description,
@@ -177,6 +200,25 @@ export default function EventCreate() {
             <select value={form.type} onChange={set('type')} style={styles.input}>
               {EVENT_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
+          </Field>
+
+          <Field label="과목">
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <select value={form.courseId} onChange={set('courseId')} style={{ ...styles.input, flex: 1 }}>
+                <option value="">과목 없음</option>
+                {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button type="button" onClick={() => setShowNewCourse(p => !p)} style={styles.addCourseBtn}>+ 새 과목</button>
+            </div>
+            {showNewCourse && (
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                <input value={newCourseName} onChange={e => setNewCourseName(e.target.value)}
+                  placeholder="과목명 입력" style={{ ...styles.input, flex: 1 }}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCourse())} />
+                <button type="button" onClick={handleAddCourse}
+                  disabled={!newCourseName.trim()} style={styles.addCourseBtn}>추가</button>
+              </div>
+            )}
           </Field>
 
           {form.type === '조회' && (
@@ -370,5 +412,6 @@ const styles = {
   qrTitle: { textAlign: 'center', color: '#2e7d32', margin: 0 },
   qrPlaceholder: { textAlign: 'center', color: '#aaa', padding: '2rem 1rem', lineHeight: 1.8 },
   newBtn: { padding: '0.5rem 1rem', border: '1px solid #ddd', borderRadius: '7px', backgroundColor: '#fff', cursor: 'pointer', fontSize: '0.85rem' },
+  addCourseBtn: { padding: '0.6rem 0.8rem', border: '1px solid #1a73e8', color: '#1a73e8', backgroundColor: '#fff', borderRadius: '7px', cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap' },
   cloneBanner: { marginBottom: '1.25rem', padding: '0.75rem 1rem', backgroundColor: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '8px', fontSize: '0.88rem', color: '#2e7d32' },
 }

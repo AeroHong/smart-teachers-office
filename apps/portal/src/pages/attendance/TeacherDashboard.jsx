@@ -15,9 +15,16 @@ export default function TeacherDashboard() {
   // 네비게이션 바 "대시보드" 클릭 시 보관함 뷰 리셋
   useEffect(() => { setShowArchived(false) }, [location.state?.reset])
   const [events, setEvents] = useState([])
+  const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
+
+  useEffect(() => {
+    if (!schoolId) return
+    getDocs(query(collection(db, 'schools', schoolId, 'courses'), orderBy('name')))
+      .then(snap => setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  }, [schoolId])
 
   useEffect(() => {
     if (!schoolId || !user) return
@@ -118,6 +125,21 @@ export default function TeacherDashboard() {
   const visibleEvents = events.filter(e => showArchived ? e.archived === true : !e.archived)
   const archivedCount = events.filter(e => e.archived === true).length
 
+  // 과목별 그룹핑: [{ course: {id,name}|null, events: [...] }, ...]
+  const groupedEvents = (() => {
+    const groups = {}
+    visibleEvents.forEach(e => {
+      const key = e.courseId || '__none__'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(e)
+    })
+    const result = courses
+      .filter(c => groups[c.id])
+      .map(c => ({ course: c, events: groups[c.id] }))
+    if (groups['__none__']) result.push({ course: null, events: groups['__none__'] })
+    return result
+  })()
+
   return (
     <Layout>
       <div style={styles.header}>
@@ -156,104 +178,102 @@ export default function TeacherDashboard() {
           }
         </div>
       ) : (
-        <div style={styles.grid}>
-          {visibleEvents.map(event => {
-            const active = !event.archived && isActive(event)
-            const expanded = expandedId === event.id
-            const isArchived = event.archived === true
-
-            return (
-              <div key={event.id} style={{
-                ...styles.card,
-                borderLeft: `4px solid ${isArchived ? '#bbb' : active ? '#1a73e8' : '#ddd'}`,
-                opacity: isArchived ? 0.75 : 1,
-              }}>
-
-                {/* ── 카드 헤더 ── */}
-                <div style={styles.cardHeader} onClick={() => toggleExpand(event.id)}>
-                  <div style={styles.cardTop}>
-                    {isArchived
-                      ? <span style={{ ...styles.badge, backgroundColor: '#f0f0f0', color: '#999' }}>보관됨</span>
-                      : <span style={{ ...styles.badge, backgroundColor: active ? '#e8f0fe' : '#f0f0f0', color: active ? '#1a73e8' : '#888' }}>
-                          {active ? '진행 중' : '종료'}
-                        </span>
-                    }
-                    <span style={styles.typeBadge}>{event.type}</span>
-                    {event.isRecurring && <span style={styles.recurringBadge}>🔁 반복</span>}
-                  </div>
-                  <h3 style={styles.eventName}>{event.name}</h3>
-                  <div style={styles.metaRow}>
-                    {event.location && <span style={styles.meta}>📍 {event.location}</span>}
-                  </div>
-                  <p style={styles.timeText}>
-                    {event.isRecurring
-                      ? `🔁 ${formatSchedules(event)}`
-                      : `🕐 ${formatTime(event.startTime)} ~ ${formatTime(event.endTime)}`
-                    }
-                  </p>
-                  <span style={styles.expandHint}>{expanded ? '▲ 접기' : '▼ 세부 내용'}</span>
-                </div>
-
-                {/* ── 세부 내용 ── */}
-                {expanded && (
-                  <div style={styles.detail}>
-                    <DetailRow label="이벤트 유형" value={event.type} />
-                    {event.isRecurring && (
-                      <>
-                        <DetailRow label="요일별 시간" value={formatSchedules(event)} />
-                        <DetailRow label="반복 종료일" value={
-                          event.recurringEndDate
-                            ? (event.recurringEndDate.toDate?.() ?? new Date(event.recurringEndDate)).toLocaleDateString('ko-KR')
-                            : '-'
-                        } />
-                      </>
-                    )}
-                    {!event.isRecurring && (
-                      <>
-                        <DetailRow label="시작" value={formatTime(event.startTime)} />
-                        <DetailRow label="종료" value={formatTime(event.endTime)} />
-                      </>
-                    )}
-                    {event.location && <DetailRow label="장소" value={event.location} />}
-                    {event.description && <DetailRow label="설명" value={event.description} />}
-                  </div>
-                )}
-
-                {/* ── 버튼 영역 ── */}
-                <div style={styles.actions}>
-                  {isArchived ? (
-                    <>
-                      <button onClick={() => navigate(`/attendance/events/${event.id}`)} style={styles.detailBtn}>
-                        출결 현황
-                      </button>
-                      <button onClick={() => handleRestore(event)} style={styles.restoreBtn}>
-                        복원
-                      </button>
-                      <button onClick={() => handleDelete(event)} style={styles.deleteBtn}>
-                        삭제
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button onClick={() => navigate(`/attendance/events/${event.id}`)} style={styles.detailBtn}>
-                        출결 현황
-                      </button>
-                      <button onClick={() => navigate(`/attendance/events/${event.id}/edit`)} style={styles.editBtn}>
-                        수정
-                      </button>
-                      <button onClick={() => navigate('/attendance/events/new', { state: { clone: event } })} style={styles.cloneBtn}>
-                        복제
-                      </button>
-                      <button onClick={() => handleArchive(event)} style={styles.archiveBtn}>
-                        보관
-                      </button>
-                    </>
-                  )}
-                </div>
-
+        <div>
+          {groupedEvents.map(({ course, events: gEvents }) => (
+            <div key={course?.id ?? '__none__'} style={styles.courseSection}>
+              <div style={styles.courseSectionHeader}>
+                <span style={styles.courseSectionTitle}>
+                  {course ? `📚 ${course.name}` : '미분류'}
+                </span>
+                <span style={styles.courseEventCount}>{gEvents.length}개</span>
               </div>
-            )
-          })}
+              <div style={styles.grid}>
+                {gEvents.map(event => {
+                  const active = !event.archived && isActive(event)
+                  const expanded = expandedId === event.id
+                  const isArchived = event.archived === true
+
+                  return (
+                    <div key={event.id} style={{
+                      ...styles.card,
+                      borderLeft: `4px solid ${isArchived ? '#bbb' : active ? '#1a73e8' : '#ddd'}`,
+                      opacity: isArchived ? 0.75 : 1,
+                    }}>
+
+                      {/* ── 카드 헤더 ── */}
+                      <div style={styles.cardHeader} onClick={() => toggleExpand(event.id)}>
+                        <div style={styles.cardTop}>
+                          {isArchived
+                            ? <span style={{ ...styles.badge, backgroundColor: '#f0f0f0', color: '#999' }}>보관됨</span>
+                            : <span style={{ ...styles.badge, backgroundColor: active ? '#e8f0fe' : '#f0f0f0', color: active ? '#1a73e8' : '#888' }}>
+                                {active ? '진행 중' : '종료'}
+                              </span>
+                          }
+                          <span style={styles.typeBadge}>{event.type}</span>
+                          {event.isRecurring && <span style={styles.recurringBadge}>🔁 반복</span>}
+                        </div>
+                        <h3 style={styles.eventName}>{event.name}</h3>
+                        <div style={styles.metaRow}>
+                          {event.location && <span style={styles.meta}>📍 {event.location}</span>}
+                        </div>
+                        <p style={styles.timeText}>
+                          {event.isRecurring
+                            ? `🔁 ${formatSchedules(event)}`
+                            : `🕐 ${formatTime(event.startTime)} ~ ${formatTime(event.endTime)}`
+                          }
+                        </p>
+                        <span style={styles.expandHint}>{expanded ? '▲ 접기' : '▼ 세부 내용'}</span>
+                      </div>
+
+                      {/* ── 세부 내용 ── */}
+                      {expanded && (
+                        <div style={styles.detail}>
+                          <DetailRow label="이벤트 유형" value={event.type} />
+                          {event.isRecurring && (
+                            <>
+                              <DetailRow label="요일별 시간" value={formatSchedules(event)} />
+                              <DetailRow label="반복 종료일" value={
+                                event.recurringEndDate
+                                  ? (event.recurringEndDate.toDate?.() ?? new Date(event.recurringEndDate)).toLocaleDateString('ko-KR')
+                                  : '-'
+                              } />
+                            </>
+                          )}
+                          {!event.isRecurring && (
+                            <>
+                              <DetailRow label="시작" value={formatTime(event.startTime)} />
+                              <DetailRow label="종료" value={formatTime(event.endTime)} />
+                            </>
+                          )}
+                          {event.location && <DetailRow label="장소" value={event.location} />}
+                          {event.description && <DetailRow label="설명" value={event.description} />}
+                        </div>
+                      )}
+
+                      {/* ── 버튼 영역 ── */}
+                      <div style={styles.actions}>
+                        {isArchived ? (
+                          <>
+                            <button onClick={() => navigate(`/attendance/events/${event.id}`)} style={styles.detailBtn}>출결 현황</button>
+                            <button onClick={() => handleRestore(event)} style={styles.restoreBtn}>복원</button>
+                            <button onClick={() => handleDelete(event)} style={styles.deleteBtn}>삭제</button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => navigate(`/attendance/events/${event.id}`)} style={styles.detailBtn}>출결 현황</button>
+                            <button onClick={() => navigate(`/attendance/events/${event.id}/edit`)} style={styles.editBtn}>수정</button>
+                            <button onClick={() => navigate('/attendance/events/new', { state: { clone: event } })} style={styles.cloneBtn}>복제</button>
+                            <button onClick={() => handleArchive(event)} style={styles.archiveBtn}>보관</button>
+                          </>
+                        )}
+                      </div>
+
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Layout>
@@ -286,6 +306,10 @@ const styles = {
   archivedNote: { fontSize: '0.85rem', color: '#888', marginBottom: '1rem', padding: '0.6rem 1rem', backgroundColor: '#f9f9f9', borderRadius: '8px', borderLeft: '3px solid #bbb' },
   empty: { textAlign: 'center', padding: '3rem', color: '#888' },
   createBtn: { marginTop: '1rem', padding: '0.6rem 1.2rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' },
+  courseSection: { marginBottom: '2rem' },
+  courseSectionHeader: { display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '2px solid #e8f0fe' },
+  courseSectionTitle: { fontSize: '1rem', fontWeight: 700, color: '#1a73e8' },
+  courseEventCount: { fontSize: '0.78rem', backgroundColor: '#e8f0fe', color: '#1a73e8', padding: '0.15rem 0.5rem', borderRadius: '10px', fontWeight: 600 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' },
   card: { backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' },
   cardHeader: { padding: '1.25rem', cursor: 'pointer', userSelect: 'none' },
