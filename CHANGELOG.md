@@ -1,0 +1,188 @@
+# 스마트 출결 시스템 v1.1
+
+> 선유고등학교 전용 이벤트 기반 QR 출결 관리 시스템  
+> 배포 URL: https://seonyoo-system-attendance.web.app  
+> Firebase 프로젝트: `seonyoo-system`  
+> v1.0 완료: 2026-04-08 / v1.1 완료: 2026-04-08
+
+---
+
+## v1.1 추가 작업 (2026-04-08)
+
+### 교사별 데이터 분리 (B방식)
+- 교사/admin: 본인이 생성한 이벤트·학생그룹만 표시
+- 이벤트·학생그룹 생성 시 `createdBy: user.uid` 저장, Firestore 쿼리에 `where` 필터 적용
+
+### school_admin (학교 관리자) 역할 신설
+- 전체 교사의 이벤트·학생그룹·출결 현황 열람 가능
+- 관리자 페이지(/admin) 접근 권한 포함 (교사 승인·거절·역할 변경)
+- 네비게이션 바에 "학교관리자" 뱃지 표시
+
+### 관리자 페이지 개편
+- "승인 대기" / "교사 목록" 탭 분리
+- 승인 시 일반 교사 / 학교관리자 선택 가능
+- 교사 목록에서 역할 변경 (교사 ↔ 학교관리자)
+
+### 학교관리자 그룹 생성 시 담당 교사 지정
+- 그룹 생성 시 교사 드롭다운으로 담당 교사 선택
+- 선택한 교사의 `uid`로 `createdBy` 저장 → 해당 교사 로그인 시 본인 그룹으로 표시
+- 그룹 목록에 담당 교사 이름 태그 표시
+
+### 배포 관련 이슈 해결
+- Firebase Auth COOP 오류: `firebase.json`에 `Cross-Origin-Opener-Policy: same-origin-allow-popups` 헤더 추가
+- Firestore rules: `school_admin` 역할 추가, `isAdmin()` 함수에 포함
+
+---
+
+---
+
+## 기술 스택
+
+| 영역 | 기술 |
+|------|------|
+| Frontend | React 18 + Vite |
+| 라우팅 | react-router-dom v6 |
+| DB / 실시간 | Firebase Firestore (onSnapshot) |
+| 인증 | Firebase Authentication (Google 계정 전용) |
+| 호스팅 | Firebase Hosting |
+| QR 생성 | qrcode.react |
+
+---
+
+## 개발 단계별 작업 내역
+
+### Phase 1 — Firebase 프로젝트 스캐폴딩
+- Vite + React 프로젝트 초기화
+- Firebase 초기화 (`src/lib/firebase.js`)
+- 환경변수 구성 (`.env`, `.env.example`)
+- Firestore 멀티테넌트 컬렉션 구조 설계
+  ```
+  /schools/{schoolId}/events/{eventId}/attendanceLogs/{logId}
+  /schools/{schoolId}/students/{studentId}
+  /schools/{schoolId}/studentGroups/{groupId}
+  /users/{uid}
+  ```
+
+### Phase 2 — 인증 시스템
+- Google 계정 전용 로그인 (학교 도메인 `@seonyoo.hs.kr` 강제)
+- 교사/학생 자동 구분 로직
+  - 이메일 로컬파트가 숫자 9자리(`202630107`) → 학생 자동 승인
+  - 그 외 → 교사 pending 처리, 관리자 승인 필요
+- ProtectedRoute: 역할별 접근 제어 (admin / teacher / student / pending)
+- 관리자 페이지: 승인 대기 교사 목록 승인/거절
+
+### Phase 3 — 학생 명단 관리
+- CSV 파일 업로드로 학생 일괄 등록
+- EUC-KR / UTF-8 인코딩 자동 감지 (BOM 처리)
+- 학생 그룹(반) 생성 및 Firestore 저장
+- 그룹 목록 조회 / 삭제
+
+### Phase 4 — 이벤트 생성 + QR 발급
+- 이벤트 유형: 조회 / 수업 / 방과후 / 행사 / 기타
+- **단일 이벤트**: 시작~종료 datetime 지정
+- **반복 이벤트**: 요일 선택 + 시간대 + 반복 종료일
+- 이벤트별 학생 그룹 연결 (studentGroupId)
+- QR 토큰 자동 생성 (`crypto.randomUUID()`)
+- QR 코드 표시 / 링크 복사 / 인쇄 팝업
+
+### Phase 5 — 학생 QR 출석 체크인
+- 공개 URL: `/checkin/:schoolId/:eventId?token=xxx`
+- 학교 Google 계정 로그인 후 자동 즉시 출석 처리
+- QR 토큰 유효성 검증
+- 이벤트 활성 시간 검증 (단일: startTime~endTime, 반복: 오늘 요일 + 시간대)
+- 반복 이벤트: 날짜별 로그 ID (`${date}-${studentId}`)로 중복 방지
+- 이미 출석 처리된 경우 재출석 방지
+
+### Phase 6 — 실시간 출결 대시보드
+- 이벤트별 출석 현황 실시간 조회 (onSnapshot)
+- 출석 / 미출석 패널 분리
+- 출석률 통계 + 진행 바
+- 수동 출석 처리 / 취소
+- 결석 사유 등록: 프리셋 버튼(질병결석·조퇴·지각·미인정결석·체험학습·기타) + 직접 입력
+- 반복 이벤트: 날짜 선택기로 날짜별 출결 조회
+
+### 추가 기능
+- 이벤트 수정 페이지 (`/events/:id/edit`)
+- 대시보드 카드 세부 내용 토글 (펼치기/접기)
+- Firestore 보안 규칙 작성 및 배포
+
+---
+
+## Firestore 보안 규칙 요약
+
+| 경로 | 읽기 | 쓰기 |
+|------|------|------|
+| `/users/{uid}` | 본인만 | 본인(pending 생성) / 관리자(승인) |
+| `/schools/{schoolId}/**` | 해당 학교 교사 | 해당 학교 교사 |
+| `/attendanceLogs` | 교사 | 교사 또는 qrToken 일치 학생 |
+
+---
+
+## 배포 이슈 및 해결
+
+| 이슈 | 원인 | 해결 |
+|------|------|------|
+| 잘못된 호스팅 도메인 배포 | `firebase.json`에 `site` 미지정 | `"site": "seonyoo-system-attendance"` 추가 |
+| OAuth 도메인 미등록 | Firebase Auth Authorized domains 누락 | Console에서 `seonyoo-system-attendance.web.app` 추가 |
+| `window.close` COOP 차단 | 호스팅 COOP 헤더 기본값 문제 | `Cross-Origin-Opener-Policy: same-origin-allow-popups` 헤더 추가 |
+| Firestore 권한 오류 | `studentGroups` 컬렉션 rules 누락 | rules에 `studentGroups` 경로 추가 후 배포 |
+
+---
+
+## v2.0 추후 구현 예정 기능
+
+### 핵심 기능
+- [ ] **출결 엑셀/CSV 내보내기** — 날짜별·학생별 출결 현황 다운로드
+- [x] **이벤트 삭제** — 대시보드에서 이벤트 보관(archive) 처리 및 복원
+- [ ] **학생 개별 출결 이력** — 학생별 누적 출결 통계 조회
+- [ ] **알림 기능** — 미출석 학생 알림 (이메일 또는 푸시)
+
+### 편의 기능
+- [x] **이벤트 복제** — 기존 이벤트를 템플릿으로 빠른 생성 (새 QR 자동 발급)
+- [ ] **QR 코드 자동 갱신** — 보안을 위한 시간 제한 토큰
+- [ ] **모바일 최적화** — 반응형 레이아웃 개선
+- [ ] **다크 모드**
+
+### 확장 기능
+- [ ] **멀티 학교 지원** — 타 학교 onboarding 흐름
+- [ ] **학부모 알림 연동** — 결석 시 자동 문자/이메일
+- [ ] **Google Sheets 연동** — 출결 데이터 자동 동기화
+- [ ] **통계 대시보드** — 월별·이벤트별 출석률 그래프
+
+---
+
+## 프로젝트 구조
+
+```
+출석체크 프로젝트/
+├── CLAUDE.md                  # Claude Code 프로젝트 지침
+├── CHANGELOG.md               # 이 파일
+├── firebase.json              # Hosting + Firestore 설정
+├── .firebaserc                # Firebase 프로젝트 연결 (seonyoo-system)
+├── firestore.rules            # 보안 규칙
+├── firestore.indexes.json
+├── package.json
+├── vite.config.js
+├── .env                       # Firebase config (gitignore 대상)
+└── src/
+    ├── main.jsx
+    ├── App.jsx                # 라우터 정의
+    ├── lib/
+    │   └── firebase.js        # Firebase 초기화
+    ├── contexts/
+    │   └── AuthContext.jsx    # 인증 상태 전역 관리
+    ├── components/
+    │   ├── Layout.jsx         # 네비게이션 레이아웃
+    │   ├── ProtectedRoute.jsx # 역할 기반 접근 제어
+    │   └── QRDisplay.jsx      # QR 코드 표시 + 인쇄
+    └── pages/
+        ├── Login.jsx
+        ├── PendingApproval.jsx
+        ├── Admin.jsx
+        ├── TeacherDashboard.jsx
+        ├── StudentList.jsx
+        ├── EventCreate.jsx
+        ├── EventEdit.jsx
+        ├── AttendanceDashboard.jsx
+        └── StudentCheckin.jsx
+```
