@@ -9,6 +9,7 @@ const STATE = {
   LOADING: 'loading',
   LOGIN_REQUIRED: 'login_required',
   INVALID: 'invalid',
+  QR_INACTIVE: 'qr_inactive',   // 라이브 세션 비활성 (시작 전 or 마감됨)
   NOT_STARTED: 'not_started',
   ENDED: 'ended',
   CHECKING: 'checking',
@@ -106,10 +107,19 @@ export default function StudentCheckin() {
       if (!token) { setState(STATE.INVALID); return }
       try {
         const eventDoc = await getDoc(doc(db, 'schools', schoolId, 'events', eventId))
-        if (!eventDoc.exists() || eventDoc.data().qrToken !== token) {
-          setState(STATE.INVALID); return
+        if (!eventDoc.exists()) { setState(STATE.INVALID); return }
+        const data = eventDoc.data()
+
+        if (data.type === '조회') {
+          // 조회: 고정 QR 토큰 검증
+          if (data.qrToken !== token) { setState(STATE.INVALID); return }
+        } else {
+          // 수업/방과후/행사/기타: 라이브 세션 토큰 검증
+          if (data.liveToken == null) { setState(STATE.QR_INACTIVE); return }
+          if (data.liveToken !== token) { setState(STATE.INVALID); return }
         }
-        setEvent({ id: eventId, ...eventDoc.data() })
+
+        setEvent({ id: eventId, ...data })
       } catch {
         if (!user) { setState(STATE.LOGIN_REQUIRED); return }
         setState(STATE.ERROR)
@@ -129,11 +139,14 @@ export default function StudentCheckin() {
   const recordAttendance = async () => {
     setState(STATE.CHECKING)
 
-    const { active, reason } = isEventActive(event)
-    if (!active) {
-      setState(reason === 'not_started' || reason === 'not_today'
-        ? STATE.NOT_STARTED : STATE.ENDED)
-      return
+    // 조회는 시간 윈도우 체크, 라이브 세션 타입은 교사가 직접 제어하므로 스킵
+    if (event.type === '조회') {
+      const { active, reason } = isEventActive(event)
+      if (!active) {
+        setState(reason === 'not_started' || reason === 'not_today'
+          ? STATE.NOT_STARTED : STATE.ENDED)
+        return
+      }
     }
 
     try {
@@ -216,6 +229,7 @@ export default function StudentCheckin() {
             </>
           )}
           {state === STATE.INVALID && <StatusScreen icon="❌" title="유효하지 않은 QR" message="올바른 출석 QR 코드를 사용해 주세요." />}
+          {state === STATE.QR_INACTIVE && <StatusScreen icon="⏸" title="출석 대기 중" message="선생님이 출석을 시작하면\nQR 코드가 활성화됩니다." />}
           {state === STATE.TEACHER && <StatusScreen icon="👨‍🏫" title="교사 계정" message="교사 계정으로는 출석할 수 없습니다." />}
           {state === STATE.NOT_STARTED && <StatusScreen icon="🕐" title="출석 시작 전" message="아직 출석 시간이 아닙니다." />}
           {state === STATE.ENDED && <StatusScreen icon="🔒" title="출석 마감" message="출석 시간이 종료되었습니다." />}

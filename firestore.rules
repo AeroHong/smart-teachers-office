@@ -72,9 +72,11 @@ service cloud.firestore {
 
         match /attendanceLogs/{logId} {
           allow read: if isTeacher(schoolId) || isSignedIn();
-          // 교사 수정 또는 qrToken 일치 시 학생 write 허용
+          // 교사 수정 또는 qrToken/liveToken 일치 시 학생 write 허용
           allow write: if isTeacher(schoolId) ||
             get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.qrToken
+              == request.resource.data.qrToken ||
+            get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.liveToken
               == request.resource.data.qrToken;
         }
       }

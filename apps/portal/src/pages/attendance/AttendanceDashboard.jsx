@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import {
   doc, getDoc, getDocs, collection,
-  onSnapshot, setDoc, deleteDoc, serverTimestamp,
+  onSnapshot, setDoc, deleteDoc, updateDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -228,11 +228,47 @@ export default function AttendanceDashboard() {
     return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
+  // ── 라이브 세션 (수업/방과후/행사/기타) ────────────────────────
+  const startLiveSession = async () => {
+    const token = crypto.randomUUID()
+    await updateDoc(doc(db, 'schools', schoolId, 'events', eventId), { liveToken: token })
+    setEvent(prev => ({ ...prev, liveToken: token }))
+  }
+
+  const closeLiveSession = async () => {
+    await updateDoc(doc(db, 'schools', schoolId, 'events', eventId), { liveToken: null })
+    setEvent(prev => ({ ...prev, liveToken: null }))
+  }
+
   if (loading) return <Layout wide><p>불러오는 중...</p></Layout>
   if (!event) return null
 
   const hasGroup = students.length > 0
   const checkinUrl = `${window.location.origin}/attendance/checkin/${schoolId}/${eventId}?token=${event.qrToken}`
+  const liveCheckinUrl = `${window.location.origin}/attendance/checkin/${schoolId}/${eventId}?token=${event.liveToken}`
+  const isLiveType = event.type !== '조회'
+
+  // ── QR 패널 내용 (조회=고정 / 수업등=라이브 세션) ──────────────
+  const QRPanelContent = () => {
+    if (!isLiveType) {
+      return <QRDisplay eventName={event.name} checkinUrl={checkinUrl} />
+    }
+    if (event.liveToken) {
+      return (
+        <>
+          <div style={styles.liveActiveBadge}>● 출석 진행 중</div>
+          <QRDisplay eventName={event.name} checkinUrl={liveCheckinUrl} />
+          <button onClick={closeLiveSession} style={styles.closeSessionBtn}>⏹ 출석 마감</button>
+        </>
+      )
+    }
+    return (
+      <div style={styles.liveStartBox}>
+        <p style={styles.liveStartHint}>버튼을 누르면<br />QR 코드가 생성됩니다.</p>
+        <button onClick={startLiveSession} style={styles.startSessionBtn}>▶ 출석 시작</button>
+      </div>
+    )
+  }
 
   // ── 미출석 패널 내용 ─────────────────────────────────────────
   const AbsentPanel = () => (
@@ -318,7 +354,7 @@ export default function AttendanceDashboard() {
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={styles.panel}><h3 style={styles.qrPanelTitle}>QR 출석</h3><QRDisplay eventName={event.name} checkinUrl={checkinUrl} /></div>
+          <div style={styles.panel}><h3 style={styles.qrPanelTitle}>QR 출석</h3><QRPanelContent /></div>
           {hasGroup && (
             <>
               <div style={styles.panel}>
@@ -395,7 +431,7 @@ export default function AttendanceDashboard() {
         <div style={{ ...styles.panelCol, width: colWidths[0] + '%' }}>
           <div style={styles.panel}>
             <h3 style={styles.qrPanelTitle}>QR 출석</h3>
-            <QRDisplay eventName={event.name} checkinUrl={checkinUrl} />
+            <QRPanelContent />
           </div>
         </div>
 
@@ -602,4 +638,11 @@ const styles = {
   reasonRow: { display: 'flex', gap: '0.4rem' },
   reasonTextInput: { flex: 1, padding: '0.35rem 0.6rem', border: '1px solid #ddd', borderRadius: '6px', fontSize: '0.82rem' },
   reasonSaveBtn: { padding: '0.35rem 0.6rem', backgroundColor: '#f57c00', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 },
+
+  // 라이브 세션
+  liveActiveBadge: { textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, color: '#2e7d32', backgroundColor: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '20px', padding: '0.3rem 1rem', marginBottom: '0.75rem' },
+  liveStartBox: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem 1rem' },
+  liveStartHint: { textAlign: 'center', color: '#888', lineHeight: 1.7, margin: 0 },
+  startSessionBtn: { padding: '0.9rem 2rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' },
+  closeSessionBtn: { width: '100%', marginTop: '0.75rem', padding: '0.65rem', backgroundColor: '#fff', color: '#d32f2f', border: '1px solid #ef9a9a', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' },
 }
