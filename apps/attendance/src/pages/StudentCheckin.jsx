@@ -47,11 +47,18 @@ function isEventActive(event) {
   }
 }
 
+// KST 기준 오늘 날짜 문자열 (UTC 오프셋 오류 방지)
+function toLocalDateStr(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 // 반복 이벤트는 날짜별 로그 ID, 단일은 studentId만
 function buildLogId(event, studentId) {
   if (event.isRecurring) {
-    const today = new Date().toISOString().slice(0, 10)  // "2026-04-08"
-    return `${today}-${studentId}`
+    return `${toLocalDateStr()}-${studentId}`
   }
   return studentId
 }

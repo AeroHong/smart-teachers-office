@@ -75,8 +75,14 @@ export default function AttendanceDashboard() {
   // ── 날짜 필터 + 출석/미출석 분류 ─────────────────────────────
   const filteredLogs = event?.isRecurring
     ? logs.filter(l => {
-        const d = l.checkedAt?.toDate?.()
-        return d && d.toISOString().slice(0, 10) === selectedDate
+        // checkedAt 또는 recordedAt(결석 사유) 둘 다 허용, KST 기준 날짜 비교
+        const ts = l.checkedAt ?? l.recordedAt
+        const d = ts?.toDate?.()
+        if (!d) return false
+        const y = d.getFullYear()
+        const mo = String(d.getMonth() + 1).padStart(2, '0')
+        const da = String(d.getDate()).padStart(2, '0')
+        return `${y}-${mo}-${da}` === selectedDate
       })
     : logs
 
@@ -145,7 +151,7 @@ export default function AttendanceDashboard() {
           studentId: student.studentId, studentName: student.name,
           grade: student.grade, class: student.class, number: student.number,
           method: 'absent', reason,
-          recordedAt: serverTimestamp(), qrToken: event.qrToken,
+          checkedAt: serverTimestamp(), qrToken: event.qrToken,
         }
       )
       setReasonDraft(prev => ({ ...prev, [student.studentId]: '' }))
