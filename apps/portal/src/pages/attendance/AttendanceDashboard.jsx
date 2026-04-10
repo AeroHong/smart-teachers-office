@@ -11,7 +11,255 @@ import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
+const DAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토']
 const REASON_PRESETS = ['질병결석', '조퇴', '지각', '미인정결석', '체험학습', '기타']
+
+// 특정 월의 달력 생성 (해당 월만 표시)
+function generateMonthCalendar(year, month) {
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
+  const firstDayOfWeek = firstDay.getDay()
+  const lastDayOfWeek = lastDay.getDay()
+
+  const days = []
+
+  // 이전 달 빈 칸
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    days.push({ date: null, isCurrentMonth: false })
+  }
+
+  // 현재 달
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    days.push({ date: new Date(year, month, d), isCurrentMonth: true })
+  }
+
+  // 다음 달 빈 칸 (마지막 주를 채우기 위해)
+  for (let i = lastDayOfWeek + 1; i < 7; i++) {
+    days.push({ date: null, isCurrentMonth: false })
+  }
+
+  return days
+}
+
+// 달력 컴포넌트 (슬라이드 방식, 반응형 2개월/1개월)
+function Calendar({ selectedDate, onSelectDate, allowedDays = null, isMobile, showTwoMonths = false }) {
+  const [currentYear, setCurrentYear] = useState(new Date(selectedDate).getFullYear())
+  const [currentMonth, setCurrentMonth] = useState(new Date(selectedDate).getMonth())
+  const [containerWidth, setContainerWidth] = useState(window.innerWidth)
+
+  useEffect(() => {
+    const handleResize = () => setContainerWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // 브라우저 너비에 따라 2개월 표시 여부 결정 (1200px 이하면 1개월만)
+  const actualShowTwoMonths = showTwoMonths && containerWidth >= 1200
+
+  const currentMonthDays = generateMonthCalendar(currentYear, currentMonth)
+  const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1
+  const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear
+  const prevMonthDays = generateMonthCalendar(prevYear, prevMonth)
+
+  const isAllowed = (date) => {
+    if (!allowedDays) return true
+    return allowedDays.includes(date.getDay())
+  }
+
+  const formatDateStr = (date) => {
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  const isSelected = (date) => formatDateStr(date) === selectedDate
+  const isToday = (date) => formatDateStr(date) === formatDateStr(new Date())
+
+  const goPrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentYear(currentYear - 1)
+      setCurrentMonth(11)
+    } else {
+      setCurrentMonth(currentMonth - 1)
+    }
+  }
+
+  const goNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentYear(currentYear + 1)
+      setCurrentMonth(0)
+    } else {
+      setCurrentMonth(currentMonth + 1)
+    }
+  }
+
+  const renderMonth = (days, year, month) => (
+    <div style={calStyles.monthBlock}>
+      <div style={calStyles.monthHeader}>
+        <span>{year}년 {month + 1}월</span>
+      </div>
+      <div style={calStyles.weekdayRow}>
+        {DAYS_SHORT.map((day, i) => (
+          <div key={i} style={{
+            ...calStyles.weekdayCell,
+            color: i === 0 ? '#d32f2f' : i === 6 ? '#1976d2' : '#666'
+          }}>{day}</div>
+        ))}
+      </div>
+      <div style={calStyles.daysGrid}>
+        {days.map(({ date, isCurrentMonth }, idx) => {
+          if (!date) {
+            return <div key={idx} style={calStyles.dayCell} />
+          }
+
+          const allowed = isAllowed(date) && isCurrentMonth
+          const selected = isSelected(date)
+          const today = isToday(date)
+
+          return (
+            <div
+              key={idx}
+              onClick={() => allowed && onSelectDate(formatDateStr(date))}
+              style={{
+                ...calStyles.dayCell,
+                cursor: allowed ? 'pointer' : 'not-allowed',
+                backgroundColor: selected ? '#1a73e8' : today ? '#e8f0fe' : 'transparent',
+                color: selected ? '#fff' : !isCurrentMonth ? '#ccc' : !allowed ? '#ddd' : date.getDay() === 0 ? '#d32f2f' : date.getDay() === 6 ? '#1976d2' : '#333',
+                fontWeight: selected || today ? 700 : 400,
+                opacity: allowed ? 1 : 0.3,
+                border: today && !selected ? '1px solid #1a73e8' : '1px solid transparent',
+              }}
+            >
+              {date.getDate()}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={calStyles.container}>
+      {actualShowTwoMonths ? (
+        <>
+          <div style={calStyles.navBtnLeft} onClick={goPrevMonth}>◀</div>
+          <div style={calStyles.monthsWrapper}>
+            {renderMonth(prevMonthDays, prevYear, prevMonth)}
+            {renderMonth(currentMonthDays, currentYear, currentMonth)}
+          </div>
+          <div style={calStyles.navBtnRight} onClick={goNextMonth}>▶</div>
+        </>
+      ) : (
+        <>
+          <div style={calStyles.singleMonthWrapper}>
+            <div style={calStyles.monthBlock}>
+              <div style={calStyles.monthHeader}>
+                <button onClick={goPrevMonth} style={calStyles.navBtn}>◀</button>
+                <span>{currentYear}년 {currentMonth + 1}월</span>
+                <button onClick={goNextMonth} style={calStyles.navBtn}>▶</button>
+              </div>
+              <div style={calStyles.weekdayRow}>
+                {DAYS_SHORT.map((day, i) => (
+                  <div key={i} style={{
+                    ...calStyles.weekdayCell,
+                    color: i === 0 ? '#d32f2f' : i === 6 ? '#1976d2' : '#666'
+                  }}>{day}</div>
+                ))}
+              </div>
+              <div style={calStyles.daysGrid}>
+                {currentMonthDays.map(({ date, isCurrentMonth }, idx) => {
+                  if (!date) {
+                    return <div key={idx} style={calStyles.dayCell} />
+                  }
+
+                  const allowed = isAllowed(date) && isCurrentMonth
+                  const selected = isSelected(date)
+                  const today = isToday(date)
+
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => allowed && onSelectDate(formatDateStr(date))}
+                      style={{
+                        ...calStyles.dayCell,
+                        cursor: allowed ? 'pointer' : 'not-allowed',
+                        backgroundColor: selected ? '#1a73e8' : today ? '#e8f0fe' : 'transparent',
+                        color: selected ? '#fff' : !isCurrentMonth ? '#ccc' : !allowed ? '#ddd' : date.getDay() === 0 ? '#d32f2f' : date.getDay() === 6 ? '#1976d2' : '#333',
+                        fontWeight: selected || today ? 700 : 400,
+                        opacity: allowed ? 1 : 0.3,
+                        border: today && !selected ? '1px solid #1a73e8' : '1px solid transparent',
+                      }}
+                    >
+                      {date.getDate()}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+const calStyles = {
+  container: { display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative' },
+  singleMonthWrapper: { width: '100%' },
+  monthsWrapper: { display: 'flex', gap: '1rem', flex: 1 },
+  monthBlock: { display: 'flex', flexDirection: 'column', gap: '0.15rem', flex: 1 },
+  monthHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    color: '#333',
+    padding: '0.3rem 0.5rem',
+    borderBottom: '1px solid #e0e0e0',
+  },
+  navBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    color: '#1a73e8',
+    padding: '0.2rem 0.4rem',
+    transition: 'opacity 0.2s',
+  },
+  navBtnLeft: {
+    background: 'none',
+    border: 'none',
+    fontSize: '1.2rem',
+    cursor: 'pointer',
+    color: '#1a73e8',
+    padding: '0.5rem',
+    transition: 'opacity 0.2s',
+    userSelect: 'none',
+  },
+  navBtnRight: {
+    background: 'none',
+    border: 'none',
+    fontSize: '1.2rem',
+    cursor: 'pointer',
+    color: '#1a73e8',
+    padding: '0.5rem',
+    transition: 'opacity 0.2s',
+    userSelect: 'none',
+  },
+  weekdayRow: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', padding: '0.15rem 0' },
+  weekdayCell: { textAlign: 'center', fontSize: '0.65rem', fontWeight: 600, padding: '0.1rem 0' },
+  daysGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', padding: '0 0 0.15rem' },
+  dayCell: {
+    textAlign: 'center',
+    fontSize: '0.72rem',
+    padding: '0.25rem',
+    borderRadius: '4px',
+    transition: 'all 0.15s',
+    userSelect: 'none',
+  },
+}
 
 // schedules 배열에서 오늘 요일 하이라이트 포함 JSX 반환 (교시 표시)
 function ScheduleBadges({ event }) {
@@ -73,6 +321,7 @@ export default function AttendanceDashboard() {
   const [loading, setLoading] = useState(true)
   const [processingId, setProcessingId] = useState(null)
   const [reasonDraft, setReasonDraft] = useState({})
+  const [showCalendar, setShowCalendar] = useState(false)
 
   // 3열 패널 너비 (퍼센트, 합계 100)
   const [colWidths, setColWidths] = useState([27, 37, 36])
@@ -320,6 +569,11 @@ export default function AttendanceDashboard() {
     </>
   )
 
+  // 이벤트에서 허용된 요일 추출
+  const allowedDays = event?.schedules?.length > 0
+    ? [...new Set(event.schedules.map(s => s.dayOfWeek))]
+    : null
+
   // ── 모바일: 세로 배치 ─────────────────────────────────────────
   if (isMobile) {
     return (
@@ -337,8 +591,25 @@ export default function AttendanceDashboard() {
           </div>
           {event.isRecurring && (
             <div style={styles.dateSelector}>
-              <label style={styles.dateLabel}>날짜 선택</label>
-              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} style={styles.dateInput} />
+              <button
+                onClick={() => setShowCalendar(!showCalendar)}
+                style={styles.dateSelectorBtn}
+              >
+                📅 {selectedDate}
+              </button>
+              {showCalendar && (
+                <div style={styles.calendarPopup}>
+                  <Calendar
+                    selectedDate={selectedDate}
+                    onSelectDate={(date) => {
+                      setSelectedDate(date)
+                      setShowCalendar(false)
+                    }}
+                    allowedDays={allowedDays}
+                    isMobile={true}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -390,39 +661,84 @@ export default function AttendanceDashboard() {
   // ── 데스크탑: 3열 드래그 리사이즈 ────────────────────────────
   return (
     <Layout wide>
-      {/* 헤더 */}
-      <div style={styles.header}>
-        <div>
-          <button onClick={() => navigate('/attendance')} style={styles.backBtn}>← 대시보드</button>
-          <h2 style={styles.heading}>{event.name}</h2>
-          <div style={styles.eventMeta}>
-            <span style={styles.typeBadge}>{event.type}</span>
-            {event.isRecurring && <ScheduleBadges event={event} />}
-            {event.location && <span style={styles.metaText}>📍 {event.location}</span>}
-            {hasLateCheck && <span style={styles.lateTimeBadge}>⏰ 지각 기준 {event.lateCheckTime}</span>}
+      {/* 통계 바 + 달력 좌우 배치 */}
+      {event.isRecurring && hasGroup && (
+        <div style={styles.calendarStatsRow}>
+          <div style={styles.leftSection}>
+            {/* 헤더 */}
+            <div style={styles.headerInline}>
+              <div>
+                <button onClick={() => navigate('/attendance')} style={styles.backBtn}>← 대시보드</button>
+                <h2 style={styles.heading}>{event.name}</h2>
+                <div style={styles.eventMeta}>
+                  <span style={styles.typeBadge}>{event.type}</span>
+                  {event.isRecurring && <ScheduleBadges event={event} />}
+                  {event.location && <span style={styles.metaText}>📍 {event.location}</span>}
+                  {hasLateCheck && <span style={styles.lateTimeBadge}>⏰ 지각 기준 {event.lateCheckTime}</span>}
+                </div>
+              </div>
+            </div>
+            {/* 통계 바 */}
+            <div style={styles.statsBarCompact}>
+              <StatBox label="전체" value={students.length} color="#555" />
+              <StatBox label="출석" value={attended.length} color="#2e7d32" />
+              {hasLateCheck && <StatBox label="지각" value={lateCount} color="#e65100" />}
+              <StatBox label="미출석" value={absent.length} color="#c62828" />
+              <StatBox label="사유등록" value={Object.keys(absentLogMap).length} color="#e65100" />
+              {rate !== null && <StatBox label="출석률" value={`${rate}%`} color="#1a73e8" large />}
+              <div style={styles.progressWrap}><div style={{ ...styles.progressBar, width: `${rate ?? 0}%` }} /></div>
+            </div>
           </div>
-        </div>
-        {event.isRecurring && (
-          <div style={styles.dateSelector}>
-            <label style={styles.dateLabel}>날짜 선택</label>
-            <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} style={styles.dateInput} />
+          <div style={styles.calendarDesktop}>
+            <Calendar
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              allowedDays={allowedDays}
+              isMobile={false}
+              showTwoMonths={true}
+            />
           </div>
-        )}
-      </div>
-
-      {/* 통계 바 (전체 너비) */}
-      {hasGroup && (
-        <div style={styles.statsBar}>
-          <StatBox label="전체" value={students.length} color="#555" />
-          <StatBox label="출석" value={attended.length} color="#2e7d32" />
-          {hasLateCheck && <StatBox label="지각" value={lateCount} color="#e65100" />}
-          <StatBox label="미출석" value={absent.length} color="#c62828" />
-          <StatBox label="사유등록" value={Object.keys(absentLogMap).length} color="#e65100" />
-          {rate !== null && <StatBox label="출석률" value={`${rate}%`} color="#1a73e8" large />}
-          <div style={styles.progressWrap}><div style={{ ...styles.progressBar, width: `${rate ?? 0}%` }} /></div>
         </div>
       )}
-      {!hasGroup && <p style={styles.noGroupNote}>연결된 학생 그룹이 없습니다. 출석 로그만 표시됩니다.</p>}
+      {/* 기타 케이스들 */}
+      {(!event.isRecurring || !hasGroup) && (
+        <>
+          <div style={styles.header}>
+            <div>
+              <button onClick={() => navigate('/attendance')} style={styles.backBtn}>← 대시보드</button>
+              <h2 style={styles.heading}>{event.name}</h2>
+              <div style={styles.eventMeta}>
+                <span style={styles.typeBadge}>{event.type}</span>
+                {event.isRecurring && <ScheduleBadges event={event} />}
+                {event.location && <span style={styles.metaText}>📍 {event.location}</span>}
+                {hasLateCheck && <span style={styles.lateTimeBadge}>⏰ 지각 기준 {event.lateCheckTime}</span>}
+              </div>
+            </div>
+          </div>
+          {event.isRecurring && !hasGroup && (
+            <div style={styles.calendarDesktopFullWidth}>
+              <Calendar
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                allowedDays={allowedDays}
+                isMobile={false}
+              />
+            </div>
+          )}
+          {!event.isRecurring && hasGroup && (
+            <div style={styles.statsBar}>
+              <StatBox label="전체" value={students.length} color="#555" />
+              <StatBox label="출석" value={attended.length} color="#2e7d32" />
+              {hasLateCheck && <StatBox label="지각" value={lateCount} color="#e65100" />}
+              <StatBox label="미출석" value={absent.length} color="#c62828" />
+              <StatBox label="사유등록" value={Object.keys(absentLogMap).length} color="#e65100" />
+              {rate !== null && <StatBox label="출석률" value={`${rate}%`} color="#1a73e8" large />}
+              <div style={styles.progressWrap}><div style={{ ...styles.progressBar, width: `${rate ?? 0}%` }} /></div>
+            </div>
+          )}
+          {!hasGroup && <p style={styles.noGroupNote}>연결된 학생 그룹이 없습니다. 출석 로그만 표시됩니다.</p>}
+        </>
+      )}
 
       {/* 3열 리사이즈 레이아웃 */}
       <div ref={containerRef} style={styles.threeCol}>
@@ -584,12 +900,105 @@ const styles = {
   recurringBadge: { fontSize: '0.78rem', backgroundColor: '#f3e5f5', color: '#7b1fa2', padding: '0.2rem 0.6rem', borderRadius: '10px' },
   metaText: { fontSize: '0.82rem', color: '#666' },
   lateTimeBadge: { fontSize: '0.78rem', backgroundColor: '#fff3e0', color: '#e65100', padding: '0.2rem 0.6rem', borderRadius: '10px', fontWeight: 600 },
-  dateSelector: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' },
-  dateLabel: { fontSize: '0.8rem', color: '#888' },
-  dateInput: { padding: '0.4rem 0.6rem', border: '1px solid #ddd', borderRadius: '7px', fontSize: '0.9rem' },
+
+  // 달력 - 모바일 (토글)
+  dateSelector: { position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' },
+  dateSelectorBtn: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#fff',
+    border: '1px solid #ddd',
+    borderRadius: '8px',
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    fontWeight: 600,
+    color: '#333',
+  },
+  calendarPopup: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: '0.5rem',
+    backgroundColor: '#fff',
+    border: '1px solid #ddd',
+    borderRadius: '10px',
+    padding: '1rem',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    zIndex: 100,
+    minWidth: '320px',
+    maxHeight: '400px',
+    overflowY: 'auto',
+  },
+
+  // 달력 + 통계 좌우 배치
+  calendarStatsRow: {
+    display: 'flex',
+    gap: '1rem',
+    marginBottom: '1rem',
+    alignItems: 'flex-end',
+  },
+
+  // 왼쪽 섹션 (헤더 + 통계)
+  leftSection: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+    flex: 1,
+  },
+
+  // 인라인 헤더
+  headerInline: {
+    backgroundColor: '#fff',
+    borderRadius: '8px',
+    padding: '0.75rem 1rem',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+  },
+
+  // 컴팩트 통계 바
+  statsBarCompact: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1.25rem',
+    backgroundColor: '#fff',
+    borderRadius: '10px',
+    padding: '0.75rem 1rem',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+    flexWrap: 'wrap',
+  },
+
+  // 달력 - 데스크탑 (항상 표시)
+  calendarDesktop: {
+    backgroundColor: '#fff',
+    border: '1px solid #e0e0e0',
+    borderRadius: '8px',
+    padding: '0.5rem 0.75rem',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+    minWidth: '600px',
+    flexShrink: 0,
+  },
+
+  // 달력 전체 너비 (그룹 없을 때)
+  calendarDesktopFullWidth: {
+    backgroundColor: '#fff',
+    border: '1px solid #e0e0e0',
+    borderRadius: '8px',
+    padding: '0.5rem 0.75rem',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+    marginBottom: '1rem',
+    maxWidth: '320px',
+  },
 
   // 통계 바
-  statsBar: { display: 'flex', alignItems: 'center', gap: '1.25rem', backgroundColor: '#fff', borderRadius: '10px', padding: '1rem 1.5rem', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', marginBottom: '1rem', flexWrap: 'wrap' },
+  statsBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1.25rem',
+    backgroundColor: '#fff',
+    borderRadius: '10px',
+    padding: '1rem 1.5rem',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+    flexWrap: 'wrap',
+    flex: 1,
+  },
   progressWrap: { flex: 1, height: '8px', backgroundColor: '#eee', borderRadius: '4px', minWidth: '80px' },
   progressBar: { height: '100%', backgroundColor: '#1a73e8', borderRadius: '4px', transition: 'width 0.4s' },
   noGroupNote: { color: '#888', fontSize: '0.85rem', marginBottom: '1rem' },
