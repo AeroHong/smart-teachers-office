@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, query, orderBy, where, onSnapshot, updateDoc, deleteDoc, getDocs, doc } from 'firebase/firestore'
+import { collection, query, orderBy, where, onSnapshot, updateDoc, deleteDoc, getDocs, doc, getDoc } from 'firebase/firestore'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { db } from '../lib/firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -16,6 +16,7 @@ export default function TeacherDashboard() {
   // 네비게이션 바 "대시보드" 클릭 시 보관함 뷰 리셋
   useEffect(() => { setShowArchived(false) }, [location.state?.reset])
   const [events, setEvents] = useState([])
+  const [courses, setCourses] = useState([])  // { id, name }
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
   const [qrEventId, setQrEventId] = useState(null)
@@ -23,6 +24,10 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     if (!schoolId || !user) return
+    // 과목 목록 로드
+    getDocs(query(collection(db, 'schools', schoolId, 'courses'), orderBy('name')))
+      .then(snap => setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    // 이벤트 실시간 구독
     const q = role === 'school_admin'
       ? query(collection(db, 'schools', schoolId, 'events'), orderBy('createdAt', 'desc'))
       : query(collection(db, 'schools', schoolId, 'events'), where('createdBy', '==', user.uid), orderBy('createdAt', 'desc'))
@@ -94,6 +99,23 @@ export default function TeacherDashboard() {
   const visibleEvents = events.filter(e => showArchived ? e.archived === true : !e.archived)
   const archivedCount = events.filter(e => e.archived === true).length
 
+  // 과목별 그룹핑: [{ course: {id,name} | null, events: [...] }, ...]
+  const courseMap = Object.fromEntries(courses.map(c => [c.id, c]))
+  const groupedEvents = (() => {
+    const groups = {}
+    visibleEvents.forEach(e => {
+      const key = e.courseId || '__none__'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(e)
+    })
+    // 과목 있는 그룹 먼저, 미분류 마지막
+    const result = courses
+      .filter(c => groups[c.id])
+      .map(c => ({ course: c, events: groups[c.id] }))
+    if (groups['__none__']) result.push({ course: null, events: groups['__none__'] })
+    return result
+  })()
+
   return (
     <Layout>
       <div style={styles.header}>
@@ -121,7 +143,7 @@ export default function TeacherDashboard() {
 
       {loading ? (
         <p>불러오는 중...</p>
-      ) : visibleEvents.length === 0 ? (
+      ) : groupedEvents.length === 0 ? (
         <div style={styles.empty}>
           {showArchived
             ? <p>보관된 이벤트가 없습니다.</p>
@@ -132,8 +154,17 @@ export default function TeacherDashboard() {
           }
         </div>
       ) : (
-        <div style={styles.grid}>
-          {visibleEvents.map(event => {
+        <div>
+          {groupedEvents.map(({ course, events: groupEvents }) => (
+            <div key={course?.id ?? '__none__'} style={styles.courseSection}>
+              <div style={styles.courseSectionHeader}>
+                <span style={styles.courseName}>
+                  {course ? `📚 ${course.name}` : '📋 미분류'}
+                </span>
+                <span style={styles.courseCount}>{groupEvents.length}개</span>
+              </div>
+              <div style={styles.grid}>
+          {groupEvents.map(event => {
             const active = !event.archived && isActive(event)
             const expanded = expandedId === event.id
             const showQR = qrEventId === event.id
@@ -243,6 +274,9 @@ export default function TeacherDashboard() {
               </div>
             )
           })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Layout>
@@ -275,6 +309,10 @@ const styles = {
   archivedNote: { fontSize: '0.85rem', color: '#888', marginBottom: '1rem', padding: '0.6rem 1rem', backgroundColor: '#f9f9f9', borderRadius: '8px', borderLeft: '3px solid #bbb' },
   empty: { textAlign: 'center', padding: '3rem', color: '#888' },
   createBtn: { marginTop: '1rem', padding: '0.6rem 1.2rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' },
+  courseSection: { marginBottom: '2rem' },
+  courseSectionHeader: { display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '2px solid #e8f0fe' },
+  courseName: { fontSize: '1rem', fontWeight: 700, color: '#1a73e8' },
+  courseCount: { fontSize: '0.8rem', color: '#888', backgroundColor: '#f0f0f0', padding: '0.15rem 0.5rem', borderRadius: '10px' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' },
   card: { backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' },
   cardHeader: { padding: '1.25rem', cursor: 'pointer', userSelect: 'none' },

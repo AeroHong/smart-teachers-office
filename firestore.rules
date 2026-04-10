@@ -61,6 +61,11 @@ service cloud.firestore {
                             request.resource.data.createdBy == request.auth.uid));
       }
 
+      match /courses/{courseId} {
+        allow read: if isTeacher(schoolId);
+        allow write: if isTeacher(schoolId);
+      }
+
       match /events/{eventId} {
         allow read: if isTeacher(schoolId) || isSignedIn();
         allow write: if isTeacher(schoolId);
