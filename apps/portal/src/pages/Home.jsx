@@ -58,6 +58,17 @@ const SERVICES = [
 // 버전 규칙: 새 업무시스템 추가 → 메이저(v1→v2), 기능개선/버그픽스 → 마이너(v2.0→v2.1)
 const CHANGELOG = [
   {
+    version: 'v2.3',
+    date: '2026.04.13',
+    type: 'improvement',
+    items: [
+      '수업 중 외출 관리 (보건실/화장실/기타 · 1/3 초과 경고)',
+      'QR 자동 마감 시스템 — 1/3 지점 지각 자동처리 · 수업 종료 세션 초기화 (Cloud Functions)',
+      'QR 패널 단계별 UI — 카운트다운 · 재오픈 · 1/3 이후 안내',
+      '학생 결석 이력 조회 모달 (기간 필터 · 교시 정보 · 메일 발송)',
+    ],
+  },
+  {
     version: 'v2.2',
     date: '2026.04.11',
     type: 'improvement',
