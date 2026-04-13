@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useStatsData, computeStats } from '../../hooks/useStatsData'
 import Layout from '../../components/Layout'
+import StudentHistoryModal from '../../components/StudentHistoryModal'
 
 const TABS = ['결석 학생', '이벤트별', '사유 분포', '기간 추이']
 
@@ -45,6 +46,7 @@ export default function StatsDashboard() {
   const [period, setPeriod] = useState('all')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
+  const [selectedStudent, setSelectedStudent] = useState(null)
 
   const { startDate, endDate } = useMemo(() => {
     if (period === 'custom') {
@@ -163,13 +165,17 @@ export default function StatsDashboard() {
                               ).sort((a, b) => b[1] - a[1])[0][0]
                             : '-'
                           return (
-                            <tr key={s.studentId} style={i < 3 ? styles.topAbsentRow : {}}>
+                            <tr
+                              key={s.studentId}
+                              style={{ ...(i < 3 ? styles.topAbsentRow : {}), cursor: 'pointer' }}
+                              onClick={() => setSelectedStudent({ studentId: s.studentId, name: s.studentName, grade: s.grade, class: s.class, number: s.number })}
+                            >
                               <td style={styles.td}>
                                 <span style={{ ...styles.rankBadge, backgroundColor: i === 0 ? '#ffcdd2' : i === 1 ? '#ffe0b2' : i === 2 ? '#fff9c4' : '#f5f5f5' }}>
                                   {i + 1}
                                 </span>
                               </td>
-                              <td style={{ ...styles.td, fontWeight: 600 }}>{s.studentName}</td>
+                              <td style={{ ...styles.td, fontWeight: 600, color: '#1a73e8', textDecoration: 'underline' }}>{s.studentName}</td>
                               <td style={styles.td}>{s.grade}학년 {s.class}반 {s.number}번</td>
                               <td style={{ ...styles.td, color: '#c62828', fontWeight: 700 }}>{s.absences.length}회</td>
                               <td style={{ ...styles.td, color: '#666', fontSize: '0.85rem' }}>{topReason}</td>
@@ -292,6 +298,13 @@ export default function StatsDashboard() {
             </section>
           )}
         </>
+      )}
+      {selectedStudent && (
+        <StudentHistoryModal
+          student={selectedStudent}
+          schoolId={schoolId}
+          onClose={() => setSelectedStudent(null)}
+        />
       )}
     </Layout>
   )

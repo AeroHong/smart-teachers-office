@@ -4,7 +4,6 @@ import { db } from '../lib/firebase'
 
 export function useStudentHistory(student, schoolId, role, userId) {
   const [logs, setLogs] = useState([])
-  const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -26,31 +25,27 @@ export function useStudentHistory(student, schoolId, role, userId) {
           events.map(async (event) => {
             const logsRef = collection(db, 'schools', schoolId, 'events', event.id, 'attendanceLogs')
             const logsSnap = await getDocs(query(logsRef, where('studentId', '==', student.studentId)))
-            return logsSnap.docs.map(d => ({
-              logId: d.id,
-              eventId: event.id,
-              eventName: event.name,
-              eventType: event.type || '기타',
-              isRecurring: event.isRecurring || false,
-              ...d.data(),
-            }))
+            return logsSnap.docs
+              .map(d => ({
+                logId: d.id,
+                eventId: event.id,
+                eventName: event.name,
+                eventType: event.type || '기타',
+                isRecurring: event.isRecurring || false,
+                schedules: event.schedules || [],
+                ...d.data(),
+              }))
+              .filter(l => l.method === 'absent') // 결석 로그만
           })
         )
 
-        const allLogs = results.flat().sort((a, b) => {
+        const absentLogs = results.flat().sort((a, b) => {
           const aTime = a.checkedAt?.toDate?.() ?? new Date(0)
           const bTime = b.checkedAt?.toDate?.() ?? new Date(0)
           return bTime - aTime
         })
 
-        const attended = allLogs.filter(l => !l.reason || l.method !== '결석').length
-        setSummary({
-          total: allLogs.length,
-          attended,
-          absent: allLogs.length - attended,
-          rate: allLogs.length > 0 ? Math.round((attended / allLogs.length) * 100) : 0,
-        })
-        setLogs(allLogs)
+        setLogs(absentLogs)
       } catch (err) {
         setError(err.message)
       } finally {
@@ -61,5 +56,5 @@ export function useStudentHistory(student, schoolId, role, userId) {
     fetch()
   }, [student?.studentId, schoolId, role, userId])
 
-  return { logs, summary, loading, error }
+  return { logs, loading, error }
 }

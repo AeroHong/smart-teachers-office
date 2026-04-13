@@ -323,6 +323,13 @@ export default function AttendanceDashboard() {
   const [reasonDraft, setReasonDraft] = useState({})
   const [showCalendar, setShowCalendar] = useState(false)
 
+  // 수업 중 외출 관리
+  const [classDuration, setClassDuration] = useState(50)
+  const [outingPanel, setOutingPanel] = useState(null)  // 열린 패널의 studentId
+  const [outingType, setOutingType] = useState('보건실')
+  const [outingReason, setOutingReason] = useState('')
+  const [now, setNow] = useState(new Date())
+
   // 3열 패널 너비 (퍼센트, 합계 100)
   const [colWidths, setColWidths] = useState([27, 37, 36])
   const [hoveredDiv, setHoveredDiv] = useState(null)
@@ -358,31 +365,44 @@ export default function AttendanceDashboard() {
     window.addEventListener('mouseup', onUp)
   }
 
-  // ── 이벤트 + 학생 그룹 로드 ─────────────────────────────────
+  // ── 이벤트 실시간 구독 + 학생 그룹 최초 1회 로드 ─────────────
   useEffect(() => {
     if (!schoolId) return
-    const load = async () => {
-      const eventDoc = await getDoc(doc(db, 'schools', schoolId, 'events', eventId))
-      if (!eventDoc.exists()) { navigate('/attendance'); return }
-      const ev = { id: eventId, ...eventDoc.data() }
-      setEvent(ev)
+    let studentsLoaded = false
 
-      if (ev.studentGroupId) {
-        const groupDoc = await getDoc(doc(db, 'schools', schoolId, 'studentGroups', ev.studentGroupId))
-        if (groupDoc.exists()) {
-          const { studentIds } = groupDoc.data()
-          const snap = await getDocs(collection(db, 'schools', schoolId, 'students'))
-          const filtered = snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .filter(s => studentIds.includes(s.studentId))
-            .sort((a, b) => a.grade - b.grade || a.class - b.class || a.number - b.number)
-          setStudents(filtered)
+    const unsub = onSnapshot(
+      doc(db, 'schools', schoolId, 'events', eventId),
+      async (snap) => {
+        if (!snap.exists()) { navigate('/attendance'); return }
+        const ev = { id: eventId, ...snap.data() }
+        setEvent(ev)
+
+        if (!studentsLoaded) {
+          studentsLoaded = true
+          if (ev.studentGroupId) {
+            const groupDoc = await getDoc(doc(db, 'schools', schoolId, 'studentGroups', ev.studentGroupId))
+            if (groupDoc.exists()) {
+              const { studentIds } = groupDoc.data()
+              const studentsSnap = await getDocs(collection(db, 'schools', schoolId, 'students'))
+              const filtered = studentsSnap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .filter(s => studentIds.includes(s.studentId))
+                .sort((a, b) => a.grade - b.grade || a.class - b.class || a.number - b.number)
+              setStudents(filtered)
+            }
+          }
+          setLoading(false)
         }
       }
-      setLoading(false)
-    }
-    load()
+    )
+    return unsub
   }, [schoolId, eventId])
+
+  // ── 외출 실시간 타이머 ────────────────────────────────────────
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
 
   // ── 출결 로그 실시간 구독 ─────────────────────────────────────
   useEffect(() => {
@@ -435,9 +455,13 @@ export default function AttendanceDashboard() {
       await deleteDoc(doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(student.studentId, 'absent')))
       await setDoc(
         doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(student.studentId)),
-        { studentId: student.studentId, studentName: student.name,
+        {
+          studentId: student.studentId, studentName: student.name,
           grade: student.grade, class: student.class, number: student.number,
-          checkedAt: serverTimestamp(), method: 'manual', qrToken: event.qrToken }
+          checkedAt: serverTimestamp(), method: 'manual', qrToken: event.qrToken,
+          // 1/3 이후 수동 입력은 지각 초과 표시
+          ...(event.lateWindowProcessed && { lateOverLimit: true }),
+        }
       )
     } finally { setProcessingId(null) }
   }
@@ -454,13 +478,17 @@ export default function AttendanceDashboard() {
     if (!reason) return
     setProcessingId(student.studentId)
     try {
+      // 반복 이벤트: selectedDate 기준 정오 타임스탬프 사용 (날짜 필터 정합성 보장)
+      const checkedAt = event?.isRecurring
+        ? (() => { const [y, m, d] = selectedDate.split('-').map(Number); return new Date(y, m - 1, d, 12, 0, 0) })()
+        : serverTimestamp()
       await setDoc(
         doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(student.studentId, 'absent')),
         { studentId: student.studentId, studentName: student.name,
           grade: student.grade, class: student.class, number: student.number,
-          method: 'absent', reason, checkedAt: serverTimestamp(), qrToken: event.qrToken }
+          method: 'absent', reason, checkedAt, qrToken: event.qrToken }
       )
-      setReasonDraft(prev => ({ ...prev, [student.studentId]: '' }))
+      // draft 유지: 삭제 후 재등록 시 마지막 사유로 pre-fill되어 저장 버튼 활성화 유지
     } finally { setProcessingId(null) }
   }
 
@@ -471,22 +499,166 @@ export default function AttendanceDashboard() {
     } finally { setProcessingId(null) }
   }
 
+  // ── 수업 중 외출 관리 ─────────────────────────────────────────
+  const getActiveOuting = (studentId) => {
+    const outings = attendedMap[studentId]?.outings || []
+    for (let i = outings.length - 1; i >= 0; i--) {
+      if (!outings[i].returnAt) return outings[i]
+    }
+    return null
+  }
+
+  const getTotalOutingMs = (studentId) => {
+    const outings = attendedMap[studentId]?.outings || []
+    return outings.reduce((total, o) => {
+      const exit = o.exitAt?.toDate?.() ?? new Date(o.exitAt)
+      const ret = o.returnAt ? (o.returnAt?.toDate?.() ?? new Date(o.returnAt)) : now
+      return total + Math.max(0, ret - exit)
+    }, 0)
+  }
+
+  const fmtMs = (ms) => {
+    const m = Math.floor(ms / 60000)
+    const s = Math.floor((ms % 60000) / 1000)
+    return m > 0 ? `${m}분 ${s}초` : `${s}초`
+  }
+
+  const startOuting = async (student) => {
+    const existing = attendedMap[student.studentId]?.outings || []
+    // serverTimestamp()은 배열 내부에 사용 불가 → new Date() 사용
+    const newOuting = { id: crypto.randomUUID(), type: outingType, reason: outingReason.trim() || null, exitAt: new Date() }
+    setProcessingId(student.studentId)
+    try {
+      await updateDoc(
+        doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(student.studentId)),
+        { outings: [...existing, newOuting] }
+      )
+      setOutingPanel(null)
+      setOutingType('보건실')
+      setOutingReason('')
+    } finally { setProcessingId(null) }
+  }
+
+  const endOuting = async (student) => {
+    const existing = [...(attendedMap[student.studentId]?.outings || [])]
+    let idx = -1
+    for (let i = existing.length - 1; i >= 0; i--) {
+      if (!existing[i].returnAt) { idx = i; break }
+    }
+    if (idx < 0) return
+    const returnAt = new Date()
+    existing[idx] = { ...existing[idx], returnAt }
+
+    // 복귀 후 누적 외출 시간 계산 → 1/3 초과 시 DB에 경고 기록
+    const totalMs = existing.reduce((sum, o) => {
+      const exit = o.exitAt?.toDate?.() ?? new Date(o.exitAt)
+      const ret = o.returnAt ? (o.returnAt?.toDate?.() ?? new Date(o.returnAt)) : returnAt
+      return sum + Math.max(0, ret - exit)
+    }, 0)
+    const isOver = totalMs > classDuration * 60000 / 3
+
+    setProcessingId(student.studentId)
+    try {
+      await updateDoc(
+        doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(student.studentId)),
+        {
+          outings: existing,
+          ...(isOver && !attendedMap[student.studentId]?.outingOverLimit && {
+            outingOverLimit: true,
+            outingWarnedAt: new Date(),
+          }),
+        }
+      )
+    } finally { setProcessingId(null) }
+  }
+
+  // 외출 중에 이미 1/3 초과 시 교사가 수동으로 경고 저장
+  const saveOutingWarning = async (student) => {
+    setProcessingId(student.studentId)
+    try {
+      await updateDoc(
+        doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(student.studentId)),
+        { outingOverLimit: true, outingWarnedAt: new Date() }
+      )
+    } finally { setProcessingId(null) }
+  }
+
   const formatTime = (ts) => {
     if (!ts) return ''
     const d = ts?.toDate?.() ?? new Date(ts)
     return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
 
+  // 타겟 타임스탬프까지 남은 시간을 MM:SS 형식으로 반환 (경과 시 null)
+  const fmtCountdown = (target) => {
+    if (!target) return null
+    const t = target?.toDate?.() ?? new Date(target)
+    const ms = t - now
+    if (ms <= 0) return null
+    const totalSec = Math.floor(ms / 1000)
+    const min = Math.floor(totalSec / 60)
+    const sec = totalSec % 60
+    return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+  }
+
   // ── 라이브 세션 (수업/방과후/행사/기타) ────────────────────────
   const startLiveSession = async () => {
     const token = crypto.randomUUID()
+    const openedAt = new Date()
+    const classDurMs = classDuration * 60 * 1000
+    const lateCutoff = new Date(openedAt.getTime() + classDurMs / 3)
+    const closesAt = new Date(openedAt.getTime() + classDurMs)
+
+    await updateDoc(doc(db, 'schools', schoolId, 'events', eventId), {
+      liveToken: token,
+      liveOpenedAt: openedAt,
+      liveLateCutoff: lateCutoff,
+      liveClosesAt: closesAt,
+      classDuration,
+      lateWindowProcessed: false,
+    })
+    // onSnapshot이 event 상태 자동 업데이트
+  }
+
+  // 교사가 0~1/3 구간에서 마감 후 재오픈
+  const reopenLiveSession = async () => {
+    const token = crypto.randomUUID()
     await updateDoc(doc(db, 'schools', schoolId, 'events', eventId), { liveToken: token })
-    setEvent(prev => ({ ...prev, liveToken: token }))
+    // liveOpenedAt, liveLateCutoff, liveClosesAt은 유지
   }
 
   const closeLiveSession = async () => {
+    // 출석 마감 시 미복귀 외출 자동 마감
+    const closeAt = new Date()
+    const openOutingStudents = attended.filter(s => getActiveOuting(s.studentId))
+    if (openOutingStudents.length > 0) {
+      await Promise.all(openOutingStudents.map(async (s) => {
+        const existing = [...(attendedMap[s.studentId]?.outings || [])]
+        let idx = -1
+        for (let i = existing.length - 1; i >= 0; i--) {
+          if (!existing[i].returnAt) { idx = i; break }
+        }
+        if (idx < 0) return
+        existing[idx] = { ...existing[idx], returnAt: closeAt }
+        const totalMs = existing.reduce((sum, o) => {
+          const exit = o.exitAt?.toDate?.() ?? new Date(o.exitAt)
+          const ret = o.returnAt ? (o.returnAt?.toDate?.() ?? new Date(o.returnAt)) : closeAt
+          return sum + Math.max(0, ret - exit)
+        }, 0)
+        const isOver = totalMs > classDuration * 60000 / 3
+        await updateDoc(
+          doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId(s.studentId)),
+          {
+            outings: existing,
+            ...(isOver && !attendedMap[s.studentId]?.outingOverLimit && {
+              outingOverLimit: true, outingWarnedAt: closeAt,
+            }),
+          }
+        )
+      }))
+    }
     await updateDoc(doc(db, 'schools', schoolId, 'events', eventId), { liveToken: null })
-    setEvent(prev => ({ ...prev, liveToken: null }))
+    // onSnapshot이 event 상태 자동 업데이트
   }
 
   if (loading) return <Layout wide><p>불러오는 중...</p></Layout>
@@ -502,15 +674,67 @@ export default function AttendanceDashboard() {
     if (!isLiveType) {
       return <QRDisplay eventName={event.name} checkinUrl={checkinUrl} />
     }
-    if (event.liveToken) {
+
+    const cutdownTocut = fmtCountdown(event.liveLateCutoff)
+    const cutdownToEnd = fmtCountdown(event.liveClosesAt)
+
+    // Phase 2: QR 활성 (0~1/3 구간)
+    if (event.liveToken && !event.lateWindowProcessed) {
       return (
         <>
           <div style={styles.liveActiveBadge}>● 출석 진행 중</div>
+          {cutdownTocut && (
+            <div style={styles.cutoffCountdown}>
+              QR 마감까지 <strong>{cutdownTocut}</strong>
+            </div>
+          )}
           <QRDisplay eventName={event.name} checkinUrl={liveCheckinUrl} />
           <button onClick={closeLiveSession} style={styles.closeSessionBtn}>⏹ 출석 마감</button>
         </>
       )
     }
+
+    // Phase 3: 교사가 0~1/3 구간에서 수동 마감 → 재오픈 가능
+    if (event.liveOpenedAt && !event.lateWindowProcessed) {
+      return (
+        <div style={styles.liveStartBox}>
+          <div style={styles.sessionPausedBadge}>⏸ 출석 일시 중지</div>
+          {cutdownTocut ? (
+            <p style={styles.liveStartHint}>
+              재오픈 가능: <strong style={{ color: '#1a73e8' }}>{cutdownTocut}</strong> 남음
+            </p>
+          ) : (
+            <p style={styles.liveStartHint}>재오픈 시간이 만료되었습니다.</p>
+          )}
+          {cutdownTocut && (
+            <button onClick={reopenLiveSession} style={styles.startSessionBtn}>▶ 재오픈</button>
+          )}
+          <p style={{ ...styles.liveStartHint, color: '#999', fontSize: '0.75rem', marginTop: '0.5rem' }}>
+            1/3 경과 후에는 재오픈이 불가합니다.
+          </p>
+        </div>
+      )
+    }
+
+    // Phase 4: 1/3 이후 (QR 마감, 교사 수동 입력만 가능)
+    if (event.liveOpenedAt && event.lateWindowProcessed) {
+      return (
+        <div style={styles.liveStartBox}>
+          <div style={styles.lateCutoffBadge}>⏰ QR 체크인 마감</div>
+          <p style={styles.liveStartHint}>
+            수업 시간 1/3 경과로 QR 마감됨.<br />
+            이후 출석은 교사 수동 입력만 가능합니다.
+          </p>
+          {cutdownToEnd && (
+            <div style={styles.closeCountdown}>
+              수업 종료까지 <strong>{cutdownToEnd}</strong>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // Phase 1/5: 세션 미시작 or 완전 종료
     return (
       <div style={styles.liveStartBox}>
         <p style={styles.liveStartHint}>버튼을 누르면<br />QR 코드가 생성됩니다.</p>
@@ -630,18 +854,63 @@ export default function AttendanceDashboard() {
             <>
               <div style={styles.panel}>
                 <h3 style={{ ...styles.panelTitle, color: '#2e7d32' }}>✅ 출석 {attended.length}명</h3>
+                <div style={styles.classDurRow}>
+                  <span style={styles.classDurLabel}>수업시간</span>
+                  {[50, 45, 40, 35].map(d => (
+                    <button key={d} onClick={() => setClassDuration(d)}
+                      style={{ ...styles.classDurBtn, ...(classDuration === d ? styles.classDurBtnActive : {}) }}>
+                      {d}분
+                    </button>
+                  ))}
+                </div>
                 {attended.length === 0 ? <p style={styles.empty}>아직 출석한 학생이 없습니다.</p>
                   : attended.map(s => {
                       const log = attendedMap[s.studentId]
+                      const activeOuting = getActiveOuting(s.studentId)
+                      const totalMs = getTotalOutingMs(s.studentId)
+                      const isOver = totalMs > classDuration * 60000 / 3
                       return (
-                        <div key={s.studentId} style={styles.studentRow}>
-                          <StudentInfo student={s} />
-                          <div style={styles.logInfo}>
-                            <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>{log?.method === 'manual' ? '수동' : 'QR'}</span>
-                            {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
-                            <span style={styles.timeText}>{formatTime(log?.checkedAt)}</span>
-                            <button onClick={() => cancelCheckin(s)} disabled={processingId === s.studentId} style={styles.cancelBtn}>취소</button>
+                        <div key={s.studentId}>
+                          <div style={styles.studentRow}>
+                            <StudentInfo student={s} />
+                            <div style={styles.logInfo}>
+                              <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>{log?.method === 'manual' ? '수동' : 'QR'}</span>
+                              {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
+                              <span style={styles.timeText}>{formatTime(log?.checkedAt)}</span>
+                              {activeOuting && (
+                                <span style={styles.outingActiveBadge}>
+                                  🚶 {fmtMs(now - (activeOuting.exitAt?.toDate?.() ?? new Date(activeOuting.exitAt)))}
+                                </span>
+                              )}
+                              {!activeOuting && totalMs > 0 && (
+                                <span style={log?.outingOverLimit ? styles.outingWarnBadge : isOver ? styles.outingWarnBadge : styles.outingDoneBadge}>
+                                  {log?.outingOverLimit ? '⚠기록됨' : isOver ? '⚠' : '✓'} {fmtMs(totalMs)}
+                                </span>
+                              )}
+                              {isOver && !log?.outingOverLimit && (
+                                <button onClick={() => saveOutingWarning(s)} disabled={processingId === s.studentId} style={styles.outingWarnSaveBtn}>⚠저장</button>
+                              )}
+                              <button onClick={() => cancelCheckin(s)} disabled={processingId === s.studentId} style={styles.cancelBtn}>취소</button>
+                              {activeOuting
+                                ? <button onClick={() => endOuting(s)} disabled={processingId === s.studentId} style={styles.returnBtn}>↙복귀</button>
+                                : <button onClick={() => setOutingPanel(p => p === s.studentId ? null : s.studentId)} style={styles.outingBtn}>↗외출</button>
+                              }
+                            </div>
                           </div>
+                          {outingPanel === s.studentId && !activeOuting && (
+                            <div style={styles.outingPanelInline}>
+                              {['보건실', '화장실', '기타'].map(t => (
+                                <button key={t} onClick={() => setOutingType(t)}
+                                  style={{ ...styles.outingTypeBtn, ...(outingType === t ? styles.outingTypeBtnActive : {}) }}>
+                                  {t}
+                                </button>
+                              ))}
+                              <input value={outingReason} onChange={e => setOutingReason(e.target.value)}
+                                placeholder="메모 (선택)" style={styles.outingReasonInput} />
+                              <button onClick={() => startOuting(s)} disabled={processingId === s.studentId} style={styles.outingConfirmBtn}>출발</button>
+                              <button onClick={() => setOutingPanel(null)} style={styles.outingCancelSmBtn}>✕</button>
+                            </div>
+                          )}
                         </div>
                       )
                     })
@@ -765,6 +1034,15 @@ export default function AttendanceDashboard() {
         <div style={{ ...styles.panelCol, width: colWidths[1] + '%' }}>
           <div style={styles.panel}>
             <h3 style={{ ...styles.panelTitle, color: '#2e7d32' }}>✅ 출석 {attended.length}명</h3>
+            <div style={styles.classDurRow}>
+              <span style={styles.classDurLabel}>수업시간</span>
+              {[50, 45, 40, 35].map(d => (
+                <button key={d} onClick={() => setClassDuration(d)}
+                  style={{ ...styles.classDurBtn, ...(classDuration === d ? styles.classDurBtnActive : {}) }}>
+                  {d}분
+                </button>
+              ))}
+            </div>
             {!hasGroup ? (
               filteredLogs.filter(l => l.method !== 'absent').length === 0
                 ? <p style={styles.empty}>출석 기록이 없습니다.</p>
@@ -781,17 +1059,50 @@ export default function AttendanceDashboard() {
               ? <p style={styles.empty}>아직 출석한 학생이 없습니다.</p>
               : attended.map(s => {
                   const log = attendedMap[s.studentId]
+                  const activeOuting = getActiveOuting(s.studentId)
+                  const totalMs = getTotalOutingMs(s.studentId)
+                  const isOver = totalMs > classDuration * 60000 / 3
                   return (
-                    <div key={s.studentId} style={styles.studentRow}>
-                      <StudentInfo student={s} />
-                      <div style={styles.logInfo}>
-                        <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>
-                          {log?.method === 'manual' ? '수동' : 'QR'}
-                        </span>
-                        {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
-                        <span style={styles.timeText}>{formatTime(log?.checkedAt)}</span>
-                        <button onClick={() => cancelCheckin(s)} disabled={processingId === s.studentId} style={styles.cancelBtn}>취소</button>
+                    <div key={s.studentId}>
+                      <div style={styles.studentRow}>
+                        <StudentInfo student={s} />
+                        <div style={styles.logInfo}>
+                          <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>
+                            {log?.method === 'manual' ? '수동' : 'QR'}
+                          </span>
+                          {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
+                          <span style={styles.timeText}>{formatTime(log?.checkedAt)}</span>
+                          {activeOuting && (
+                            <span style={styles.outingActiveBadge}>
+                              🚶 {fmtMs(now - (activeOuting.exitAt?.toDate?.() ?? new Date(activeOuting.exitAt)))}
+                            </span>
+                          )}
+                          {!activeOuting && totalMs > 0 && (
+                            <span style={isOver ? styles.outingWarnBadge : styles.outingDoneBadge}>
+                              {isOver ? '⚠' : '✓'} {fmtMs(totalMs)}
+                            </span>
+                          )}
+                          <button onClick={() => cancelCheckin(s)} disabled={processingId === s.studentId} style={styles.cancelBtn}>취소</button>
+                          {activeOuting
+                            ? <button onClick={() => endOuting(s)} disabled={processingId === s.studentId} style={styles.returnBtn}>↙복귀</button>
+                            : <button onClick={() => setOutingPanel(p => p === s.studentId ? null : s.studentId)} style={styles.outingBtn}>↗외출</button>
+                          }
+                        </div>
                       </div>
+                      {outingPanel === s.studentId && !activeOuting && (
+                        <div style={styles.outingPanelInline}>
+                          {['보건실', '화장실', '기타'].map(t => (
+                            <button key={t} onClick={() => setOutingType(t)}
+                              style={{ ...styles.outingTypeBtn, ...(outingType === t ? styles.outingTypeBtnActive : {}) }}>
+                              {t}
+                            </button>
+                          ))}
+                          <input value={outingReason} onChange={e => setOutingReason(e.target.value)}
+                            placeholder="메모 (선택)" style={styles.outingReasonInput} />
+                          <button onClick={() => startOuting(s)} disabled={processingId === s.studentId} style={styles.outingConfirmBtn}>출발</button>
+                          <button onClick={() => setOutingPanel(null)} style={styles.outingCancelSmBtn}>✕</button>
+                        </div>
+                      )}
                     </div>
                   )
                 })
@@ -1032,6 +1343,24 @@ const styles = {
   lateBadge: { fontSize: '0.72rem', padding: '0.15rem 0.4rem', borderRadius: '8px', fontWeight: 600, backgroundColor: '#fff3e0', color: '#e65100' },
   timeText: { fontSize: '0.78rem', color: '#888' },
   cancelBtn: { padding: '0.25rem 0.5rem', backgroundColor: '#fff', color: '#888', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem' },
+
+  // 수업 중 외출 관리
+  classDurRow: { display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem', flexWrap: 'wrap' },
+  classDurLabel: { fontSize: '0.75rem', color: '#888', marginRight: '0.2rem' },
+  classDurBtn: { padding: '0.15rem 0.5rem', border: '1px solid #ddd', borderRadius: '999px', cursor: 'pointer', fontSize: '0.72rem', backgroundColor: '#fff', color: '#666' },
+  classDurBtnActive: { backgroundColor: '#1a73e8', color: '#fff', borderColor: '#1a73e8' },
+  outingBtn: { padding: '0.25rem 0.5rem', backgroundColor: '#fff', color: '#f57c00', border: '1px solid #f57c00', borderRadius: '6px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap' },
+  returnBtn: { padding: '0.25rem 0.5rem', backgroundColor: '#e8f5e9', color: '#2e7d32', border: '1px solid #a5d6a7', borderRadius: '6px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap' },
+  outingActiveBadge: { fontSize: '0.72rem', backgroundColor: '#fff3e0', color: '#e65100', padding: '0.15rem 0.45rem', borderRadius: '999px', fontWeight: 600 },
+  outingDoneBadge: { fontSize: '0.72rem', backgroundColor: '#f5f5f5', color: '#888', padding: '0.15rem 0.45rem', borderRadius: '999px' },
+  outingWarnBadge: { fontSize: '0.72rem', backgroundColor: '#ffebee', color: '#c62828', padding: '0.15rem 0.45rem', borderRadius: '999px', fontWeight: 700 },
+  outingPanelInline: { display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.4rem 0.5rem 0.5rem 0.5rem', backgroundColor: '#fffde7', borderRadius: '0 0 6px 6px', flexWrap: 'wrap', marginBottom: '0.25rem' },
+  outingTypeBtn: { padding: '0.2rem 0.55rem', border: '1px solid #ddd', borderRadius: '999px', cursor: 'pointer', fontSize: '0.75rem', backgroundColor: '#fff', color: '#555' },
+  outingTypeBtnActive: { backgroundColor: '#f57c00', color: '#fff', borderColor: '#f57c00' },
+  outingReasonInput: { flex: 1, minWidth: '80px', padding: '0.2rem 0.5rem', border: '1px solid #ddd', borderRadius: '6px', fontSize: '0.78rem' },
+  outingConfirmBtn: { padding: '0.2rem 0.6rem', backgroundColor: '#f57c00', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 },
+  outingCancelSmBtn: { padding: '0.2rem 0.45rem', backgroundColor: '#fff', color: '#aaa', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem' },
+  outingWarnSaveBtn: { padding: '0.2rem 0.5rem', backgroundColor: '#ffebee', color: '#c62828', border: '1px solid #ef9a9a', borderRadius: '6px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700 },
   manualBtn: { padding: '0.3rem 0.6rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', whiteSpace: 'nowrap' },
 
   // 미출석 블록
@@ -1054,4 +1383,8 @@ const styles = {
   liveStartHint: { textAlign: 'center', color: '#888', lineHeight: 1.7, margin: 0 },
   startSessionBtn: { padding: '0.9rem 2rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' },
   closeSessionBtn: { width: '100%', marginTop: '0.75rem', padding: '0.65rem', backgroundColor: '#fff', color: '#d32f2f', border: '1px solid #ef9a9a', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' },
+  cutoffCountdown: { textAlign: 'center', fontSize: '0.82rem', color: '#e65100', backgroundColor: '#fff3e0', border: '1px solid #ffcc80', borderRadius: '8px', padding: '0.3rem 0.75rem', marginBottom: '0.5rem' },
+  sessionPausedBadge: { textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, color: '#e65100', backgroundColor: '#fff3e0', border: '1px solid #ffcc80', borderRadius: '20px', padding: '0.3rem 1rem' },
+  lateCutoffBadge: { textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, color: '#c62828', backgroundColor: '#ffebee', border: '1px solid #ef9a9a', borderRadius: '20px', padding: '0.3rem 1rem' },
+  closeCountdown: { textAlign: 'center', fontSize: '0.82rem', color: '#555', backgroundColor: '#f5f5f5', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '0.3rem 0.75rem' },
 }
