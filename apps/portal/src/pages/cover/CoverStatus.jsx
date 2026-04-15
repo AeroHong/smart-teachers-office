@@ -43,7 +43,7 @@ export default function CoverStatus() {
 
   // 전체 데이터
   const [allHistory, setAllHistory] = useState([])
-  const [stats, setStats] = useState([])
+  const [stats, setStats] = useState([])   // 교사명단 기반 통계 { name, email, totalCount, monthCount }
 
   // 로딩/에러
   const [loading, setLoading] = useState(true)
@@ -57,18 +57,31 @@ export default function CoverStatus() {
   // 페이지네이션
   const [currentPage, setCurrentPage] = useState(1)
 
-  // 두 API를 Promise.all로 동시 호출
+  // 명예의 전당 탭: 'month' = 선택 월, 'total' = 학기 전체
+  const [hallTab, setHallTab] = useState('month')
+
+  // 목록 + 교사명단 통계 동시 호출
   useEffect(() => {
     const fetchAllData = async () => {
       setLoading(true)
       setError('')
       try {
-        const [historyRes, statsRes] = await Promise.all([
-          fetch(API_URL),                            // 전체 목록
-          fetch(`${API_URL}?action=getStats`),        // 통계 데이터
-        ])
+        // 목록과 통계를 별도 try-catch로 분리 — 한쪽 실패해도 다른 쪽은 표시
+        const historyRes  = await fetch(API_URL)
         const historyData = await historyRes.json()
-        const statsData = await statsRes.json()
+
+        // 교사명단 통계 (실패해도 목록은 유지)
+        try {
+          const statsRes  = await fetch(`${API_URL}?action=getStats`)
+          const statsData = await statsRes.json()
+          console.log('[getStats]', statsData)
+          // { stats: [...], _debug: {...} } 형태로 오면 분리, 아니면 배열 그대로
+          const statsArray = Array.isArray(statsData) ? statsData : (statsData?.stats ?? [])
+          if (statsData?._debug) console.log('[getStats 헤더진단]', statsData._debug)
+          if (statsArray.length > 0) setStats(statsArray)
+        } catch (e) {
+          console.warn('getStats 실패:', e)
+        }
 
         // 날짜 파싱 + monthKey 추가
         const parsed = historyData
@@ -80,7 +93,7 @@ export default function CoverStatus() {
               parseInt(match[2]) - 1,
               parseInt(match[3])
             )
-            const monthKey = `${match[1]}년 ${match[2]}월`
+            const monthKey = `${match[1]}년 ${parseInt(match[2])}월`
             return { ...item, parsedDate, monthKey }
           })
           .filter(Boolean)
@@ -89,7 +102,6 @@ export default function CoverStatus() {
         parsed.sort((a, b) => b.parsedDate - a.parsedDate)
 
         setAllHistory(parsed)
-        setStats(statsData)
 
         // 월 필터 옵션 구성
         const uniqueMonths = [...new Set(parsed.map(item => item.monthKey))]
@@ -111,6 +123,11 @@ export default function CoverStatus() {
 
     if (user) fetchAllData()
   }, [user])
+
+  // 명예의 전당: 탭에 따라 정렬 기준 전환 (서버 통계 사용)
+  const hallStats = hallTab === 'total'
+    ? [...stats].sort((a, b) => b.totalCount - a.totalCount)
+    : [...stats].sort((a, b) => b.monthCount - a.monthCount)
 
   // 필터 + 페이지네이션 계산
   const filteredData =
@@ -326,16 +343,48 @@ export default function CoverStatus() {
               <Box
                 sx={{
                   px: 3,
-                  py: 2.5,
+                  py: 2,
                   borderBottom: '1px solid',
                   borderColor: 'divider',
                   background: 'linear-gradient(135deg, #fffde7 0%, #fff3e0 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 1,
+                  flexWrap: 'wrap',
                 }}
               >
-                <Typography variant="subtitle1">🏆 명예의 전당</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                  가장 많이 지원해주신 분들
-                </Typography>
+                <Box>
+                  <Typography variant="subtitle1">🏆 명예의 전당</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                    {hallTab === 'total'
+                      ? '학기 전체 보강 지원 순위'
+                      : `${selectedMonth || '이번 달'} 보강 지원 순위`}
+                  </Typography>
+                </Box>
+                {/* 전체 / 월별 토글 */}
+                <Box sx={{ display: 'flex', borderRadius: 1, overflow: 'hidden', border: '1px solid', borderColor: 'warning.light' }}>
+                  {[{ key: 'month', label: '월별' }, { key: 'total', label: '전체' }].map(tab => (
+                    <Box
+                      key={tab.key}
+                      onClick={() => setHallTab(tab.key)}
+                      sx={{
+                        px: 1.5,
+                        py: 0.5,
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        bgcolor: hallTab === tab.key ? 'warning.main' : 'transparent',
+                        color: hallTab === tab.key ? 'white' : 'warning.dark',
+                        transition: 'all 0.15s',
+                        userSelect: 'none',
+                        '&:hover': { bgcolor: hallTab === tab.key ? 'warning.main' : 'warning.50' },
+                      }}
+                    >
+                      {tab.label}
+                    </Box>
+                  ))}
+                </Box>
               </Box>
 
               {/* 명예의 전당 목록 */}
@@ -346,14 +395,14 @@ export default function CoverStatus() {
               >
                 <Table>
                   <TableBody>
-                    {stats.length === 0 ? (
+                    {hallStats.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={3} align="center" sx={{ py: 6, color: 'text.secondary' }}>
                           아직 보강 지원 내역이 없습니다.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      stats.map((item, index) => (
+                      hallStats.map((item, index) => (
                         <TableRow
                           key={item.name}
                           sx={{
@@ -386,7 +435,7 @@ export default function CoverStatus() {
                           {/* 횟수 */}
                           <TableCell align="right" sx={{ whiteSpace: 'nowrap', py: 1.5 }}>
                             <Box component="span" fontWeight={900} color="primary.main" fontSize="1rem">
-                              {item.count}
+                              {hallTab === 'total' ? item.totalCount : item.monthCount}
                             </Box>
                             <Box component="span" fontSize="0.78rem" color="text.disabled" ml={0.5}>
                               회
