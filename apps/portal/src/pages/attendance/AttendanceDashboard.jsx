@@ -398,6 +398,24 @@ export default function AttendanceDashboard() {
     return unsub
   }, [schoolId, eventId])
 
+  // ── 이전 날짜 라이브 세션 자동 초기화 ────────────────────────
+  // 전날(또는 그 이전) 세션이 Cloud Function 오류 등으로 남아 있으면
+  // 다음 날 "QR 마감" 상태로 굳어버리는 버그 방지
+  useEffect(() => {
+    if (!event?.liveOpenedAt || !schoolId) return
+    const openedAt = event.liveOpenedAt?.toDate?.() ?? new Date(event.liveOpenedAt)
+    const openedDateStr = `${openedAt.getFullYear()}-${String(openedAt.getMonth() + 1).padStart(2, '0')}-${String(openedAt.getDate()).padStart(2, '0')}`
+    if (openedDateStr !== todayStr()) {
+      updateDoc(doc(db, 'schools', schoolId, 'events', eventId), {
+        liveToken: null,
+        liveOpenedAt: null,
+        liveLateCutoff: null,
+        liveClosesAt: null,
+        lateWindowProcessed: null,
+      })
+    }
+  }, [event?.liveOpenedAt])
+
   // ── 외출 실시간 타이머 ────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
@@ -675,11 +693,18 @@ export default function AttendanceDashboard() {
       return <QRDisplay eventName={event.name} checkinUrl={checkinUrl} />
     }
 
+    // 전날 세션이 남아있으면 즉시 Phase 1/5(시작 전)로 취급 (useEffect 초기화 대기 중)
+    const liveOpenedAt = event.liveOpenedAt?.toDate?.() ?? (event.liveOpenedAt ? new Date(event.liveOpenedAt) : null)
+    const isLiveFromToday = !liveOpenedAt || (() => {
+      const d = liveOpenedAt
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr()
+    })()
+
     const cutdownTocut = fmtCountdown(event.liveLateCutoff)
     const cutdownToEnd = fmtCountdown(event.liveClosesAt)
 
     // Phase 2: QR 활성 (0~1/3 구간)
-    if (event.liveToken && !event.lateWindowProcessed) {
+    if (event.liveToken && !event.lateWindowProcessed && isLiveFromToday) {
       return (
         <>
           <div style={styles.liveActiveBadge}>● 출석 진행 중</div>
@@ -695,7 +720,7 @@ export default function AttendanceDashboard() {
     }
 
     // Phase 3: 교사가 0~1/3 구간에서 수동 마감 → 재오픈 가능
-    if (event.liveOpenedAt && !event.lateWindowProcessed) {
+    if (event.liveOpenedAt && !event.lateWindowProcessed && isLiveFromToday) {
       return (
         <div style={styles.liveStartBox}>
           <div style={styles.sessionPausedBadge}>⏸ 출석 일시 중지</div>
@@ -717,7 +742,7 @@ export default function AttendanceDashboard() {
     }
 
     // Phase 4: 1/3 이후 (QR 마감, 교사 수동 입력만 가능)
-    if (event.liveOpenedAt && event.lateWindowProcessed) {
+    if (event.liveOpenedAt && event.lateWindowProcessed && isLiveFromToday) {
       return (
         <div style={styles.liveStartBox}>
           <div style={styles.lateCutoffBadge}>⏰ QR 체크인 마감</div>

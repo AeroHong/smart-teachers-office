@@ -58,6 +58,14 @@ const SERVICES = [
 // 버전 규칙: 새 업무시스템 추가 → 메이저(v1→v2), 기능개선/버그픽스 → 마이너(v2.0→v2.1)
 const CHANGELOG = [
   {
+    version: 'v2.3.1',
+    date: '2026.04.15',
+    type: 'bugfix',
+    items: [
+      '[버그수정] 반복 이벤트 라이브 세션 — 전날 마감 상태가 다음 날에도 유지되는 문제 수정',
+    ],
+  },
+  {
     version: 'v2.3',
     date: '2026.04.13',
     type: 'improvement',
@@ -110,6 +118,7 @@ const TYPE_STYLE = {
   major:       { label: '신규', bg: '#eef2ff', color: '#4f46e5', border: '#c7d2fe' },
   improvement: { label: '개선', bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' },
   fix:         { label: '수정', bg: '#fff7ed', color: '#ea580c', border: '#fed7aa' },
+  bugfix:      { label: '버그수정', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
 }
 
 export default function Home() {

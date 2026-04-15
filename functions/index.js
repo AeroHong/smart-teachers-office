@@ -177,6 +177,16 @@ exports.autoManageLiveSessions = onSchedule(
         const liveLateCutoff = ev.liveLateCutoff?.toDate?.()
         const liveClosesAt = ev.liveClosesAt?.toDate?.()
 
+        // 전날(또는 그 이전) 세션이 남아있으면 즉시 강제 초기화
+        // (Cloud Function 오류 등으로 processSessionClose가 실행되지 못한 경우)
+        const openedAt = ev.liveOpenedAt?.toDate?.() ?? new Date(ev.liveOpenedAt)
+        const openedDateStr = openedAt.toISOString().slice(0, 10)
+        if (openedDateStr < todayStr) {
+          console.log(`[${schoolId}] 전날 세션 강제 초기화 — 이벤트: ${eventDoc.id} (세션 날짜: ${openedDateStr})`)
+          await processSessionClose(db, schoolId, eventDoc.id, ev)
+          continue
+        }
+
         // 1/3 지점 자동 처리 (미처리 + 시간 경과)
         if (!ev.lateWindowProcessed && liveLateCutoff && now >= liveLateCutoff) {
           await processLateCutoff(db, schoolId, eventDoc.id, ev)
