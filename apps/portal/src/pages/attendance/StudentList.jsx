@@ -58,7 +58,13 @@ export default function StudentList() {
     if (role !== 'school_admin') return
     const load = async () => {
       const snap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['teacher', 'admin', 'school_admin'])))
-      setTeachers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      list.sort((a, b) => {
+        const aId = (a.email || '').split('@')[0].toLowerCase()
+        const bId = (b.email || '').split('@')[0].toLowerCase()
+        return aId.localeCompare(bId)
+      })
+      setTeachers(list)
     }
     load()
   }, [role])
@@ -143,6 +149,9 @@ export default function StudentList() {
     setUploadResult(null)
     setParseError('')
     setPreview([])
+
+    const fileBaseName = file.name.replace(/\.csv$/i, '')
+    if (!groupName.trim()) setGroupName(fileBaseName)
 
     const reader = new FileReader()
     reader.onload = (event) => {
