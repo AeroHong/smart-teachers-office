@@ -11,7 +11,7 @@ const DAYS = ['일', '월', '화', '수', '목', '금', '토']
 const PERIODS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
 function buildCheckinUrl(schoolId, eventId, qrToken) {
-  return `${window.location.origin}${import.meta.env.BASE_URL}checkin/${schoolId}/${eventId}?token=${qrToken}`
+  return `${window.location.origin}/attendance/checkin/${schoolId}/${eventId}?token=${qrToken}`
 }
 
 export default function EventCreate() {

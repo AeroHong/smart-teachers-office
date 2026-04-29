@@ -161,6 +161,7 @@ exports.autoManageLiveSessions = onSchedule(
   async () => {
     const db = getFirestore()
     const now = new Date()
+    const todayStr = now.toISOString().slice(0, 10)
 
     const schoolsSnap = await db.collection('schools').get()
 
