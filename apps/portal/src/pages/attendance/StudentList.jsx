@@ -29,6 +29,7 @@ export default function StudentList() {
 
   const [teachers, setTeachers] = useState([])
   const [assignedTeacher, setAssignedTeacher] = useState('')
+  const [isShared, setIsShared] = useState(false)
 
   const fetchGroups = async () => {
     setLoadingGroups(true)
@@ -173,15 +174,17 @@ export default function StudentList() {
       ))
 
       const studentIds = preview.map(s => s.studentId)
-      const ownerUid = (role === 'school_admin' && assignedTeacher) ? assignedTeacher : user.uid
-      const ownerName = (role === 'school_admin' && assignedTeacher)
-        ? teachers.find(t => t.id === assignedTeacher)?.name || ''
-        : ''
+      const isAdminShared = role === 'school_admin' && isShared
+      const ownerUid = (!isAdminShared && role === 'school_admin' && assignedTeacher) ? assignedTeacher : user.uid
+      const selectedTeacher = assignedTeacher ? teachers.find(t => t.id === assignedTeacher) : null
+
       await addDoc(collection(db, 'schools', schoolId, 'studentGroups'), {
         name: groupName.trim(),
         studentIds,
+        shared: isAdminShared,
         createdBy: ownerUid,
-        ...(ownerName && { assignedTeacherName: ownerName }),
+        ...(isAdminShared && selectedTeacher && { mainTeacherUid: selectedTeacher.id, mainTeacherName: selectedTeacher.name }),
+        ...(!isAdminShared && selectedTeacher && { assignedTeacherName: selectedTeacher.name }),
         createdAt: new Date(),
       })
 
@@ -189,6 +192,7 @@ export default function StudentList() {
       setPreview([])
       setGroupName('')
       setAssignedTeacher('')
+      setIsShared(false)
       await fetchGroups()
     } catch (err) {
       setUploadResult({ success: false, message: err.message })
@@ -346,8 +350,9 @@ export default function StudentList() {
                     )}
                     <span style={styles.groupMeta}>
                       학생 {(group.studentIds || []).length}명 · {formatDate(group.createdAt)}
-                      {role === 'school_admin' && group.assignedTeacherName && (
-                        <span style={styles.teacherTag}>👤 {group.assignedTeacherName}</span>
+                      {group.shared && <span style={styles.sharedBadge}>공유</span>}
+                      {(group.mainTeacherName || (role === 'school_admin' && group.assignedTeacherName)) && (
+                        <span style={styles.teacherTag}>👤 {group.mainTeacherName || group.assignedTeacherName}</span>
                       )}
                     </span>
                   </div>
@@ -424,19 +429,36 @@ export default function StudentList() {
           </div>
 
           {role === 'school_admin' && (
-            <div style={styles.fieldRow}>
-              <label style={styles.fieldLabel}>담당 교사</label>
-              <select
-                value={assignedTeacher}
-                onChange={e => setAssignedTeacher(e.target.value)}
-                style={{ ...styles.textInput, flex: 1 }}
-              >
-                <option value="">본인(학교관리자)에게 귀속</option>
-                {teachers.map(t => (
-                  <option key={t.id} value={t.id}>{t.name} ({t.email})</option>
-                ))}
-              </select>
-            </div>
+            <>
+              <div style={styles.fieldRow}>
+                <label style={styles.fieldLabel}>공유 그룹</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={isShared}
+                    onChange={e => { setIsShared(e.target.checked); setAssignedTeacher('') }}
+                  />
+                  <span style={{ fontSize: '0.88rem', color: '#555' }}>
+                    모든 교사가 이벤트에서 선택 가능한 공유 그룹으로 만들기
+                  </span>
+                </label>
+              </div>
+              <div style={styles.fieldRow}>
+                <label style={styles.fieldLabel}>
+                  {isShared ? '메인 담당교사' : '담당 교사'}
+                </label>
+                <select
+                  value={assignedTeacher}
+                  onChange={e => setAssignedTeacher(e.target.value)}
+                  style={{ ...styles.textInput, flex: 1 }}
+                >
+                  <option value="">{isShared ? '선택 안 함 (선택 사항)' : '본인(학교관리자)에게 귀속'}</option>
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.id}>{t.name} ({t.email})</option>
+                  ))}
+                </select>
+              </div>
+            </>
           )}
 
           <div style={{ marginTop: '0.75rem' }}>
@@ -530,6 +552,7 @@ const styles = {
   groupName:    { fontWeight: 600, fontSize: '0.95rem' },
   groupMeta:    { fontSize: '0.8rem', color: '#777', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' },
   teacherTag:   { fontSize: '0.75rem', color: '#7b1fa2', backgroundColor: '#f3e5f5', padding: '0.1rem 0.45rem', borderRadius: '999px' },
+  sharedBadge:  { fontSize: '0.75rem', color: '#1565c0', backgroundColor: '#e3f2fd', padding: '0.1rem 0.45rem', borderRadius: '999px', fontWeight: 600 },
   groupActions: { display: 'flex', gap: '0.5rem' },
   detailBtn:    { padding: '0.35rem 0.85rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 },
   deleteBtn:    { padding: '0.35rem 0.75rem', backgroundColor: '#fff', color: '#d32f2f', border: '1px solid #d32f2f', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' },

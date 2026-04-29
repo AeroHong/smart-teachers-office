@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { doc, getDoc, updateDoc, getDocs, addDoc, collection, query, orderBy, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, getDocs, addDoc, collection, query, where, orderBy, serverTimestamp } from 'firebase/firestore'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -11,7 +11,7 @@ const PERIODS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
 export default function EventEdit() {
   const { eventId } = useParams()
-  const { schoolId, user } = useAuth()
+  const { schoolId, user, role } = useAuth()
   const navigate = useNavigate()
 
   const [groups, setGroups] = useState([])
@@ -27,9 +27,12 @@ export default function EventEdit() {
   useEffect(() => {
     if (!schoolId) return
     const load = async () => {
-      const [eventDoc, groupsSnap, coursesSnap] = await Promise.all([
+      const col = collection(db, 'schools', schoolId, 'studentGroups')
+      const groupsQ = role === 'school_admin' ? col : query(col, where('createdBy', '==', user.uid))
+      const [eventDoc, groupsSnap, sharedSnap, coursesSnap] = await Promise.all([
         getDoc(doc(db, 'schools', schoolId, 'events', eventId)),
-        getDocs(collection(db, 'schools', schoolId, 'studentGroups')),
+        getDocs(groupsQ),
+        role !== 'school_admin' ? getDocs(query(col, where('shared', '==', true))) : Promise.resolve({ docs: [] }),
         getDocs(query(collection(db, 'schools', schoolId, 'courses'), orderBy('name'))),
       ])
       setCourses(coursesSnap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -38,7 +41,10 @@ export default function EventEdit() {
 
       const data = eventDoc.data()
       setIsRecurring(!!data.isRecurring)
-      setGroups(groupsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const seen = new Set()
+      setGroups([...groupsSnap.docs, ...sharedSnap.docs]
+        .filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true })
+        .map(d => ({ id: d.id, ...d.data() })))
 
       // schedules 로드
       if (data.schedules?.length > 0) {

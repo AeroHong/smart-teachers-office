@@ -27,13 +27,23 @@ export default function EventCreate() {
   useEffect(() => {
     const load = async () => {
       const col = collection(db, 'schools', schoolId, 'studentGroups')
-      const q = role === 'school_admin' ? col : query(col, where('createdBy', '==', user.uid))
-      const [groupsSnap, coursesSnap] = await Promise.all([
-        getDocs(q),
-        getDocs(query(collection(db, 'schools', schoolId, 'courses'), orderBy('name'))),
-      ])
-      setGroups(groupsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setCourses(coursesSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const coursesQ = query(collection(db, 'schools', schoolId, 'courses'), orderBy('name'))
+      if (role === 'school_admin') {
+        const [groupsSnap, coursesSnap] = await Promise.all([getDocs(col), getDocs(coursesQ)])
+        setGroups(groupsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+        setCourses(coursesSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      } else {
+        const [ownSnap, sharedSnap, coursesSnap] = await Promise.all([
+          getDocs(query(col, where('createdBy', '==', user.uid))),
+          getDocs(query(col, where('shared', '==', true))),
+          getDocs(coursesQ),
+        ])
+        const seen = new Set()
+        setGroups([...ownSnap.docs, ...sharedSnap.docs]
+          .filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true })
+          .map(d => ({ id: d.id, ...d.data() })))
+        setCourses(coursesSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      }
     }
     if (schoolId && user) load()
   }, [schoolId, user, role])
