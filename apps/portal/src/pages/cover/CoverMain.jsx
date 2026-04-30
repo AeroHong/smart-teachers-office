@@ -24,6 +24,25 @@ import Divider from '@mui/material/Divider'
 const API_URL =
   'https://script.google.com/macros/s/AKfycbxlsUlIWiKDopF1w9ke4Bt97szdAHcF83L26C9lCdqxu6ck4topHDs3FRy7ZWeWDf-9/exec'
 
+// openAt 문자열을 Date 객체로 파싱 (시트에 "YYYY-MM-DD HH:MM" 텍스트로 저장)
+function getOpenAtDate(openAtStr) {
+  if (!openAtStr) return null
+  const d = new Date(String(openAtStr).replace(' ', 'T'))
+  return isNaN(d.getTime()) ? null : d
+}
+
+// 남은 시간을 카운트다운 문자열로 변환
+function formatCountdown(diffMs) {
+  const totalSec = Math.max(0, Math.floor(diffMs / 1000))
+  const days  = Math.floor(totalSec / 86400)
+  const hours = Math.floor((totalSec % 86400) / 3600)
+  const mins  = Math.floor((totalSec % 3600) / 60)
+  const secs  = totalSec % 60
+  const pad = n => String(n).padStart(2, '0')
+  if (days > 0) return `D-${days}  ${pad(hours)}:${pad(mins)}:${pad(secs)}`
+  return `${pad(hours)}:${pad(mins)}:${pad(secs)}`
+}
+
 // 날짜 문자열에서 요일 반환 (예: "(화)")
 function getDayOfWeek(dateString) {
   const d = new Date(dateString)
@@ -80,8 +99,16 @@ export default function CoverMain() {
     className: '',
     subject: '',
     absentTeacher: '',
+    openAt: '',
   })
   const [submitting, setSubmitting] = useState(false)
+
+  // 공개예정 카운트다운용 — 1초마다 갱신
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   // 보강 목록 불러오기
   const fetchCoverData = useCallback(async (msg = '보강 목록을 불러오는 중입니다...') => {
@@ -136,6 +163,8 @@ export default function CoverMain() {
       const result = await res.json()
       if (result.success) {
         alert('보강 신청이 완료되었습니다!')
+      } else if (result.reason === 'not_open_yet') {
+        alert('아직 신청 가능 시간이 아닙니다.\n공개 예약 시간 이후에 다시 시도해주세요.')
       } else {
         alert('오류가 발생했습니다. (이미 마감됨)')
       }
@@ -177,14 +206,14 @@ export default function CoverMain() {
     setLoadingMsg('새 보강을 DB에 등록 중입니다...')
     setLoading(true)
     try {
-      const { date, period, className, subject, absentTeacher } = formData
+      const { date, period, className, subject, absentTeacher, openAt } = formData
       const res = await fetch(
-        `${API_URL}?action=create&date=${date}&period=${period}&className=${encodeURIComponent(className)}&subject=${encodeURIComponent(subject)}&absentTeacher=${encodeURIComponent(absentTeacher)}`
+        `${API_URL}?action=create&date=${date}&period=${period}&className=${encodeURIComponent(className)}&subject=${encodeURIComponent(subject)}&absentTeacher=${encodeURIComponent(absentTeacher)}&openAt=${encodeURIComponent(openAt ? openAt.replace('T', ' ') : '')}`
       )
       const result = await res.json()
       if (result.success) {
         alert('성공적으로 등록되었습니다!')
-        setFormData({ date: '', period: '', className: '', subject: '', absentTeacher: '' })
+        setFormData({ date: '', period: '', className: '', subject: '', absentTeacher: '', openAt: '' })
       } else {
         alert('등록 중 오류가 발생했습니다.')
       }
@@ -228,9 +257,28 @@ export default function CoverMain() {
         ),
       }
     }
+
+    // 공개예정: openAt이 설정되어 있고 아직 해당 시각이 되지 않은 경우
+    const openAt = getOpenAtDate(item.openAt)
+    if (openAt && openAt > now) {
+      const diffMs = openAt - now
+      const openDateStr = openAt.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      return {
+        sx: { border: '1.5px solid', borderColor: 'warning.light', bgcolor: '#fffdf0', height: '100%' },
+        chip: <Chip label="공개예정" size="small" color="warning" variant="outlined" />,
+        button: (
+          <Button fullWidth variant="outlined" color="warning" disabled
+            sx={{ fontFamily: 'monospace', fontSize: '1rem', letterSpacing: '0.05em' }}>
+            ⏳ {formatCountdown(diffMs)}
+          </Button>
+        ),
+        openDateStr,
+      }
+    }
+
     return {
       sx: { height: '100%' },
-      chip: <Chip label="대기중" size="small" color="success" />,
+      chip: <Chip label="신청가능" size="small" color="success" />,
       button: (
         <Button
           fullWidth
@@ -249,9 +297,9 @@ export default function CoverMain() {
       {/* 헤더 영역 */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', mb: 3 }}>
         <Box>
-          <Typography variant="h5">이번 주 보강 대기 목록</Typography>
+          <Typography variant="h5">보강 신청 목록</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            도움이 필요한 수업입니다. 신청 버튼을 눌러주세요.
+            신청 가능한 보강과 공개 예정 보강이 함께 표시됩니다.
           </Typography>
         </Box>
         {isAdmin && (
@@ -291,7 +339,7 @@ export default function CoverMain() {
       {!loading && !error && covers.length > 0 && (
         <Grid container spacing={3}>
           {covers.map(item => {
-            const { sx, chip, button } = getCardConfig(item)
+            const { sx, chip, button, openDateStr } = getCardConfig(item)
             const displayDate = `${item.date}${getDayOfWeek(item.date)}`
             return (
               <Grid item xs={12} sm={6} md={4} key={item.id}>
@@ -315,6 +363,12 @@ export default function CoverMain() {
                     <Typography variant="body2" color="text.secondary">
                       {item.subject} ({item.absentTeacher} 선생님 결강)
                     </Typography>
+                    {/* 공개예정 시각 안내 */}
+                    {openDateStr && (
+                      <Typography variant="caption" color="warning.main" sx={{ mt: 1, display: 'block' }}>
+                        {openDateStr} 신청 오픈
+                      </Typography>
+                    )}
                   </CardContent>
                   <Divider />
                   <CardActions sx={{ px: 2, py: 1.5 }}>
@@ -374,6 +428,15 @@ export default function CoverMain() {
               required
               value={formData.absentTeacher}
               onChange={e => setFormData(f => ({ ...f, absentTeacher: e.target.value }))}
+            />
+            {/* 오픈 예약 시각 */}
+            <TextField
+              label="오픈 예약 시각 (선택)"
+              type="datetime-local"
+              InputLabelProps={{ shrink: true }}
+              value={formData.openAt}
+              onChange={e => setFormData(f => ({ ...f, openAt: e.target.value }))}
+              helperText="비워두면 즉시 신청 가능 상태로 공개됩니다"
             />
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>

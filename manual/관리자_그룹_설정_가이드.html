@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>관리자 그룹 설정 가이드 — 선유고 스마트 출결</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header class="page-header">
+  <span class="header-logo">선유고 스마트 출결 시스템</span>
+  <nav class="header-nav">
+    <a href="./index.html" class="nav-link">매뉴얼 목록</a>
+    <a href="./전체_지정과목_담당교사_매뉴얼.html" class="nav-link">전체·지정과목 교사</a>
+    <a href="./선택과목_담당교사_매뉴얼.html" class="nav-link">선택과목 교사</a>
+    <a href="./관리자_그룹_설정_가이드.html" class="nav-link active">관리자 가이드</a>
+  </nav>
+</header>
+
+<div class="layout">
+
+  <!-- TOC -->
+  <nav class="toc" aria-label="목차">
+    <div class="toc-title">목차</div>
+    <ol>
+      <li><a href="#sec1">교사 계정 승인</a></li>
+      <li><a href="#sec2">공유 그룹 만들기</a>
+        <ol>
+          <li><a href="#sec2-1">학생 명단 관리 진입</a></li>
+          <li><a href="#sec2-2">설정 항목</a></li>
+          <li><a href="#sec2-3">저장 확인</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec3">개인 그룹 위임 만들기</a>
+        <ol>
+          <li><a href="#sec3-1">설정 항목</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec4">그룹 설정 체크리스트</a></li>
+    </ol>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="content">
+
+    <h1>관리자 — 학생 그룹 설정 가이드</h1>
+    <p class="subtitle">선유고 스마트 출결 시스템</p>
+
+    <div class="target-box">
+      <strong>이 문서 대상</strong>: 학교관리자(교무부장) 권한 계정<br>
+      교사 배포 전 관리자가 선행 작업으로 완료해야 하는 내용입니다.
+    </div>
+
+    <hr>
+
+    <!-- 1. 교사 계정 승인 -->
+    <h2 id="sec1">1. 교사 계정 승인</h2>
+
+    <p>새로 가입한 교사는 <strong>승인 대기</strong> 상태입니다.<br>
+    관리자 페이지에서 승인해야 사용 가능합니다.</p>
+
+    <h3>진입 경로</h3>
+
+    <p>스마트 출결 시스템 → 좌측 메뉴 <strong>관리자</strong></p>
+
+    <figure class="img-block" id="img-C01">
+      <img src="./image/img-C01.png" alt="관리자 메뉴 진입 화면"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">
+        <span class="ph-icon">🖼</span>
+        <code class="ph-code">img-C01.png</code>
+        <span class="ph-desc">관리자 메뉴 진입 화면</span>
+      </div>
+      <figcaption><span class="img-id">C01</span>관리자 메뉴 진입 화면</figcaption>
+    </figure>
+
+    <h3>승인 처리</h3>
+
+    <figure class="img-block" id="img-C02">
+      <img src="./image/img-C02.png" alt="승인 대기 탭 — 교사 목록 및 승인/거절 버튼"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">
+        <span class="ph-icon">🖼</span>
+        <code class="ph-code">img-C02.png</code>
+        <span class="ph-desc">승인 대기 탭 — 교사 목록 및 승인/거절 버튼</span>
+      </div>
+      <figcaption><span class="img-id">C02</span>승인 대기 탭 — 교사 목록 및 승인/거절 버튼</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th>버튼</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td><strong>교사 승인</strong></td><td>일반 교사 권한 부여</td></tr>
+        <tr><td><strong>학교관리자 승인</strong></td><td>관리자 권한 부여 (교무부장 등)</td></tr>
+        <tr><td><strong>거절</strong></td><td>가입 거절</td></tr>
+      </tbody>
+    </table>
+
+    <hr>
+
+    <!-- 2. 공유 그룹 만들기 -->
+    <h2 id="sec2">2. 공유 그룹 만들기 <small style="font-size:0.8rem; font-weight:400; color:#64748b;">(학급 전체 과목용)</small></h2>
+
+    <p>국어·수학·영어 등 학급 단위 수업을 담당하는 모든 교사가 공통으로 사용할 학급 그룹입니다.<br>
+    <strong>한 번만 만들면 해당 학급 담당 교사 전원이 이벤트에서 선택할 수 있습니다.</strong></p>
+
+    <h3 id="sec2-1">2-1. 학생 명단 관리 진입</h3>
+
+    <p>좌측 메뉴 <strong>학생 명단 관리</strong> → <strong>새 그룹 만들기</strong> 섹션</p>
+
+    <figure class="img-block" id="img-C03">
+      <img src="./image/img-C03.png" alt="새 그룹 만들기 섹션 — 관리자 화면 (공유 그룹 체크박스 포함)"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">
+        <span class="ph-icon">🖼</span>
+        <code class="ph-code">img-C03.png</code>
+        <span class="ph-desc">새 그룹 만들기 섹션 — 관리자 화면 (공유 그룹 체크박스 포함)</span>
+      </div>
+      <figcaption><span class="img-id">C03</span>새 그룹 만들기 섹션 — 관리자 화면 (공유 그룹 체크박스 포함)</figcaption>
+    </figure>
+
+    <h3 id="sec2-2">2-2. 설정 항목</h3>
+
+    <table>
+      <thead><tr><th>항목</th><th>설정값</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td>그룹 이름</td><td><code>3학년 7반 2026</code></td><td>학년·반·연도 포함 권장</td></tr>
+        <tr><td><strong>공유 그룹</strong></td><td>✅ 체크</td><td>모든 교사가 선택 가능</td></tr>
+        <tr><td>메인 담당교사</td><td>해당 담임교사 선택 (선택 사항)</td><td>대표 담당교사 표시용</td></tr>
+        <tr><td>CSV 파일</td><td>해당 반 전체 학생 파일</td><td>나이스 학급 명렬표</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="img-block" id="img-C04">
+      <img src="./image/img-C04.png" alt="공유 그룹 체크박스 활성화 후 화면 — 메인 담당교사 셀렉터 표시"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">
+        <span class="ph-icon">🖼</span>
+        <code class="ph-code">img-C04.png</code>
+        <span class="ph-desc">공유 그룹 체크박스 활성화 후 화면 — 메인 담당교사 셀렉터 표시</span>
+      </div>
+      <figcaption><span class="img-id">C04</span>공유 그룹 체크박스 활성화 후 화면 — 메인 담당교사 셀렉터 표시</figcaption>
+    </figure>
+
+    <h3 id="sec2-3">2-3. 저장 확인</h3>
+
+    <p>저장 후 그룹 목록에서 파란 <strong>공유</strong> 배지가 표시되면 정상입니다.</p>
+
+    <figure class="img-block" id="img-C05">
+      <img src="./image/img-C05.png" alt="그룹 목록 — 공유 배지가 붙은 그룹 카드"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">
+        <span class="ph-icon">🖼</span>
+        <code class="ph-code">img-C05.png</code>
+        <span class="ph-desc">그룹 목록 — '공유' 배지가 붙은 그룹 카드</span>
+      </div>
+      <figcaption><span class="img-id">C05</span>그룹 목록 — '공유' 배지가 붙은 그룹 카드</figcaption>
+    </figure>
+
+    <hr>
+
+    <!-- 3. 개인 그룹 위임 만들기 -->
+    <h2 id="sec3">3. 개인 그룹 위임 만들기 <small style="font-size:0.8rem; font-weight:400; color:#64748b;">(선택과목 교사 대리 생성)</small></h2>
+
+    <p>선택과목 교사가 직접 그룹을 만들기 어려운 경우, 관리자가 대리 생성하고 해당 교사에게 귀속시킬 수 있습니다.</p>
+
+    <h3 id="sec3-1">3-1. 설정 항목</h3>
+
+    <table>
+      <thead><tr><th>항목</th><th>설정값</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td>그룹 이름</td><td><code>물리학Ⅱ-A반 2026</code></td><td></td></tr>
+        <tr><td><strong>공유 그룹</strong></td><td>☐ 체크 해제</td><td>개인 그룹</td></tr>
+        <tr><td>담당 교사</td><td>해당 교사 선택</td><td>이 교사만 이벤트에서 선택 가능</td></tr>
+        <tr><td>CSV 파일</td><td>해당 분반 학생 파일</td><td></td></tr>
+      </tbody>
+    </table>
+
+    <figure class="img-block" id="img-C06">
+      <img src="./image/img-C06.png" alt="공유 체크 해제 + 담당 교사 선택 화면"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">
+        <span class="ph-icon">🖼</span>
+        <code class="ph-code">img-C06.png</code>
+        <span class="ph-desc">공유 체크 해제 + 담당 교사 선택 화면</span>
+      </div>
+      <figcaption><span class="img-id">C06</span>공유 체크 해제 + 담당 교사 선택 화면</figcaption>
+    </figure>
+
+    <blockquote>
+      <p>담당 교사로 지정된 선생님의 이벤트 생성 화면에서만 이 그룹이 보입니다.</p>
+    </blockquote>
+
+    <hr>
+
+    <!-- 4. 체크리스트 -->
+    <h2 id="sec4">4. 그룹 설정 체크리스트</h2>
+
+    <p>학기 초 배포 전 아래 항목을 순서대로 완료하세요.</p>
+
+    <pre>[ ] 전체 교사 계정 승인 완료
+[ ] 1학년 각 반 공유 그룹 생성 (1학년 1반 ~ N반)
+[ ] 2학년 각 반 공유 그룹 생성
+[ ] 3학년 각 반 공유 그룹 생성
+[ ] 선택과목 분반 그룹 생성 (필요 시 담당 교사 귀속)
+[ ] 교사들에게 매뉴얼 배포</pre>
+
+    <blockquote class="success">
+      <p>💡 <strong>Tip</strong>: 공유 그룹 이름에 연도를 포함하면 (<code>3학년 7반 2026</code>) 다음 학년도에 헷갈리지 않습니다.</p>
+    </blockquote>
+
+  </main>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="this.classList.remove('open')">
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<script>
+document.querySelectorAll('.img-block img').forEach(img => {
+  img.addEventListener('click', function() {
+    if (this.style.display === 'none') return;
+    document.getElementById('lightbox-img').src = this.src;
+    document.getElementById('lightbox-img').alt = this.alt;
+    document.getElementById('lightbox').classList.add('open');
+  });
+});
+</script>
+
+</body>
+</html>
