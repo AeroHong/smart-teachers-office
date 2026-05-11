@@ -287,6 +287,26 @@ function SignatureStatus({ training, signatures, id, canManage }) {
   const [notes, setNotes] = useState(training.notes ?? {})
   const [editingNote, setEditingNote] = useState(null)
   const [noteText, setNoteText] = useState('')
+  const [colWidths, setColWidths] = useState([48, 140, 68, 155, 108, 130])
+
+  const gridCols = colWidths.map(w => `${w}px`).join(' ')
+  const totalW = colWidths.reduce((a, b) => a + b, 0)
+
+  const startResize = (idx, e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = colWidths[idx]
+    const onMove = (ev) => {
+      const next = Math.max(40, startW + ev.clientX - startX)
+      setColWidths(prev => { const n = [...prev]; n[idx] = next; return n })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   const startEditNote = (uid, cur) => { setEditingNote(uid); setNoteText(cur || '') }
   const saveNote = async (uid) => {
@@ -317,6 +337,17 @@ function SignatureStatus({ training, signatures, id, canManage }) {
         { header: '서명',    key: 'sig',      width: 32 },
         { header: '비고',    key: 'note',     width: 20 },
       ]
+
+      // A4 인쇄 설정 (헤더 행 반복)
+      ws.pageSetup = {
+        paperSize: 9,          // A4
+        orientation: 'portrait',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        printTitlesRow: '1:1', // 매 페이지 1행 반복
+        margins: { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 },
+      }
 
       const hdr = ws.getRow(1)
       hdr.height = 20
@@ -389,38 +420,84 @@ function SignatureStatus({ training, signatures, id, canManage }) {
     }
   }
 
-  const handleExportPdf = async () => {
-    setExporting('pdf')
-    try {
-      const { default: jsPDF } = await import('jspdf')
-      const { default: html2canvas } = await import('html2canvas')
-      const el = document.getElementById('sig-print-area')
-      if (!el) return
-      const canvas = await html2canvas(el, { scale: 2, useCORS: true })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pageW = pdf.internal.pageSize.getWidth()
-      const pageH = pdf.internal.pageSize.getHeight()
-      const imgW = pageW - 20
-      const imgH = (canvas.height * imgW) / canvas.width
+  const handleExportPdf = () => {
+    const metaStr = [
+      training.date,
+      training.startTime && training.endTime ? `${training.startTime}–${training.endTime}` : '',
+      training.location,
+    ].filter(Boolean).join(' · ')
 
-      if (imgH <= pageH - 20) {
-        pdf.addImage(imgData, 'PNG', 10, 10, imgW, imgH)
-      } else {
-        let yOffset = 0
-        while (yOffset < imgH) {
-          if (yOffset > 0) pdf.addPage()
-          pdf.addImage(imgData, 'PNG', 10, 10 - yOffset, imgW, imgH)
-          yOffset += pageH - 20
+    const rowsHtml = members.map((m, i) => {
+      const sig = signatures[m.uid]
+      const note = notes[m.uid] || ''
+      const status = sig ? 'signed' : note ? 'noted' : 'unsigned'
+      const borderColor = status === 'signed' ? '#22c55e' : status === 'noted' ? '#94a3b8' : '#f59e0b'
+      const sigCell = sig?.signatureData
+        ? `<img src="${sig.signatureData}" style="max-height:32px;max-width:80px;display:block;">`
+        : '<span style="color:#cbd5e1;">—</span>'
+      const timeCell = sig
+        ? `<span style="color:#64748b;">${sig.signedAt?.toDate().toLocaleString('ko-KR') ?? ''}</span>`
+        : status === 'noted'
+          ? '<span style="background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:3px;font-size:7.5pt;">불참(사유있음)</span>'
+          : '<span style="background:#fef3c7;color:#b45309;padding:1px 5px;border-radius:3px;font-size:7.5pt;">미서명</span>'
+      const typeColor = m.staffType === '교사' ? '#0369a1' : m.staffType === '교직원' ? '#15803d' : '#cbd5e1'
+      const rowBg = status === 'unsigned' ? '#fffdf7' : '#fff'
+
+      return `<tr style="background:${rowBg};border-left:3px solid ${borderColor};">
+        <td style="color:#94a3b8;">${i + 1}</td>
+        <td style="font-weight:600;color:${status === 'unsigned' ? '#94a3b8' : '#1e293b'};">${m.name}</td>
+        <td style="color:${typeColor};font-weight:${m.staffType ? 600 : 400};">${m.staffType || '—'}</td>
+        <td>${timeCell}</td>
+        <td>${sigCell}</td>
+        <td style="color:${note ? '#475569' : '#e2e8f0'};">${note || '—'}</td>
+      </tr>`
+    }).join('')
+
+    const win = window.open('', '_blank', 'width=900,height=700')
+    win.document.write(`<!DOCTYPE html><html><head>
+      <meta charset="utf-8">
+      <title>${training.title} 서명부</title>
+      <style>
+        @page { size: A4; margin: 12mm; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; font-size: 9pt; color: #1e293b; }
+        .title { font-size: 14pt; font-weight: 700; margin-bottom: 3px; }
+        .meta { font-size: 8pt; color: #64748b; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        colgroup col.no   { width: 28pt; }
+        colgroup col.name { width: 60pt; }
+        colgroup col.type { width: 44pt; }
+        colgroup col.time { width: 90pt; }
+        colgroup col.sig  { width: 76pt; }
+        colgroup col.note { width: auto; }
+        thead { display: table-header-group; }
+        thead tr th {
+          background: #f1f5f9; font-size: 7pt; font-weight: 700; color: #64748b;
+          text-transform: uppercase; letter-spacing: 0.04em;
+          padding: 5px 6px; border-bottom: 2px solid #cbd5e1;
+          text-align: left;
         }
-      }
-      pdf.save(`${training.title}_서명부.pdf`)
-    } catch (e) {
-      console.error(e)
-      alert('PDF 내보내기 중 오류가 발생했습니다.')
-    } finally {
-      setExporting('')
-    }
+        tbody tr { page-break-inside: avoid; }
+        tbody tr td { padding: 5px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+        img { display: block; }
+      </style>
+    </head><body>
+      <div class="title">${training.title}</div>
+      ${metaStr ? `<div class="meta">${metaStr}</div>` : ''}
+      <table>
+        <colgroup>
+          <col class="no"><col class="name"><col class="type"><col class="time"><col class="sig"><col class="note">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>순번</th><th>이름</th><th>구분</th><th>서명 일시</th><th>서명</th><th>비고</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <script>window.onload = function(){ window.print(); }<\/script>
+    </body></html>`)
+    win.document.close()
   }
 
   return (
@@ -445,10 +522,8 @@ function SignatureStatus({ training, signatures, id, canManage }) {
           <Button
             size="small" variant="outlined"
             onClick={handleExportPdf}
-            disabled={!!exporting}
-            startIcon={exporting === 'pdf' ? <CircularProgress size={14} /> : null}
           >
-            PDF 출력
+            PDF 인쇄
           </Button>
         </Box>
       </Box>
@@ -456,7 +531,8 @@ function SignatureStatus({ training, signatures, id, canManage }) {
       <Box id="sig-print-area" sx={{
         border: '1px solid #e2e8f0', borderRadius: 1.5, overflow: 'hidden', bgcolor: '#fff',
       }}>
-        <Box sx={{ px: 2.5, py: 1.75, borderBottom: '2px solid #e2e8f0', bgcolor: '#f8fafc' }}>
+        {/* 연수 제목 */}
+        <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
           <Typography fontWeight={700} fontSize="1rem">{training.title}</Typography>
           <Typography fontSize="0.8rem" color="text.secondary" mt={0.25}>
             {[training.date,
@@ -466,15 +542,44 @@ function SignatureStatus({ training, signatures, id, canManage }) {
           </Typography>
         </Box>
 
+        {/* 스크롤 영역 (헤더 sticky) */}
+        <Box sx={{ maxHeight: 540, overflow: 'auto' }}>
+        <Box sx={{ minWidth: `${totalW}px` }}>
+
+        {/* 헤더 */}
         <Box sx={{
-          display: 'grid', gridTemplateColumns: '44px 120px 72px 1fr 160px 140px',
-          px: 1.5, py: 0.75,
-          bgcolor: '#f1f5f9', borderBottom: '1px solid #e2e8f0',
-          fontSize: '0.78rem', fontWeight: 700, color: '#64748b',
+          display: 'grid',
+          gridTemplateColumns: gridCols,
+          bgcolor: '#f1f5f9',
+          borderBottom: '2px solid #cbd5e1',
+          fontSize: '0.7rem', fontWeight: 700, color: '#64748b',
+          letterSpacing: '0.04em', textTransform: 'uppercase',
+          position: 'sticky', top: 0, zIndex: 2,
         }}>
-          <span>순번</span><span>이름</span><span>구분</span><span>서명 시각</span><span>서명</span><span>비고</span>
+          {['순번', '이름', '구분', '서명 일시', '서명', '비고'].map((h, ci) => (
+            <Box key={ci} sx={{
+              px: 1.5, py: 0.875, position: 'relative', userSelect: 'none',
+              borderRight: ci < 5 ? '1px solid #e2e8f0' : 'none',
+            }}>
+              {h}
+              {ci < 5 && (
+                <Box
+                  onMouseDown={(e) => startResize(ci, e)}
+                  sx={{
+                    position: 'absolute', right: -3, top: 0, bottom: 0,
+                    width: 6, cursor: 'col-resize', zIndex: 3,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    '&:hover .rh': { bgcolor: '#4f46e5' },
+                  }}
+                >
+                  <Box className="rh" sx={{ width: 2, height: '55%', bgcolor: '#cbd5e1', borderRadius: 1, transition: 'background 0.15s' }} />
+                </Box>
+              )}
+            </Box>
+          ))}
         </Box>
 
+        {/* 행 */}
         {members.length === 0 ? (
           <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary', fontSize: '0.88rem' }}>
             명단이 비어 있습니다. 명단 편집 탭에서 추가하세요.
@@ -482,35 +587,71 @@ function SignatureStatus({ training, signatures, id, canManage }) {
         ) : members.map((m, i) => {
           const sig = signatures[m.uid]
           const note = notes[m.uid] || ''
+          const status = sig ? 'signed' : note ? 'noted' : 'unsigned'
+          const borderColor = status === 'signed' ? '#22c55e' : status === 'noted' ? '#94a3b8' : '#f59e0b'
           return (
             <Box key={i} sx={{
-              display: 'grid', gridTemplateColumns: '44px 120px 72px 1fr 160px 140px',
-              px: 1.5, py: 0.75,
+              display: 'grid',
+              gridTemplateColumns: gridCols,
               borderBottom: i < members.length - 1 ? '1px solid #f1f5f9' : 'none',
-              bgcolor: sig ? '#fff' : note ? '#f0fdf4' : '#fffbeb',
-              alignItems: 'center',
-              minHeight: 52,
+              borderLeft: `3px solid ${borderColor}`,
+              bgcolor: status === 'unsigned' ? '#fffdf7' : '#fff',
+              alignItems: 'stretch',
+              minHeight: 48,
+              transition: 'background 0.1s',
+              '&:hover': { bgcolor: '#f8fafc' },
             }}>
-              <Typography fontSize="0.8rem" color="text.disabled">{i + 1}</Typography>
-              <Typography fontSize="0.88rem" fontWeight={sig ? 600 : 400}>{m.name}</Typography>
-              <Typography fontSize="0.78rem" sx={{
-                color: m.staffType === '교사' ? '#0369a1'
-                  : m.staffType === '교직원' ? '#15803d' : 'text.disabled',
-                fontWeight: m.staffType ? 600 : 400,
-              }}>
-                {m.staffType || '—'}
-              </Typography>
-              <Typography fontSize="0.78rem" color={sig ? 'text.secondary' : 'warning.main'}>
-                {sig ? sig.signedAt?.toDate().toLocaleString('ko-KR') : '미서명'}
-              </Typography>
-              <Box sx={{ height: 44, display: 'flex', alignItems: 'center' }}>
-                {sig?.signatureData && (
+              {/* 순번 */}
+              <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center', borderRight: '1px solid #f1f5f9' }}>
+                <Typography fontSize="0.78rem" color="text.disabled">{i + 1}</Typography>
+              </Box>
+              {/* 이름 */}
+              <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center', gap: 1, borderRight: '1px solid #f1f5f9' }}>
+                <Typography fontSize="0.88rem" fontWeight={600} color={status === 'unsigned' ? '#94a3b8' : '#1e293b'}>
+                  {m.name}
+                </Typography>
+                {status === 'signed' && (
+                  <Box sx={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 700 }}>✓</Box>
+                )}
+              </Box>
+              {/* 구분 */}
+              <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center', borderRight: '1px solid #f1f5f9' }}>
+                <Typography fontSize="0.76rem" fontWeight={m.staffType ? 600 : 400} sx={{
+                  color: m.staffType === '교사' ? '#0369a1'
+                    : m.staffType === '교직원' ? '#15803d' : '#cbd5e1',
+                }}>
+                  {m.staffType || '—'}
+                </Typography>
+              </Box>
+              {/* 서명 일시 */}
+              <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center', borderRight: '1px solid #f1f5f9' }}>
+                {sig ? (
+                  <Typography fontSize="0.76rem" color="text.secondary">
+                    {sig.signedAt?.toDate().toLocaleString('ko-KR')}
+                  </Typography>
+                ) : (
+                  <Box sx={{
+                    display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                    px: 0.75, py: 0.25, borderRadius: 1,
+                    bgcolor: status === 'noted' ? '#f1f5f9' : '#fef3c7',
+                    color: status === 'noted' ? '#64748b' : '#b45309',
+                    fontSize: '0.72rem', fontWeight: 600,
+                  }}>
+                    {status === 'noted' ? '불참(사유있음)' : '미서명'}
+                  </Box>
+                )}
+              </Box>
+              {/* 서명 이미지 */}
+              <Box sx={{ px: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #f1f5f9' }}>
+                {sig?.signatureData ? (
                   <img src={sig.signatureData} alt="서명"
-                    style={{ maxHeight: 40, maxWidth: 150, objectFit: 'contain' }} />
+                    style={{ maxHeight: 36, maxWidth: 100, objectFit: 'contain', display: 'block' }} />
+                ) : (
+                  <Box sx={{ width: 60, height: 2, bgcolor: '#e2e8f0', borderRadius: 1 }} />
                 )}
               </Box>
               {/* 비고 */}
-              <Box sx={{ display: 'flex', alignItems: 'center', minHeight: 32 }}>
+              <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center' }}>
                 {canManage && editingNote === m.uid ? (
                   <TextField
                     size="small" autoFocus
@@ -521,24 +662,30 @@ function SignatureStatus({ training, signatures, id, canManage }) {
                       if (e.key === 'Enter') saveNote(m.uid)
                       if (e.key === 'Escape') setEditingNote(null)
                     }}
-                    sx={{ width: 120 }}
+                    sx={{ width: '100%' }}
                     inputProps={{ style: { fontSize: '0.76rem', padding: '4px 8px' } }}
                   />
                 ) : (
                   <Typography
-                    fontSize="0.78rem"
-                    color={note ? '#15803d' : 'text.disabled'}
-                    fontWeight={note ? 600 : 400}
+                    fontSize="0.76rem"
+                    color={note ? '#475569' : '#cbd5e1'}
+                    fontWeight={note ? 500 : 400}
                     onClick={() => canManage && startEditNote(m.uid, note)}
-                    sx={{ cursor: canManage ? 'pointer' : 'default', '&:hover': canManage ? { textDecoration: 'underline' } : {} }}
+                    sx={{
+                      cursor: canManage ? 'pointer' : 'default',
+                      width: '100%',
+                      '&:hover': canManage ? { color: '#4f46e5' } : {},
+                    }}
                   >
-                    {note || (canManage ? '— 클릭하여 입력' : '—')}
+                    {note || (canManage ? '+ 비고 입력' : '—')}
                   </Typography>
                 )}
               </Box>
             </Box>
           )
         })}
+        </Box>{/* minWidth 끝 */}
+        </Box>{/* 스크롤 영역 끝 */}
       </Box>
     </Box>
   )
@@ -614,8 +761,13 @@ function MySignature({ id, user, training, signatures }) {
     return (
       <Box py={6} textAlign="center" color="text.secondary">
         <Typography fontSize="2rem" mb={1}>🔒</Typography>
-        <Typography fontWeight={600} mb={0.5}>서명 대상자가 아닙니다</Typography>
+        <Typography fontWeight={600} mb={0.5} color="text.primary">서명 대상자가 아닙니다</Typography>
         <Typography fontSize="0.84rem">명단에 포함되어 있지 않습니다. 주관자에게 문의하세요.</Typography>
+        {training.createdByName && (
+          <Typography fontSize="0.84rem" mt={1.5}>
+            주관자: <strong style={{ color: '#1e293b' }}>{training.createdByName}</strong>
+          </Typography>
+        )}
       </Box>
     )
   }

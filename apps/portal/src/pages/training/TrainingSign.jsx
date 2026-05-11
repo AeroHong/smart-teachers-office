@@ -216,8 +216,13 @@ function MobileSignaturePad({ id, user, training, signatures }) {
     return (
       <Box textAlign="center" py={6} color="text.secondary">
         <Typography fontSize="2rem" mb={1}>🔒</Typography>
-        <Typography fontWeight={600} mb={0.5}>서명 대상자가 아닙니다</Typography>
+        <Typography fontWeight={600} mb={0.5} color="text.primary">서명 대상자가 아닙니다</Typography>
         <Typography fontSize="0.84rem">명단에 포함되어 있지 않습니다. 주관자에게 문의하세요.</Typography>
+        {training.createdByName && (
+          <Typography fontSize="0.84rem" mt={1.5}>
+            주관자: <strong style={{ color: '#1e293b' }}>{training.createdByName}</strong>
+          </Typography>
+        )}
       </Box>
     )
   }
