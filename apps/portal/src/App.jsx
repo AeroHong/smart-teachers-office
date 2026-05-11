@@ -14,14 +14,14 @@ import CoverMypage from './pages/cover/CoverMypage'
 import CoverStatus from './pages/cover/CoverStatus'
 
 // 출결 - lazy load (무거운 번들 분리)
-const TeacherDashboard   = lazy(() => import('./pages/attendance/TeacherDashboard'))
-const StudentList        = lazy(() => import('./pages/attendance/StudentList'))
-const EventCreate        = lazy(() => import('./pages/attendance/EventCreate'))
-const EventEdit          = lazy(() => import('./pages/attendance/EventEdit'))
+const TeacherDashboard    = lazy(() => import('./pages/attendance/TeacherDashboard'))
+const StudentList         = lazy(() => import('./pages/attendance/StudentList'))
+const EventCreate         = lazy(() => import('./pages/attendance/EventCreate'))
+const EventEdit           = lazy(() => import('./pages/attendance/EventEdit'))
 const AttendanceDashboard = lazy(() => import('./pages/attendance/AttendanceDashboard'))
-const StatsDashboard     = lazy(() => import('./pages/attendance/StatsDashboard'))
-const StudentCheckin     = lazy(() => import('./pages/attendance/StudentCheckin'))
-const Admin              = lazy(() => import('./pages/attendance/Admin'))
+const StatsDashboard      = lazy(() => import('./pages/attendance/StatsDashboard'))
+const StudentCheckin      = lazy(() => import('./pages/attendance/StudentCheckin'))
+const Admin               = lazy(() => import('./pages/attendance/Admin'))
 
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
@@ -29,6 +29,9 @@ const TrainingCreate  = lazy(() => import('./pages/training/TrainingCreate'))
 const TrainingDetail  = lazy(() => import('./pages/training/TrainingDetail'))
 const TrainingSign    = lazy(() => import('./pages/training/TrainingSign'))
 const TrainingPresets = lazy(() => import('./pages/training/TrainingPresets'))
+
+// 슈퍼 어드민 - lazy load
+const SuperAdmin = lazy(() => import('./pages/SuperAdmin'))
 
 function PageLoader() {
   return (
@@ -72,6 +75,9 @@ export default function App() {
           <Route path="/training/presets"      element={<ProtectedRoute adminOnly><TrainingPresets /></ProtectedRoute>} />
           <Route path="/training/:id/sign"     element={<ProtectedRoute anyUser><TrainingSign /></ProtectedRoute>} />
           <Route path="/training/:id"          element={<ProtectedRoute anyUser><TrainingDetail /></ProtectedRoute>} />
+
+          {/* ── 슈퍼 어드민 ── */}
+          <Route path="/super-admin" element={<ProtectedRoute superAdminOnly><SuperAdmin /></ProtectedRoute>} />
         </Routes>
       </Suspense>
     </BrowserRouter>

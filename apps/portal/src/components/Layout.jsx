@@ -99,7 +99,7 @@ function getSectionLabel(pathname) {
 const SIDEBAR_WIDTH = 220
 
 export default function Layout({ children, wide = false }) {
-  const { user, role, logout } = useAuth()
+  const { user, role, schoolName, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [anchorEl, setAnchorEl] = useState(null)
@@ -128,6 +128,12 @@ export default function Layout({ children, wide = false }) {
 
   const pageTitle = getPageTitle(location.pathname)
   const sectionLabel = getSectionLabel(location.pathname)
+
+  // 탭 타이틀 동적 업데이트
+  useEffect(() => {
+    const base = schoolName ? `${schoolName} 스마트 교무실` : '스마트 교무실'
+    document.title = pageTitle ? `${pageTitle} — ${base}` : base
+  }, [schoolName, pageTitle])
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -204,7 +210,7 @@ export default function Layout({ children, wide = false }) {
             }}
           >
             <span style={{ fontSize: '1.1rem' }}>🏫</span>
-            선유고 스마트교무실
+            {schoolName ? `${schoolName} 스마트교무실` : '스마트 교무실'}
           </Typography>
         </Box>
 

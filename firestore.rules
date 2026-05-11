@@ -12,8 +12,18 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function isSuperAdmin() {
+      return isSignedIn() && request.auth.token.email == 'hckgood@gmail.com';
+    }
+
     function isAdmin() {
       return isSignedIn() && getUserData().role in ['admin', 'school_admin'];
+    }
+
+    function isSchoolAdmin(schoolId) {
+      return isSignedIn() &&
+        getUserData().role in ['admin', 'school_admin'] &&
+        getUserData().schoolId == schoolId;
     }
 
     function isTeacher(schoolId) {
@@ -22,59 +32,69 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
-    // ── /users 컬렉션 ───────────────────────────────────────────
+    // ── /schoolDomains 컬렉션 ──────────────────────────────────
+    match /schoolDomains/{domain} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
+    // ── /users 컬렉션 ─────────────────────────────────────────
     match /users/{uid} {
-      // 본인 문서 읽기 (role 확인용)
       allow read: if isSignedIn() && request.auth.uid == uid;
-      // 첫 로그인 시 문서 생성: 교사는 pending, 학생은 student
       allow create: if isSignedIn() && request.auth.uid == uid
-                    && request.resource.data.role in ['pending', 'student'];
-      // 본인 정보 갱신 허용 (이름·familyName 등, role·schoolId는 변경 불가), 관리자는 모든 변경 가능
-      allow update: if isAdmin() ||
+                    && request.resource.data.role in ['pending', 'student', 'school_admin'];
+      allow update: if isSuperAdmin() || isAdmin() ||
                     (isSignedIn() && request.auth.uid == uid &&
                      request.resource.data.role == resource.data.role &&
                      request.resource.data.schoolId == resource.data.schoolId);
-      // 관리자 전체 목록 + 교사는 학생 계정만 조회 가능
-      allow list: if isAdmin() || isSignedIn();
+      allow list: if isSuperAdmin() || isAdmin() || isSignedIn();
     }
 
-    // ── /schools 컬렉션 ────────────────────────────────────────
+    // ── /schools 컬렉션 ───────────────────────────────────────
     match /schools/{schoolId} {
-      allow read: if isTeacher(schoolId);
-      allow write: if false;
+      allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+      allow write: if isSuperAdmin();
+
+      // 보강 신청 ──────────────────────────────────────────────
+      match /coverRequests/{requestId} {
+        allow read: if isSignedIn();
+        // 생성: 학교 관리자만
+        allow create: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        // 수정: 로그인한 사용자 (신청/취소)
+        allow update: if isSignedIn();
+        // 삭제: 관리자만
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
 
       match /teachers/{teacherId} {
-        allow read, write: if isTeacher(schoolId);
+        allow read, write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
       match /students/{studentId} {
-        allow read: if isTeacher(schoolId) || isSignedIn();
-        allow write: if isTeacher(schoolId);
+        allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+        allow write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
       match /studentGroups/{groupId} {
-        // 학교 교사(schoolId 일치): 전체 접근
-        // 본인이 생성한 그룹: schoolId 불일치여도 본인은 항상 접근 가능
-        allow read: if isTeacher(schoolId) ||
+        allow read: if isSuperAdmin() || isTeacher(schoolId) ||
           (isSignedIn() && resource.data.createdBy == request.auth.uid);
-        allow write: if isTeacher(schoolId) ||
+        allow write: if isSuperAdmin() || isTeacher(schoolId) ||
           (isSignedIn() && (resource.data.createdBy == request.auth.uid ||
                             request.resource.data.createdBy == request.auth.uid));
       }
 
       match /courses/{courseId} {
-        allow read: if isTeacher(schoolId);
-        allow write: if isTeacher(schoolId);
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
       match /events/{eventId} {
-        allow read: if isTeacher(schoolId) || isSignedIn();
-        allow write: if isTeacher(schoolId);
+        allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+        allow write: if isSuperAdmin() || isTeacher(schoolId);
 
         match /attendanceLogs/{logId} {
-          allow read: if isTeacher(schoolId) || isSignedIn();
-          // 교사 수정 또는 qrToken/liveToken 일치 시 학생 write 허용
-          allow write: if isTeacher(schoolId) ||
+          allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+          allow write: if isSuperAdmin() || isTeacher(schoolId) ||
             get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.qrToken
               == request.resource.data.qrToken ||
             get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.liveToken
@@ -83,20 +103,27 @@ service cloud.firestore {
       }
 
       match /trainings/{trainingId} {
-        allow read: if isTeacher(schoolId);
-        allow create: if isTeacher(schoolId);
-        allow update: if isTeacher(schoolId);
-        allow delete: if isAdmin() || (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow create: if isSuperAdmin() || isTeacher(schoolId);
+        allow update: if isSuperAdmin() || isTeacher(schoolId);
+        allow delete: if isSuperAdmin() || isAdmin() ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
 
         match /signatures/{signatureId} {
-          allow read: if isTeacher(schoolId);
-          allow write: if isTeacher(schoolId) && request.auth.uid == signatureId;
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow write: if isSuperAdmin() ||
+            (isTeacher(schoolId) && request.auth.uid == signatureId);
         }
       }
 
       match /trainingPresets/{presetId} {
-        allow read: if isTeacher(schoolId);
-        allow write: if isAdmin();
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isAdmin();
+      }
+
+      match /preApproved/{emailId} {
+        allow read: if isSignedIn();
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
     }
   }

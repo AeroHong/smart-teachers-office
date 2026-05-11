@@ -6,8 +6,7 @@ import {
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 
-const SCHOOL_DOMAIN = 'seonyoo.hs.kr'
-export const SCHOOL_ID = 'seonyoo-hs'
+const SUPER_ADMIN_EMAIL = 'hckgood@gmail.com'
 
 const googleProvider = new GoogleAuthProvider()
 
@@ -24,16 +23,31 @@ function parseStudentEmail(email) {
 
 const KNOWN_STAFF_TYPES = ['교사', '교직원']
 
+// 이메일 도메인으로 학교 정보 조회
+async function lookupSchoolByDomain(domain) {
+  try {
+    const snap = await getDoc(doc(db, 'schoolDomains', domain))
+    if (snap.exists()) return snap.data()  // { schoolId, schoolName }
+  } catch (e) {
+    console.error('학교 도메인 조회 실패:', e)
+  }
+  return null
+}
+
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [userName, setUserName] = useState('')   // Firestore name (given name)
+  const [userName, setUserName] = useState('')
   const [schoolId, setSchoolId] = useState(null)
+  const [schoolName, setSchoolName] = useState('')
+  const [coverApiUrl, setCoverApiUrl] = useState(null)
   const [role, setRole] = useState(null)
   const [studentId, setStudentId] = useState(null)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [domainError, setDomainError] = useState(false)
+  // null = 확인 전, true = 등록됨, false = 미등록 도메인
+  const [domainRegistered, setDomainRegistered] = useState(null)
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -43,14 +57,38 @@ export function AuthProvider({ children }) {
           const email = firebaseUser.email || ''
           const domain = email.split('@')[1]
 
-          if (domain !== SCHOOL_DOMAIN) {
-            await signOut(auth)
-            setDomainError(true)
+          // ── 슈퍼 어드민 ──────────────────────────────────────────
+          if (email.toLowerCase() === SUPER_ADMIN_EMAIL) {
+            setUser(firebaseUser)
+            setUserName(firebaseUser.displayName || '')
+            setRole('super_admin')
+            setIsSuperAdmin(true)
+            setSchoolId(null)
+            setSchoolName('')
+            setStudentId(null)
+            setDomainRegistered(true)
             return
           }
 
-          setDomainError(false)
-          const { isStudent, studentId: sid } = parseStudentEmail(email)
+          // ── 도메인으로 학교 조회 ──────────────────────────────────
+          const schoolInfo = await lookupSchoolByDomain(domain)
+
+          if (!schoolInfo) {
+            // 미등록 도메인: 로그인 상태 유지, 안내 화면 표시
+            setUser(firebaseUser)
+            setUserName(firebaseUser.displayName || '')
+            setRole('unregistered')
+            setIsSuperAdmin(false)
+            setSchoolId(null)
+            setSchoolName('')
+            setStudentId(null)
+            setDomainRegistered(false)
+            return
+          }
+
+          setDomainRegistered(true)
+          const { schoolId: sid, schoolName: sName, coverApiUrl: coverUrl = null } = schoolInfo
+          const { isStudent, studentId: stid } = parseStudentEmail(email)
 
           if (isStudent) {
             const userRef = doc(db, 'users', firebaseUser.uid)
@@ -58,23 +96,25 @@ export function AuthProvider({ children }) {
               name: firebaseUser.displayName || '',
               email,
               role: 'student',
-              schoolId: SCHOOL_ID,
-              studentId: sid,
+              schoolId: sid,
+              studentId: stid,
               updatedAt: serverTimestamp(),
             }, { merge: true })
 
             setUser(firebaseUser)
             setUserName(firebaseUser.displayName || '')
             setRole('student')
-            setSchoolId(SCHOOL_ID)
-            setStudentId(sid)
+            setSchoolId(sid)
+            setSchoolName(sName)
+            setCoverApiUrl(coverUrl)
+            setStudentId(stid)
+            setIsSuperAdmin(false)
           } else {
-            // Google 프로필 소비 (signInWithPopup 직후에만 세팅됨)
             const profile = _pendingGoogleProfile
             _pendingGoogleProfile = null
 
-            const givenName = profile?.given_name || ''
-            const familyName = profile?.family_name || ''
+            const displayName = firebaseUser.displayName || ''
+            const familyName = profile?.family_name || ''  // staffType 자동 감지용
 
             const userRef = doc(db, 'users', firebaseUser.uid)
             const userDoc = await getDoc(userRef)
@@ -82,48 +122,81 @@ export function AuthProvider({ children }) {
             if (userDoc.exists()) {
               const data = userDoc.data()
 
-              // 로그인 시 Google 프로필로 이름 동기화
-              if (givenName) {
-                const updates = { name: givenName, familyName }
-                // staffType 미설정 상태이면 성(familyName)으로 자동 추론
-                if (!data.staffType && KNOWN_STAFF_TYPES.includes(familyName)) {
-                  updates.staffType = familyName
-                }
+              const updates = {}
+              if (displayName) {
+                updates.name = displayName
+              }
+              if (familyName && !data.staffType && KNOWN_STAFF_TYPES.includes(familyName)) {
+                updates.staffType = familyName
+              }
+              // schoolId가 미설정인 경우 도메인 조회 결과로 자동 보정
+              if (!data.schoolId && sid) {
+                updates.schoolId = sid
+              }
+              if (Object.keys(updates).length > 0) {
                 await updateDoc(userRef, updates)
               }
 
               setRole(data.role)
-              setSchoolId(data.schoolId || null)
+              setSchoolId(data.schoolId || sid)
+              setSchoolName(sName)
+              setCoverApiUrl(coverUrl)
               setStudentId(null)
               setUser(firebaseUser)
-              setUserName(givenName || data.name || firebaseUser.displayName || '')
+              setUserName(displayName || data.name || '')
+              setIsSuperAdmin(false)
             } else {
-              // 최초 가입: Google 프로필에서 이름/구분 자동 설정
-              const name = givenName || firebaseUser.displayName || ''
               const autoStaffType = KNOWN_STAFF_TYPES.includes(familyName) ? familyName : ''
+              const isDesignatedAdmin = schoolInfo.adminEmail &&
+                email.toLowerCase() === schoolInfo.adminEmail.toLowerCase()
+
+              // 사전 등록 명단 확인 (school_admin이 미리 등록해둔 경우 자동 승인)
+              let finalRole = isDesignatedAdmin ? 'school_admin' : 'pending'
+              let finalStaffType = autoStaffType
+              let finalName = displayName
+              if (!isDesignatedAdmin) {
+                try {
+                  const preDocId = email.toLowerCase().replace(/\./g, '_').replace(/@/g, '__at__')
+                  const preRef = doc(db, 'schools', sid, 'preApproved', preDocId)
+                  const preSnap = await getDoc(preRef)
+                  if (preSnap.exists()) {
+                    const pre = preSnap.data()
+                    finalRole = pre.role || 'teacher'
+                    finalStaffType = pre.staffType || autoStaffType
+                  }
+                } catch (e) {
+                  console.warn('사전 등록 확인 실패:', e)
+                }
+              }
+
               await setDoc(userRef, {
-                name,
-                familyName,
+                name: finalName,
                 email,
-                role: 'pending',
-                schoolId: null,
-                staffType: autoStaffType,
+                role: finalRole,
+                schoolId: sid,
+                staffType: finalStaffType,
                 createdAt: serverTimestamp(),
               })
-              setRole('pending')
-              setSchoolId(null)
+              setRole(finalRole)
+              setSchoolId(sid)
+              setSchoolName(sName)
+              setCoverApiUrl(coverUrl)
               setStudentId(null)
               setUser(firebaseUser)
-              setUserName(name)
+              setUserName(finalName)
+              setIsSuperAdmin(false)
             }
           }
         } else {
           setUser(null)
           setUserName('')
           setSchoolId(null)
+          setSchoolName('')
+          setCoverApiUrl(null)
           setRole(null)
           setStudentId(null)
-          setDomainError(false)
+          setIsSuperAdmin(false)
+          setDomainRegistered(null)
         }
       } catch (err) {
         console.error('인증 처리 오류:', err)
@@ -131,6 +204,8 @@ export function AuthProvider({ children }) {
         setUserName('')
         setRole(null)
         setSchoolId(null)
+        setSchoolName('')
+        setIsSuperAdmin(false)
       } finally {
         setLoading(false)
       }
@@ -150,9 +225,9 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, userName, schoolId, role, studentId,
-      loading, domainError,
-      login, logout, SCHOOL_ID,
+      user, userName, schoolId, schoolName, coverApiUrl, role, studentId,
+      isSuperAdmin, loading, domainRegistered,
+      login, logout,
     }}>
       {children}
     </AuthContext.Provider>

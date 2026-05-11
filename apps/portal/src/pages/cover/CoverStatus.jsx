@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react'
-import Layout from '../../components/Layout'
+import { useState, useEffect, useMemo } from 'react'
+import {
+  collection, query, orderBy, onSnapshot,
+} from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
+import Layout from '../../components/Layout'
 
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
@@ -23,14 +27,7 @@ import InputLabel from '@mui/material/InputLabel'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 
-// Apps Script API 주소 (기존 status.js 그대로)
-const API_URL =
-  'https://script.google.com/macros/s/AKfycbxlsUlIWiKDopF1w9ke4Bt97szdAHcF83L26C9lCdqxu6ck4topHDs3FRy7ZWeWDf-9/exec'
-
-// 메달 이모지 (1~3위)
 const MEDALS = ['🥇', '🥈', '🥉']
-
-// 행/페이지 옵션
 const ROWS_OPTIONS = [
   { value: 10, label: '10개씩 보기' },
   { value: 50, label: '50개씩 보기' },
@@ -38,158 +35,109 @@ const ROWS_OPTIONS = [
   { value: 'all', label: '전체 보기' },
 ]
 
+function parseMonthKey(dateStr) {
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})/)
+  if (!m) return null
+  return `${parseInt(m[1])}년 ${parseInt(m[2])}월`
+}
+
 export default function CoverStatus() {
-  const { user } = useAuth()
+  const { user, schoolId } = useAuth()
 
-  // 전체 데이터
   const [allHistory, setAllHistory] = useState([])
-  const [stats, setStats] = useState([])   // 교사명단 기반 통계 { name, email, totalCount, monthCount }
-
-  // 로딩/에러
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // 필터 상태
-  const [selectedMonth, setSelectedMonth] = useState('') // '' = 아직 미확정 (초기 설정용)
-  const [monthOptions, setMonthOptions] = useState([])
+  const [selectedMonth, setSelectedMonth] = useState('')
   const [rowsPerPage, setRowsPerPage] = useState(10)
-
-  // 페이지네이션
   const [currentPage, setCurrentPage] = useState(1)
-
-  // 명예의 전당 탭: 'month' = 선택 월, 'total' = 학기 전체
   const [hallTab, setHallTab] = useState('month')
 
-  // 목록 + 교사명단 통계 동시 호출
+  // Firestore 실시간 구독 (전체 기록)
   useEffect(() => {
-    const fetchAllData = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        // 목록과 통계를 별도 try-catch로 분리 — 한쪽 실패해도 다른 쪽은 표시
-        const historyRes  = await fetch(API_URL)
-        const historyData = await historyRes.json()
+    if (!user || !schoolId) return
 
-        // 교사명단 통계 (실패해도 목록은 유지)
-        try {
-          const statsRes  = await fetch(`${API_URL}?action=getStats`)
-          const statsData = await statsRes.json()
-          console.log('[getStats]', statsData)
-          // { stats: [...], _debug: {...} } 형태로 오면 분리, 아니면 배열 그대로
-          const statsArray = Array.isArray(statsData) ? statsData : (statsData?.stats ?? [])
-          if (statsData?._debug) console.log('[getStats 헤더진단]', statsData._debug)
-          if (statsArray.length > 0) setStats(statsArray)
-        } catch (e) {
-          console.warn('getStats 실패:', e)
-        }
+    const q = query(
+      collection(db, 'schools', schoolId, 'coverRequests'),
+      orderBy('date', 'desc')
+    )
 
-        // 날짜 파싱 + monthKey 추가
-        const parsed = historyData
-          .map(item => {
-            const match = String(item.date).match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/)
-            if (!match) return null
-            const parsedDate = new Date(
-              parseInt(match[1]),
-              parseInt(match[2]) - 1,
-              parseInt(match[3])
-            )
-            const monthKey = `${match[1]}년 ${parseInt(match[2])}월`
-            return { ...item, parsedDate, monthKey }
-          })
-          .filter(Boolean)
+    const unsub = onSnapshot(q, snap => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setAllHistory(data)
+      setLoading(false)
+    }, err => {
+      setError(err.message)
+      setLoading(false)
+    })
 
-        // 날짜 내림차순 정렬
-        parsed.sort((a, b) => b.parsedDate - a.parsedDate)
+    return unsub
+  }, [user, schoolId])
 
-        setAllHistory(parsed)
+  // 월 옵션 및 기본 선택
+  const monthOptions = useMemo(() => {
+    const keys = [...new Set(allHistory.map(r => parseMonthKey(r.date)).filter(Boolean))]
+    return keys.sort().reverse()
+  }, [allHistory])
 
-        // 월 필터 옵션 구성
-        const uniqueMonths = [...new Set(parsed.map(item => item.monthKey))]
-        setMonthOptions(uniqueMonths)
+  useEffect(() => {
+    if (monthOptions.length === 0) return
+    const now = new Date()
+    const curKey = `${now.getFullYear()}년 ${now.getMonth() + 1}월`
+    setSelectedMonth(monthOptions.includes(curKey) ? curKey : monthOptions[0])
+  }, [monthOptions])
 
-        // 이번 달을 기본 선택
-        const now = new Date()
-        const currentMonthKey = `${now.getFullYear()}년 ${now.getMonth() + 1}월`
-        setSelectedMonth(
-          uniqueMonths.includes(currentMonthKey) ? currentMonthKey : 'all'
-        )
-      } catch (err) {
-        console.error('데이터 로딩 실패:', err)
-        setError('데이터를 불러오지 못했습니다. 새로고침 해주세요.')
-      } finally {
-        setLoading(false)
-      }
-    }
+  // 명예의 전당 통계 계산
+  const stats = useMemo(() => {
+    const map = {}
+    allHistory.filter(r => r.coverTeacher && r.coverTeacherEmail).forEach(r => {
+      const key = r.coverTeacherEmail
+      if (!map[key]) map[key] = { name: r.coverTeacher, email: r.coverTeacherEmail, totalCount: 0, monthCount: 0 }
+      map[key].totalCount++
+      if (parseMonthKey(r.date) === selectedMonth) map[key].monthCount++
+    })
+    return Object.values(map)
+  }, [allHistory, selectedMonth])
 
-    if (user) fetchAllData()
-  }, [user])
-
-  // 명예의 전당: 탭에 따라 정렬 기준 전환 (서버 통계 사용)
-  const hallStats = hallTab === 'total'
-    ? [...stats].sort((a, b) => b.totalCount - a.totalCount)
-    : [...stats].sort((a, b) => b.monthCount - a.monthCount)
-
-  // 필터 + 페이지네이션 계산
-  const filteredData =
-    selectedMonth === 'all' || selectedMonth === ''
-      ? allHistory
-      : allHistory.filter(item => item.monthKey === selectedMonth)
-
-  const effectiveRows =
-    rowsPerPage === 'all' ? filteredData.length || 1 : rowsPerPage
-
-  const totalPages = Math.ceil(filteredData.length / effectiveRows) || 1
-
-  const paginatedData = filteredData.slice(
-    (currentPage - 1) * effectiveRows,
-    currentPage * effectiveRows
+  const hallStats = [...stats].sort((a, b) =>
+    hallTab === 'total' ? b.totalCount - a.totalCount : b.monthCount - a.monthCount
   )
 
-  // 필터 변경 시 1페이지로 초기화
-  const handleMonthChange = (e) => {
-    setSelectedMonth(e.target.value)
-    setCurrentPage(1)
-  }
-  const handleRowsChange = (e) => {
-    setRowsPerPage(e.target.value)
-    setCurrentPage(1)
-  }
+  // 필터 + 페이지네이션
+  const filteredData = selectedMonth === 'all' || !selectedMonth
+    ? allHistory
+    : allHistory.filter(r => parseMonthKey(r.date) === selectedMonth)
+
+  const effectiveRows = rowsPerPage === 'all' ? Math.max(filteredData.length, 1) : rowsPerPage
+  const totalPages = Math.max(Math.ceil(filteredData.length / effectiveRows), 1)
+  const paginatedData = filteredData.slice((currentPage - 1) * effectiveRows, currentPage * effectiveRows)
+
+  const handleMonthChange = e => { setSelectedMonth(e.target.value); setCurrentPage(1) }
+  const handleRowsChange  = e => { setRowsPerPage(e.target.value); setCurrentPage(1) }
 
   return (
     <Layout>
-      <Typography variant="h5" sx={{ mb: 3 }}>
-        보강 종합 현황판
-      </Typography>
+      <Typography variant="h5" sx={{ mb: 3 }}>보강 종합 현황판</Typography>
 
-      {/* 로딩 */}
       {loading && (
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 10, gap: 2 }}>
           <CircularProgress />
-          <Typography color="primary" fontWeight={600}>
-            데이터를 불러오는 중입니다...
-          </Typography>
+          <Typography color="primary" fontWeight={600}>데이터를 불러오는 중입니다...</Typography>
         </Box>
       )}
 
-      {/* 에러 */}
-      {!loading && error && (
-        <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>
-      )}
+      {!loading && error && <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>}
 
-      {/* 대시보드 콘텐츠 */}
       {!loading && !error && (
         <Grid container spacing={3} alignItems="flex-start">
-          {/* ─── 왼쪽: 보강 운영 현황 (2/3 너비) ─── */}
+          {/* ─── 좌: 보강 운영 현황 ─── */}
           <Grid item xs={12} lg={8}>
             <Card sx={{ display: 'flex', flexDirection: 'column' }}>
               {/* 헤더 + 필터 */}
               <Box
                 sx={{
-                  px: 3,
-                  py: 2,
-                  borderBottom: '1px solid',
-                  borderColor: 'divider',
-                  bgcolor: 'grey.50',
+                  px: 3, py: 2,
+                  borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50',
                   display: 'flex',
                   flexDirection: { xs: 'column', sm: 'row' },
                   justifyContent: 'space-between',
@@ -204,31 +152,17 @@ export default function CoverStatus() {
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {/* 월 필터 */}
                   <FormControl size="small" sx={{ minWidth: 130 }}>
                     <InputLabel>월 선택</InputLabel>
-                    <Select
-                      value={selectedMonth}
-                      label="월 선택"
-                      onChange={handleMonthChange}
-                    >
+                    <Select value={selectedMonth} label="월 선택" onChange={handleMonthChange}>
                       <MenuItem value="all">전체 월 보기</MenuItem>
-                      {monthOptions.map(m => (
-                        <MenuItem key={m} value={m}>{m}</MenuItem>
-                      ))}
+                      {monthOptions.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
                     </Select>
                   </FormControl>
-                  {/* 행 수 필터 */}
                   <FormControl size="small" sx={{ minWidth: 130 }}>
                     <InputLabel>표시 개수</InputLabel>
-                    <Select
-                      value={rowsPerPage}
-                      label="표시 개수"
-                      onChange={handleRowsChange}
-                    >
-                      {ROWS_OPTIONS.map(opt => (
-                        <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-                      ))}
+                    <Select value={rowsPerPage} label="표시 개수" onChange={handleRowsChange}>
+                      {ROWS_OPTIONS.map(opt => <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Box>
@@ -240,11 +174,8 @@ export default function CoverStatus() {
                   <TableHead>
                     <TableRow sx={{ bgcolor: 'grey.100' }}>
                       {['날짜', '대상(교시)', '결강교사(과목)', '상태', '신청교사'].map(h => (
-                        <TableCell
-                          key={h}
-                          align={h === '상태' ? 'center' : 'left'}
-                          sx={{ fontWeight: 700, fontSize: '0.78rem', color: 'text.secondary', textTransform: 'uppercase' }}
-                        >
+                        <TableCell key={h} align={h === '상태' ? 'center' : 'left'}
+                          sx={{ fontWeight: 700, fontSize: '0.78rem', color: 'text.secondary', textTransform: 'uppercase' }}>
                           {h}
                         </TableCell>
                       ))}
@@ -258,12 +189,8 @@ export default function CoverStatus() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      paginatedData.map((item, idx) => (
-                        <TableRow
-                          key={item.id ?? idx}
-                          hover
-                          sx={{ '&:last-child td': { borderBottom: 0 } }}
-                        >
+                      paginatedData.map(item => (
+                        <TableRow key={item.id} hover sx={{ '&:last-child td': { borderBottom: 0 } }}>
                           <TableCell sx={{ fontWeight: 500 }}>{item.date}</TableCell>
                           <TableCell>
                             <Box component="span" fontWeight={700}>{item.className}</Box>{' '}
@@ -271,17 +198,12 @@ export default function CoverStatus() {
                           </TableCell>
                           <TableCell>
                             {item.absentTeacher}{' '}
-                            <Box component="span" fontSize="0.78rem" color="text.disabled">
-                              ({item.subject})
-                            </Box>
+                            <Box component="span" fontSize="0.78rem" color="text.disabled">({item.subject})</Box>
                           </TableCell>
                           <TableCell align="center">
                             {item.status === '마감' ? (
-                              <Chip
-                                label="마감"
-                                size="small"
-                                sx={{ bgcolor: 'grey.100', color: 'text.secondary', fontWeight: 700 }}
-                              />
+                              <Chip label="마감" size="small"
+                                sx={{ bgcolor: 'grey.100', color: 'text.secondary', fontWeight: 700 }} />
                             ) : (
                               <Chip label="대기중" size="small" color="success" />
                             )}
@@ -304,80 +226,44 @@ export default function CoverStatus() {
 
               {/* 페이지네이션 */}
               <Divider />
-              <Box
-                sx={{
-                  px: 3,
-                  py: 1.5,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <Button
-                  variant="outlined"
-                  size="small"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(p => p - 1)}
-                >
-                  이전
-                </Button>
+              <Box sx={{ px: 3, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Button variant="outlined" size="small" disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => p - 1)}>이전</Button>
                 <Typography variant="body2" fontWeight={700} color="text.secondary">
                   {currentPage} / {totalPages} 페이지 (총 {filteredData.length}건)
                 </Typography>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  onClick={() => setCurrentPage(p => p + 1)}
-                >
-                  다음
-                </Button>
+                <Button variant="outlined" size="small" disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(p => p + 1)}>다음</Button>
               </Box>
             </Card>
           </Grid>
 
-          {/* ─── 오른쪽: 명예의 전당 (1/3 너비) ─── */}
+          {/* ─── 우: 명예의 전당 ─── */}
           <Grid item xs={12} lg={4}>
             <Card sx={{ display: 'flex', flexDirection: 'column' }}>
-              {/* 명예의 전당 헤더 */}
               <Box
                 sx={{
-                  px: 3,
-                  py: 2,
-                  borderBottom: '1px solid',
-                  borderColor: 'divider',
+                  px: 3, py: 2,
+                  borderBottom: '1px solid', borderColor: 'divider',
                   background: 'linear-gradient(135deg, #fffde7 0%, #fff3e0 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 1,
-                  flexWrap: 'wrap',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 1, flexWrap: 'wrap',
                 }}
               >
                 <Box>
                   <Typography variant="subtitle1">🏆 명예의 전당</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                    {hallTab === 'total'
-                      ? '학기 전체 보강 지원 순위'
-                      : `${selectedMonth || '이번 달'} 보강 지원 순위`}
+                    {hallTab === 'total' ? '누적 보강 지원 순위' : `${selectedMonth || '이번 달'} 보강 지원 순위`}
                   </Typography>
                 </Box>
-                {/* 전체 / 월별 토글 */}
                 <Box sx={{ display: 'flex', borderRadius: 1, overflow: 'hidden', border: '1px solid', borderColor: 'warning.light' }}>
                   {[{ key: 'month', label: '월별' }, { key: 'total', label: '전체' }].map(tab => (
-                    <Box
-                      key={tab.key}
-                      onClick={() => setHallTab(tab.key)}
+                    <Box key={tab.key} onClick={() => setHallTab(tab.key)}
                       sx={{
-                        px: 1.5,
-                        py: 0.5,
-                        fontSize: '0.78rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
+                        px: 1.5, py: 0.5, fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
                         bgcolor: hallTab === tab.key ? 'warning.main' : 'transparent',
                         color: hallTab === tab.key ? 'white' : 'warning.dark',
-                        transition: 'all 0.15s',
-                        userSelect: 'none',
+                        transition: 'all 0.15s', userSelect: 'none',
                         '&:hover': { bgcolor: hallTab === tab.key ? 'warning.main' : 'warning.50' },
                       }}
                     >
@@ -387,12 +273,7 @@ export default function CoverStatus() {
                 </Box>
               </Box>
 
-              {/* 명예의 전당 목록 */}
-              <TableContainer
-                component={Paper}
-                elevation={0}
-                sx={{ maxHeight: 560, overflowY: 'auto' }}
-              >
+              <TableContainer component={Paper} elevation={0} sx={{ maxHeight: 560, overflowY: 'auto' }}>
                 <Table>
                   <TableBody>
                     {hallStats.length === 0 ? (
@@ -403,43 +284,23 @@ export default function CoverStatus() {
                       </TableRow>
                     ) : (
                       hallStats.map((item, index) => (
-                        <TableRow
-                          key={item.name}
-                          sx={{
-                            bgcolor: index < 3 ? 'background.paper' : undefined,
-                            '&:hover': { bgcolor: 'grey.50' },
-                            '&:last-child td': { borderBottom: 0 },
-                          }}
-                        >
-                          {/* 순위 */}
+                        <TableRow key={item.email}
+                          sx={{ '&:hover': { bgcolor: 'grey.50' }, '&:last-child td': { borderBottom: 0 } }}>
                           <TableCell align="center" sx={{ width: 48, py: 1.5, px: 1.5 }}>
                             {index < 3 ? (
                               <Typography fontSize="1.3rem">{MEDALS[index]}</Typography>
                             ) : (
-                              <Typography fontWeight={700} color="text.secondary">
-                                {index + 1}
-                              </Typography>
+                              <Typography fontWeight={700} color="text.secondary">{index + 1}</Typography>
                             )}
                           </TableCell>
-                          {/* 이름 */}
-                          <TableCell
-                            sx={{
-                              fontWeight: index < 3 ? 700 : 500,
-                              color: index < 3 ? 'text.primary' : 'text.secondary',
-                              whiteSpace: 'nowrap',
-                              py: 1.5,
-                            }}
-                          >
+                          <TableCell sx={{ fontWeight: index < 3 ? 700 : 500, color: index < 3 ? 'text.primary' : 'text.secondary', whiteSpace: 'nowrap', py: 1.5 }}>
                             {item.name} 쌤
                           </TableCell>
-                          {/* 횟수 */}
                           <TableCell align="right" sx={{ whiteSpace: 'nowrap', py: 1.5 }}>
                             <Box component="span" fontWeight={900} color="primary.main" fontSize="1rem">
                               {hallTab === 'total' ? item.totalCount : item.monthCount}
                             </Box>
-                            <Box component="span" fontSize="0.78rem" color="text.disabled" ml={0.5}>
-                              회
-                            </Box>
+                            <Box component="span" fontSize="0.78rem" color="text.disabled" ml={0.5}>회</Box>
                           </TableCell>
                         </TableRow>
                       ))

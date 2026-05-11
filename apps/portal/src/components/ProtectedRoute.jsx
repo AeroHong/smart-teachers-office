@@ -3,9 +3,15 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Box from '@mui/material/Box'
 import { useAuth } from '../contexts/AuthContext'
 import PendingApproval from '../pages/PendingApproval'
+import UnregisteredDomain from '../pages/UnregisteredDomain'
 
-export default function ProtectedRoute({ children, adminOnly = false, anyUser = false }) {
-  const { user, role, loading } = useAuth()
+export default function ProtectedRoute({
+  children,
+  adminOnly = false,
+  anyUser = false,
+  superAdminOnly = false,
+}) {
+  const { user, role, isSuperAdmin, loading } = useAuth()
 
   if (loading) {
     return (
@@ -17,8 +23,19 @@ export default function ProtectedRoute({ children, adminOnly = false, anyUser = 
 
   if (!user) return <Navigate to="/login" replace />
 
+  // 미등록 도메인 사용자
+  if (role === 'unregistered') return <UnregisteredDomain />
+
+  // 슈퍼 어드민 전용
+  if (superAdminOnly) {
+    return isSuperAdmin ? children : <Navigate to="/" replace />
+  }
+
   // anyUser: 로그인만 하면 접근 가능 (포털 홈, 보강신청 등)
   if (anyUser) return children
+
+  // 슈퍼 어드민은 모든 페이지 접근 가능
+  if (isSuperAdmin) return children
 
   // 학생은 출결 교사 기능 접근 불가
   if (role === 'student') return <Navigate to="/" replace />

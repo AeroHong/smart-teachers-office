@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "seonyoo-system"
+  },
+  "targets": {
+    "seonyoo-system": {
+      "hosting": {
+        "seonyoo": ["seonyoo-system"],
+        "smart-school": ["smart-school-kr"]
+      }
+    }
   }
 }

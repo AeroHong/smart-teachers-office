@@ -1,7 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import Layout from '../../components/Layout'
+import { useState, useEffect, useRef } from 'react'
+import {
+  collection, query, orderBy, onSnapshot,
+  doc, updateDoc, deleteDoc, writeBatch,
+  serverTimestamp,
+} from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
+import Layout from '../../components/Layout'
 
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
@@ -16,22 +21,39 @@ import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
-import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
+import IconButton from '@mui/material/IconButton'
+import TextField from '@mui/material/TextField'
+import DeleteIcon from '@mui/icons-material/Delete'
+import EditIcon from '@mui/icons-material/Edit'
+import AddIcon from '@mui/icons-material/Add'
+import Tooltip from '@mui/material/Tooltip'
 
-// Apps Script API 주소 (기존 cover.js 그대로)
-const API_URL =
-  'https://script.google.com/macros/s/AKfycbxlsUlIWiKDopF1w9ke4Bt97szdAHcF83L26C9lCdqxu6ck4topHDs3FRy7ZWeWDf-9/exec'
+// ── 유틸 함수 ───────────────────────────────────────────────────
 
-// openAt 문자열을 Date 객체로 파싱 (시트에 "YYYY-MM-DD HH:MM" 텍스트로 저장)
+// "YYYY-MM-DD", "YYYY. M. D.", "YYYY/M/D" 등 다양한 형식 파싱
+function parseDate(dateStr) {
+  const s = String(dateStr || '').trim()
+  if (!s) return null
+  const m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/)
+  if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]))
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function getDayOfWeek(dateString) {
+  const d = new Date(dateString)
+  if (isNaN(d.getTime())) return ''
+  return `(${['일', '월', '화', '수', '목', '금', '토'][d.getDay()]})`
+}
+
 function getOpenAtDate(openAtStr) {
   if (!openAtStr) return null
   const d = new Date(String(openAtStr).replace(' ', 'T'))
   return isNaN(d.getTime()) ? null : d
 }
 
-// 남은 시간을 카운트다운 문자열로 변환
 function formatCountdown(diffMs) {
   const totalSec = Math.max(0, Math.floor(diffMs / 1000))
   const days  = Math.floor(totalSec / 86400)
@@ -43,204 +65,347 @@ function formatCountdown(diffMs) {
   return `${pad(hours)}:${pad(mins)}:${pad(secs)}`
 }
 
-// 날짜 문자열에서 요일 반환 (예: "(화)")
-function getDayOfWeek(dateString) {
-  const d = new Date(dateString)
-  if (isNaN(d.getTime())) return ''
-  const days = ['일', '월', '화', '수', '목', '금', '토']
-  return `(${days[d.getDay()]})`
+// ── 스프레드시트 입력 폼 ─────────────────────────────────────────
+const COLS = [
+  { key: 'date',          label: '날짜',     width: 130, placeholder: '2025-05-20' },
+  { key: 'className',     label: '반',       width: 80,  placeholder: '2-3' },
+  { key: 'period',        label: '교시',     width: 55,  placeholder: '3' },
+  { key: 'absentTeacher', label: '결강교사', width: 100, placeholder: '홍길동' },
+  { key: 'subject',       label: '교과',     width: 80,  placeholder: '수학' },
+  { key: 'openAt',        label: '오픈예약', width: 155, placeholder: '2025-05-19 08:00' },
+]
+
+function emptyRow() {
+  return { date: '', className: '', period: '', absentTeacher: '', subject: '', openAt: '' }
 }
 
-// 오늘~14일 이내의 유효한 항목만 필터링, 내 신청 우선 정렬
-function processData(data, currentUser) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+function SheetInput({ rows, setRows }) {
+  const inputRefs = useRef([])
 
-  const filtered = data.filter(item => {
-    if (!item.id || !item.date) return false
-    const coverDate = new Date(item.date)
-    if (isNaN(coverDate.getTime())) return true // 날짜 파싱 실패 시 포함 유지
-    coverDate.setHours(0, 0, 0, 0)
-    const diffDays = Math.round((coverDate - today) / (1000 * 60 * 60 * 24))
-    return diffDays >= 0 && diffDays <= 14
-  })
+  const setCell = (ri, key, val) => {
+    setRows(prev => prev.map((r, i) => i === ri ? { ...r, [key]: val } : r))
+  }
 
-  filtered.sort((a, b) => {
-    const isAMine = currentUser && a.coverTeacherEmail === currentUser.email
-    const isBMine = currentUser && b.coverTeacherEmail === currentUser.email
-    if (isAMine && !isBMine) return -1
-    if (!isAMine && isBMine) return 1
-    if (a.status === '마감' && b.status !== '마감') return 1
-    if (a.status !== '마감' && b.status === '마감') return -1
-    return 0
-  })
+  const addRow = () => setRows(prev => [...prev, emptyRow()])
 
-  return filtered
+  const removeRow = (ri) => {
+    setRows(prev => prev.length === 1 ? [emptyRow()] : prev.filter((_, i) => i !== ri))
+  }
+
+  const focusCell = (ri, ci) => {
+    setTimeout(() => inputRefs.current[ri]?.[ci]?.focus(), 0)
+  }
+
+  const handleKeyDown = (e, ri, ci) => {
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      if (!e.shiftKey) {
+        if (ci < COLS.length - 1) {
+          focusCell(ri, ci + 1)
+        } else {
+          if (ri === rows.length - 1) setRows(prev => [...prev, emptyRow()])
+          focusCell(ri + 1, 0)
+        }
+      } else {
+        if (ci > 0) {
+          focusCell(ri, ci - 1)
+        } else if (ri > 0) {
+          focusCell(ri - 1, COLS.length - 1)
+        }
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (ri === rows.length - 1) setRows(prev => [...prev, emptyRow()])
+      focusCell(ri + 1, 0)
+    }
+  }
+
+  const handlePaste = (e, ri, ci) => {
+    const text = e.clipboardData.getData('text')
+    if (!text.includes('\t') && !text.includes('\n')) return
+    e.preventDefault()
+
+    const pastedRows = text.trim().split(/\r?\n/).map(row => row.split('\t'))
+    setRows(prev => {
+      const newRows = [...prev]
+      pastedRows.forEach((pastedRow, dr) => {
+        const targetRi = ri + dr
+        while (newRows.length <= targetRi) newRows.push(emptyRow())
+        pastedRow.forEach((cell, dc) => {
+          const targetCi = ci + dc
+          if (targetCi < COLS.length) {
+            const key = COLS[targetCi].key
+            newRows[targetRi] = { ...newRows[targetRi], [key]: cell.trim() }
+          }
+        })
+      })
+      return newRows
+    })
+  }
+
+  return (
+    <Box sx={{ overflowX: 'auto' }}>
+      <Box sx={{ display: 'inline-block', minWidth: '100%' }}>
+        {/* 헤더 */}
+        <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5, pl: 4 }}>
+          {COLS.map(col => (
+            <Box
+              key={col.key}
+              sx={{ width: col.width, flexShrink: 0, px: 1 }}
+            >
+              <Typography variant="caption" fontWeight={700} color="text.secondary">
+                {col.label}{col.key !== 'openAt' && ' *'}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+
+        {/* 행들 */}
+        {rows.map((row, ri) => {
+          if (!inputRefs.current[ri]) inputRefs.current[ri] = []
+          return (
+            <Box key={ri} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+              <Typography variant="caption" color="text.disabled" sx={{ width: 24, textAlign: 'right', flexShrink: 0, pr: 0.5 }}>
+                {ri + 1}
+              </Typography>
+              {COLS.map((col, ci) => (
+                <Box key={col.key} sx={{ width: col.width, flexShrink: 0 }}>
+                  <input
+                    ref={el => { inputRefs.current[ri][ci] = el }}
+                    value={row[col.key]}
+                    placeholder={col.placeholder}
+                    onChange={e => setCell(ri, col.key, e.target.value)}
+                    onKeyDown={e => handleKeyDown(e, ri, ci)}
+                    onPaste={e => handlePaste(e, ri, ci)}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '5px 8px',
+                      border: '1px solid #ddd',
+                      borderRadius: 4,
+                      fontSize: '0.82rem',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                    onFocus={e => { e.target.style.borderColor = '#1976d2'; e.target.style.boxShadow = '0 0 0 2px rgba(25,118,210,0.15)' }}
+                    onBlur={e => { e.target.style.borderColor = '#ddd'; e.target.style.boxShadow = 'none' }}
+                  />
+                </Box>
+              ))}
+              <IconButton size="small" onClick={() => removeRow(ri)} sx={{ flexShrink: 0 }}>
+                <DeleteIcon fontSize="small" sx={{ color: '#ccc', '&:hover': { color: '#f44' } }} />
+              </IconButton>
+            </Box>
+          )
+        })}
+
+        {/* 행 추가 */}
+        <Button
+          size="small"
+          startIcon={<AddIcon />}
+          onClick={addRow}
+          sx={{ mt: 0.5, ml: 3.5, color: 'text.secondary', fontSize: '0.78rem' }}
+        >
+          행 추가
+        </Button>
+      </Box>
+    </Box>
+  )
 }
 
+// ── 메인 컴포넌트 ────────────────────────────────────────────────
 export default function CoverMain() {
-  const { user } = useAuth()
-  const navigate = useNavigate()
+  const { user, role, schoolId } = useAuth()
+  const isAdmin = role === 'school_admin' || role === 'admin'
 
-  // 목록/로딩/에러 상태
   const [covers, setCovers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [loadingMsg, setLoadingMsg] = useState('보강 목록을 불러오는 중입니다...')
   const [error, setError] = useState('')
 
-  // 관리자 여부
-  const [isAdmin, setIsAdmin] = useState(false)
-
-  // 새 보강 등록 모달 상태
-  const [modalOpen, setModalOpen] = useState(false)
-  const [formData, setFormData] = useState({
-    date: '',
-    period: '',
-    className: '',
-    subject: '',
-    absentTeacher: '',
-    openAt: '',
-  })
-  const [submitting, setSubmitting] = useState(false)
-
-  // 공개예정 카운트다운용 — 1초마다 갱신
   const [now, setNow] = useState(new Date())
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(timer)
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
   }, [])
 
-  // 보강 목록 불러오기
-  const fetchCoverData = useCallback(async (msg = '보강 목록을 불러오는 중입니다...') => {
-    setLoadingMsg(msg)
-    setLoading(true)
-    setError('')
-    try {
-      const res = await fetch(API_URL)
-      const data = await res.json()
-      setCovers(processData(data, user))
-    } catch (err) {
-      console.error('로딩 실패:', err)
-      setError('데이터 로딩에 실패했습니다. 네트워크를 확인해주세요.')
-    } finally {
-      setLoading(false)
-    }
-  }, [user])
+  // 새 보강 등록 모달
+  const [modalOpen, setModalOpen] = useState(false)
+  const [rows, setRows] = useState([emptyRow()])
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
-  // 관리자 권한 확인
-  const checkAdminRole = useCallback(async () => {
-    if (!user) return
-    try {
-      const myName = user.displayName?.replace(' 선생님', '').trim() ?? ''
-      const res = await fetch(
-        `${API_URL}?action=getRole&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(myName)}`
-      )
-      const result = await res.json()
-      if (result.role === '관리자') setIsAdmin(true)
-    } catch (e) {
-      console.error('권한 확인 실패:', e)
-    }
-  }, [user])
+  // 보강 수정 모달
+  const [editTarget, setEditTarget] = useState(null)  // { id, date, className, period, absentTeacher, subject, openAt }
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
+  // Firestore 실시간 구독 (전체 로드 후 클라이언트 필터링)
+  // — Sheets에서 마이그레이션된 날짜가 "YYYY. M. D." 등 비표준일 수 있어
+  //   Firestore 범위 쿼리 대신 클라이언트에서 오늘~14일 필터 적용
   useEffect(() => {
-    if (user) {
-      checkAdminRole()
-      fetchCoverData()
-    }
-  }, [user, checkAdminRole, fetchCoverData])
+    if (!schoolId) return
+
+    const q = query(
+      collection(db, 'schools', schoolId, 'coverRequests'),
+      orderBy('date', 'asc')
+    )
+
+    const unsub = onSnapshot(q, snap => {
+      const today = new Date(); today.setHours(0, 0, 0, 0)
+      const limit = new Date(); limit.setDate(limit.getDate() + 14); limit.setHours(23, 59, 59, 999)
+
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const filtered = all.filter(item => {
+        const d = parseDate(item.date)
+        if (!d) return false
+        return d >= today && d <= limit
+      })
+
+      filtered.sort((a, b) => {
+        const isMineA = user && a.coverTeacherEmail === user.email
+        const isMineB = user && b.coverTeacherEmail === user.email
+        if (isMineA && !isMineB) return -1
+        if (!isMineA && isMineB) return 1
+        if (a.status === '마감' && b.status !== '마감') return 1
+        if (a.status !== '마감' && b.status === '마감') return -1
+        return 0
+      })
+      setCovers(filtered)
+      setLoading(false)
+    }, err => {
+      setError(err.message)
+      setLoading(false)
+    })
+
+    return unsub
+  }, [schoolId, user])
 
   // 보강 신청
-  const handleApply = async (coverId) => {
-    if (!user) return
+  const handleApply = async (cover) => {
+    if (!user || !schoolId) return
     if (!window.confirm('이 보강을 신청하시겠습니까?')) return
+
+    const openAt = getOpenAtDate(cover.openAt)
+    if (openAt && openAt > now) {
+      alert('아직 신청 가능 시간이 아닙니다.\n공개 예약 시간 이후에 다시 시도해주세요.')
+      return
+    }
+
     const myName = user.displayName?.replace(' 선생님', '').trim() ?? ''
-    setLoadingMsg('보강 신청 처리 중입니다...')
-    setLoading(true)
     try {
-      const res = await fetch(
-        `${API_URL}?action=apply&id=${coverId}&name=${encodeURIComponent(myName)}&email=${encodeURIComponent(user.email)}`
-      )
-      const result = await res.json()
-      if (result.success) {
-        alert('보강 신청이 완료되었습니다!')
-      } else if (result.reason === 'not_open_yet') {
-        alert('아직 신청 가능 시간이 아닙니다.\n공개 예약 시간 이후에 다시 시도해주세요.')
-      } else {
-        alert('오류가 발생했습니다. (이미 마감됨)')
-      }
-    } catch {
-      alert('인터넷 연결이 불안정합니다.')
-    } finally {
-      fetchCoverData()
+      await updateDoc(doc(db, 'schools', schoolId, 'coverRequests', cover.id), {
+        status: '마감',
+        coverTeacher: myName,
+        coverTeacherEmail: user.email,
+        appliedAt: serverTimestamp(),
+      })
+    } catch (err) {
+      alert('신청 중 오류: ' + err.message)
     }
   }
 
   // 보강 신청 취소
   const handleCancel = async (coverId) => {
-    if (!user) return
+    if (!user || !schoolId) return
     if (!window.confirm('정말로 이 보강 신청을 취소하시겠습니까?\n(취소 즉시 다른 선생님께 노출됩니다.)')) return
-    setLoadingMsg('보강 신청 취소 중입니다...')
-    setLoading(true)
     try {
-      const res = await fetch(
-        `${API_URL}?action=cancel&id=${coverId}&email=${encodeURIComponent(user.email)}`
-      )
-      const result = await res.json()
-      if (result.success) {
-        alert('안전하게 취소되었습니다.')
-      } else {
-        alert('취소 중 오류가 발생했습니다. (권한 없음)')
-      }
-    } catch {
-      alert('인터넷 연결이 불안정합니다.')
-    } finally {
-      fetchCoverData()
+      await updateDoc(doc(db, 'schools', schoolId, 'coverRequests', coverId), {
+        status: '대기중',
+        coverTeacher: null,
+        coverTeacherEmail: null,
+        appliedAt: null,
+      })
+    } catch (err) {
+      alert('취소 중 오류: ' + err.message)
     }
   }
 
-  // 새 보강 등록 제출
-  const handleCreateSubmit = async (e) => {
-    e.preventDefault()
-    setModalOpen(false)
-    setSubmitting(true)
-    setLoadingMsg('새 보강을 DB에 등록 중입니다...')
-    setLoading(true)
+  // 보강 수정 저장 (관리자)
+  const handleEditSave = async () => {
+    if (!editTarget) return
+    const { id, date, className, period, absentTeacher, subject, openAt } = editTarget
+    if (!date || !className || !period || !absentTeacher || !subject) {
+      setEditError('날짜, 반, 교시, 결강교사, 교과는 필수입니다.')
+      return
+    }
+    setEditSaving(true)
+    setEditError('')
     try {
-      const { date, period, className, subject, absentTeacher, openAt } = formData
-      const res = await fetch(
-        `${API_URL}?action=create&date=${date}&period=${period}&className=${encodeURIComponent(className)}&subject=${encodeURIComponent(subject)}&absentTeacher=${encodeURIComponent(absentTeacher)}&openAt=${encodeURIComponent(openAt ? openAt.replace('T', ' ') : '')}`
-      )
-      const result = await res.json()
-      if (result.success) {
-        alert('성공적으로 등록되었습니다!')
-        setFormData({ date: '', period: '', className: '', subject: '', absentTeacher: '', openAt: '' })
-      } else {
-        alert('등록 중 오류가 발생했습니다.')
-      }
-    } catch {
-      alert('등록 중 에러가 발생했습니다.')
+      await updateDoc(doc(db, 'schools', schoolId, 'coverRequests', id), {
+        date: date.trim(),
+        className: className.trim(),
+        period: Number(period) || 0,
+        absentTeacher: absentTeacher.trim(),
+        subject: subject.trim(),
+        openAt: openAt?.trim() || null,
+      })
+      setEditTarget(null)
+    } catch (err) {
+      setEditError('저장 중 오류: ' + err.message)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  // 보강 삭제 (관리자)
+  const handleDelete = async (coverId) => {
+    if (!window.confirm('이 보강 항목을 삭제하시겠습니까?')) return
+    try {
+      await deleteDoc(doc(db, 'schools', schoolId, 'coverRequests', coverId))
+    } catch (err) {
+      alert('삭제 중 오류: ' + err.message)
+    }
+  }
+
+  // 새 보강 일괄 등록
+  const handleCreateSubmit = async () => {
+    setSubmitError('')
+    const validRows = rows.filter(r => r.date && r.className && r.period && r.absentTeacher && r.subject)
+    if (validRows.length === 0) {
+      setSubmitError('최소 한 행 이상 필수 항목(날짜, 반, 교시, 결강교사, 교과)을 입력하세요.')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const batch = writeBatch(db)
+      validRows.forEach(r => {
+        const ref = doc(collection(db, 'schools', schoolId, 'coverRequests'))
+        batch.set(ref, {
+          date: r.date.trim(),
+          className: r.className.trim(),
+          period: Number(r.period) || 0,
+          absentTeacher: r.absentTeacher.trim(),
+          subject: r.subject.trim(),
+          status: '대기중',
+          coverTeacher: null,
+          coverTeacherEmail: null,
+          openAt: r.openAt.trim() || null,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid,
+        })
+      })
+      await batch.commit()
+      setRows([emptyRow()])
+      setModalOpen(false)
+    } catch (err) {
+      setSubmitError('등록 실패: ' + err.message)
     } finally {
       setSubmitting(false)
-      fetchCoverData()
     }
   }
 
-  // 카드 상태에 따른 색상/뱃지/버튼 결정
+  // 카드 스타일/버튼 결정
   const getCardConfig = (item) => {
-    const isClosed = item.status === '마감'
     const isMine = user && item.coverTeacherEmail === user.email
+    const isClosed = item.status === '마감'
 
     if (isClosed && isMine) {
       return {
         sx: { border: '1.5px solid', borderColor: 'primary.light', bgcolor: '#f0f6ff', height: '100%' },
         chip: <Chip label="내 신청 보강" size="small" color="primary" variant="outlined" />,
         button: (
-          <Button
-            fullWidth
-            variant="outlined"
-            color="error"
-            onClick={() => handleCancel(item.id)}
-          >
+          <Button fullWidth variant="outlined" color="error" onClick={() => handleCancel(item.id)}>
             취소하기
           </Button>
         ),
@@ -250,15 +415,10 @@ export default function CoverMain() {
       return {
         sx: { opacity: 0.55, filter: 'grayscale(40%)', height: '100%' },
         chip: <Chip label="신청 마감" size="small" sx={{ bgcolor: '#e0e0e0', color: '#757575' }} />,
-        button: (
-          <Button fullWidth variant="contained" disabled>
-            신청 마감
-          </Button>
-        ),
+        button: <Button fullWidth variant="contained" disabled>신청 마감</Button>,
       }
     }
 
-    // 공개예정: openAt이 설정되어 있고 아직 해당 시각이 되지 않은 경우
     const openAt = getOpenAtDate(item.openAt)
     if (openAt && openAt > now) {
       const diffMs = openAt - now
@@ -280,12 +440,7 @@ export default function CoverMain() {
       sx: { height: '100%' },
       chip: <Chip label="신청가능" size="small" color="success" />,
       button: (
-        <Button
-          fullWidth
-          variant="contained"
-          color="primary"
-          onClick={() => handleApply(item.id)}
-        >
+        <Button fullWidth variant="contained" color="primary" onClick={() => handleApply(item)}>
           보강 신청
         </Button>
       ),
@@ -294,7 +449,7 @@ export default function CoverMain() {
 
   return (
     <Layout>
-      {/* 헤더 영역 */}
+      {/* 헤더 */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', mb: 3 }}>
         <Box>
           <Typography variant="h5">보강 신청 목록</Typography>
@@ -303,11 +458,8 @@ export default function CoverMain() {
           </Typography>
         </Box>
         {isAdmin && (
-          <Button
-            variant="contained"
-            onClick={() => setModalOpen(true)}
-            sx={{ whiteSpace: 'nowrap' }}
-          >
+          <Button variant="contained" onClick={() => { setRows([emptyRow()]); setSubmitError(''); setModalOpen(true) }}
+            sx={{ whiteSpace: 'nowrap' }}>
             + 새 보강 등록
           </Button>
         )}
@@ -317,14 +469,12 @@ export default function CoverMain() {
       {loading && (
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 10, gap: 2 }}>
           <CircularProgress />
-          <Typography color="primary" fontWeight={600}>{loadingMsg}</Typography>
+          <Typography color="primary" fontWeight={600}>보강 목록을 불러오는 중입니다...</Typography>
         </Box>
       )}
 
       {/* 에러 */}
-      {!loading && error && (
-        <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>
-      )}
+      {!loading && error && <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>}
 
       {/* 빈 상태 */}
       {!loading && !error && covers.length === 0 && (
@@ -340,7 +490,6 @@ export default function CoverMain() {
         <Grid container spacing={3}>
           {covers.map(item => {
             const { sx, chip, button, openDateStr } = getCardConfig(item)
-            const displayDate = `${item.date}${getDayOfWeek(item.date)}`
             return (
               <Grid item xs={12} sm={6} md={4} key={item.id}>
                 <Card sx={sx}>
@@ -349,21 +498,18 @@ export default function CoverMain() {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       {chip}
                       <Typography variant="body2" fontWeight={700} color="text.secondary">
-                        {displayDate}
+                        {item.date}{getDayOfWeek(item.date)}
                       </Typography>
                     </Box>
-                    {/* 반 + 교시 */}
                     <Typography variant="h6" gutterBottom>
                       {item.className}{' '}
                       <Typography component="span" color="primary" fontWeight={700}>
                         {item.period}교시
                       </Typography>
                     </Typography>
-                    {/* 교과 + 결강 교사 */}
                     <Typography variant="body2" color="text.secondary">
                       {item.subject} ({item.absentTeacher} 선생님 결강)
                     </Typography>
-                    {/* 공개예정 시각 안내 */}
                     {openDateStr && (
                       <Typography variant="caption" color="warning.main" sx={{ mt: 1, display: 'block' }}>
                         {openDateStr} 신청 오픈
@@ -371,8 +517,30 @@ export default function CoverMain() {
                     )}
                   </CardContent>
                   <Divider />
-                  <CardActions sx={{ px: 2, py: 1.5 }}>
-                    {button}
+                  <CardActions sx={{ px: 2, py: 1.5, gap: 0.5 }}>
+                    <Box sx={{ flex: 1 }}>{button}</Box>
+                    {isAdmin && (
+                      <>
+                        <Tooltip title="수정">
+                          <IconButton
+                            size="small"
+                            onClick={() => { setEditTarget({ ...item, period: String(item.period) }); setEditError('') }}
+                            sx={{ color: '#bbb', '&:hover': { color: '#1976d2' } }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="삭제">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDelete(item.id)}
+                            sx={{ color: '#bbb', '&:hover': { color: '#f44' } }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </>
+                    )}
                   </CardActions>
                 </Card>
               </Grid>
@@ -381,71 +549,78 @@ export default function CoverMain() {
         </Grid>
       )}
 
-      {/* 새 보강 등록 모달 */}
-      <Dialog open={modalOpen} onClose={() => setModalOpen(false)} maxWidth="xs" fullWidth>
+      {/* ── 보강 수정 모달 ── */}
+      <Dialog open={!!editTarget} onClose={() => !editSaving && setEditTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>보강 수정</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '16px !important' }}>
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <TextField
+              label="날짜" required size="small" sx={{ flex: 1 }}
+              value={editTarget?.date ?? ''}
+              onChange={e => setEditTarget(p => ({ ...p, date: e.target.value }))}
+              placeholder="2025-05-20"
+            />
+            <TextField
+              label="반" required size="small" sx={{ width: 90 }}
+              value={editTarget?.className ?? ''}
+              onChange={e => setEditTarget(p => ({ ...p, className: e.target.value }))}
+              placeholder="2-3"
+            />
+            <TextField
+              label="교시" required size="small" sx={{ width: 70 }}
+              value={editTarget?.period ?? ''}
+              onChange={e => setEditTarget(p => ({ ...p, period: e.target.value }))}
+              placeholder="3"
+            />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <TextField
+              label="결강교사" required size="small" sx={{ flex: 1 }}
+              value={editTarget?.absentTeacher ?? ''}
+              onChange={e => setEditTarget(p => ({ ...p, absentTeacher: e.target.value }))}
+            />
+            <TextField
+              label="교과" required size="small" sx={{ flex: 1 }}
+              value={editTarget?.subject ?? ''}
+              onChange={e => setEditTarget(p => ({ ...p, subject: e.target.value }))}
+            />
+          </Box>
+          <TextField
+            label="오픈예약 (선택)" size="small" fullWidth
+            value={editTarget?.openAt ?? ''}
+            onChange={e => setEditTarget(p => ({ ...p, openAt: e.target.value }))}
+            placeholder="2025-05-19 08:00"
+            helperText="비워두면 즉시 공개"
+          />
+          {editError && <Alert severity="error">{editError}</Alert>}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEditTarget(null)} color="inherit" disabled={editSaving}>취소</Button>
+          <Button variant="contained" onClick={handleEditSave} disabled={editSaving}>
+            {editSaving ? <CircularProgress size={18} color="inherit" /> : '저장'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── 새 보강 등록 모달 (스프레드시트 입력) ── */}
+      <Dialog open={modalOpen} onClose={() => !submitting && setModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white', fontWeight: 700 }}>
           새 보강 등록
         </DialogTitle>
-        <Box component="form" onSubmit={handleCreateSubmit}>
-          <DialogContent sx={{ pt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* 날짜 + 교시 */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-              <TextField
-                label="날짜"
-                type="date"
-                required
-                InputLabelProps={{ shrink: true }}
-                value={formData.date}
-                onChange={e => setFormData(f => ({ ...f, date: e.target.value }))}
-              />
-              <TextField
-                label="교시 (숫자)"
-                type="number"
-                required
-                inputProps={{ min: 1, max: 9 }}
-                value={formData.period}
-                onChange={e => setFormData(f => ({ ...f, period: e.target.value }))}
-              />
-            </Box>
-            {/* 반 + 교과 */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-              <TextField
-                label="대상 반 (예: 2-3)"
-                required
-                value={formData.className}
-                onChange={e => setFormData(f => ({ ...f, className: e.target.value }))}
-              />
-              <TextField
-                label="교과"
-                required
-                value={formData.subject}
-                onChange={e => setFormData(f => ({ ...f, subject: e.target.value }))}
-              />
-            </Box>
-            {/* 결강 교사 */}
-            <TextField
-              label="결강 교사 (이름만)"
-              required
-              value={formData.absentTeacher}
-              onChange={e => setFormData(f => ({ ...f, absentTeacher: e.target.value }))}
-            />
-            {/* 오픈 예약 시각 */}
-            <TextField
-              label="오픈 예약 시각 (선택)"
-              type="datetime-local"
-              InputLabelProps={{ shrink: true }}
-              value={formData.openAt}
-              onChange={e => setFormData(f => ({ ...f, openAt: e.target.value }))}
-              helperText="비워두면 즉시 신청 가능 상태로 공개됩니다"
-            />
-          </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={() => setModalOpen(false)} color="inherit">취소</Button>
-            <Button type="submit" variant="contained" disabled={submitting}>
-              DB에 등록하기
-            </Button>
-          </DialogActions>
-        </Box>
+        <DialogContent sx={{ pt: 2.5, pb: 1 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            아래 표에 직접 입력하거나, 엑셀/시트에서 <strong>복사 후 붙여넣기(Ctrl+V)</strong>하세요.
+            열 순서: <strong>날짜 → 반 → 교시 → 결강교사 → 교과 → 오픈예약(선택)</strong>
+          </Typography>
+          <SheetInput rows={rows} setRows={setRows} />
+          {submitError && <Alert severity="error" sx={{ mt: 1.5 }}>{submitError}</Alert>}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setModalOpen(false)} color="inherit" disabled={submitting}>취소</Button>
+          <Button variant="contained" onClick={handleCreateSubmit} disabled={submitting}>
+            {submitting ? <CircularProgress size={18} color="inherit" /> : 'DB에 등록하기'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Layout>
   )
