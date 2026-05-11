@@ -74,15 +74,51 @@ export function AuthProvider({ children }) {
           const schoolInfo = await lookupSchoolByDomain(domain)
 
           if (!schoolInfo) {
-            // 미등록 도메인: 로그인 상태 유지, 안내 화면 표시
+            // 미등록 도메인 → 게스트 학교 자동 생성 또는 기존 게스트 학교 로드
+            const userRef = doc(db, 'users', firebaseUser.uid)
+            const userDoc = await getDoc(userRef)
+
+            let guestSchoolId, guestSchoolName, guestRole
+
+            if (userDoc.exists() && userDoc.data().schoolId?.startsWith('guest_')) {
+              // 기존 게스트 학교
+              guestSchoolId = userDoc.data().schoolId
+              guestRole = userDoc.data().role || 'school_admin'
+              const schoolSnap = await getDoc(doc(db, 'schools', guestSchoolId))
+              guestSchoolName = schoolSnap.data()?.name || '체험 학교'
+            } else {
+              // 새 게스트 학교 생성
+              guestSchoolId = `guest_${firebaseUser.uid.slice(0, 8)}`
+              guestRole = 'school_admin'
+              const dName = firebaseUser.displayName || email.split('@')[0]
+              guestSchoolName = `${dName}의 체험 학교`
+              await setDoc(doc(db, 'schools', guestSchoolId), {
+                name: guestSchoolName,
+                isGuest: true,
+                ownerEmail: email,
+                ownerUid: firebaseUser.uid,
+                domain,
+                createdAt: serverTimestamp(),
+              })
+              await setDoc(userRef, {
+                name: firebaseUser.displayName || '',
+                email,
+                role: 'school_admin',
+                schoolId: guestSchoolId,
+                staffType: '교사',
+                createdAt: serverTimestamp(),
+              }, { merge: true })
+            }
+
             setUser(firebaseUser)
             setUserName(firebaseUser.displayName || '')
-            setRole('unregistered')
-            setIsSuperAdmin(false)
-            setSchoolId(null)
-            setSchoolName('')
+            setRole(guestRole)
+            setSchoolId(guestSchoolId)
+            setSchoolName(guestSchoolName)
+            setCoverApiUrl(null)
             setStudentId(null)
-            setDomainRegistered(false)
+            setDomainRegistered(true)
+            setIsSuperAdmin(false)
             return
           }
 

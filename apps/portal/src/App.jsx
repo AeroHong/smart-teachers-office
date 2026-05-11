@@ -33,11 +33,6 @@ const TrainingPresets = lazy(() => import('./pages/training/TrainingPresets'))
 // 슈퍼 어드민 - lazy load
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin'))
 
-// 데모 - lazy load
-const DemoHome       = lazy(() => import('./pages/demo/DemoHome'))
-const DemoCover      = lazy(() => import('./pages/demo/DemoCover'))
-const DemoTraining   = lazy(() => import('./pages/demo/DemoTraining'))
-const DemoAttendance = lazy(() => import('./pages/demo/DemoAttendance'))
 
 function PageLoader() {
   return (
@@ -85,11 +80,6 @@ export default function App() {
           {/* ── 슈퍼 어드민 ── */}
           <Route path="/super-admin" element={<ProtectedRoute superAdminOnly><SuperAdmin /></ProtectedRoute>} />
 
-          {/* ── 데모 (로그인 불필요) ── */}
-          <Route path="/demo"            element={<DemoHome />} />
-          <Route path="/demo/cover"      element={<DemoCover />} />
-          <Route path="/demo/training"   element={<DemoTraining />} />
-          <Route path="/demo/attendance" element={<DemoAttendance />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

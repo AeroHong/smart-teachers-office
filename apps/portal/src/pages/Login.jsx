@@ -128,17 +128,6 @@ export default function Login() {
           <Typography sx={{ mt: 1.5, fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)' }}>
             학교 Workspace 계정(@학교도메인)만 접속 가능합니다
           </Typography>
-          <Box sx={{ mt: 2 }}>
-            <Typography
-              component="a"
-              href="/demo"
-              sx={{ fontSize: '0.84rem', color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
-                textDecoration: 'none', borderBottom: '1px dashed rgba(255,255,255,0.4)',
-                '&:hover': { color: '#fff', borderBottomColor: '#fff' } }}
-            >
-              🎮 로그인 없이 데모 체험하기 →
-            </Typography>
-          </Box>
         </Box>
       </Box>
 

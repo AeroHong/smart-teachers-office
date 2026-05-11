@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  collection, doc, getDoc, getDocs, setDoc, deleteDoc, serverTimestamp, writeBatch,
+  collection, doc, getDoc, getDocs, setDoc, deleteDoc, serverTimestamp, writeBatch, query, where,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -60,6 +60,13 @@ export default function SuperAdmin() {
   const [editingUrl, setEditingUrl] = useState(null)
   const [urlInput, setUrlInput] = useState('')
 
+  // 게스트 학교
+  const [guestSchools, setGuestSchools] = useState([])
+  const [loadingGuests, setLoadingGuests] = useState(true)
+  const [promoteTarget, setPromoteTarget] = useState(null)  // { schoolId, name, domain }
+  const [promoteForm, setPromoteForm] = useState({ domain: '', schoolName: '', adminEmail: '' })
+  const [promoteSaving, setPromoteSaving] = useState(false)
+
   // 마이그레이션
   const [migrateDialog, setMigrateDialog] = useState(null) // { schoolId, schoolName, coverApiUrl }
   const [migrateStatus, setMigrateStatus] = useState(null) // { phase, count, total, error }
@@ -89,7 +96,21 @@ export default function SuperAdmin() {
     }
   }
 
-  useEffect(() => { loadSchools() }, [])
+  const loadGuestSchools = async () => {
+    setLoadingGuests(true)
+    try {
+      const snap = await getDocs(query(collection(db, 'schools'), where('isGuest', '==', true)))
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      setGuestSchools(list)
+    } catch (e) {
+      console.error('게스트 학교 로드 실패:', e)
+    } finally {
+      setLoadingGuests(false)
+    }
+  }
+
+  useEffect(() => { loadSchools(); loadGuestSchools() }, [])
 
   const handleAdd = async () => {
     setFormError('')
@@ -170,6 +191,54 @@ export default function SuperAdmin() {
       setSuccessMsg(`🗑 @${domain} 삭제 완료`)
       setTimeout(() => setSuccessMsg(''), 4000)
       await loadSchools()
+    } catch (e) {
+      setError('삭제 실패: ' + e.message)
+    }
+  }
+
+  // ── 게스트 학교 정식 등록 ──────────────────────────────────────
+  const handlePromote = async () => {
+    const domain = promoteForm.domain.trim().toLowerCase().replace(/^@/, '')
+    const schoolName = promoteForm.schoolName.trim()
+    const adminEmail = promoteForm.adminEmail.trim().toLowerCase()
+    if (!domain || !schoolName) { alert('도메인과 학교명은 필수입니다.'); return }
+
+    setPromoteSaving(true)
+    try {
+      // schoolDomains 등록
+      await setDoc(doc(db, 'schoolDomains', domain), {
+        schoolId: promoteTarget.id,
+        schoolName,
+        adminEmail: adminEmail || null,
+        createdAt: serverTimestamp(),
+        createdBy: user.email,
+      })
+      // schools 문서 업데이트 (isGuest 제거, name 업데이트)
+      await setDoc(doc(db, 'schools', promoteTarget.id), {
+        name: schoolName,
+        isGuest: false,
+        domains: [domain],
+      }, { merge: true })
+
+      setPromoteTarget(null)
+      setPromoteForm({ domain: '', schoolName: '', adminEmail: '' })
+      setSuccessMsg(`✅ ${schoolName} 정식 등록 완료`)
+      setTimeout(() => setSuccessMsg(''), 4000)
+      await Promise.all([loadSchools(), loadGuestSchools()])
+    } catch (e) {
+      alert('정식 등록 실패: ' + e.message)
+    } finally {
+      setPromoteSaving(false)
+    }
+  }
+
+  const handleDeleteGuest = async (schoolId, name) => {
+    if (!window.confirm(`"${name}" 게스트 학교를 삭제하시겠습니까?\n해당 학교의 모든 데이터가 삭제됩니다.`)) return
+    try {
+      await deleteDoc(doc(db, 'schools', schoolId))
+      setSuccessMsg(`🗑 ${name} 게스트 학교 삭제 완료`)
+      setTimeout(() => setSuccessMsg(''), 4000)
+      await loadGuestSchools()
     } catch (e) {
       setError('삭제 실패: ' + e.message)
     }
@@ -401,6 +470,111 @@ export default function SuperAdmin() {
           </Table>
         </TableContainer>
       )}
+
+      <Divider sx={{ my: 4 }} />
+
+      {/* ── 게스트 학교 목록 ── */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+        <Typography variant="subtitle1" fontWeight={600}>게스트 학교</Typography>
+        <Chip label={`${guestSchools.length}개`} size="small" sx={{ bgcolor: '#faf5ff', color: '#7c3aed', fontWeight: 700 }} />
+        <Typography variant="caption" color="text.secondary">미등록 도메인으로 첫 로그인한 사용자의 체험 학교</Typography>
+      </Box>
+
+      {loadingGuests ? (
+        <Box display="flex" justifyContent="center" py={3}><CircularProgress size={24} /></Box>
+      ) : guestSchools.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+          게스트 학교가 없습니다.
+        </Typography>
+      ) : (
+        <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#faf5ff' }}>
+                <TableCell><strong>체험 학교명</strong></TableCell>
+                <TableCell><strong>학교 ID</strong></TableCell>
+                <TableCell><strong>가입 이메일</strong></TableCell>
+                <TableCell><strong>가입 도메인</strong></TableCell>
+                <TableCell><strong>생성일</strong></TableCell>
+                <TableCell align="center"><strong>정식 등록</strong></TableCell>
+                <TableCell align="center"><strong>삭제</strong></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {guestSchools.map(g => (
+                <TableRow key={g.id} hover>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {g.name}
+                      <Chip label="게스트" size="small" sx={{ bgcolor: '#ede9fe', color: '#7c3aed', fontSize: '0.68rem' }} />
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{g.id}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption">{g.ownerEmail || '—'}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">{g.domain || '—'}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">
+                      {g.createdAt?.toDate().toLocaleDateString('ko-KR') || '—'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Button size="small" variant="outlined" color="secondary"
+                      onClick={() => {
+                        setPromoteTarget(g)
+                        setPromoteForm({ domain: g.domain || '', schoolName: g.name?.replace('의 체험 학교', '') || '', adminEmail: g.ownerEmail || '' })
+                      }}
+                      sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                      정식 등록
+                    </Button>
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteGuest(g.id, g.name)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {/* ── 정식 등록 다이얼로그 ── */}
+      <Dialog open={!!promoteTarget} onClose={() => !promoteSaving && setPromoteTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>🏫 게스트 → 정식 학교 등록</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '16px !important' }}>
+          <Typography variant="body2" color="text.secondary">
+            도메인을 등록하면 해당 도메인 사용자가 정식 학교로 로그인할 수 있습니다.
+          </Typography>
+          <TextField label="Google 도메인" size="small" fullWidth
+            value={promoteForm.domain}
+            onChange={e => setPromoteForm(f => ({ ...f, domain: e.target.value }))}
+            placeholder="sunyu.hs.kr"
+            InputProps={{ startAdornment: <span style={{ color: '#888', marginRight: 2 }}>@</span> }}
+          />
+          <TextField label="학교명" size="small" fullWidth
+            value={promoteForm.schoolName}
+            onChange={e => setPromoteForm(f => ({ ...f, schoolName: e.target.value }))}
+            placeholder="선유고등학교"
+          />
+          <TextField label="관리자 이메일 (선택)" size="small" fullWidth
+            value={promoteForm.adminEmail}
+            onChange={e => setPromoteForm(f => ({ ...f, adminEmail: e.target.value }))}
+          />
+        </DialogContent>
+        <DialogContent sx={{ pt: 0, pb: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+          <Button onClick={() => setPromoteTarget(null)} disabled={promoteSaving}>취소</Button>
+          <Button variant="contained" onClick={handlePromote} disabled={promoteSaving}>
+            {promoteSaving ? <CircularProgress size={18} color="inherit" /> : '정식 등록'}
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       {/* ── 마이그레이션 다이얼로그 ── */}
       <Dialog
