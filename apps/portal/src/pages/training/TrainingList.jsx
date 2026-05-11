@@ -10,18 +10,19 @@ import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
+import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
-
-const SCHOOL_ID = 'seonyoo-hs'
 
 export default function TrainingList() {
   const navigate = useNavigate()
+  const { schoolId } = useAuth()
   const [trainings, setTrainings] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!schoolId) return
     const q = query(
-      collection(db, 'schools', SCHOOL_ID, 'trainings'),
+      collection(db, 'schools', schoolId, 'trainings'),
       orderBy('date', 'desc'),
     )
     const unsub = onSnapshot(q, (snap) => {
@@ -31,7 +32,7 @@ export default function TrainingList() {
       setLoading(false)
     })
     return unsub
-  }, [])
+  }, [schoolId])
 
   return (
     <Layout>

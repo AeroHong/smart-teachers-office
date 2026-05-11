@@ -19,33 +19,36 @@ import {
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
-import { SCHOOL_ID, loadMembers, filterBySearch } from './trainingUtils'
+import { loadMembers, filterBySearch } from './trainingUtils'
 
 export default function TrainingPresets() {
-  const { user } = useAuth()
+  const { user, schoolId } = useAuth()
   const [presets, setPresets] = useState([])
   const [allUsers, setAllUsers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [editTarget, setEditTarget] = useState(null)   // null=닫힘, {}=새 명단, {id,...}=수정
+  const [editTarget, setEditTarget] = useState(null)
 
   useEffect(() => {
+    if (!schoolId) return
     const unsub = onSnapshot(
-      query(collection(db, 'schools', SCHOOL_ID, 'trainingPresets'), orderBy('name')),
+      query(collection(db, 'schools', schoolId, 'trainingPresets'), orderBy('name')),
       (snap) => {
         setPresets(snap.docs.map(d => ({ id: d.id, ...d.data() })))
         setLoading(false)
-      }
+      },
+      () => setLoading(false)
     )
     return unsub
-  }, [])
+  }, [schoolId])
 
   useEffect(() => {
-    loadMembers('전체').then(setAllUsers)
-  }, [])
+    if (!schoolId) return
+    loadMembers('전체', schoolId).then(setAllUsers)
+  }, [schoolId])
 
   const handleDelete = async (preset) => {
     if (!window.confirm(`"${preset.name}" 명단을 삭제할까요?`)) return
-    await deleteDoc(doc(db, 'schools', SCHOOL_ID, 'trainingPresets', preset.id))
+    await deleteDoc(doc(db, 'schools', schoolId, 'trainingPresets', preset.id))
   }
 
   return (
@@ -108,6 +111,7 @@ export default function TrainingPresets() {
           preset={editTarget}
           allUsers={allUsers}
           user={user}
+          schoolId={schoolId}
           onClose={() => setEditTarget(null)}
         />
       )}
@@ -156,7 +160,7 @@ async function parseExcel(file) {
 
 // ── 명단 편집 다이얼로그 ──────────────────────────────────────────────────────
 
-function PresetDialog({ preset, allUsers, user, onClose }) {
+function PresetDialog({ preset, allUsers, user, schoolId, onClose }) {
   const isNew = !preset.id
   const [name, setName] = useState(preset.name ?? '')
   const [members, setMembers] = useState(preset.members ?? [])
@@ -212,12 +216,12 @@ function PresetDialog({ preset, allUsers, user, onClose }) {
     setSaving(true)
     try {
       if (isNew) {
-        await addDoc(collection(db, 'schools', SCHOOL_ID, 'trainingPresets'), {
+        await addDoc(collection(db, 'schools', schoolId, 'trainingPresets'), {
           name: name.trim(), members,
           createdBy: user.uid, createdAt: serverTimestamp(),
         })
       } else {
-        await updateDoc(doc(db, 'schools', SCHOOL_ID, 'trainingPresets', preset.id), {
+        await updateDoc(doc(db, 'schools', schoolId, 'trainingPresets', preset.id), {
           name: name.trim(), members,
         })
       }

@@ -22,12 +22,12 @@ import {
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
-import { SCHOOL_ID, loadMembers, filterBySearch } from './trainingUtils'
+import { loadMembers, filterBySearch } from './trainingUtils'
 
 export default function TrainingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user, role } = useAuth()
+  const { user, role, schoolId } = useAuth()
 
   const [training, setTraining] = useState(null)
   const [signatures, setSignatures] = useState({})
@@ -40,15 +40,17 @@ export default function TrainingDetail() {
   const isOwner = training?.createdBy === user?.uid
 
   useEffect(() => {
-    getDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id)).then(d => {
+    if (!schoolId) return
+    getDoc(doc(db, 'schools', schoolId, 'trainings', id)).then(d => {
       if (d.exists()) setTraining({ id: d.id, ...d.data() })
       setLoading(false)
     })
-  }, [id])
+  }, [id, schoolId])
 
   useEffect(() => {
+    if (!schoolId) return
     const unsub = onSnapshot(
-      collection(db, 'schools', SCHOOL_ID, 'trainings', id, 'signatures'),
+      collection(db, 'schools', schoolId, 'trainings', id, 'signatures'),
       (snap) => {
         const map = {}
         snap.forEach(d => { map[d.id] = d.data() })
@@ -56,7 +58,7 @@ export default function TrainingDetail() {
       }
     )
     return unsub
-  }, [id])
+  }, [id, schoolId])
 
   if (loading) return <Layout><Box display="flex" justifyContent="center" py={8}><CircularProgress /></Box></Layout>
   if (!training) return <Layout><Typography>연수를 찾을 수 없습니다.</Typography></Layout>
@@ -82,13 +84,13 @@ export default function TrainingDetail() {
 
   const handleToggleStatus = async () => {
     const newStatus = training.status === 'closed' ? 'open' : 'closed'
-    await updateDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id), { status: newStatus })
+    await updateDoc(doc(db, 'schools', schoolId, 'trainings', id), { status: newStatus })
     setTraining(p => ({ ...p, status: newStatus }))
   }
 
   const handleDelete = async () => {
     if (!window.confirm(`"${training.title}" 연수를 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return
-    await deleteDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id))
+    await deleteDoc(doc(db, 'schools', schoolId, 'trainings', id))
     navigate('/training')
   }
 
@@ -140,6 +142,7 @@ export default function TrainingDetail() {
         <EditDialog
           training={training}
           id={id}
+          schoolId={schoolId}
           onSave={(updated) => { setTraining(p => ({ ...p, ...updated })); setEditOpen(false) }}
           onClose={() => setEditOpen(false)}
         />
@@ -158,13 +161,13 @@ export default function TrainingDetail() {
       </Tabs>
 
       {tab === sigStatusIdx && sigStatusIdx >= 0 && (
-        <SignatureStatus training={training} signatures={signatures} id={id} canManage={canManage} />
+        <SignatureStatus training={training} signatures={signatures} id={id} schoolId={schoolId} canManage={canManage} />
       )}
       {tab === mySignIdx && (
-        <MySignature id={id} user={user} training={training} signatures={signatures} />
+        <MySignature id={id} user={user} training={training} signatures={signatures} schoolId={schoolId} />
       )}
       {tab === memberEditIdx && memberEditIdx >= 0 && (
-        <MemberEditor id={id} training={training} setTraining={setTraining} />
+        <MemberEditor id={id} training={training} setTraining={setTraining} schoolId={schoolId} />
       )}
     </Layout>
   )
@@ -172,7 +175,7 @@ export default function TrainingDetail() {
 
 // ── 연수 정보 수정 다이얼로그 ─────────────────────────────────────────────────
 
-function EditDialog({ training, id, onSave, onClose }) {
+function EditDialog({ training, id, schoolId, onSave, onClose }) {
   const [form, setForm] = useState({
     title: training.title || '',
     date: training.date || '',
@@ -189,7 +192,7 @@ function EditDialog({ training, id, onSave, onClose }) {
     if (!form.title.trim()) { alert('연수명을 입력하세요.'); return }
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id), { ...form })
+      await updateDoc(doc(db, 'schools', schoolId, 'trainings', id), { ...form })
       onSave(form)
     } catch {
       alert('저장 중 오류가 발생했습니다.')
@@ -280,7 +283,7 @@ function QrPrintModal({ training, id, onClose }) {
 
 // ── 서명 현황 탭 ──────────────────────────────────────────────────────────────
 
-function SignatureStatus({ training, signatures, id, canManage }) {
+function SignatureStatus({ training, signatures, id, schoolId, canManage }) {
   const members = training.members ?? []
   const signedCount = Object.keys(signatures).length
   const [exporting, setExporting] = useState('')  // '' | 'excel' | 'pdf'
@@ -315,7 +318,7 @@ function SignatureStatus({ training, signatures, id, canManage }) {
     if (trimmed) newNotes[uid] = trimmed
     else delete newNotes[uid]
     try {
-      await updateDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id), { notes: newNotes })
+      await updateDoc(doc(db, 'schools', schoolId, 'trainings', id), { notes: newNotes })
       setNotes(newNotes)
     } catch { alert('비고 저장 중 오류가 발생했습니다.') }
     setEditingNote(null)
@@ -693,7 +696,7 @@ function SignatureStatus({ training, signatures, id, canManage }) {
 
 // ── 내 서명 탭 ────────────────────────────────────────────────────────────────
 
-function MySignature({ id, user, training, signatures }) {
+function MySignature({ id, user, training, signatures, schoolId }) {
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
   const [SignaturePad, setSignaturePad] = useState(null)
@@ -733,7 +736,7 @@ function MySignature({ id, user, training, signatures }) {
     try {
       const dataUrl = canvasRef.current.getTrimmedCanvas().toDataURL('image/png')
       await setDoc(
-        doc(db, 'schools', SCHOOL_ID, 'trainings', id, 'signatures', myUid),
+        doc(db, 'schools', schoolId, 'trainings', id, 'signatures', myUid),
         {
           uid: myUid,
           name: myMemberName,
@@ -743,10 +746,10 @@ function MySignature({ id, user, training, signatures }) {
         }
       )
       const sigSnap = await getDocs(
-        collection(db, 'schools', SCHOOL_ID, 'trainings', id, 'signatures')
+        collection(db, 'schools', schoolId, 'trainings', id, 'signatures')
       )
       await updateDoc(
-        doc(db, 'schools', SCHOOL_ID, 'trainings', id),
+        doc(db, 'schools', schoolId, 'trainings', id),
         { signedCount: sigSnap.size }
       )
       setShowPad(false)
@@ -870,7 +873,7 @@ function MySignature({ id, user, training, signatures }) {
 
 // ── 명단 편집 탭 ──────────────────────────────────────────────────────────────
 
-function MemberEditor({ id, training, setTraining }) {
+function MemberEditor({ id, training, setTraining, schoolId }) {
   const [members, setMembers] = useState(training.members ?? [])
   const [allUsers, setAllUsers] = useState([])
   const [presets, setPresets] = useState([])
@@ -881,10 +884,11 @@ function MemberEditor({ id, training, setTraining }) {
   const [snackbar, setSnackbar] = useState('')
 
   useEffect(() => {
-    loadMembers('전체').then(setAllUsers)
-    getDocs(query(collection(db, 'schools', SCHOOL_ID, 'trainingPresets'), orderBy('name')))
+    if (!schoolId) return
+    loadMembers('전체', schoolId).then(setAllUsers)
+    getDocs(query(collection(db, 'schools', schoolId, 'trainingPresets'), orderBy('name')))
       .then(snap => setPresets(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-  }, [])
+  }, [schoolId])
 
   const loadPreset = (presetId) => {
     const preset = presets.find(p => p.id === presetId)
@@ -915,7 +919,7 @@ function MemberEditor({ id, training, setTraining }) {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id), { members })
+      await updateDoc(doc(db, 'schools', schoolId, 'trainings', id), { members })
       setTraining(p => ({ ...p, members }))
       setSnackbar('명단이 저장되었습니다.')
     } catch {

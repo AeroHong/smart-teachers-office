@@ -1,17 +1,18 @@
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 
-export const SCHOOL_ID = 'seonyoo-hs'
 export const APPROVED_ROLES = ['teacher', 'school_admin', 'admin']
 export const STAFF_TYPES = ['교사', '교직원']
 
 /**
  * 승인된 구성원 목록 로드 (/users 컬렉션 기준)
- * staffType 필터 적용 가능: '교사' | '교직원' | '전체'
+ * @param {string} staffTypeFilter '교사' | '교직원' | '전체'
+ * @param {string} schoolId  로그인한 학교 ID
  */
-export async function loadMembers(staffTypeFilter = '전체') {
+export async function loadMembers(staffTypeFilter = '전체', schoolId) {
+  if (!schoolId) return []
   const snap = await getDocs(
-    query(collection(db, 'users'), where('schoolId', '==', SCHOOL_ID))
+    query(collection(db, 'users'), where('schoolId', '==', schoolId))
   )
   return snap.docs
     .map(d => ({ uid: d.id, name: d.data().name, email: d.data().email, staffType: d.data().staffType || '' }))

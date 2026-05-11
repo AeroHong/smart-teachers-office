@@ -15,11 +15,11 @@ import { collection, getDocs, addDoc, serverTimestamp, query, orderBy } from 'fi
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
-import { SCHOOL_ID, loadMembers, filterBySearch } from './trainingUtils'
+import { loadMembers, filterBySearch } from './trainingUtils'
 
 export default function TrainingCreate() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, schoolId } = useAuth()
 
   const [form, setForm] = useState({
     title: '', date: '', startTime: '', endTime: '', location: '', description: '',
@@ -38,19 +38,16 @@ export default function TrainingCreate() {
   const searchRef = useRef(null)
 
   useEffect(() => {
-    // 기본 명단(preset) 로드
-    getDocs(query(collection(db, 'schools', SCHOOL_ID, 'trainingPresets'), orderBy('name')))
+    if (!schoolId) return
+    getDocs(query(collection(db, 'schools', schoolId, 'trainingPresets'), orderBy('name')))
       .then(snap => setPresets(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    loadMembers('전체', schoolId).then(setAllUsers)
+  }, [schoolId])
 
-    // 전체 구성원 로드 (/users 컬렉션)
-    loadMembers('전체').then(setAllUsers)
-  }, [])
-
-  // staffType 필터가 바뀌면 allUsers 재로드
   const handleFilterChange = (_, val) => {
     if (!val) return
     setStaffTypeFilter(val)
-    loadMembers(val).then(setAllUsers)
+    loadMembers(val, schoolId).then(setAllUsers)
     setTeacherSearch('')
   }
 
@@ -110,7 +107,7 @@ export default function TrainingCreate() {
     setError('')
     setSaving(true)
     try {
-      const ref = await addDoc(collection(db, 'schools', SCHOOL_ID, 'trainings'), {
+      const ref = await addDoc(collection(db, 'schools', schoolId, 'trainings'), {
         ...form,
         members,
         signedCount: 0,

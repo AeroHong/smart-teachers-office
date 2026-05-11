@@ -10,26 +10,26 @@ import {
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
-import { SCHOOL_ID } from './trainingUtils'
 
 export default function TrainingSign() {
   const { id } = useParams()
-  const { user, role, loading: authLoading } = useAuth()
+  const { user, role, schoolId, schoolName, loading: authLoading } = useAuth()
   const [training, setTraining] = useState(null)
   const [signatures, setSignatures] = useState({})
   const [loadingTraining, setLoadingTraining] = useState(true)
 
   useEffect(() => {
-    getDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id)).then(d => {
+    if (!schoolId) return
+    getDoc(doc(db, 'schools', schoolId, 'trainings', id)).then(d => {
       if (d.exists()) setTraining({ id: d.id, ...d.data() })
       setLoadingTraining(false)
     }).catch(() => setLoadingTraining(false))
-  }, [id])
+  }, [id, schoolId])
 
   useEffect(() => {
-    if (role === 'pending') return
+    if (role === 'pending' || !schoolId) return
     const unsub = onSnapshot(
-      collection(db, 'schools', SCHOOL_ID, 'trainings', id, 'signatures'),
+      collection(db, 'schools', schoolId, 'trainings', id, 'signatures'),
       snap => {
         const map = {}
         snap.forEach(d => { map[d.id] = d.data() })
@@ -38,7 +38,7 @@ export default function TrainingSign() {
       () => {}
     )
     return unsub
-  }, [id, role])
+  }, [id, role, schoolId])
 
   if (authLoading || loadingTraining) {
     return (
@@ -90,13 +90,14 @@ export default function TrainingSign() {
   }
 
   return (
-    <SignLayout>
+    <SignLayout schoolName={schoolName}>
       <TrainingHeader training={training} />
       <MobileSignaturePad
         id={id}
         user={user}
         training={training}
         signatures={signatures}
+        schoolId={schoolId}
       />
     </SignLayout>
   )
@@ -104,7 +105,7 @@ export default function TrainingSign() {
 
 // ── 최소 레이아웃 (사이드바 없음 - 모바일 QR 접속용) ────────────────────────
 
-function SignLayout({ children }) {
+function SignLayout({ children, schoolName }) {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{
@@ -114,7 +115,7 @@ function SignLayout({ children }) {
         flexShrink: 0,
       }}>
         <Typography fontWeight={700} fontSize="0.9rem" letterSpacing="-0.01em">
-          🏫 선유고 스마트교무실
+          🏫 {schoolName || '스마트교무실'}
         </Typography>
       </Box>
       <Box sx={{ flex: 1, maxWidth: 600, width: '100%', mx: 'auto', px: 2.5, py: 3 }}>
@@ -149,7 +150,7 @@ function TrainingHeader({ training }) {
 
 // ── 모바일 서명 패드 ──────────────────────────────────────────────────────────
 
-function MobileSignaturePad({ id, user, training, signatures }) {
+function MobileSignaturePad({ id, user, training, signatures, schoolId }) {
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
   const [SignaturePad, setSignaturePad] = useState(null)
@@ -193,7 +194,7 @@ function MobileSignaturePad({ id, user, training, signatures }) {
     try {
       const dataUrl = canvasRef.current.getTrimmedCanvas().toDataURL('image/png')
       await setDoc(
-        doc(db, 'schools', SCHOOL_ID, 'trainings', id, 'signatures', myUid),
+        doc(db, 'schools', schoolId, 'trainings', id, 'signatures', myUid),
         {
           uid: myUid,
           name: myMemberName,
@@ -202,8 +203,8 @@ function MobileSignaturePad({ id, user, training, signatures }) {
           signatureData: dataUrl,
         }
       )
-      const sigSnap = await getDocs(collection(db, 'schools', SCHOOL_ID, 'trainings', id, 'signatures'))
-      await updateDoc(doc(db, 'schools', SCHOOL_ID, 'trainings', id), { signedCount: sigSnap.size })
+      const sigSnap = await getDocs(collection(db, 'schools', schoolId, 'trainings', id, 'signatures'))
+      await updateDoc(doc(db, 'schools', schoolId, 'trainings', id), { signedCount: sigSnap.size })
       setShowPad(false)
     } catch {
       alert('서명 저장 중 오류가 발생했습니다.')
