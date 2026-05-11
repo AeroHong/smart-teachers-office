@@ -230,9 +230,22 @@ export default function EventEdit() {
         <Field label="대상 학생 그룹">
           <select value={form.studentGroupId} onChange={set('studentGroupId')} style={styles.input}>
             <option value="">그룹 선택 안 함 (개방형)</option>
-            {groups.map(g => (
-              <option key={g.id} value={g.id}>{g.name} ({g.studentIds?.length || 0}명)</option>
-            ))}
+            {groups.some(g => g.shared) && (
+              <optgroup label="── 공유 그룹 ──">
+                {groups.filter(g => g.shared)
+                  .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true }))
+                  .map(g => (
+                    <option key={g.id} value={g.id}>[공유] {g.name} ({g.studentIds?.length || 0}명)</option>
+                  ))}
+              </optgroup>
+            )}
+            {groups.some(g => !g.shared) && (
+              <optgroup label="── 내 그룹 ──">
+                {groups.filter(g => !g.shared).map(g => (
+                  <option key={g.id} value={g.id}>{g.name} ({g.studentIds?.length || 0}명)</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </Field>
 

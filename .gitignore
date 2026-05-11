@@ -4,5 +4,11 @@ dist/
 
 .firebase/
 
+# 빌드 결과물 (firebase deploy 전 npm run build 필요)
+# portal/assets/ — Vite 번들 (매 빌드마다 해시값 변경)
+# portal/manual/ — manual/ 소스에서 빌드 시 자동 복사
+portal/assets/
+portal/manual/
+
 # Claude Code
 .claude/

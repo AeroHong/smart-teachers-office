@@ -31,6 +31,16 @@ const SERVICES = [
     statusColor: 'secondary',
   },
   {
+    icon: '✍️',
+    title: '연수 서명부',
+    description: '연수/워크숍 대상자 명단 관리 및 디지털 서명 수집 시스템입니다.',
+    path: '/training',
+    color: '#16a34a',
+    bgColor: '#f0fdf4',
+    status: '시범운영중',
+    statusColor: 'warning',
+  },
+  {
     icon: '📝',
     title: '고사 업무 지원 시스템',
     description: '시험 감독 배정 등 고사 관련 업무를 지원하는 시스템입니다.',
@@ -57,6 +67,35 @@ const SERVICES = [
 // ── 개발 로그 ──────────────────────────────────────────────
 // 버전 규칙: 새 업무시스템 추가 → 메이저(v1→v2), 기능개선/버그픽스 → 마이너(v2.0→v2.1)
 const CHANGELOG = [
+  {
+    version: 'v2.5',
+    date: '2026.05.11',
+    type: 'major',
+    items: [
+      '연수 서명부 시스템 v0.1 — 연수 생성·명단 관리·디지털 서명(터치/펜)·Excel/PDF 출력',
+      '관리자 구성원 관리 — 교사/교직원 구분(staffType) 추가',
+    ],
+  },
+  {
+    version: 'v2.4',
+    date: '2026.05.07',
+    type: 'improvement',
+    items: [
+      '학생 그룹 공유 기능 — 관리자 공유 그룹을 모든 교사가 이벤트 생성에 활용 가능 (파란 공유 배지)',
+      '보강 신청 공개예정 기능 — 오픈 예약 시각 설정 및 초단위 카운트다운, 오픈 후 자동 전환',
+      'CSV 파일명으로 그룹 이름 자동 입력 · 담당교사 구글계정 ID 기준 정렬',
+      '사용 매뉴얼 웹페이지 추가 (헤더 도움말 버튼 — 전체·선택과목 교사용)',
+    ],
+  },
+  {
+    version: 'v2.3.3',
+    date: '2026.04.29',
+    type: 'bugfix',
+    items: [
+      '[Critical] Cloud Functions 자동 마감 — todayStr 미정의로 인한 1/3 지각 처리 전체 crash 수정',
+      'QR URL 경로 오류 수정 — 이벤트 생성 직후 /attendance/checkin/... 으로 정정',
+    ],
+  },
   {
     version: 'v2.3.1',
     date: '2026.04.15',
@@ -122,13 +161,13 @@ const TYPE_STYLE = {
 }
 
 export default function Home() {
-  const { user } = useAuth()
+  const { user, userName } = useAuth()
   const navigate = useNavigate()
 
   return (
     <Layout>
       <Typography variant="h5" fontWeight={700} mb={0.5}>
-        환영합니다, {user?.displayName?.split(' ')[0] || user?.displayName}님 👋
+        환영합니다, {userName || user?.displayName}님 👋
       </Typography>
       <Typography variant="body2" color="text.secondary" mb={4}>
         원하시는 업무 시스템을 선택해 주세요.

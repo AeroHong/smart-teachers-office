@@ -28,7 +28,7 @@ export default function ProtectedRoute({ children, adminOnly = false, anyUser = 
   if (role === 'rejected') return <Navigate to="/login" replace />
 
   // 관리자 전용 페이지
-  if (adminOnly && role !== 'admin' && role !== 'school_admin') return <Navigate to="/attendance" replace />
+  if (adminOnly && role !== 'admin' && role !== 'school_admin') return <Navigate to="/" replace />
 
   return children
 }

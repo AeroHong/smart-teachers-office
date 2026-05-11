@@ -23,6 +23,13 @@ const StatsDashboard     = lazy(() => import('./pages/attendance/StatsDashboard'
 const StudentCheckin     = lazy(() => import('./pages/attendance/StudentCheckin'))
 const Admin              = lazy(() => import('./pages/attendance/Admin'))
 
+// 연수 서명부 - lazy load
+const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
+const TrainingCreate  = lazy(() => import('./pages/training/TrainingCreate'))
+const TrainingDetail  = lazy(() => import('./pages/training/TrainingDetail'))
+const TrainingSign    = lazy(() => import('./pages/training/TrainingSign'))
+const TrainingPresets = lazy(() => import('./pages/training/TrainingPresets'))
+
 function PageLoader() {
   return (
     <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
@@ -57,7 +64,14 @@ export default function App() {
           <Route path="/attendance/stats"                 element={<ProtectedRoute><StatsDashboard /></ProtectedRoute>} />
 
           {/* ── 관리자 전용 ── */}
-          <Route path="/attendance/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+
+          {/* ── 연수 서명부 ── */}
+          <Route path="/training"              element={<ProtectedRoute anyUser><TrainingList /></ProtectedRoute>} />
+          <Route path="/training/new"          element={<ProtectedRoute anyUser><TrainingCreate /></ProtectedRoute>} />
+          <Route path="/training/presets"      element={<ProtectedRoute adminOnly><TrainingPresets /></ProtectedRoute>} />
+          <Route path="/training/:id/sign"     element={<ProtectedRoute anyUser><TrainingSign /></ProtectedRoute>} />
+          <Route path="/training/:id"          element={<ProtectedRoute anyUser><TrainingDetail /></ProtectedRoute>} />
         </Routes>
       </Suspense>
     </BrowserRouter>

@@ -69,11 +69,12 @@ export default function EventCreate() {
     studentGroupId: src?.studentGroupId ?? '',
     location: src?.location ?? '',
     description: src?.description ?? '',
-    startTime: src?.startTime ? toDatetimeLocal(src.startTime?.toDate?.() ?? new Date(src.startTime)) : '',
-    endTime: src?.endTime ? toDatetimeLocal(src.endTime?.toDate?.() ?? new Date(src.endTime)) : '',
-    recurringEndDate: src?.recurringEndDate
-      ? (src.recurringEndDate.toDate?.() ?? new Date(src.recurringEndDate)).toISOString().slice(0, 10)
-      : '',
+    startTime: toDatetimeLocal(resolveDate(src?.startTime)),
+    endTime: toDatetimeLocal(resolveDate(src?.endTime)),
+    recurringEndDate: (() => {
+      const d = resolveDate(src?.recurringEndDate)
+      return d && !isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : ''
+    })(),
     lateCheckTime: src?.lateCheckTime ?? '',
   })
 
@@ -241,9 +242,22 @@ export default function EventCreate() {
           <Field label="대상 학생 그룹">
             <select value={form.studentGroupId} onChange={set('studentGroupId')} style={styles.input}>
               <option value="">그룹 선택 안 함 (개방형)</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>{g.name} ({g.studentIds?.length || 0}명)</option>
-              ))}
+              {groups.some(g => g.shared) && (
+                <optgroup label="── 공유 그룹 ──">
+                  {groups.filter(g => g.shared)
+                    .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true }))
+                    .map(g => (
+                      <option key={g.id} value={g.id}>[공유] {g.name} ({g.studentIds?.length || 0}명)</option>
+                    ))}
+                </optgroup>
+              )}
+              {groups.some(g => !g.shared) && (
+                <optgroup label="── 내 그룹 ──">
+                  {groups.filter(g => !g.shared).map(g => (
+                    <option key={g.id} value={g.id}>{g.name} ({g.studentIds?.length || 0}명)</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </Field>
 
@@ -386,7 +400,18 @@ function Field({ label, children, style }) {
   )
 }
 
+// React Router navigate state는 structured clone으로 직렬화되어
+// Firestore Timestamp의 toDate() 메서드가 사라질 수 있으므로
+// { seconds, nanoseconds } 평 객체도 처리
+function resolveDate(val) {
+  if (!val) return null
+  if (typeof val.toDate === 'function') return val.toDate()
+  if (typeof val.seconds === 'number') return new Date(val.seconds * 1000)
+  return new Date(val)
+}
+
 function toDatetimeLocal(date) {
+  if (!date || isNaN(date.getTime())) return ''
   const pad = n => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }

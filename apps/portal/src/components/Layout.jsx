@@ -19,7 +19,10 @@ const NAV_SECTIONS = [
     label: '포털',
     icon: '🏠',
     items: [
-      { label: '홈', path: '/', icon: '⊞' },
+      { label: '홈', path: '/', icon: '⊞', exact: true },
+    ],
+    adminItems: [
+      { label: '관리자', path: '/admin', icon: '◈' },
     ],
   },
   {
@@ -33,9 +36,6 @@ const NAV_SECTIONS = [
       { label: '이벤트 생성', path: '/attendance/events/new', icon: '◈' },
       { label: '출결 통계', path: '/attendance/stats', icon: '◈' },
     ],
-    adminItems: [
-      { label: '관리자', path: '/attendance/admin', icon: '◈' },
-    ],
   },
   {
     key: 'cover',
@@ -48,31 +48,51 @@ const NAV_SECTIONS = [
       { label: '현황판', path: '/cover/status', icon: '◈' },
     ],
   },
+  {
+    key: 'training',
+    label: '연수 서명부',
+    icon: '✍️',
+    prefix: '/training',
+    items: [
+      { label: '연수 목록', path: '/training', icon: '◈', exact: true },
+      { label: '연수 만들기', path: '/training/new', icon: '◈' },
+    ],
+    adminItems: [
+      { label: '연수 명단', path: '/training/presets', icon: '◈' },
+    ],
+  },
 ]
 
 // 경로 → 페이지 제목 매핑
 const PAGE_TITLES = {
   '/': '홈',
+  '/admin': '관리자',
   '/attendance': '대시보드',
   '/attendance/students': '학생 명단',
   '/attendance/events/new': '이벤트 생성',
   '/attendance/stats': '출결 통계',
-  '/attendance/admin': '관리자',
   '/cover': '보강 목록',
   '/cover/mypage': '내 현황',
   '/cover/status': '현황판',
+  '/training': '연수 목록',
+  '/training/new': '연수 만들기',
+  '/training/presets': '연수 명단',
 }
 
 function getPageTitle(pathname) {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname]
   if (pathname.match(/\/attendance\/events\/[^/]+\/edit/)) return '이벤트 수정'
   if (pathname.match(/\/attendance\/events\/[^/]+/)) return '출결 현황'
+  if (pathname.match(/\/training\/[^/]+\/sign/)) return '서명'
+  if (pathname.match(/\/training\/[^/]+/)) return '연수 상세'
   return ''
 }
 
 function getSectionLabel(pathname) {
+  if (pathname === '/admin') return '관리자'
   if (pathname.startsWith('/attendance')) return '스마트 출결'
   if (pathname.startsWith('/cover')) return '보강 신청'
+  if (pathname.startsWith('/training')) return '연수 서명부'
   return '포털'
 }
 
@@ -83,7 +103,8 @@ export default function Layout({ children, wide = false }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [anchorEl, setAnchorEl] = useState(null)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [helpAnchorEl, setHelpAnchorEl] = useState(null)
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
   const [pendingCount, setPendingCount] = useState(0)
 
   // 승인 대기 인원 수 실시간 구독 (admin/school_admin만)
@@ -249,7 +270,7 @@ export default function Layout({ children, wide = false }) {
                         flexShrink: 0,
                       }} />
                       {item.label}
-                      {item.path === '/attendance/admin' && pendingCount > 0 && (
+                      {item.path === '/admin' && pendingCount > 0 && (
                         <Box sx={{
                           ml: 'auto',
                           minWidth: 18, height: 18,
@@ -350,6 +371,61 @@ export default function Layout({ children, wide = false }) {
               </Typography>
             </>
           )}
+
+          {/* ── 도움말 버튼 (헤더 우측) ── */}
+          <Box sx={{ ml: 'auto' }}>
+            <Tooltip title="사용 매뉴얼">
+              <IconButton
+                size="small"
+                onClick={e => setHelpAnchorEl(e.currentTarget)}
+                sx={{
+                  width: 28, height: 28,
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  color: '#64748b',
+                  border: '1.5px solid #e2e8f0',
+                  borderRadius: '50%',
+                  '&:hover': {
+                    color: '#4f46e5',
+                    borderColor: '#c7d2fe',
+                    bgcolor: '#eef2ff',
+                  },
+                }}
+              >
+                ?
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={helpAnchorEl}
+              open={Boolean(helpAnchorEl)}
+              onClose={() => setHelpAnchorEl(null)}
+              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+              PaperProps={{ sx: { mt: 0.5, minWidth: 240, boxShadow: '0 4px 20px rgba(0,0,0,0.12)' } }}
+            >
+              <Typography sx={{
+                px: 2, py: 1,
+                fontSize: '0.72rem',
+                color: '#94a3b8',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}>
+                사용 매뉴얼
+              </Typography>
+              <Divider />
+              <MenuItem
+                onClick={() => {
+                  window.open('/manual/index.html', '_blank')
+                  setHelpAnchorEl(null)
+                }}
+                sx={{ fontSize: '0.88rem', gap: 1.25, py: 1.25 }}
+              >
+                <span style={{ fontSize: '1rem' }}>📖</span>
+                스마트 출결 시스템 매뉴얼
+              </MenuItem>
+            </Menu>
+          </Box>
         </Box>
 
         {/* 콘텐츠 */}

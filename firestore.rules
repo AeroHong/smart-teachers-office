@@ -29,10 +29,11 @@ service cloud.firestore {
       // 첫 로그인 시 문서 생성: 교사는 pending, 학생은 student
       allow create: if isSignedIn() && request.auth.uid == uid
                     && request.resource.data.role in ['pending', 'student'];
-      // 학생 본인 정보 갱신 허용 (이름 등 merge 업데이트), 관리자는 역할 변경 가능
+      // 본인 정보 갱신 허용 (이름·familyName 등, role·schoolId는 변경 불가), 관리자는 모든 변경 가능
       allow update: if isAdmin() ||
-                    (isSignedIn() && request.auth.uid == uid
-                     && request.resource.data.role == 'student');
+                    (isSignedIn() && request.auth.uid == uid &&
+                     request.resource.data.role == resource.data.role &&
+                     request.resource.data.schoolId == resource.data.schoolId);
       // 관리자 전체 목록 + 교사는 학생 계정만 조회 가능
       allow list: if isAdmin() || isSignedIn();
     }
@@ -79,6 +80,23 @@ service cloud.firestore {
             get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.liveToken
               == request.resource.data.qrToken;
         }
+      }
+
+      match /trainings/{trainingId} {
+        allow read: if isTeacher(schoolId);
+        allow create: if isTeacher(schoolId);
+        allow update: if isTeacher(schoolId);
+        allow delete: if isAdmin() || (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+
+        match /signatures/{signatureId} {
+          allow read: if isTeacher(schoolId);
+          allow write: if isTeacher(schoolId) && request.auth.uid == signatureId;
+        }
+      }
+
+      match /trainingPresets/{presetId} {
+        allow read: if isTeacher(schoolId);
+        allow write: if isAdmin();
       }
     }
   }
