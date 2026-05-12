@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -6,6 +7,7 @@ import CardContent from '@mui/material/CardContent'
 import CardActionArea from '@mui/material/CardActionArea'
 import Chip from '@mui/material/Chip'
 import Grid from '@mui/material/Grid'
+import Alert from '@mui/material/Alert'
 import { useAuth } from '../contexts/AuthContext'
 import Layout from '../components/Layout'
 
@@ -172,18 +174,37 @@ const TYPE_STYLE = {
   bugfix:      { label: '버그수정', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
 }
 
+const VISIBLE_COUNT = 4
+
 export default function Home() {
-  const { user, userName } = useAuth()
+  const { user, userName, schoolId } = useAuth()
   const navigate = useNavigate()
+  const isGuest = schoolId?.startsWith('guest_')
+  const [showAll, setShowAll] = useState(false)
+  const visibleLogs = showAll ? CHANGELOG : CHANGELOG.slice(0, VISIBLE_COUNT)
+  const hiddenCount = CHANGELOG.length - VISIBLE_COUNT
 
   return (
     <Layout>
       <Typography variant="h5" fontWeight={700} mb={0.5}>
         환영합니다, {userName || user?.displayName}님 👋
       </Typography>
-      <Typography variant="body2" color="text.secondary" mb={4}>
+      <Typography variant="body2" color="text.secondary" mb={isGuest ? 2 : 4}>
         원하시는 업무 시스템을 선택해 주세요.
       </Typography>
+
+      {isGuest && (
+        <Alert
+          severity="info"
+          sx={{ mb: 4, fontSize: '0.82rem', '& .MuiAlert-message': { width: '100%' } }}
+        >
+          <Box sx={{ fontWeight: 700, mb: 0.5 }}>개인 계정으로 체험 중입니다.</Box>
+          <Box sx={{ color: 'inherit', lineHeight: 1.7 }}>
+            학교 Google Workspace 계정이 있다면 도메인을 등록하면 구성원 전체가 자동으로 배정됩니다.
+            Workspace가 없어도 시스템 관리자에게 문의하면 개인 이메일로 정식 학교를 개설할 수 있습니다.
+          </Box>
+        </Alert>
+      )}
 
       {/* 서비스 카드 */}
       <Grid container spacing={3}>
@@ -227,59 +248,92 @@ export default function Home() {
           />
         </Box>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          {CHANGELOG.map((log, idx) => {
-            const ts = TYPE_STYLE[log.type]
-            return (
-              <Box
-                key={log.version}
-                sx={{
-                  display: 'flex',
-                  gap: 2,
-                  p: 2,
-                  borderRadius: '12px',
-                  bgcolor: idx === 0 ? '#fafafa' : 'transparent',
-                  border: '1px solid',
-                  borderColor: idx === 0 ? '#e2e8f0' : 'transparent',
-                }}
-              >
-                {/* 버전 + 날짜 */}
-                <Box sx={{ minWidth: 72, pt: 0.25 }}>
-                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
-                    {log.version}
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.72rem', color: '#94a3b8', mt: 0.25 }}>
-                    {log.date}
-                  </Typography>
-                </Box>
+        <Box sx={{ position: 'relative' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {visibleLogs.map((log, idx) => {
+              const ts = TYPE_STYLE[log.type]
+              return (
+                <Box
+                  key={log.version}
+                  sx={{
+                    display: 'flex',
+                    gap: 2,
+                    p: 2,
+                    borderRadius: '12px',
+                    bgcolor: idx === 0 ? '#fafafa' : 'transparent',
+                    border: '1px solid',
+                    borderColor: idx === 0 ? '#e2e8f0' : 'transparent',
+                  }}
+                >
+                  {/* 버전 + 날짜 */}
+                  <Box sx={{ minWidth: 72, pt: 0.25 }}>
+                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
+                      {log.version}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: '#94a3b8', mt: 0.25 }}>
+                      {log.date}
+                    </Typography>
+                  </Box>
 
-                {/* 타입 뱃지 */}
-                <Box sx={{ pt: 0.2 }}>
-                  <Box sx={{
-                    px: 0.9, py: 0.2,
-                    borderRadius: '6px',
-                    fontSize: '0.7rem',
-                    fontWeight: 700,
-                    bgcolor: ts.bg,
-                    color: ts.color,
-                    border: `1px solid ${ts.border}`,
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {ts.label}
+                  {/* 타입 뱃지 */}
+                  <Box sx={{ pt: 0.2 }}>
+                    <Box sx={{
+                      px: 0.9, py: 0.2,
+                      borderRadius: '6px',
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      bgcolor: ts.bg,
+                      color: ts.color,
+                      border: `1px solid ${ts.border}`,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {ts.label}
+                    </Box>
+                  </Box>
+
+                  {/* 변경 내용 */}
+                  <Box sx={{ flex: 1 }}>
+                    {log.items.map((item, i) => (
+                      <Typography key={i} sx={{ fontSize: '0.82rem', color: '#475569', lineHeight: 1.8 }}>
+                        · {item}
+                      </Typography>
+                    ))}
                   </Box>
                 </Box>
+              )
+            })}
+          </Box>
 
-                {/* 변경 내용 */}
-                <Box sx={{ flex: 1 }}>
-                  {log.items.map((item, i) => (
-                    <Typography key={i} sx={{ fontSize: '0.82rem', color: '#475569', lineHeight: 1.8 }}>
-                      · {item}
-                    </Typography>
-                  ))}
-                </Box>
-              </Box>
-            )
-          })}
+          {/* 그라디언트 페이드 */}
+          {!showAll && (
+            <Box sx={{
+              position: 'absolute',
+              bottom: 0, left: 0, right: 0,
+              height: 72,
+              background: 'linear-gradient(to bottom, transparent, #fff)',
+              pointerEvents: 'none',
+            }} />
+          )}
+        </Box>
+
+        {/* 토글 버튼 */}
+        <Box
+          onClick={() => setShowAll(p => !p)}
+          sx={{
+            mt: 1,
+            py: 0.75,
+            textAlign: 'center',
+            cursor: 'pointer',
+            borderRadius: '8px',
+            color: '#94a3b8',
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            userSelect: 'none',
+            '&:hover': { bgcolor: '#f8fafc', color: '#64748b' },
+            transition: 'all 0.15s',
+          }}
+        >
+          {showAll ? '▲ 접기' : `▼ 이전 기록 ${hiddenCount}개 더 보기`}
         </Box>
       </Box>
 

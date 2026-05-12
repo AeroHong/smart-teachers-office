@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /schools/{schoolId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == schoolId
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['school_admin', 'admin'];
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

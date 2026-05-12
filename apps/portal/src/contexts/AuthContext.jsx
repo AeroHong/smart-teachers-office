@@ -34,6 +34,18 @@ async function lookupSchoolByDomain(domain) {
   return null
 }
 
+// 이메일 직접 매핑으로 학교 정보 조회 (워크스페이스 없는 학교용)
+async function lookupSchoolByEmail(email) {
+  try {
+    const docId = email.toLowerCase().replace(/\./g, '_').replace(/@/g, '__at__')
+    const snap = await getDoc(doc(db, 'userEmailMap', docId))
+    if (snap.exists()) return snap.data()  // { schoolId, schoolName, role }
+  } catch (e) {
+    console.error('이메일 매핑 조회 실패:', e)
+  }
+  return null
+}
+
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
@@ -70,8 +82,9 @@ export function AuthProvider({ children }) {
             return
           }
 
-          // ── 도메인으로 학교 조회 ──────────────────────────────────
+          // ── 도메인 → 이메일 순서로 학교 조회 ────────────────────────
           const schoolInfo = await lookupSchoolByDomain(domain)
+                          || await lookupSchoolByEmail(email)
 
           if (!schoolInfo) {
             // 미등록 도메인 → 게스트 학교 자동 생성 또는 기존 게스트 학교 로드
@@ -186,11 +199,16 @@ export function AuthProvider({ children }) {
               const isDesignatedAdmin = schoolInfo.adminEmail &&
                 email.toLowerCase() === schoolInfo.adminEmail.toLowerCase()
 
-              // 사전 등록 명단 확인 (school_admin이 미리 등록해둔 경우 자동 승인)
+              // role 우선순위: 이메일 직접 매핑 > 지정 관리자 > preApproved > pending
               let finalRole = isDesignatedAdmin ? 'school_admin' : 'pending'
               let finalStaffType = autoStaffType
               let finalName = displayName
-              if (!isDesignatedAdmin) {
+
+              if (schoolInfo.role) {
+                // 이메일 직접 배정 (userEmailMap) — 즉시 적용
+                finalRole = schoolInfo.role
+              } else if (!isDesignatedAdmin) {
+                // 사전 등록 명단 확인 (school_admin이 미리 등록해둔 경우 자동 승인)
                 try {
                   const preDocId = email.toLowerCase().replace(/\./g, '_').replace(/@/g, '__at__')
                   const preRef = doc(db, 'schools', sid, 'preApproved', preDocId)

@@ -8,7 +8,7 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Tooltip from '@mui/material/Tooltip'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { collection, query, where, onSnapshot } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
 import { useAuth } from '../contexts/AuthContext'
 import { db } from '../lib/firebase'
 
@@ -99,13 +99,21 @@ function getSectionLabel(pathname) {
 const SIDEBAR_WIDTH = 220
 
 export default function Layout({ children, wide = false }) {
-  const { user, role, schoolName, logout } = useAuth()
+  const { user, role, schoolName, schoolId, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [anchorEl, setAnchorEl] = useState(null)
   const [helpAnchorEl, setHelpAnchorEl] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
   const [pendingCount, setPendingCount] = useState(0)
+  const [logoUrl, setLogoUrl] = useState(null)
+
+  useEffect(() => {
+    if (!schoolId) { setLogoUrl(null); return }
+    getDoc(doc(db, 'schools', schoolId))
+      .then(snap => setLogoUrl(snap.data()?.logoUrl || null))
+      .catch(() => setLogoUrl(null))
+  }, [schoolId])
 
   // 승인 대기 인원 수 실시간 구독 (admin/school_admin만)
   useEffect(() => {
@@ -195,23 +203,28 @@ export default function Layout({ children, wide = false }) {
       }}>
         {/* 로고 */}
         <Box sx={{ px: 2.5, py: 2, borderBottom: '1px solid #f1f5f9' }}>
-          <Typography
-            variant="subtitle2"
+          <Box
             component={Link}
             to="/"
-            sx={{
-              color: '#1e293b',
-              textDecoration: 'none',
-              fontWeight: 700,
-              fontSize: '0.9rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-            }}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, textDecoration: 'none' }}
           >
-            <span style={{ fontSize: '1.1rem' }}>🏫</span>
-            {schoolName ? `${schoolName} 스마트교무실` : '스마트 교무실'}
-          </Typography>
+            {logoUrl ? (
+              <Box component="img" src={logoUrl} alt="학교 로고"
+                sx={{ width: 30, height: 30, objectFit: 'contain', borderRadius: '6px', flexShrink: 0 }} />
+            ) : (
+              <span style={{ fontSize: '1.3rem', flexShrink: 0, lineHeight: 1 }}>🏫</span>
+            )}
+            <Box sx={{ whiteSpace: 'normal', minWidth: 0 }}>
+              <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>
+                {schoolName || '스마트 교무실'}
+              </Typography>
+              {schoolName && (
+                <Typography sx={{ fontSize: '0.68rem', color: '#94a3b8', lineHeight: 1.2 }}>
+                  스마트교무실
+                </Typography>
+              )}
+            </Box>
+          </Box>
         </Box>
 
         {/* 네비 섹션들 */}

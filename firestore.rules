@@ -38,6 +38,12 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
+    // ── /userEmailMap 컬렉션 (워크스페이스 없는 학교용 개인 이메일 배정) ──
+    match /userEmailMap/{emailId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
     // ── /users 컬렉션 ─────────────────────────────────────────
     match /users/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
@@ -53,7 +59,11 @@ service cloud.firestore {
     // ── /schools 컬렉션 ───────────────────────────────────────
     match /schools/{schoolId} {
       allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
-      allow write: if isSuperAdmin();
+      // guest_ 학교는 본인 UID 소유자가 직접 생성 가능
+      allow create: if isSuperAdmin() ||
+        (isSignedIn() && schoolId.matches('guest_.*') &&
+         request.resource.data.ownerUid == request.auth.uid);
+      allow update, delete: if isSuperAdmin();
 
       // 보강 신청 ──────────────────────────────────────────────
       match /coverRequests/{requestId} {

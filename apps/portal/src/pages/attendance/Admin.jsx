@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
   collection, query, where, getDocs,
-  updateDoc, doc, setDoc, deleteDoc, serverTimestamp,
+  updateDoc, doc, setDoc, deleteDoc, getDoc, serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
+import { db, storage } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
 
@@ -38,7 +39,7 @@ function parseTsv(text) {
 
 export default function Admin() {
   const { schoolId } = useAuth()
-  const [tab, setTab] = useState('pending')   // 'pending' | 'teachers' | 'preapprove'
+  const [tab, setTab] = useState('pending')   // 'pending' | 'teachers' | 'preapprove' | 'settings'
 
   const [pendingList, setPendingList]   = useState([])
   const [teacherList, setTeacherList]   = useState([])
@@ -98,9 +99,10 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    if (tab === 'pending')     fetchPending()
+    if (tab === 'pending')          fetchPending()
     else if (tab === 'teachers')    fetchTeachers()
     else if (tab === 'preapprove')  fetchPreApproved()
+    else if (tab === 'settings')    setLoading(false)
   }, [tab, schoolId])
 
   // ── 승인 대기 탭 액션 ──────────────────────────────────────
@@ -132,6 +134,48 @@ export default function Admin() {
     if (!trimmed || trimmed === currentName) return
     await updateDoc(doc(db, 'users', uid), { name: trimmed })
     setTeacherList(prev => prev.map(u => u.id === uid ? { ...u, name: trimmed } : u))
+  }
+
+  // ── 학교 설정 탭 ──────────────────────────────────────────
+  const [logoUrl, setLogoUrl] = useState(null)
+  const [logoUploading, setLogoUploading] = useState(false)
+
+  useEffect(() => {
+    if (tab !== 'settings' || !schoolId) return
+    getDoc(doc(db, 'schools', schoolId))
+      .then(snap => setLogoUrl(snap.data()?.logoUrl || null))
+      .catch(() => {})
+  }, [tab, schoolId])
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) { alert('이미지 파일만 업로드 가능합니다.'); return }
+    if (file.size > 500 * 1024) { alert('파일 크기는 500KB 이하여야 합니다.'); return }
+    setLogoUploading(true)
+    try {
+      const storageRef = ref(storage, `schools/${schoolId}/logo`)
+      await uploadBytes(storageRef, file, { contentType: file.type })
+      const url = await getDownloadURL(storageRef)
+      await updateDoc(doc(db, 'schools', schoolId), { logoUrl: url })
+      setLogoUrl(url)
+    } catch (err) {
+      alert('업로드 실패: ' + err.message)
+    } finally {
+      setLogoUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleLogoDelete = async () => {
+    if (!window.confirm('학교 로고를 삭제하시겠습니까?')) return
+    try {
+      await deleteObject(ref(storage, `schools/${schoolId}/logo`)).catch(() => {})
+      await updateDoc(doc(db, 'schools', schoolId), { logoUrl: null })
+      setLogoUrl(null)
+    } catch (err) {
+      alert('삭제 실패: ' + err.message)
+    }
   }
 
   // ── 사전 등록 탭 ──────────────────────────────────────────
@@ -201,6 +245,10 @@ export default function Admin() {
         <button onClick={() => setTab('preapprove')}
           style={{ ...styles.tab, ...(tab === 'preapprove' ? styles.tabActive : {}) }}>
           사전 등록
+        </button>
+        <button onClick={() => setTab('settings')}
+          style={{ ...styles.tab, ...(tab === 'settings' ? styles.tabActive : {}) }}>
+          학교 설정
         </button>
       </div>
 
@@ -329,6 +377,52 @@ export default function Admin() {
             </tbody>
           </table>
         )
+
+      ) : tab === 'settings' ? (
+
+        /* ── 학교 설정 탭 ── */
+        <div>
+          <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '1rem' }}>학교 로고</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            {/* 미리보기 */}
+            <div style={{
+              width: 80, height: 80, borderRadius: 12,
+              border: '1.5px dashed #e2e8f0',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: '#f8fafc', flexShrink: 0, overflow: 'hidden',
+            }}>
+              {logoUrl
+                ? <img src={logoUrl} alt="로고" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                : <span style={{ fontSize: '2rem' }}>🏫</span>
+              }
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <label style={{
+                display: 'inline-block',
+                padding: '0.35rem 0.9rem',
+                backgroundColor: logoUploading ? '#93c5fd' : '#1a73e8',
+                color: '#fff', border: 'none', borderRadius: 6, cursor: logoUploading ? 'not-allowed' : 'pointer',
+                fontSize: '0.85rem', fontWeight: 600,
+              }}>
+                {logoUploading ? '업로드 중...' : '로고 업로드'}
+                <input
+                  type="file" accept="image/*" hidden
+                  disabled={logoUploading}
+                  onChange={handleLogoUpload}
+                />
+              </label>
+              {logoUrl && (
+                <button onClick={handleLogoDelete} style={styles.rejectBtn}>
+                  로고 삭제
+                </button>
+              )}
+            </div>
+          </div>
+          <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0 }}>
+            PNG, JPG, SVG 권장 · 최대 500KB · 정사각형 이미지가 가장 잘 표시됩니다.<br />
+            업로드 후 페이지를 새로고침하면 사이드바에 반영됩니다.
+          </p>
+        </div>
 
       ) : (
 
