@@ -7,6 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 // 즉시 로드 (공통)
 import Login from './pages/Login'
 import Home from './pages/Home'
+import SchoolSetup from './pages/SchoolSetup'
 
 // 보강신청
 import CoverMain from './pages/cover/CoverMain'
@@ -49,6 +50,7 @@ export default function App() {
         <Routes>
           {/* ── 공개 ── */}
           <Route path="/login" element={<Login />} />
+          <Route path="/school-setup" element={<SchoolSetup />} />
           <Route path="/attendance/checkin/:schoolId/:eventId" element={<StudentCheckin />} />
 
           {/* ── 포털 (로그인만 하면 접근) ── */}

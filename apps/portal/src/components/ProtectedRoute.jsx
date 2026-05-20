@@ -3,7 +3,6 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Box from '@mui/material/Box'
 import { useAuth } from '../contexts/AuthContext'
 import PendingApproval from '../pages/PendingApproval'
-import UnregisteredDomain from '../pages/UnregisteredDomain'
 
 export default function ProtectedRoute({
   children,
@@ -11,7 +10,7 @@ export default function ProtectedRoute({
   anyUser = false,
   superAdminOnly = false,
 }) {
-  const { user, role, isSuperAdmin, loading } = useAuth()
+  const { user, role, isSuperAdmin, loading, needsSchoolSetup } = useAuth()
 
   if (loading) {
     return (
@@ -23,8 +22,8 @@ export default function ProtectedRoute({
 
   if (!user) return <Navigate to="/login" replace />
 
-  // 미등록 도메인 사용자
-  if (role === 'unregistered') return <UnregisteredDomain />
+  // 학교 미설정 → 학교 선택/등록 페이지
+  if (needsSchoolSetup) return <Navigate to="/school-setup" replace />
 
   // 슈퍼 어드민 전용
   if (superAdminOnly) {

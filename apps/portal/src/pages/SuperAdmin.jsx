@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
-  collection, doc, getDoc, getDocs, setDoc, deleteDoc, serverTimestamp, writeBatch, query, where,
+  collection, doc, getDoc, getDocs, setDoc, deleteDoc,
+  serverTimestamp, writeBatch, query, where,
+  getCountFromServer, addDoc,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -25,6 +27,8 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
+import UploadFileIcon from '@mui/icons-material/UploadFile'
+import DownloadIcon from '@mui/icons-material/Download'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
@@ -47,6 +51,50 @@ function normalizeDate(raw) {
   return s
 }
 
+async function logAudit(userEmail, action, data = {}) {
+  try {
+    await addDoc(collection(db, 'auditLogs'), {
+      action,
+      by: userEmail,
+      at: serverTimestamp(),
+      ...data,
+    })
+  } catch (e) {
+    console.warn('감사 로그 기록 실패:', e)
+  }
+}
+
+function downloadCsvTemplate() {
+  const rows = [
+    'email,role',
+    'teacher@gmail.com,teacher',
+    'admin@school.com,school_admin',
+  ].join('\n')
+  const blob = new Blob(['﻿' + rows], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = '이메일배정_양식.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function parseCsv(text) {
+  const lines = text.trim().split(/\r?\n/)
+  if (lines.length < 2) return []
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+  const emailIdx = headers.findIndex(h => h === 'email' || h === '이메일')
+  const roleIdx  = headers.findIndex(h => h === 'role'  || h === '역할')
+  if (emailIdx === -1) return null // 헤더 없음
+  return lines.slice(1).map(line => {
+    const cols = line.split(',').map(v => v.trim())
+    return {
+      email: cols[emailIdx] || '',
+      role: cols[roleIdx] || 'teacher',
+    }
+  }).filter(r => r.email)
+}
+
 export default function SuperAdmin() {
   const { user } = useAuth()
 
@@ -65,81 +113,63 @@ export default function SuperAdmin() {
   const [urlInput, setUrlInput] = useState('')
 
   // 학교명 인라인 편집
-  const [editingName, setEditingName] = useState(null) // schoolId
+  const [editingName, setEditingName] = useState(null)
   const [nameInput, setNameInput] = useState('')
 
-  // 학교 ID 변경
-  const [editingSchoolId, setEditingSchoolId] = useState(null) // schoolId
-  const [schoolIdInput, setSchoolIdInput] = useState('')
-  const [schoolIdSaving, setSchoolIdSaving] = useState(false)
-
-  // 게스트 학교
-  const [guestSchools, setGuestSchools] = useState([])
-  const [loadingGuests, setLoadingGuests] = useState(true)
-  const [promoteTarget, setPromoteTarget] = useState(null)  // { schoolId, name, domain }
-  const [promoteForm, setPromoteForm] = useState({ domain: '', schoolName: '', adminEmail: '' })
-  const [promoteSaving, setPromoteSaving] = useState(false)
-
   // 마이그레이션
-  const [migrateDialog, setMigrateDialog] = useState(null) // { schoolId, schoolName, coverApiUrl }
-  const [migrateStatus, setMigrateStatus] = useState(null) // { phase, count, total, error }
+  const [migrateDialog, setMigrateDialog] = useState(null)
+  const [migrateStatus, setMigrateStatus] = useState(null)
 
   // 개인 이메일 직접 배정
   const [emailMapList, setEmailMapList] = useState([])
   const [loadingEmailMap, setLoadingEmailMap] = useState(true)
-  const [emailMapForm, setEmailMapForm] = useState({ email: '', schoolId: '', role: 'school_admin' })
+  const [emailMapForm, setEmailMapForm] = useState({ email: '', schoolId: '', role: 'teacher' })
   const [emailMapSaving, setEmailMapSaving] = useState(false)
   const [emailMapError, setEmailMapError] = useState('')
+
+  // CSV 업로드
+  const csvInputRef = useRef(null)
+  const [csvSchoolId, setCsvSchoolId] = useState('')
+  const [csvUploading, setCsvUploading] = useState(false)
+  const [csvResult, setCsvResult] = useState(null) // { success, skipped, errors }
+
+  const showSuccess = (msg) => {
+    setSuccessMsg(msg)
+    setTimeout(() => setSuccessMsg(''), 4000)
+  }
 
   const loadSchools = async () => {
     setLoadingList(true)
     try {
-      const [schoolsSnap, domainSnap] = await Promise.all([
-        getDocs(collection(db, 'schools')),
-        getDocs(collection(db, 'schoolDomains')),
-      ])
-
-      // schoolId → 도메인 정보 맵
-      const domainMap = {}
-      domainSnap.docs.forEach(d => {
-        const data = d.data()
-        if (data.schoolId) domainMap[data.schoolId] = { domain: d.id, ...data }
-      })
+      const schoolsSnap = await getDocs(collection(db, 'schools'))
 
       const list = schoolsSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(s => !s.isGuest)
-        .map(s => {
-          const di = domainMap[s.id] || {}
-          return {
-            schoolId:   s.id,
-            schoolName: s.name || di.schoolName || s.id,
-            domain:     di.domain || null,
-            coverApiUrl: s.coverApiUrl || null,
-            adminEmail: di.adminEmail || s.adminEmail || null,
-          }
-        })
+        .map(s => ({
+          schoolId:    s.id,
+          schoolName:  s.name || s.id,
+          domain:      s.domains?.[0] || null,
+          coverApiUrl: s.coverApiUrl || null,
+          adminEmail:  s.adminEmail || null,
+        }))
 
       list.sort((a, b) => a.schoolName?.localeCompare(b.schoolName, 'ko'))
-      setSchools(list)
+
+      // 학교별 구성원 수 병렬 조회
+      const counts = await Promise.all(
+        list.map(s =>
+          getCountFromServer(query(collection(db, 'users'), where('schoolId', '==', s.schoolId)))
+            .then(snap => snap.data().count)
+            .catch(() => null)
+        )
+      )
+
+      setSchools(list.map((s, i) => ({ ...s, userCount: counts[i] })))
     } catch (e) {
       setError('목록 불러오기 실패: ' + e.message)
     } finally {
       setLoadingList(false)
-    }
-  }
-
-  const loadGuestSchools = async () => {
-    setLoadingGuests(true)
-    try {
-      const snap = await getDocs(query(collection(db, 'schools'), where('isGuest', '==', true)))
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-      setGuestSchools(list)
-    } catch (e) {
-      console.error('게스트 학교 로드 실패:', e)
-    } finally {
-      setLoadingGuests(false)
     }
   }
 
@@ -157,60 +187,9 @@ export default function SuperAdmin() {
     }
   }
 
-  useEffect(() => { loadSchools(); loadGuestSchools(); loadEmailMap() }, [])
+  useEffect(() => { loadSchools(); loadEmailMap() }, [])
 
-  const handleAddEmailMap = async () => {
-    setEmailMapError('')
-    const email = emailMapForm.email.trim().toLowerCase()
-    const schoolId = emailMapForm.schoolId
-    const role = emailMapForm.role
-
-    if (!email || !schoolId) {
-      setEmailMapError('이메일과 학교는 필수입니다.')
-      return
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setEmailMapError('올바른 이메일 형식을 입력하세요.')
-      return
-    }
-
-    const selectedSchool = schools.find(s => s.schoolId === schoolId)
-    const schoolName = selectedSchool?.schoolName || schoolId
-
-    setEmailMapSaving(true)
-    try {
-      const docId = email.replace(/\./g, '_').replace(/@/g, '__at__')
-      await setDoc(doc(db, 'userEmailMap', docId), {
-        email,
-        schoolId,
-        schoolName,
-        role,
-        assignedAt: serverTimestamp(),
-        assignedBy: user.email,
-      })
-      setEmailMapForm(f => ({ ...f, email: '' }))
-      setSuccessMsg(`✅ ${email} → ${schoolName} 배정 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
-      await loadEmailMap()
-    } catch (e) {
-      setEmailMapError('저장 실패: ' + e.message)
-    } finally {
-      setEmailMapSaving(false)
-    }
-  }
-
-  const handleDeleteEmailMap = async (docId, email) => {
-    if (!window.confirm(`${email} 배정을 삭제하시겠습니까?`)) return
-    try {
-      await deleteDoc(doc(db, 'userEmailMap', docId))
-      setSuccessMsg(`🗑 ${email} 배정 삭제 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
-      await loadEmailMap()
-    } catch (e) {
-      setError('삭제 실패: ' + e.message)
-    }
-  }
-
+  // ── 학교 등록 ──────────────────────────────────────────────────
   const handleAdd = async () => {
     setFormError('')
     const domain = form.domain.trim().toLowerCase().replace(/^@/, '')
@@ -245,37 +224,34 @@ export default function SuperAdmin() {
 
     setSaving(true)
     try {
-      // schools 문서 생성
       const schoolRef = doc(db, 'schools', schoolId)
       const schoolDoc = await getDoc(schoolRef)
-      if (!schoolDoc.exists()) {
-        await setDoc(schoolRef, {
-          name: schoolName,
-          ...(domain ? { domains: [domain] } : {}),
-          ...(adminEmail ? { adminEmail } : {}),
-          createdAt: serverTimestamp(),
-          createdBy: user.email,
-        })
+      if (schoolDoc.exists()) {
+        setFormError('이미 존재하는 학교 ID입니다.')
+        return
       }
 
+      await setDoc(schoolRef, {
+        name: schoolName,
+        ...(domain ? { domains: [domain] } : {}),
+        ...(adminEmail ? { adminEmail } : {}),
+        createdAt: serverTimestamp(),
+        createdBy: user.email,
+      })
+
       if (domain) {
-        // 워크스페이스 도메인 등록
         await setDoc(doc(db, 'schoolDomains', domain), {
           schoolId,
-          schoolName,
-          adminEmail: adminEmail || null,
           createdAt: serverTimestamp(),
           createdBy: user.email,
         })
       }
 
       if (adminEmail) {
-        // 관리자 이메일 → userEmailMap 자동 등록
         const docId = adminEmail.replace(/\./g, '_').replace(/@/g, '__at__')
         await setDoc(doc(db, 'userEmailMap', docId), {
           email: adminEmail,
           schoolId,
-          schoolName,
           role: 'school_admin',
           assignedAt: serverTimestamp(),
           assignedBy: user.email,
@@ -283,10 +259,10 @@ export default function SuperAdmin() {
         await loadEmailMap()
       }
 
+      await logAudit(user.email, 'school_created', { schoolId, schoolName, domain, adminEmail })
+
       setForm({ domain: '', schoolId: '', schoolName: '', adminEmail: '' })
-      const label = domain ? `@${domain} (${schoolName})` : `${schoolName} (도메인 없음)`
-      setSuccessMsg(`✅ ${label} 등록 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
+      showSuccess(`✅ ${schoolName} 등록 완료`)
       await loadSchools()
     } catch (e) {
       setFormError('저장 실패: ' + e.message)
@@ -295,15 +271,13 @@ export default function SuperAdmin() {
     }
   }
 
-  const handleSaveUrl = async (schoolId, domain) => {
+  // ── 보강 API URL 저장 (schools만 업데이트) ────────────────────
+  const handleSaveUrl = async (schoolId) => {
     const url = urlInput.trim()
     try {
       await setDoc(doc(db, 'schools', schoolId), { coverApiUrl: url }, { merge: true })
-      if (domain) {
-        await setDoc(doc(db, 'schoolDomains', domain), { coverApiUrl: url }, { merge: true })
-      }
-      setSuccessMsg(`✅ ${schoolId} 보강 API URL 저장 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
+      await logAudit(user.email, 'cover_url_changed', { schoolId, url })
+      showSuccess(`✅ ${schoolId} 보강 API URL 저장 완료`)
       setEditingUrl(null)
       await loadSchools()
     } catch (e) {
@@ -311,16 +285,14 @@ export default function SuperAdmin() {
     }
   }
 
-  const handleSaveName = async (schoolId, domain) => {
+  // ── 학교명 저장 (schools만 업데이트 — 단일 소스) ──────────────
+  const handleSaveName = async (schoolId) => {
     const name = nameInput.trim()
     if (!name) return
     try {
       await setDoc(doc(db, 'schools', schoolId), { name }, { merge: true })
-      if (domain) {
-        await setDoc(doc(db, 'schoolDomains', domain), { schoolName: name }, { merge: true })
-      }
-      setSuccessMsg(`✅ 학교명 변경 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
+      await logAudit(user.email, 'school_name_changed', { schoolId, name })
+      showSuccess(`✅ 학교명 변경 완료`)
       setEditingName(null)
       await loadSchools()
     } catch (e) {
@@ -328,121 +300,135 @@ export default function SuperAdmin() {
     }
   }
 
-  const handleSaveSchoolId = async (oldSchoolId, domain, schoolName) => {
-    const newId = schoolIdInput.trim().toLowerCase().replace(/\s+/g, '-')
-    if (!newId || newId === oldSchoolId) { setEditingSchoolId(null); return }
-    if (!/^[a-z0-9-]+$/.test(newId)) {
-      setError('학교 ID는 영소문자, 숫자, 하이픈만 사용하세요.')
-      return
-    }
-    if (!window.confirm(
-      `학교 ID를 "${oldSchoolId}" → "${newId}" 로 변경합니다.\n\n` +
-      `⚠️ 주의: 보강/출결/연수 등 기존 데이터는 이전되지 않습니다.\n` +
-      `(메타데이터·도메인·사용자 배정만 업데이트됩니다)\n\n계속하시겠습니까?`
-    )) return
-
-    setSchoolIdSaving(true)
-    try {
-      // 기존 schools 문서 내용 복사 → 새 ID로 생성
-      const oldRef = doc(db, 'schools', oldSchoolId)
-      const oldSnap = await getDoc(oldRef)
-      const oldData = oldSnap.exists() ? oldSnap.data() : {}
-      await setDoc(doc(db, 'schools', newId), { ...oldData, name: schoolName })
-
-      // schoolDomains 업데이트
-      if (domain) {
-        await setDoc(doc(db, 'schoolDomains', domain), { schoolId: newId }, { merge: true })
-      }
-
-      // userEmailMap 업데이트 (이 schoolId를 가진 항목)
-      const emSnap = await getDocs(collection(db, 'userEmailMap'))
-      const emBatch = writeBatch(db)
-      emSnap.docs.forEach(d => {
-        if (d.data().schoolId === oldSchoolId) {
-          emBatch.update(d.ref, { schoolId: newId })
-        }
-      })
-      await emBatch.commit()
-
-      // users 업데이트 (이 schoolId를 가진 항목)
-      const uSnap = await getDocs(query(collection(db, 'users'), where('schoolId', '==', oldSchoolId)))
-      const uBatch = writeBatch(db)
-      uSnap.docs.forEach(d => uBatch.update(d.ref, { schoolId: newId }))
-      await uBatch.commit()
-
-      // 기존 schools 문서 삭제
-      await deleteDoc(oldRef)
-
-      setSuccessMsg(`✅ 학교 ID 변경 완료: ${oldSchoolId} → ${newId}`)
-      setTimeout(() => setSuccessMsg(''), 5000)
-      setEditingSchoolId(null)
-      await loadSchools()
-    } catch (e) {
-      setError('학교 ID 변경 실패: ' + e.message)
-    } finally {
-      setSchoolIdSaving(false)
-    }
-  }
-
+  // ── 학교 삭제 ─────────────────────────────────────────────────
   const handleDelete = async (schoolId, domain, schoolName) => {
     const label = domain ? `@${domain} (${schoolName})` : schoolName
     if (!window.confirm(`"${label}" 학교를 삭제하시겠습니까?\n해당 학교 사용자들은 더 이상 로그인할 수 없습니다.`)) return
     try {
       await deleteDoc(doc(db, 'schools', schoolId))
       if (domain) await deleteDoc(doc(db, 'schoolDomains', domain))
-      setSuccessMsg(`🗑 ${label} 삭제 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
+      await logAudit(user.email, 'school_deleted', { schoolId, schoolName })
+      showSuccess(`🗑 ${label} 삭제 완료`)
       await loadSchools()
     } catch (e) {
       setError('삭제 실패: ' + e.message)
     }
   }
 
-  // ── 게스트 학교 정식 등록 ──────────────────────────────────────
-  const handlePromote = async () => {
-    const domain = promoteForm.domain.trim().toLowerCase().replace(/^@/, '')
-    const schoolName = promoteForm.schoolName.trim()
-    const adminEmail = promoteForm.adminEmail.trim().toLowerCase()
-    if (!domain || !schoolName) { alert('도메인과 학교명은 필수입니다.'); return }
+  // ── 이메일 배정 (단건) ─────────────────────────────────────────
+  const handleAddEmailMap = async () => {
+    setEmailMapError('')
+    const email = emailMapForm.email.trim().toLowerCase()
+    const schoolId = emailMapForm.schoolId
+    const role = emailMapForm.role
 
-    setPromoteSaving(true)
+    if (!email || !schoolId) {
+      setEmailMapError('이메일과 학교는 필수입니다.')
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailMapError('올바른 이메일 형식을 입력하세요.')
+      return
+    }
+
+    const selectedSchool = schools.find(s => s.schoolId === schoolId)
+    const schoolName = selectedSchool?.schoolName || schoolId
+
+    setEmailMapSaving(true)
     try {
-      // schoolDomains 등록
-      await setDoc(doc(db, 'schoolDomains', domain), {
-        schoolId: promoteTarget.id,
-        schoolName,
-        adminEmail: adminEmail || null,
-        createdAt: serverTimestamp(),
-        createdBy: user.email,
+      const docId = email.replace(/\./g, '_').replace(/@/g, '__at__')
+      await setDoc(doc(db, 'userEmailMap', docId), {
+        email,
+        schoolId,
+        role,
+        assignedAt: serverTimestamp(),
+        assignedBy: user.email,
       })
-      // schools 문서 업데이트 (isGuest 제거, name 업데이트)
-      await setDoc(doc(db, 'schools', promoteTarget.id), {
-        name: schoolName,
-        isGuest: false,
-        domains: [domain],
-      }, { merge: true })
-
-      setPromoteTarget(null)
-      setPromoteForm({ domain: '', schoolName: '', adminEmail: '' })
-      setSuccessMsg(`✅ ${schoolName} 정식 등록 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
-      await Promise.all([loadSchools(), loadGuestSchools()])
+      await logAudit(user.email, 'email_assigned', { email, schoolId, schoolName, role })
+      setEmailMapForm(f => ({ ...f, email: '' }))
+      showSuccess(`✅ ${email} → ${schoolName} 배정 완료`)
+      await loadEmailMap()
     } catch (e) {
-      alert('정식 등록 실패: ' + e.message)
+      setEmailMapError('저장 실패: ' + e.message)
     } finally {
-      setPromoteSaving(false)
+      setEmailMapSaving(false)
     }
   }
 
-  const handleDeleteGuest = async (schoolId, name) => {
-    if (!window.confirm(`"${name}" 게스트 학교를 삭제하시겠습니까?\n해당 학교의 모든 데이터가 삭제됩니다.`)) return
+  const handleDeleteEmailMap = async (docId, email) => {
+    if (!window.confirm(`${email} 배정을 삭제하시겠습니까?`)) return
     try {
-      await deleteDoc(doc(db, 'schools', schoolId))
-      setSuccessMsg(`🗑 ${name} 게스트 학교 삭제 완료`)
-      setTimeout(() => setSuccessMsg(''), 4000)
-      await loadGuestSchools()
+      await deleteDoc(doc(db, 'userEmailMap', docId))
+      await logAudit(user.email, 'email_removed', { email })
+      showSuccess(`🗑 ${email} 배정 삭제 완료`)
+      await loadEmailMap()
     } catch (e) {
       setError('삭제 실패: ' + e.message)
+    }
+  }
+
+  // ── CSV 일괄 업로드 ────────────────────────────────────────────
+  const handleCsvUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !csvSchoolId) return
+    e.target.value = ''
+
+    setCsvUploading(true)
+    setCsvResult(null)
+
+    try {
+      const text = await file.text()
+      const rows = parseCsv(text)
+
+      if (rows === null) {
+        setEmailMapError('CSV 헤더를 확인하세요. email 또는 이메일 열이 필요합니다.')
+        setCsvUploading(false)
+        return
+      }
+
+      const VALID_ROLES = ['teacher', 'school_admin']
+      const selectedSchool = schools.find(s => s.schoolId === csvSchoolId)
+      const schoolName = selectedSchool?.schoolName || csvSchoolId
+
+      let success = 0, skipped = 0
+      const errors = []
+      const batch = writeBatch(db)
+
+      for (const row of rows) {
+        const email = row.email.toLowerCase()
+        const role = VALID_ROLES.includes(row.role) ? row.role : 'teacher'
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          errors.push(`${email}: 이메일 형식 오류`)
+          skipped++
+          continue
+        }
+
+        const docId = email.replace(/\./g, '_').replace(/@/g, '__at__')
+        batch.set(doc(db, 'userEmailMap', docId), {
+          email,
+          schoolId: csvSchoolId,
+          role,
+          assignedAt: serverTimestamp(),
+          assignedBy: user.email,
+        })
+        success++
+      }
+
+      if (success > 0) await batch.commit()
+
+      await logAudit(user.email, 'email_csv_uploaded', {
+        schoolId: csvSchoolId,
+        schoolName,
+        count: success,
+      })
+
+      setCsvResult({ success, skipped, errors })
+      await loadEmailMap()
+    } catch (e) {
+      setEmailMapError('CSV 처리 실패: ' + e.message)
+    } finally {
+      setCsvUploading(false)
     }
   }
 
@@ -545,7 +531,7 @@ export default function SuperAdmin() {
             value={form.adminEmail}
             onChange={e => setForm(f => ({ ...f, adminEmail: e.target.value }))}
             sx={{ flex: '1 1 200px' }}
-            helperText="도메인 없으면 필수 — 자동 school_admin 배정"
+            helperText="도메인 없으면 필수"
           />
           <Button
             variant="contained"
@@ -556,9 +542,7 @@ export default function SuperAdmin() {
             {saving ? <CircularProgress size={18} color="inherit" /> : '등록'}
           </Button>
         </Box>
-        {formError && (
-          <Typography variant="caption" color="error">{formError}</Typography>
-        )}
+        {formError && <Typography variant="caption" color="error">{formError}</Typography>}
       </Paper>
 
       <Divider sx={{ mb: 3 }} />
@@ -569,9 +553,7 @@ export default function SuperAdmin() {
       </Typography>
 
       {loadingList ? (
-        <Box display="flex" justifyContent="center" py={4}>
-          <CircularProgress />
-        </Box>
+        <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
       ) : schools.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
           등록된 학교가 없습니다.
@@ -584,6 +566,7 @@ export default function SuperAdmin() {
                 <TableCell><strong>학교명</strong></TableCell>
                 <TableCell><strong>Google 도메인</strong></TableCell>
                 <TableCell><strong>학교 ID</strong></TableCell>
+                <TableCell><strong>구성원</strong></TableCell>
                 <TableCell><strong>보강 API URL</strong></TableCell>
                 <TableCell><strong>최초 관리자</strong></TableCell>
                 <TableCell align="center"><strong>마이그레이션</strong></TableCell>
@@ -591,17 +574,18 @@ export default function SuperAdmin() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {schools.map(({ domain, schoolId, schoolName, coverApiUrl, adminEmail }) => (
+              {schools.map(({ domain, schoolId, schoolName, coverApiUrl, adminEmail, userCount }) => (
                 <TableRow key={schoolId} hover>
+                  {/* 학교명 */}
                   <TableCell>
                     {editingName === schoolId ? (
                       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
                         <TextField size="small" value={nameInput}
                           onChange={e => setNameInput(e.target.value)}
                           sx={{ width: 150 }} autoFocus
-                          onKeyDown={e => { if (e.key === 'Enter') handleSaveName(schoolId, domain); if (e.key === 'Escape') setEditingName(null) }}
+                          onKeyDown={e => { if (e.key === 'Enter') handleSaveName(schoolId); if (e.key === 'Escape') setEditingName(null) }}
                         />
-                        <IconButton size="small" color="success" onClick={() => handleSaveName(schoolId, domain)}><CheckIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" color="success" onClick={() => handleSaveName(schoolId)}><CheckIcon fontSize="small" /></IconButton>
                         <IconButton size="small" onClick={() => setEditingName(null)}><CloseIcon fontSize="small" /></IconButton>
                       </Box>
                     ) : (
@@ -615,38 +599,29 @@ export default function SuperAdmin() {
                       </Box>
                     )}
                   </TableCell>
+
+                  {/* 도메인 */}
                   <TableCell>
                     {domain
                       ? <Chip label={`@${domain}`} size="small" variant="outlined" />
                       : <Typography variant="caption" color="text.disabled">도메인 없음</Typography>
                     }
                   </TableCell>
+
+                  {/* 학교 ID (읽기 전용) */}
                   <TableCell>
-                    {editingSchoolId === schoolId ? (
-                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                        <TextField size="small" value={schoolIdInput}
-                          onChange={e => setSchoolIdInput(e.target.value)}
-                          sx={{ width: 140, fontFamily: 'monospace' }} autoFocus
-                          disabled={schoolIdSaving}
-                          onKeyDown={e => { if (e.key === 'Enter') handleSaveSchoolId(schoolId, domain, schoolName); if (e.key === 'Escape') setEditingSchoolId(null) }}
-                        />
-                        <IconButton size="small" color="success" disabled={schoolIdSaving}
-                          onClick={() => handleSaveSchoolId(schoolId, domain, schoolName)}>
-                          {schoolIdSaving ? <CircularProgress size={14} /> : <CheckIcon fontSize="small" />}
-                        </IconButton>
-                        <IconButton size="small" disabled={schoolIdSaving} onClick={() => setEditingSchoolId(null)}><CloseIcon fontSize="small" /></IconButton>
-                      </Box>
-                    ) : (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{schoolId}</Typography>
-                        <Tooltip title="학교 ID 변경 (⚠️ 기존 데이터 미이전)">
-                          <IconButton size="small" onClick={() => { setEditingSchoolId(schoolId); setSchoolIdInput(schoolId) }}>
-                            <EditIcon sx={{ fontSize: 14 }} />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    )}
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{schoolId}</Typography>
                   </TableCell>
+
+                  {/* 구성원 수 */}
+                  <TableCell>
+                    {userCount !== null && userCount !== undefined
+                      ? <Chip label={`${userCount}명`} size="small" sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 600 }} />
+                      : <Typography variant="caption" color="text.disabled">—</Typography>
+                    }
+                  </TableCell>
+
+                  {/* 보강 API URL */}
                   <TableCell sx={{ minWidth: 220 }}>
                     {editingUrl === schoolId ? (
                       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
@@ -658,20 +633,15 @@ export default function SuperAdmin() {
                           sx={{ flex: 1, fontSize: '0.75rem' }}
                           autoFocus
                         />
-                        <IconButton size="small" color="success" onClick={() => handleSaveUrl(schoolId, domain)}>
-                          <CheckIcon fontSize="small" />
-                        </IconButton>
-                        <IconButton size="small" onClick={() => setEditingUrl(null)}>
-                          <CloseIcon fontSize="small" />
-                        </IconButton>
+                        <IconButton size="small" color="success" onClick={() => handleSaveUrl(schoolId)}><CheckIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" onClick={() => setEditingUrl(null)}><CloseIcon fontSize="small" /></IconButton>
                       </Box>
                     ) : (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {coverApiUrl ? (
-                          <Chip label="설정됨" size="small" color="success" variant="outlined" />
-                        ) : (
-                          <Chip label="미설정" size="small" color="warning" variant="outlined" />
-                        )}
+                        {coverApiUrl
+                          ? <Chip label="설정됨" size="small" color="success" variant="outlined" />
+                          : <Chip label="미설정" size="small" color="warning" variant="outlined" />
+                        }
                         <Tooltip title="URL 편집">
                           <IconButton size="small" onClick={() => { setEditingUrl(schoolId); setUrlInput(coverApiUrl || '') }}>
                             <EditIcon fontSize="small" />
@@ -680,13 +650,16 @@ export default function SuperAdmin() {
                       </Box>
                     )}
                   </TableCell>
+
+                  {/* 관리자 */}
                   <TableCell>
-                    {adminEmail ? (
-                      <Typography variant="caption" sx={{ color: '#555' }}>{adminEmail}</Typography>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">미설정</Typography>
-                    )}
+                    {adminEmail
+                      ? <Typography variant="caption" sx={{ color: '#555' }}>{adminEmail}</Typography>
+                      : <Typography variant="caption" color="text.disabled">미설정</Typography>
+                    }
                   </TableCell>
+
+                  {/* 마이그레이션 */}
                   <TableCell align="center">
                     <Tooltip title={coverApiUrl ? 'Apps Script → Firestore 마이그레이션' : 'API URL 먼저 설정 필요'}>
                       <span>
@@ -703,12 +676,10 @@ export default function SuperAdmin() {
                       </span>
                     </Tooltip>
                   </TableCell>
+
+                  {/* 삭제 */}
                   <TableCell align="center">
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={() => handleDelete(schoolId, domain, schoolName)}
-                    >
+                    <IconButton size="small" color="error" onClick={() => handleDelete(schoolId, domain, schoolName)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </TableCell>
@@ -718,125 +689,21 @@ export default function SuperAdmin() {
           </Table>
         </TableContainer>
       )}
-
-      <Divider sx={{ my: 4 }} />
-
-      {/* ── 게스트 학교 목록 ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={600}>게스트 학교</Typography>
-        <Chip label={`${guestSchools.length}개`} size="small" sx={{ bgcolor: '#faf5ff', color: '#7c3aed', fontWeight: 700 }} />
-        <Typography variant="caption" color="text.secondary">미등록 도메인으로 첫 로그인한 사용자의 체험 학교</Typography>
-      </Box>
-
-      {loadingGuests ? (
-        <Box display="flex" justifyContent="center" py={3}><CircularProgress size={24} /></Box>
-      ) : guestSchools.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-          게스트 학교가 없습니다.
-        </Typography>
-      ) : (
-        <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ bgcolor: '#faf5ff' }}>
-                <TableCell><strong>체험 학교명</strong></TableCell>
-                <TableCell><strong>학교 ID</strong></TableCell>
-                <TableCell><strong>가입 이메일</strong></TableCell>
-                <TableCell><strong>가입 도메인</strong></TableCell>
-                <TableCell><strong>생성일</strong></TableCell>
-                <TableCell align="center"><strong>정식 등록</strong></TableCell>
-                <TableCell align="center"><strong>삭제</strong></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {guestSchools.map(g => (
-                <TableRow key={g.id} hover>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {g.name}
-                      <Chip label="게스트" size="small" sx={{ bgcolor: '#ede9fe', color: '#7c3aed', fontSize: '0.68rem' }} />
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{g.id}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption">{g.ownerEmail || '—'}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary">{g.domain || '—'}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary">
-                      {g.createdAt?.toDate().toLocaleDateString('ko-KR') || '—'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Button size="small" variant="outlined" color="secondary"
-                      onClick={() => {
-                        setPromoteTarget(g)
-                        setPromoteForm({ domain: g.domain || '', schoolName: g.name?.replace('의 체험 학교', '') || '', adminEmail: g.ownerEmail || '' })
-                      }}
-                      sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                      정식 등록
-                    </Button>
-                  </TableCell>
-                  <TableCell align="center">
-                    <IconButton size="small" color="error" onClick={() => handleDeleteGuest(g.id, g.name)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-
-      {/* ── 정식 등록 다이얼로그 ── */}
-      <Dialog open={!!promoteTarget} onClose={() => !promoteSaving && setPromoteTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>🏫 게스트 → 정식 학교 등록</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '16px !important' }}>
-          <Typography variant="body2" color="text.secondary">
-            도메인을 등록하면 해당 도메인 사용자가 정식 학교로 로그인할 수 있습니다.
-          </Typography>
-          <TextField label="Google 도메인" size="small" fullWidth
-            value={promoteForm.domain}
-            onChange={e => setPromoteForm(f => ({ ...f, domain: e.target.value }))}
-            placeholder="sunyu.hs.kr"
-            InputProps={{ startAdornment: <span style={{ color: '#888', marginRight: 2 }}>@</span> }}
-          />
-          <TextField label="학교명" size="small" fullWidth
-            value={promoteForm.schoolName}
-            onChange={e => setPromoteForm(f => ({ ...f, schoolName: e.target.value }))}
-            placeholder="선유고등학교"
-          />
-          <TextField label="관리자 이메일 (선택)" size="small" fullWidth
-            value={promoteForm.adminEmail}
-            onChange={e => setPromoteForm(f => ({ ...f, adminEmail: e.target.value }))}
-          />
-        </DialogContent>
-        <DialogContent sx={{ pt: 0, pb: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-          <Button onClick={() => setPromoteTarget(null)} disabled={promoteSaving}>취소</Button>
-          <Button variant="contained" onClick={handlePromote} disabled={promoteSaving}>
-            {promoteSaving ? <CircularProgress size={18} color="inherit" /> : '정식 등록'}
-          </Button>
-        </DialogContent>
-      </Dialog>
 
       <Divider sx={{ my: 4 }} />
 
       {/* ── 개인 이메일 직접 배정 ── */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
         <Typography variant="subtitle1" fontWeight={600}>개인 이메일 직접 배정</Typography>
-        <Chip label="워크스페이스 없는 학교" size="small" sx={{ bgcolor: '#fff7ed', color: '#ea580c', fontWeight: 700 }} />
+        <Chip label="Workspace 없는 학교" size="small" sx={{ bgcolor: '#fff7ed', color: '#ea580c', fontWeight: 700 }} />
       </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
-        Workspace 없는 학교용 — 배정된 이메일로 로그인 시 지정 학교·역할로 즉시 진입합니다.
+        배정된 이메일로 로그인 시 지정 학교·역할로 즉시 진입합니다.
       </Typography>
 
-      <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
+      {/* 단건 입력 */}
+      <Paper sx={{ p: 3, mb: 2, borderRadius: 3 }}>
         <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 1 }}>
           <TextField
             label="이메일"
@@ -865,8 +732,8 @@ export default function SuperAdmin() {
               label="역할"
               onChange={e => setEmailMapForm(f => ({ ...f, role: e.target.value }))}
             >
-              <MenuItem value="school_admin">학교 관리자</MenuItem>
               <MenuItem value="teacher">일반 교사</MenuItem>
+              <MenuItem value="school_admin">학교 관리자</MenuItem>
             </Select>
           </FormControl>
           <Button
@@ -881,6 +748,69 @@ export default function SuperAdmin() {
         {emailMapError && <Typography variant="caption" color="error">{emailMapError}</Typography>}
       </Paper>
 
+      {/* CSV 일괄 업로드 */}
+      <Paper sx={{ p: 3, mb: 3, borderRadius: 3, bgcolor: '#fafafa', border: '1px dashed #e2e8f0' }}>
+        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>
+          CSV 일괄 업로드
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+          <FormControl size="small" sx={{ flex: '1 1 180px' }}>
+            <InputLabel>학교 선택</InputLabel>
+            <Select
+              value={csvSchoolId}
+              label="학교 선택"
+              onChange={e => { setCsvSchoolId(e.target.value); setCsvResult(null) }}
+            >
+              {schools.map(s => (
+                <MenuItem key={s.schoolId} value={s.schoolId}>{s.schoolName}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={downloadCsvTemplate}
+          >
+            양식 다운로드
+          </Button>
+          <input
+            type="file"
+            accept=".csv"
+            ref={csvInputRef}
+            style={{ display: 'none' }}
+            onChange={handleCsvUpload}
+          />
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={csvUploading ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
+            disabled={!csvSchoolId || csvUploading}
+            onClick={() => { setCsvResult(null); csvInputRef.current?.click() }}
+          >
+            CSV 업로드
+          </Button>
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+          양식: email, role (teacher 또는 school_admin) — 기존 이메일은 덮어씁니다.
+        </Typography>
+        {csvResult && (
+          <Alert
+            severity={csvResult.errors.length > 0 ? 'warning' : 'success'}
+            sx={{ mt: 1.5, fontSize: '0.8rem' }}
+          >
+            ✅ {csvResult.success}건 등록 완료
+            {csvResult.skipped > 0 && ` / ⚠️ ${csvResult.skipped}건 건너뜀`}
+            {csvResult.errors.length > 0 && (
+              <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>
+                {csvResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </Box>
+            )}
+          </Alert>
+        )}
+      </Paper>
+
+      {/* 배정 목록 */}
       {loadingEmailMap ? (
         <Box display="flex" justifyContent="center" py={3}><CircularProgress size={24} /></Box>
       ) : emailMapList.length === 0 ? (
@@ -906,7 +836,9 @@ export default function SuperAdmin() {
                     <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{m.email}</Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2">{m.schoolName}</Typography>
+                    <Typography variant="body2">
+                      {schools.find(s => s.schoolId === m.schoolId)?.schoolName || m.schoolId}
+                    </Typography>
                     <Typography variant="caption" color="text.secondary">{m.schoolId}</Typography>
                   </TableCell>
                   <TableCell>
@@ -941,9 +873,7 @@ export default function SuperAdmin() {
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle sx={{ fontWeight: 700 }}>
-          📦 보강 데이터 DB 이전
-        </DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700 }}>📦 보강 데이터 DB 이전</DialogTitle>
         <DialogContent>
           {!migrateStatus && (
             <Box>

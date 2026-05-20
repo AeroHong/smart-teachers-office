@@ -19,8 +19,8 @@ const SERVICES = [
     path: '/attendance',
     color: '#4f46e5',
     bgColor: '#eef2ff',
-    status: '시범운영중',
-    statusColor: 'warning',
+    status: '운영중',
+    statusColor: 'secondary',
   },
   {
     icon: '👨‍🏫',
@@ -45,13 +45,13 @@ const SERVICES = [
   {
     icon: '📝',
     title: '고사 업무 지원 시스템',
-    description: '시험 감독 배정 등 고사 관련 업무를 지원하는 시스템입니다.',
-    path: null,
-    color: '#cbd5e1',
-    bgColor: '#f8fafc',
-    status: '개발예정',
-    statusColor: 'default',
-    disabled: true,
+    description: '고사 관련 업무를 지원하는 시스템입니다.',
+    path: 'https://exam-support-kr.web.app/',
+    color: '#d97706',
+    bgColor: '#fffbeb',
+    status: '시범운영중',
+    statusColor: 'warning',
+    external: true,
   },
   {
     icon: '✈️',
@@ -224,7 +224,10 @@ export default function Home() {
                   <ServiceContent svc={svc} />
                 </CardContent>
               ) : (
-                <CardActionArea onClick={() => navigate(svc.path)} sx={{ height: '100%', alignItems: 'flex-start' }}>
+                <CardActionArea
+                  onClick={() => svc.external ? window.open(svc.path, '_blank', 'noopener,noreferrer') : navigate(svc.path)}
+                  sx={{ height: '100%', alignItems: 'flex-start' }}
+                >
                   <CardContent>
                     <ServiceContent svc={svc} />
                   </CardContent>

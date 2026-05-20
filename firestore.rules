@@ -32,47 +32,52 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
-    // ── /schoolDomains 컬렉션 ──────────────────────────────────
+    // ── /schoolDomains — get만 허용 (auth 흐름 자기 도메인 조회) ──────
     match /schoolDomains/{domain} {
-      allow read: if isSignedIn();
+      allow get: if isSignedIn();
+      allow list: if isSuperAdmin();
       allow write: if isSuperAdmin();
     }
 
-    // ── /userEmailMap 컬렉션 (워크스페이스 없는 학교용 개인 이메일 배정) ──
+    // ── /userEmailMap — get만 허용 (auth 흐름 자기 이메일 조회) ──────
     match /userEmailMap/{emailId} {
-      allow read: if isSignedIn();
+      allow get: if isSignedIn();
+      allow list: if isSuperAdmin();
       allow write: if isSuperAdmin();
     }
 
-    // ── /users 컬렉션 ─────────────────────────────────────────
+    // ── /auditLogs ──────────────────────────────────────────────
+    match /auditLogs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSignedIn();  // SchoolSetup·SuperAdmin 모두 기록
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // ── /users ──────────────────────────────────────────────────
     match /users/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
       allow create: if isSignedIn() && request.auth.uid == uid
-                    && request.resource.data.role in ['pending', 'student', 'school_admin'];
+                    && request.resource.data.role in ['pending', 'student', 'school_admin', 'teacher'];
       allow update: if isSuperAdmin() || isAdmin() ||
                     (isSignedIn() && request.auth.uid == uid &&
                      request.resource.data.role == resource.data.role &&
                      request.resource.data.schoolId == resource.data.schoolId);
-      allow list: if isSuperAdmin() || isAdmin() || isSignedIn();
+      allow list: if isSuperAdmin() || isAdmin();  // 전체 목록은 관리자만
     }
 
-    // ── /schools 컬렉션 ───────────────────────────────────────
+    // ── /schools ─────────────────────────────────────────────────
     match /schools/{schoolId} {
-      allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
-      // guest_ 학교는 본인 UID 소유자가 직접 생성 가능
+      allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn(); // 학교 검색(SchoolSetup) 및 소속 학교 데이터
+      // 일반 사용자: school- 접두사 학교만 생성 가능 (SchoolSetup 자동 생성)
       allow create: if isSuperAdmin() ||
-        (isSignedIn() && schoolId.matches('guest_.*') &&
-         request.resource.data.ownerUid == request.auth.uid);
+        (isSignedIn() && schoolId.matches('school-.*') && request.resource.data.createdBy == request.auth.token.email);
       allow update, delete: if isSuperAdmin();
 
-      // 보강 신청 ──────────────────────────────────────────────
+      // 보강 신청 — 소속 학교 구성원만 ────────────────────────────
       match /coverRequests/{requestId} {
-        allow read: if isSignedIn();
-        // 생성: 학교 관리자만
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow create: if isSuperAdmin() || isSchoolAdmin(schoolId);
-        // 수정: 로그인한 사용자 (신청/취소)
-        allow update: if isSignedIn();
-        // 삭제: 관리자만
+        allow update: if isSuperAdmin() || isTeacher(schoolId);
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
@@ -80,8 +85,9 @@ service cloud.firestore {
         allow read, write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
+      // 학생 — 소속 학교 구성원만 ──────────────────────────────────
       match /students/{studentId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
@@ -98,12 +104,14 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
+      // 이벤트 — QR 체크인(공개 get) 허용 ─────────────────────────
       match /events/{eventId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+        allow get: if true;  // QR 체크인: 미로그인 학생 접근
+        allow list: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if isSuperAdmin() || isTeacher(schoolId);
 
         match /attendanceLogs/{logId} {
-          allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
           allow write: if isSuperAdmin() || isTeacher(schoolId) ||
             get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.qrToken
               == request.resource.data.qrToken ||
@@ -131,6 +139,7 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isAdmin();
       }
 
+      // preApproved — 자기 사전등록 확인(get)은 누구나 ───────────────
       match /preApproved/{emailId} {
         allow read: if isSignedIn();
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
