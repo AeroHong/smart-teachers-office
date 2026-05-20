@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   collection, query, where, getDocs,
   updateDoc, doc, setDoc, deleteDoc, getDoc, serverTimestamp,
@@ -29,12 +29,41 @@ function parseTsv(text) {
   return text.trim().split(/\r?\n/)
     .map(line => {
       const cols = line.split('\t').map(c => c.trim())
-      const name = cols[0] || ''
-      const email = (cols[1] || '').toLowerCase()
-      const staffType = cols[2] || '교사'
-      return { name, email, staffType }
+      return { name: cols[0] || '', email: (cols[1] || '').toLowerCase(), staffType: cols[2] || '교사' }
     })
     .filter(r => r.email && r.email.includes('@'))
+}
+
+// CSV 파싱: "이름,이메일,구분" 형식
+function parseCsv(text) {
+  const lines = text.trim().split(/\r?\n/)
+  if (lines.length < 2) return []
+  const headers = lines[0].split(',').map(h => h.trim().replace(/\(.*\)/, '').trim().toLowerCase())
+  const nameIdx  = headers.findIndex(h => h === '이름' || h === 'name')
+  const emailIdx = headers.findIndex(h => h === '이메일' || h === 'email')
+  const typeIdx  = headers.findIndex(h => h === '구분' || h === 'stafftype' || h === '직종')
+  if (emailIdx === -1) return null
+  return lines.slice(1)
+    .map(line => {
+      const cols = line.split(',').map(v => v.trim())
+      return {
+        name: nameIdx !== -1 ? cols[nameIdx] || '' : '',
+        email: (cols[emailIdx] || '').toLowerCase(),
+        staffType: typeIdx !== -1 ? cols[typeIdx] || '교사' : '교사',
+      }
+    })
+    .filter(r => r.email && r.email.includes('@'))
+}
+
+function downloadCsvTemplate() {
+  const rows = ['이름,이메일,구분(교사/교직원)', '홍길동,hong@school.hs.kr,교사', '김철수,kim@school.hs.kr,교직원'].join('\n')
+  const blob = new Blob(['﻿' + rows], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = '사전등록_양식.csv'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 export default function Admin() {
@@ -183,6 +212,7 @@ export default function Admin() {
   const [parsedRows, setParsedRows] = useState([])
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const csvInputRef = useRef(null)
 
   const handleParse = () => {
     const rows = parseTsv(pasteText)
@@ -191,6 +221,23 @@ export default function Admin() {
       return
     }
     setParsedRows(rows)
+  }
+
+  const handleCsvUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    try {
+      const text = await file.text()
+      const rows = parseCsv(text)
+      if (rows === null) { setSaveMsg('CSV 헤더에 "이메일" 또는 "email" 열이 필요합니다.'); return }
+      if (rows.length === 0) { setSaveMsg('유효한 데이터가 없습니다.'); return }
+      setParsedRows(rows)
+      setPasteText('')
+      setSaveMsg('')
+    } catch (e) {
+      setSaveMsg('파일 읽기 실패: ' + e.message)
+    }
   }
 
   const handleSavePreApproved = async () => {
@@ -434,8 +481,21 @@ export default function Admin() {
             승인 대기 없이 바로 <strong>교직원</strong> 역할로 자동 활성화됩니다.
           </div>
 
-          {/* 붙여넣기 입력 */}
+          {/* 입력 방법 선택 */}
           <div style={{ marginBottom: '1.5rem' }}>
+            {/* CSV 업로드 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <input type="file" accept=".csv" ref={csvInputRef} style={{ display: 'none' }} onChange={handleCsvUpload} />
+              <button onClick={() => { setSaveMsg(''); setParsedRows([]); csvInputRef.current?.click() }} style={styles.approveBtn}>
+                CSV 파일 업로드
+              </button>
+              <button onClick={downloadCsvTemplate} style={styles.changeBtn}>
+                양식 다운로드
+              </button>
+              <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>또는 아래에 붙여넣기</span>
+            </div>
+
+            {/* 붙여넣기 입력 */}
             <p style={{ fontSize: '0.88rem', color: '#555', marginBottom: '0.5rem' }}>
               엑셀/스프레드시트에서 <strong>이름 → 이메일(구글계정) → 구분(교사/교직원)</strong> 열을 복사 후 붙여넣기 하세요.
             </p>
@@ -443,7 +503,7 @@ export default function Admin() {
               value={pasteText}
               onChange={e => { setPasteText(e.target.value); setParsedRows([]) }}
               placeholder={'홍길동\thong@seonyoo.hs.kr\t교사\n김철수\tkim@seonyoo.hs.kr\t교직원'}
-              rows={6}
+              rows={5}
               style={styles.textarea}
             />
             <button onClick={handleParse} style={styles.approveBtn}>

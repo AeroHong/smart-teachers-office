@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc,
   serverTimestamp, writeBatch, query, where,
@@ -27,8 +27,6 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
-import UploadFileIcon from '@mui/icons-material/UploadFile'
-import DownloadIcon from '@mui/icons-material/Download'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
@@ -64,36 +62,6 @@ async function logAudit(userEmail, action, data = {}) {
   }
 }
 
-function downloadCsvTemplate() {
-  const rows = [
-    'email,role',
-    'teacher@gmail.com,teacher',
-    'admin@school.com,school_admin',
-  ].join('\n')
-  const blob = new Blob(['﻿' + rows], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = '이메일배정_양식.csv'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function parseCsv(text) {
-  const lines = text.trim().split(/\r?\n/)
-  if (lines.length < 2) return []
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-  const emailIdx = headers.findIndex(h => h === 'email' || h === '이메일')
-  const roleIdx  = headers.findIndex(h => h === 'role'  || h === '역할')
-  if (emailIdx === -1) return null // 헤더 없음
-  return lines.slice(1).map(line => {
-    const cols = line.split(',').map(v => v.trim())
-    return {
-      email: cols[emailIdx] || '',
-      role: cols[roleIdx] || 'teacher',
-    }
-  }).filter(r => r.email)
-}
 
 export default function SuperAdmin() {
   const { user } = useAuth()
@@ -127,11 +95,6 @@ export default function SuperAdmin() {
   const [emailMapSaving, setEmailMapSaving] = useState(false)
   const [emailMapError, setEmailMapError] = useState('')
 
-  // CSV 업로드
-  const csvInputRef = useRef(null)
-  const [csvSchoolId, setCsvSchoolId] = useState('')
-  const [csvUploading, setCsvUploading] = useState(false)
-  const [csvResult, setCsvResult] = useState(null) // { success, skipped, errors }
 
   const showSuccess = (msg) => {
     setSuccessMsg(msg)
@@ -364,71 +327,6 @@ export default function SuperAdmin() {
       await loadEmailMap()
     } catch (e) {
       setError('삭제 실패: ' + e.message)
-    }
-  }
-
-  // ── CSV 일괄 업로드 ────────────────────────────────────────────
-  const handleCsvUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file || !csvSchoolId) return
-    e.target.value = ''
-
-    setCsvUploading(true)
-    setCsvResult(null)
-
-    try {
-      const text = await file.text()
-      const rows = parseCsv(text)
-
-      if (rows === null) {
-        setEmailMapError('CSV 헤더를 확인하세요. email 또는 이메일 열이 필요합니다.')
-        setCsvUploading(false)
-        return
-      }
-
-      const VALID_ROLES = ['teacher', 'school_admin']
-      const selectedSchool = schools.find(s => s.schoolId === csvSchoolId)
-      const schoolName = selectedSchool?.schoolName || csvSchoolId
-
-      let success = 0, skipped = 0
-      const errors = []
-      const batch = writeBatch(db)
-
-      for (const row of rows) {
-        const email = row.email.toLowerCase()
-        const role = VALID_ROLES.includes(row.role) ? row.role : 'teacher'
-
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          errors.push(`${email}: 이메일 형식 오류`)
-          skipped++
-          continue
-        }
-
-        const docId = email.replace(/\./g, '_').replace(/@/g, '__at__')
-        batch.set(doc(db, 'userEmailMap', docId), {
-          email,
-          schoolId: csvSchoolId,
-          role,
-          assignedAt: serverTimestamp(),
-          assignedBy: user.email,
-        })
-        success++
-      }
-
-      if (success > 0) await batch.commit()
-
-      await logAudit(user.email, 'email_csv_uploaded', {
-        schoolId: csvSchoolId,
-        schoolName,
-        count: success,
-      })
-
-      setCsvResult({ success, skipped, errors })
-      await loadEmailMap()
-    } catch (e) {
-      setEmailMapError('CSV 처리 실패: ' + e.message)
-    } finally {
-      setCsvUploading(false)
     }
   }
 
@@ -746,68 +644,6 @@ export default function SuperAdmin() {
           </Button>
         </Box>
         {emailMapError && <Typography variant="caption" color="error">{emailMapError}</Typography>}
-      </Paper>
-
-      {/* CSV 일괄 업로드 */}
-      <Paper sx={{ p: 3, mb: 3, borderRadius: 3, bgcolor: '#fafafa', border: '1px dashed #e2e8f0' }}>
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>
-          CSV 일괄 업로드
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-          <FormControl size="small" sx={{ flex: '1 1 180px' }}>
-            <InputLabel>학교 선택</InputLabel>
-            <Select
-              value={csvSchoolId}
-              label="학교 선택"
-              onChange={e => { setCsvSchoolId(e.target.value); setCsvResult(null) }}
-            >
-              {schools.map(s => (
-                <MenuItem key={s.schoolId} value={s.schoolId}>{s.schoolName}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={downloadCsvTemplate}
-          >
-            양식 다운로드
-          </Button>
-          <input
-            type="file"
-            accept=".csv"
-            ref={csvInputRef}
-            style={{ display: 'none' }}
-            onChange={handleCsvUpload}
-          />
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={csvUploading ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
-            disabled={!csvSchoolId || csvUploading}
-            onClick={() => { setCsvResult(null); csvInputRef.current?.click() }}
-          >
-            CSV 업로드
-          </Button>
-        </Box>
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-          양식: email, role (teacher 또는 school_admin) — 기존 이메일은 덮어씁니다.
-        </Typography>
-        {csvResult && (
-          <Alert
-            severity={csvResult.errors.length > 0 ? 'warning' : 'success'}
-            sx={{ mt: 1.5, fontSize: '0.8rem' }}
-          >
-            ✅ {csvResult.success}건 등록 완료
-            {csvResult.skipped > 0 && ` / ⚠️ ${csvResult.skipped}건 건너뜀`}
-            {csvResult.errors.length > 0 && (
-              <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>
-                {csvResult.errors.map((e, i) => <li key={i}>{e}</li>)}
-              </Box>
-            )}
-          </Alert>
-        )}
       </Paper>
 
       {/* 배정 목록 */}
