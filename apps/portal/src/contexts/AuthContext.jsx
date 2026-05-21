@@ -67,8 +67,8 @@ export function AuthProvider({ children }) {
       const data = userDoc.data()
       const existingSchoolId = data.schoolId
 
-      // 실제 학교 소속(non-guest) → 바로 진입
-      if (existingSchoolId && !existingSchoolId.startsWith('guest_')) {
+      // 실제 학교 소속(non-guest, 비활성화 제외) → 바로 진입
+      if (existingSchoolId && !existingSchoolId.startsWith('guest_') && data.role !== 'rejected') {
         const schoolData = await fetchSchoolData(existingSchoolId)
         const { isStudent, studentId: stid } = parseStudentEmail(email)
 
