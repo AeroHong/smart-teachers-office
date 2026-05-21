@@ -110,7 +110,20 @@ export default function SuperAdmin() {
   const loadSchools = async () => {
     setLoadingList(true)
     try {
-      const schoolsSnap = await getDocs(collection(db, 'schools'))
+      // 학교 목록 + 전체 school_admin 목록 병렬 조회
+      const [schoolsSnap, adminsSnap] = await Promise.all([
+        getDocs(collection(db, 'schools')),
+        getDocs(query(collection(db, 'users'), where('role', '==', 'school_admin'))),
+      ])
+
+      // schoolId → 관리자 목록 맵
+      const adminsBySchool = {}
+      adminsSnap.docs.forEach(d => {
+        const { schoolId, name, email } = d.data()
+        if (!schoolId) return
+        if (!adminsBySchool[schoolId]) adminsBySchool[schoolId] = []
+        adminsBySchool[schoolId].push({ name: name || '', email: email || '' })
+      })
 
       const list = schoolsSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
@@ -120,7 +133,7 @@ export default function SuperAdmin() {
           schoolName:  s.name || s.id,
           domain:      s.domains?.[0] || null,
           coverApiUrl: s.coverApiUrl || null,
-          adminEmail:  s.adminEmail || null,
+          admins:      adminsBySchool[s.id] || [],
         }))
 
       list.sort((a, b) => a.schoolName?.localeCompare(b.schoolName, 'ko'))
@@ -533,13 +546,13 @@ export default function SuperAdmin() {
                 <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>학교 ID</strong></TableCell>
                 <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>구성원</strong></TableCell>
                 <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>보강 API URL</strong></TableCell>
-                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>최초 관리자</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>학교 관리자</strong></TableCell>
                 <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>마이그레이션</strong></TableCell>
                 <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1, pr: 2 }}><strong>삭제</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {schools.map(({ domain, schoolId, schoolName, coverApiUrl, adminEmail, userCount }) => (
+              {schools.map(({ domain, schoolId, schoolName, coverApiUrl, admins, userCount }) => (
                 <TableRow key={schoolId} hover>
                   {/* 학교명 */}
                   <TableCell sx={{ whiteSpace: 'nowrap', pl: 2, pr: 1 }}>
@@ -630,12 +643,26 @@ export default function SuperAdmin() {
                     )}
                   </TableCell>
 
-                  {/* 관리자 */}
-                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
-                    {adminEmail
-                      ? <Typography variant="caption" sx={{ color: '#555' }}>{adminEmail}</Typography>
-                      : <Typography variant="caption" color="text.disabled">미설정</Typography>
-                    }
+                  {/* 학교 관리자 */}
+                  <TableCell sx={{ px: 1 }}>
+                    {admins.length === 0 ? (
+                      <Typography variant="caption" color="text.disabled">없음</Typography>
+                    ) : (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+                        {admins.map((a, i) => (
+                          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            {a.name && (
+                              <Typography variant="caption" fontWeight={600} sx={{ color: '#333', whiteSpace: 'nowrap' }}>
+                                {a.name}
+                              </Typography>
+                            )}
+                            <Typography variant="caption" sx={{ color: '#888', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                              {a.email}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
                   </TableCell>
 
                   {/* 마이그레이션 */}
