@@ -315,6 +315,44 @@ export default function Layout({ children, wide = false }) {
           })}
         </Box>
 
+        {/* 카카오 오픈채팅 문의 배너 */}
+        <Box
+          component="a"
+          href="https://open.kakao.com/o/gviUMYvi"
+          target="_blank"
+          rel="noopener noreferrer"
+          sx={{
+            mx: 1.5, mb: 1.5,
+            px: 1.5, py: 1,
+            borderRadius: '10px',
+            bgcolor: '#FEE500',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            textDecoration: 'none',
+            transition: 'opacity 0.15s, transform 0.15s',
+            '&:hover': { opacity: 0.88, transform: 'translateY(-1px)' },
+          }}
+        >
+          {/* 카카오 로고 */}
+          <Box sx={{ width: 26, height: 26, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="#3A1D1D">
+              <path d="M12 3C6.477 3 2 6.477 2 10.818c0 2.728 1.618 5.13 4.073 6.573l-.986 3.664 4.27-2.804A11.7 11.7 0 0012 18.636c5.523 0 10-3.477 10-7.818C22 6.477 17.523 3 12 3z"/>
+            </svg>
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: '#3A1D1D', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
+              문의 오픈채팅
+            </Typography>
+            <Typography sx={{ fontSize: '0.65rem', color: '#5c3d00', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+              참여코드 0124
+            </Typography>
+          </Box>
+          <Typography sx={{ ml: 'auto', fontSize: '0.65rem', color: '#3A1D1D', opacity: 0.55, flexShrink: 0 }}>
+            →
+          </Typography>
+        </Box>
+
         {/* 유저 영역 (사이드바 하단) */}
         <Box sx={{ p: 2, borderTop: '1px solid #f1f5f9' }}>
           <Box
