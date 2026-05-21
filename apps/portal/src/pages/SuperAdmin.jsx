@@ -19,10 +19,6 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import IconButton from '@mui/material/IconButton'
-import Select from '@mui/material/Select'
-import MenuItem from '@mui/material/MenuItem'
-import FormControl from '@mui/material/FormControl'
-import InputLabel from '@mui/material/InputLabel'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
@@ -88,12 +84,13 @@ export default function SuperAdmin() {
   const [migrateDialog, setMigrateDialog] = useState(null)
   const [migrateStatus, setMigrateStatus] = useState(null)
 
-  // 개인 이메일 직접 배정
-  const [emailMapList, setEmailMapList] = useState([])
-  const [loadingEmailMap, setLoadingEmailMap] = useState(true)
-  const [emailMapForm, setEmailMapForm] = useState({ email: '', schoolId: '', role: 'teacher' })
-  const [emailMapSaving, setEmailMapSaving] = useState(false)
-  const [emailMapError, setEmailMapError] = useState('')
+  // 게스트 학교
+  const [guestSchools, setGuestSchools] = useState([])
+  const [loadingGuest, setLoadingGuest] = useState(true)
+  const [convertDialog, setConvertDialog] = useState(null) // { schoolId, ownerEmail, name }
+  const [convertForm, setConvertForm] = useState({ schoolName: '', domain: '' })
+  const [convertSaving, setConvertSaving] = useState(false)
+  const [convertError, setConvertError] = useState('')
 
 
   const showSuccess = (msg) => {
@@ -136,21 +133,21 @@ export default function SuperAdmin() {
     }
   }
 
-  const loadEmailMap = async () => {
-    setLoadingEmailMap(true)
+  const loadGuestSchools = async () => {
+    setLoadingGuest(true)
     try {
-      const snap = await getDocs(collection(db, 'userEmailMap'))
+      const snap = await getDocs(query(collection(db, 'schools'), where('isGuest', '==', true)))
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => (b.assignedAt?.seconds || 0) - (a.assignedAt?.seconds || 0))
-      setEmailMapList(list)
+      list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      setGuestSchools(list)
     } catch (e) {
-      console.error('이메일 매핑 로드 실패:', e)
+      console.error('게스트 학교 로드 실패:', e)
     } finally {
-      setLoadingEmailMap(false)
+      setLoadingGuest(false)
     }
   }
 
-  useEffect(() => { loadSchools(); loadEmailMap() }, [])
+  useEffect(() => { loadSchools(); loadGuestSchools() }, [])
 
   // ── 학교 등록 ──────────────────────────────────────────────────
   const handleAdd = async () => {
@@ -210,18 +207,6 @@ export default function SuperAdmin() {
         })
       }
 
-      if (adminEmail) {
-        const docId = adminEmail.replace(/\./g, '_').replace(/@/g, '__at__')
-        await setDoc(doc(db, 'userEmailMap', docId), {
-          email: adminEmail,
-          schoolId,
-          role: 'school_admin',
-          assignedAt: serverTimestamp(),
-          assignedBy: user.email,
-        })
-        await loadEmailMap()
-      }
-
       await logAudit(user.email, 'school_created', { schoolId, schoolName, domain, adminEmail })
 
       setForm({ domain: '', schoolId: '', schoolName: '', adminEmail: '' })
@@ -278,53 +263,58 @@ export default function SuperAdmin() {
     }
   }
 
-  // ── 이메일 배정 (단건) ─────────────────────────────────────────
-  const handleAddEmailMap = async () => {
-    setEmailMapError('')
-    const email = emailMapForm.email.trim().toLowerCase()
-    const schoolId = emailMapForm.schoolId
-    const role = emailMapForm.role
+  // ── 게스트 학교 정식 전환 ──────────────────────────────────────
+  const handleConvertGuest = async () => {
+    setConvertError('')
+    const schoolName = convertForm.schoolName.trim()
+    const domain = convertForm.domain.trim().toLowerCase().replace(/^@/, '')
 
-    if (!email || !schoolId) {
-      setEmailMapError('이메일과 학교는 필수입니다.')
-      return
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setEmailMapError('올바른 이메일 형식을 입력하세요.')
+    if (!schoolName) { setConvertError('학교명은 필수입니다.'); return }
+    if (domain && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
+      setConvertError('올바른 도메인 형식을 입력하세요. (예: sunyu.hs.kr)')
       return
     }
 
-    const selectedSchool = schools.find(s => s.schoolId === schoolId)
-    const schoolName = selectedSchool?.schoolName || schoolId
-
-    setEmailMapSaving(true)
+    setConvertSaving(true)
     try {
-      const docId = email.replace(/\./g, '_').replace(/@/g, '__at__')
-      await setDoc(doc(db, 'userEmailMap', docId), {
-        email,
-        schoolId,
-        role,
-        assignedAt: serverTimestamp(),
-        assignedBy: user.email,
-      })
-      await logAudit(user.email, 'email_assigned', { email, schoolId, schoolName, role })
-      setEmailMapForm(f => ({ ...f, email: '' }))
-      showSuccess(`✅ ${email} → ${schoolName} 배정 완료`)
-      await loadEmailMap()
+      const { schoolId } = convertDialog
+      await setDoc(doc(db, 'schools', schoolId), {
+        name: schoolName,
+        isGuest: false,
+        ...(domain ? { domains: [domain] } : {}),
+        convertedAt: serverTimestamp(),
+        convertedBy: user.email,
+      }, { merge: true })
+
+      if (domain) {
+        await setDoc(doc(db, 'schoolDomains', domain), {
+          schoolId,
+          createdAt: serverTimestamp(),
+          createdBy: user.email,
+        })
+      }
+
+      await logAudit(user.email, 'guest_converted', { schoolId, schoolName, domain })
+      showSuccess(`✅ ${schoolName} 정식 전환 완료`)
+      setConvertDialog(null)
+      await Promise.all([loadSchools(), loadGuestSchools()])
     } catch (e) {
-      setEmailMapError('저장 실패: ' + e.message)
+      setConvertError('전환 실패: ' + e.message)
     } finally {
-      setEmailMapSaving(false)
+      setConvertSaving(false)
     }
   }
 
-  const handleDeleteEmailMap = async (docId, email) => {
-    if (!window.confirm(`${email} 배정을 삭제하시겠습니까?`)) return
+  const handleDeleteGuest = async (g) => {
+    if (!window.confirm(`게스트 학교(${g.id})를 삭제하시겠습니까?\n소유자: ${g.ownerEmail}\n\n학교 및 소유자 계정 데이터가 함께 삭제됩니다.`)) return
     try {
-      await deleteDoc(doc(db, 'userEmailMap', docId))
-      await logAudit(user.email, 'email_removed', { email })
-      showSuccess(`🗑 ${email} 배정 삭제 완료`)
-      await loadEmailMap()
+      await deleteDoc(doc(db, 'schools', g.id))
+      if (g.ownerUid) {
+        await deleteDoc(doc(db, 'users', g.ownerUid))
+      }
+      await logAudit(user.email, 'guest_deleted', { schoolId: g.id, ownerEmail: g.ownerEmail })
+      showSuccess(`🗑 게스트 학교 및 계정 삭제 완료`)
+      await loadGuestSchools()
     } catch (e) {
       setError('삭제 실패: ' + e.message)
     }
@@ -590,108 +580,64 @@ export default function SuperAdmin() {
 
       <Divider sx={{ my: 4 }} />
 
-      {/* ── 개인 이메일 직접 배정 ── */}
+      {/* ── 게스트 학교 관리 ── */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={600}>개인 이메일 직접 배정</Typography>
-        <Chip label="Workspace 없는 학교" size="small" sx={{ bgcolor: '#fff7ed', color: '#ea580c', fontWeight: 700 }} />
+        <Typography variant="subtitle1" fontWeight={600}>게스트 학교</Typography>
+        <Chip label={`${guestSchools.length}개`} size="small" sx={{ bgcolor: '#fef3c7', color: '#92400e', fontWeight: 700 }} />
+        <Typography variant="caption" color="text.secondary">미등록 도메인 계정 자동 생성 학교</Typography>
       </Box>
 
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
-        배정된 이메일로 로그인 시 지정 학교·역할로 즉시 진입합니다.
-      </Typography>
-
-      {/* 단건 입력 */}
-      <Paper sx={{ p: 3, mb: 2, borderRadius: 3 }}>
-        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 1 }}>
-          <TextField
-            label="이메일"
-            placeholder="teacher@gmail.com"
-            size="small"
-            value={emailMapForm.email}
-            onChange={e => setEmailMapForm(f => ({ ...f, email: e.target.value }))}
-            sx={{ flex: '1 1 200px' }}
-          />
-          <FormControl size="small" sx={{ flex: '1 1 180px' }}>
-            <InputLabel>학교 선택</InputLabel>
-            <Select
-              value={emailMapForm.schoolId}
-              label="학교 선택"
-              onChange={e => setEmailMapForm(f => ({ ...f, schoolId: e.target.value }))}
-            >
-              {schools.map(s => (
-                <MenuItem key={s.schoolId} value={s.schoolId}>{s.schoolName}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>역할</InputLabel>
-            <Select
-              value={emailMapForm.role}
-              label="역할"
-              onChange={e => setEmailMapForm(f => ({ ...f, role: e.target.value }))}
-            >
-              <MenuItem value="teacher">일반 교사</MenuItem>
-              <MenuItem value="school_admin">학교 관리자</MenuItem>
-            </Select>
-          </FormControl>
-          <Button
-            variant="contained"
-            onClick={handleAddEmailMap}
-            disabled={emailMapSaving}
-            sx={{ minWidth: 80, alignSelf: 'flex-start', mt: 0.5 }}
-          >
-            {emailMapSaving ? <CircularProgress size={18} color="inherit" /> : '배정'}
-          </Button>
-        </Box>
-        {emailMapError && <Typography variant="caption" color="error">{emailMapError}</Typography>}
-      </Paper>
-
-      {/* 배정 목록 */}
-      {loadingEmailMap ? (
+      {loadingGuest ? (
         <Box display="flex" justifyContent="center" py={3}><CircularProgress size={24} /></Box>
-      ) : emailMapList.length === 0 ? (
+      ) : guestSchools.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-          배정된 이메일이 없습니다.
+          게스트 학교가 없습니다.
         </Typography>
       ) : (
         <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: '#fff7ed' }}>
-                <TableCell><strong>이메일</strong></TableCell>
-                <TableCell><strong>학교</strong></TableCell>
-                <TableCell><strong>역할</strong></TableCell>
-                <TableCell><strong>배정일</strong></TableCell>
+              <TableRow sx={{ bgcolor: '#fef3c7' }}>
+                <TableCell><strong>학교 ID</strong></TableCell>
+                <TableCell><strong>학교명</strong></TableCell>
+                <TableCell><strong>소유자 이메일</strong></TableCell>
+                <TableCell><strong>도메인</strong></TableCell>
+                <TableCell><strong>생성일</strong></TableCell>
+                <TableCell align="center"><strong>정식 전환</strong></TableCell>
                 <TableCell align="center"><strong>삭제</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {emailMapList.map(m => (
-                <TableRow key={m.id} hover>
+              {guestSchools.map(g => (
+                <TableRow key={g.id} hover>
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{m.email}</Typography>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{g.id}</Typography>
+                  </TableCell>
+                  <TableCell>{g.name}</TableCell>
+                  <TableCell>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{g.ownerEmail}</Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2">
-                      {schools.find(s => s.schoolId === m.schoolId)?.schoolName || m.schoolId}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">{m.schoolId}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={m.role === 'school_admin' ? '학교관리자' : '일반교사'}
-                      size="small"
-                      color={m.role === 'school_admin' ? 'primary' : 'default'}
-                      variant="outlined"
-                    />
+                    <Typography variant="caption" color="text.secondary">{g.domain || '—'}</Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption" color="text.secondary">
-                      {m.assignedAt?.toDate().toLocaleDateString('ko-KR') || '—'}
+                      {g.createdAt?.toDate().toLocaleDateString('ko-KR') || '—'}
                     </Typography>
                   </TableCell>
                   <TableCell align="center">
-                    <IconButton size="small" color="error" onClick={() => handleDeleteEmailMap(m.id, m.email)}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="primary"
+                      onClick={() => { setConvertDialog({ schoolId: g.id, ownerEmail: g.ownerEmail, name: g.name }); setConvertForm({ schoolName: g.name, domain: g.domain || '' }); setConvertError('') }}
+                      sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                    >
+                      정식 등록
+                    </Button>
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteGuest(g)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </TableCell>
@@ -701,6 +647,43 @@ export default function SuperAdmin() {
           </Table>
         </TableContainer>
       )}
+
+      {/* 정식 전환 다이얼로그 */}
+      <Dialog open={!!convertDialog} onClose={() => !convertSaving && setConvertDialog(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>🏫 게스트 → 정식 학교 전환</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            소유자: <strong>{convertDialog?.ownerEmail}</strong>
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="학교명 *"
+              size="small"
+              value={convertForm.schoolName}
+              onChange={e => setConvertForm(f => ({ ...f, schoolName: e.target.value }))}
+              fullWidth
+              autoFocus
+            />
+            <TextField
+              label="Google 도메인 (선택)"
+              size="small"
+              placeholder="sunyu.hs.kr"
+              value={convertForm.domain}
+              onChange={e => setConvertForm(f => ({ ...f, domain: e.target.value }))}
+              fullWidth
+              helperText="등록 시 해당 도메인 계정 자동 배정"
+              InputProps={{ startAdornment: <span style={{ color: '#aaa', marginRight: 2 }}>@</span> }}
+            />
+          </Box>
+          {convertError && <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>{convertError}</Typography>}
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 3 }}>
+            <Button onClick={() => setConvertDialog(null)} color="inherit" disabled={convertSaving}>취소</Button>
+            <Button variant="contained" onClick={handleConvertGuest} disabled={convertSaving}>
+              {convertSaving ? <CircularProgress size={18} color="inherit" /> : '정식 등록'}
+            </Button>
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       {/* ── 마이그레이션 다이얼로그 ── */}
       <Dialog

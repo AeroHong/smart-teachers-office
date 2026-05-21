@@ -46,7 +46,7 @@ const FEATURES = [
 ]
 
 export default function Login() {
-  const { user, role, isSuperAdmin, loading, login } = useAuth()
+  const { user, role, isSuperAdmin, needsSchoolSetup, loading, login } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -54,10 +54,20 @@ export default function Login() {
     if (!user) return
     if (isSuperAdmin) {
       navigate('/super-admin', { replace: true })
+    } else if (needsSchoolSetup) {
+      navigate('/school-setup', { replace: true })
     } else if (role && role !== 'pending') {
       navigate('/', { replace: true })
     }
-  }, [user, role, isSuperAdmin, loading])
+  }, [user, role, isSuperAdmin, needsSchoolSetup, loading])
+
+  const handleLogin = async () => {
+    try {
+      await login()
+    } catch (e) {
+      console.error('로그인 실패:', e)
+    }
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#fdf8ff', display: 'flex', flexDirection: 'column' }}>
@@ -107,7 +117,7 @@ export default function Login() {
           <Button
             variant="contained"
             size="large"
-            onClick={login}
+            onClick={handleLogin}
             startIcon={
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width={20} height={20} alt="" />
             }

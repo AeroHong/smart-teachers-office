@@ -45,13 +45,6 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // ── /userEmailMap — get만 허용 (auth 흐름 자기 이메일 조회) ──────
-    match /userEmailMap/{emailId} {
-      allow get: if isSignedIn();
-      allow list: if isSuperAdmin();
-      allow write: if isSuperAdmin();
-    }
-
     // ── /auditLogs ──────────────────────────────────────────────
     match /auditLogs/{logId} {
       allow read: if isSuperAdmin();
@@ -67,7 +60,11 @@ service cloud.firestore {
       allow update: if isSuperAdmin() || isAdmin() ||
                     (isSignedIn() && request.auth.uid == uid &&
                      request.resource.data.role == resource.data.role &&
-                     request.resource.data.schoolId == resource.data.schoolId);
+                     request.resource.data.schoolId == resource.data.schoolId) ||
+                    // 게스트 학교 → 실제 학교 전환: 이메일 배정 기반 schoolId/role 변경 허용
+                    (isSignedIn() && request.auth.uid == uid &&
+                     resource.data.schoolId.matches('guest_.*'));
+      allow delete: if isSuperAdmin();
       allow list: if isSuperAdmin() || isAdmin();  // 전체 목록은 관리자만
     }
 
@@ -76,7 +73,8 @@ service cloud.firestore {
       allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn(); // 학교 검색(SchoolSetup) 및 소속 학교 데이터
       // 일반 사용자: school- 접두사 학교만 생성 가능 (SchoolSetup 자동 생성)
       allow create: if isSuperAdmin() ||
-        (isSignedIn() && schoolId.matches('school-.*') && request.resource.data.createdBy == request.auth.token.email);
+        (isSignedIn() && schoolId.matches('school-.*') && request.resource.data.createdBy == request.auth.token.email) ||
+        (isSignedIn() && schoolId.matches('guest_.*') && request.resource.data.ownerUid == request.auth.uid);
       allow update, delete: if isSuperAdmin();
 
       // 보강 신청 — 소속 학교 구성원만 ────────────────────────────
