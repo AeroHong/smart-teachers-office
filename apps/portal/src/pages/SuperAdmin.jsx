@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  collection, doc, getDoc, getDocs, setDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc,
   serverTimestamp, writeBatch, query, where,
   getCountFromServer, addDoc,
 } from 'firebase/firestore'
@@ -24,6 +24,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
@@ -33,6 +34,7 @@ import LinearProgress from '@mui/material/LinearProgress'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
 
 // "YYYY. M. D.", "YYYY/M/D", "YYYY-MM-DD" 등 → "YYYY-MM-DD"
 function normalizeDate(raw) {
@@ -92,6 +94,12 @@ export default function SuperAdmin() {
   const [convertForm, setConvertForm] = useState({ schoolName: '', domain: '' })
   const [convertSaving, setConvertSaving] = useState(false)
   const [convertError, setConvertError] = useState('')
+
+  // 구성원 관리 다이얼로그
+  const [memberDialog, setMemberDialog] = useState(null) // { schoolId, schoolName }
+  const [memberList, setMemberList] = useState([])
+  const [loadingMembers, setLoadingMembers] = useState(false)
+  const [memberError, setMemberError] = useState('')
 
 
   const showSuccess = (msg) => {
@@ -321,6 +329,67 @@ export default function SuperAdmin() {
     }
   }
 
+  // ── 구성원 관리 ────────────────────────────────────────────────
+  const openMemberDialog = async (schoolId, schoolName) => {
+    setMemberDialog({ schoolId, schoolName })
+    setMemberError('')
+    setLoadingMembers(true)
+    try {
+      const snap = await getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId)))
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(u => u.role !== 'rejected')
+        .sort((a, b) => {
+          // 관리자 → 교사 → 대기 순 정렬
+          const order = { school_admin: 0, teacher: 1, admin: 0, pending: 2 }
+          return (order[a.role] ?? 3) - (order[b.role] ?? 3) || (a.name || '').localeCompare(b.name || '', 'ko')
+        })
+      setMemberList(list)
+    } catch (e) {
+      setMemberError('구성원 목록을 불러오지 못했습니다.')
+    } finally {
+      setLoadingMembers(false)
+    }
+  }
+
+  const handleMemberRoleChange = async (uid, newRole) => {
+    const target = memberList.find(u => u.id === uid)
+    try {
+      await updateDoc(doc(db, 'users', uid), { role: newRole })
+      await logAudit(user.email, 'superadmin_role_changed', {
+        targetEmail: target?.email,
+        from: target?.role,
+        to: newRole,
+        schoolId: memberDialog.schoolId,
+      })
+      setMemberList(prev => prev.map(u => u.id === uid ? { ...u, role: newRole } : u))
+    } catch (e) {
+      setMemberError('역할 변경 실패: ' + e.message)
+    }
+  }
+
+  const handleMemberRemove = async (uid) => {
+    const target = memberList.find(u => u.id === uid)
+    const label = target?.name || target?.email || uid
+    if (!window.confirm(`${label}님을 구성원에서 제거하시겠습니까?\n제거된 계정은 시스템에 접근할 수 없습니다.`)) return
+    try {
+      await updateDoc(doc(db, 'users', uid), { role: 'rejected' })
+      await logAudit(user.email, 'superadmin_member_removed', {
+        targetEmail: target?.email,
+        schoolId: memberDialog.schoolId,
+      })
+      setMemberList(prev => prev.filter(u => u.id !== uid))
+      // 학교 목록의 구성원 수도 갱신
+      setSchools(prev => prev.map(s =>
+        s.schoolId === memberDialog.schoolId
+          ? { ...s, userCount: (s.userCount ?? 1) - 1 }
+          : s
+      ))
+    } catch (e) {
+      setMemberError('제거 실패: ' + e.message)
+    }
+  }
+
   // ── 마이그레이션 ────────────────────────────────────────────────
   const handleMigrateStart = (school) => {
     if (!school.coverApiUrl) {
@@ -509,12 +578,26 @@ export default function SuperAdmin() {
                     <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{schoolId}</Typography>
                   </TableCell>
 
-                  {/* 구성원 수 */}
+                  {/* 구성원 수 + 관리 */}
                   <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
-                    {userCount !== null && userCount !== undefined
-                      ? <Chip label={`${userCount}명`} size="small" sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 600 }} />
-                      : <Typography variant="caption" color="text.disabled">—</Typography>
-                    }
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      {userCount !== null && userCount !== undefined
+                        ? <Chip label={`${userCount}명`} size="small" sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 600 }} />
+                        : <Typography variant="caption" color="text.disabled">—</Typography>
+                      }
+                      <Tooltip title={userCount > 0 ? '구성원 관리' : '구성원 없음'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={!userCount}
+                            onClick={() => openMemberDialog(schoolId, schoolName)}
+                            sx={{ color: '#4f46e5', opacity: userCount > 0 ? 1 : 0.3 }}
+                          >
+                            <PeopleAltIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
                   </TableCell>
 
                   {/* 보강 API URL */}
@@ -764,6 +847,128 @@ export default function SuperAdmin() {
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      {/* ── 구성원 관리 다이얼로그 ── */}
+      <Dialog
+        open={!!memberDialog}
+        onClose={() => setMemberDialog(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+          구성원 관리 — {memberDialog?.schoolName}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0 }}>
+          {memberError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setMemberError('')}>{memberError}</Alert>
+          )}
+
+          {loadingMembers ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+          ) : memberList.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+              구성원이 없습니다.
+            </Typography>
+          ) : (
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ width: 'auto', minWidth: '100%' }}>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                    <TableCell sx={{ whiteSpace: 'nowrap', pl: 2, pr: 1, fontWeight: 600 }}>이름</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', px: 1, fontWeight: 600 }}>이메일</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', px: 1, fontWeight: 600 }}>현재 역할</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', px: 1, fontWeight: 600 }}>역할 변경</TableCell>
+                    <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1, pr: 2, fontWeight: 600 }}>제거</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {memberList.map(u => {
+                    const isAdmin = u.role === 'school_admin' || u.role === 'admin'
+                    const isPending = u.role === 'pending'
+                    const roleColor = {
+                      school_admin: { bg: '#f3e5f5', color: '#7b1fa2' },
+                      admin:        { bg: '#e8f0fe', color: '#1a73e8' },
+                      teacher:      { bg: '#f0f0f0', color: '#555' },
+                      pending:      { bg: '#fff7ed', color: '#c2410c' },
+                    }[u.role] || { bg: '#f5f5f5', color: '#888' }
+                    const roleLabel = {
+                      school_admin: '학교 관리자',
+                      admin: '시스템 관리자',
+                      teacher: '교사',
+                      pending: '승인 대기',
+                    }[u.role] || u.role
+
+                    return (
+                      <TableRow key={u.id} hover>
+                        <TableCell sx={{ whiteSpace: 'nowrap', pl: 2, pr: 1 }}>
+                          <Typography variant="body2" fontWeight={isAdmin ? 600 : 400}>
+                            {u.name || '—'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#555' }}>
+                            {u.email}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
+                          <Chip
+                            label={roleLabel}
+                            size="small"
+                            sx={{ bgcolor: roleColor.bg, color: roleColor.color, fontWeight: 600 }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
+                          {u.role === 'admin' ? (
+                            <Typography variant="caption" sx={{ color: '#aaa' }}>변경 불가</Typography>
+                          ) : isPending ? (
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                              <Button size="small" variant="contained" color="primary"
+                                sx={{ fontSize: '0.75rem', py: 0.3 }}
+                                onClick={() => handleMemberRoleChange(u.id, 'teacher')}
+                              >교사 승인</Button>
+                              <Button size="small" variant="contained"
+                                sx={{ fontSize: '0.75rem', py: 0.3, bgcolor: '#7b1fa2', '&:hover': { bgcolor: '#6a1b9a' } }}
+                                onClick={() => handleMemberRoleChange(u.id, 'school_admin')}
+                              >관리자 승인</Button>
+                            </Box>
+                          ) : (
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                              {isAdmin ? (
+                                <Button size="small" variant="outlined"
+                                  sx={{ fontSize: '0.75rem', py: 0.3 }}
+                                  onClick={() => handleMemberRoleChange(u.id, 'teacher')}
+                                >관리자 해제</Button>
+                              ) : (
+                                <Button size="small" variant="outlined" color="secondary"
+                                  sx={{ fontSize: '0.75rem', py: 0.3 }}
+                                  onClick={() => handleMemberRoleChange(u.id, 'school_admin')}
+                                >관리자 지정</Button>
+                              )}
+                            </Box>
+                          )}
+                        </TableCell>
+                        <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1, pr: 2 }}>
+                          {u.role !== 'admin' && (
+                            <IconButton size="small" color="error" onClick={() => handleMemberRemove(u.id)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+            총 {memberList.length}명 · 역할 변경 및 제거는 즉시 반영됩니다
+          </Typography>
+          <Button onClick={() => setMemberDialog(null)} variant="outlined">닫기</Button>
+        </DialogActions>
       </Dialog>
 
     </Box>
