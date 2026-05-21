@@ -137,11 +137,10 @@ export default function Layout({ children, wide = false }) {
   const pageTitle = getPageTitle(location.pathname)
   const sectionLabel = getSectionLabel(location.pathname)
 
-  // 탭 타이틀 동적 업데이트
+  // 탭 타이틀 고정
   useEffect(() => {
-    const base = schoolName ? `${schoolName} 스마트 교무실` : '스마트 교무실'
-    document.title = pageTitle ? `${pageTitle} — ${base}` : base
-  }, [schoolName, pageTitle])
+    document.title = '스마트 교무실'
+  }, [])
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
