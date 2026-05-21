@@ -137,7 +137,7 @@ export default function StudentCheckin() {
     if (authLoading || !event) return
 
     if (!user) { setState(STATE.LOGIN_REQUIRED); return }
-    if (role === 'teacher' || role === 'admin') { setState(STATE.TEACHER); return }
+    if (role === 'teacher' || role === 'admin' || role === 'school_admin') { setState(STATE.TEACHER); return }
     if (role === 'student' && studentId) { recordAttendance() }
   }, [authLoading, user, role, studentId, event])
 

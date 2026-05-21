@@ -32,6 +32,12 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
+    function isStudent(schoolId) {
+      return isSignedIn() &&
+        getUserData().role == 'student' &&
+        getUserData().schoolId == schoolId;
+    }
+
     // ── /schoolDomains — get만 허용 (auth 흐름 자기 도메인 조회) ──────
     match /schoolDomains/{domain} {
       allow get: if isSignedIn();
@@ -87,7 +93,9 @@ service cloud.firestore {
 
       // 학생 — 소속 학교 구성원만 ──────────────────────────────────
       match /students/{studentId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        // 학생 본인도 자신의 학생 정보를 읽을 수 있음 (QR 체크인용)
+        allow read: if isSuperAdmin() || isTeacher(schoolId) ||
+          (isStudent(schoolId) && getUserData().studentId == studentId);
         allow write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
@@ -112,6 +120,9 @@ service cloud.firestore {
 
         match /attendanceLogs/{logId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
+          // 학생 본인의 출결 로그 확인 (중복 체크인 방지용 get)
+          allow get: if isStudent(schoolId) &&
+            (resource == null || resource.data.studentId == getUserData().studentId);
           allow write: if isSuperAdmin() || isTeacher(schoolId) ||
             get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.qrToken
               == request.resource.data.qrToken ||
