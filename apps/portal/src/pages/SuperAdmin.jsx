@@ -913,17 +913,20 @@ export default function SuperAdmin() {
                   {memberList.map(u => {
                     const isAdmin = u.role === 'school_admin' || u.role === 'admin'
                     const isPending = u.role === 'pending'
+                    const isStudent = u.role === 'student'
                     const roleColor = {
                       school_admin: { bg: '#f3e5f5', color: '#7b1fa2' },
                       admin:        { bg: '#e8f0fe', color: '#1a73e8' },
                       teacher:      { bg: '#f0f0f0', color: '#555' },
                       pending:      { bg: '#fff7ed', color: '#c2410c' },
+                      student:      { bg: '#e0f2fe', color: '#0369a1' },
                     }[u.role] || { bg: '#f5f5f5', color: '#888' }
                     const roleLabel = {
                       school_admin: '학교 관리자',
                       admin: '시스템 관리자',
                       teacher: '교사',
                       pending: '승인 대기',
+                      student: '학생',
                     }[u.role] || u.role
 
                     return (
@@ -946,8 +949,10 @@ export default function SuperAdmin() {
                           />
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
-                          {u.role === 'admin' ? (
-                            <Typography variant="caption" sx={{ color: '#aaa' }}>변경 불가</Typography>
+                          {u.role === 'admin' || isStudent ? (
+                            <Typography variant="caption" sx={{ color: '#aaa' }}>
+                              {isStudent ? '출결 시스템에서 관리' : '변경 불가'}
+                            </Typography>
                           ) : isPending ? (
                             <Box sx={{ display: 'flex', gap: 0.5 }}>
                               <Button size="small" variant="contained" color="primary"
