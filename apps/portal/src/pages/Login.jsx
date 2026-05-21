@@ -43,6 +43,19 @@ const FEATURES = [
       '수업 중 외출 실시간 체크 (1/3 초과 자동 결과 처리)',
     ],
   },
+  {
+    icon: '📝',
+    color: '#dc2626',
+    bg: '#fef2f2',
+    title: '고사 업무 지원',
+    badge: 'exam-support-kr.web.app',
+    points: [
+      '고사 시간표 자동 편성 & 편집',
+      '감독관 배정 및 교환 신청',
+      '엑셀 업로드로 학생 좌석 일괄 배치',
+      '감독관·좌석 배치표 PDF 출력',
+    ],
+  },
 ]
 
 export default function Login() {
@@ -136,7 +149,7 @@ export default function Login() {
             학교 Google 계정으로 로그인
           </Button>
           <Typography sx={{ mt: 1.5, fontSize: '0.77rem', color: 'rgba(255,255,255,0.45)' }}>
-            학교 Workspace 계정(@학교도메인)만 접속 가능합니다
+            학교 Workspace 계정 또는 개인 Google 계정으로 로그인할 수 있습니다
           </Typography>
         </Box>
       </Box>
@@ -147,7 +160,7 @@ export default function Login() {
           주요 기능
         </Typography>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2.5 }}>
           {FEATURES.map(f => (
             <Paper key={f.title} elevation={0} sx={{
               border: '1px solid #ede9fe',
@@ -158,10 +171,23 @@ export default function Login() {
               '&:hover': { boxShadow: '0 8px 32px rgba(109,40,217,0.1)', transform: 'translateY(-2px)' },
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
-                <Box sx={{ bgcolor: f.bg, borderRadius: 2.5, p: 1.25, fontSize: '1.4rem', lineHeight: 1 }}>
+                <Box sx={{ bgcolor: f.bg, borderRadius: 2.5, p: 1.25, fontSize: '1.4rem', lineHeight: 1, flexShrink: 0 }}>
                   {f.icon}
                 </Box>
-                <Typography fontWeight={700} fontSize="0.95rem" color="#2e1065">{f.title}</Typography>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography fontWeight={700} fontSize="0.95rem" color="#2e1065">{f.title}</Typography>
+                  {f.badge && (
+                    <Typography
+                      component="a"
+                      href={`https://${f.badge}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ fontSize: '0.68rem', color: '#dc2626', textDecoration: 'none', fontFamily: 'monospace', '&:hover': { textDecoration: 'underline' } }}
+                    >
+                      {f.badge} ↗
+                    </Typography>
+                  )}
+                </Box>
               </Box>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 {f.points.map((pt, i) => (
@@ -173,6 +199,42 @@ export default function Login() {
               </Box>
             </Paper>
           ))}
+        </Box>
+      </Box>
+
+      {/* ── 카카오 오픈채팅 배너 ── */}
+      <Box sx={{ px: { xs: 3, md: 8 }, pb: 4, maxWidth: 1080, mx: 'auto', width: '100%' }}>
+        <Box
+          component="a"
+          href="https://open.kakao.com/o/gviUMYvi"
+          target="_blank"
+          rel="noopener noreferrer"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            px: 2.5, py: 1.5,
+            bgcolor: '#FEE500',
+            borderRadius: 3,
+            textDecoration: 'none',
+            transition: 'opacity 0.15s, transform 0.15s',
+            '&:hover': { opacity: 0.88, transform: 'translateY(-1px)' },
+          }}
+        >
+          <Box sx={{ width: 32, height: 32, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#3A1D1D', borderRadius: '50%' }}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="#FEE500">
+              <path d="M12 3C6.477 3 2 6.477 2 10.818c0 2.728 1.618 5.13 4.073 6.573l-.986 3.664 4.27-2.804A11.7 11.7 0 0012 18.636c5.523 0 10-3.477 10-7.818C22 6.477 17.523 3 12 3z"/>
+            </svg>
+          </Box>
+          <Box>
+            <Typography sx={{ fontSize: '0.85rem', fontWeight: 700, color: '#3A1D1D', lineHeight: 1.3 }}>
+              사용 문의 · 도입 상담 오픈채팅
+            </Typography>
+            <Typography sx={{ fontSize: '0.75rem', color: '#5c3d00' }}>
+              참여코드 <strong>0124</strong> · 학교 도입, 기능 요청, 오류 신고 모두 환영합니다
+            </Typography>
+          </Box>
+          <Typography sx={{ ml: 'auto', fontSize: '1rem', color: '#3A1D1D', opacity: 0.5, flexShrink: 0 }}>→</Typography>
         </Box>
       </Box>
 
