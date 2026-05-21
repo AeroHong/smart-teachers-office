@@ -156,6 +156,21 @@ export default function Admin() {
     setTeacherList(prev => prev.map(u => u.id === uid ? { ...u, staffType: newType } : u))
   }
 
+  const removeMember = async (u) => {
+    const label = u.name || u.email
+    if (u._preOnly) {
+      // 사전 등록 미접속 계정: preApproved에서 제거
+      if (!window.confirm(`${label}님을 사전 등록 명단에서 제거하시겠습니까?`)) return
+      const docId = emailToDocId(u.email)
+      await deleteDoc(doc(db, 'schools', schoolId, 'preApproved', docId))
+    } else {
+      // 실제 계정: 역할을 rejected로 변경 → 시스템 접근 차단
+      if (!window.confirm(`${label}님을 구성원에서 제거하시겠습니까?\n\n제거된 계정은 시스템에 접근할 수 없습니다.`)) return
+      await updateDoc(doc(db, 'users', u.id), { role: 'rejected' })
+    }
+    setTeacherList(prev => prev.filter(t => t.id !== u.id))
+  }
+
   const editName = async (uid, currentName) => {
     const newName = window.prompt('이름을 수정하세요:', currentName || '')
     if (newName === null) return
@@ -348,6 +363,7 @@ export default function Admin() {
                 <th style={styles.th}>구분</th>
                 <th style={styles.th}>시스템 역할</th>
                 <th style={styles.th}>역할 변경</th>
+                <th style={styles.th}>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -416,6 +432,11 @@ export default function Admin() {
                         </>
                       ) : (
                         <span style={styles.muted}>변경 불가</span>
+                      )}
+                    </td>
+                    <td style={styles.td}>
+                      {u.role !== 'admin' && (
+                        <button onClick={() => removeMember(u)} style={styles.rejectBtn}>제거</button>
                       )}
                     </td>
                   </tr>

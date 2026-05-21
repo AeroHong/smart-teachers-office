@@ -23,6 +23,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
@@ -436,9 +437,16 @@ export default function SuperAdmin() {
       <Divider sx={{ mb: 3 }} />
 
       {/* ── 등록된 학교 목록 ── */}
-      <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-        등록된 학교 ({schools.length}개)
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Typography variant="subtitle1" fontWeight={600}>
+          등록된 학교 ({schools.length}개)
+        </Typography>
+        <Tooltip title="새로고침">
+          <IconButton size="small" onClick={loadSchools} disabled={loadingList}>
+            <RefreshIcon fontSize="small" sx={{ color: '#888' }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
 
       {loadingList ? (
         <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
@@ -447,25 +455,25 @@ export default function SuperAdmin() {
           등록된 학교가 없습니다.
         </Typography>
       ) : (
-        <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
-          <Table size="small">
+        <TableContainer component={Paper} sx={{ borderRadius: 3, overflowX: 'auto' }}>
+          <Table size="small" sx={{ width: 'auto', minWidth: '100%' }}>
             <TableHead>
               <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                <TableCell><strong>학교명</strong></TableCell>
-                <TableCell><strong>Google 도메인</strong></TableCell>
-                <TableCell><strong>학교 ID</strong></TableCell>
-                <TableCell><strong>구성원</strong></TableCell>
-                <TableCell><strong>보강 API URL</strong></TableCell>
-                <TableCell><strong>최초 관리자</strong></TableCell>
-                <TableCell align="center"><strong>마이그레이션</strong></TableCell>
-                <TableCell align="center"><strong>삭제</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', pl: 2, pr: 1 }}><strong>학교명</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>Google 도메인</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>학교 ID</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>구성원</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>보강 API URL</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>최초 관리자</strong></TableCell>
+                <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>마이그레이션</strong></TableCell>
+                <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1, pr: 2 }}><strong>삭제</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {schools.map(({ domain, schoolId, schoolName, coverApiUrl, adminEmail, userCount }) => (
                 <TableRow key={schoolId} hover>
                   {/* 학교명 */}
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', pl: 2, pr: 1 }}>
                     {editingName === schoolId ? (
                       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
                         <TextField size="small" value={nameInput}
@@ -489,7 +497,7 @@ export default function SuperAdmin() {
                   </TableCell>
 
                   {/* 도메인 */}
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     {domain
                       ? <Chip label={`@${domain}`} size="small" variant="outlined" />
                       : <Typography variant="caption" color="text.disabled">도메인 없음</Typography>
@@ -497,12 +505,12 @@ export default function SuperAdmin() {
                   </TableCell>
 
                   {/* 학교 ID (읽기 전용) */}
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{schoolId}</Typography>
                   </TableCell>
 
                   {/* 구성원 수 */}
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     {userCount !== null && userCount !== undefined
                       ? <Chip label={`${userCount}명`} size="small" sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 600 }} />
                       : <Typography variant="caption" color="text.disabled">—</Typography>
@@ -510,7 +518,7 @@ export default function SuperAdmin() {
                   </TableCell>
 
                   {/* 보강 API URL */}
-                  <TableCell sx={{ minWidth: 220 }}>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     {editingUrl === schoolId ? (
                       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
                         <TextField
@@ -540,7 +548,7 @@ export default function SuperAdmin() {
                   </TableCell>
 
                   {/* 관리자 */}
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     {adminEmail
                       ? <Typography variant="caption" sx={{ color: '#555' }}>{adminEmail}</Typography>
                       : <Typography variant="caption" color="text.disabled">미설정</Typography>
@@ -548,7 +556,7 @@ export default function SuperAdmin() {
                   </TableCell>
 
                   {/* 마이그레이션 */}
-                  <TableCell align="center">
+                  <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     <Tooltip title={coverApiUrl ? 'Apps Script → Firestore 마이그레이션' : 'API URL 먼저 설정 필요'}>
                       <span>
                         <Button
@@ -566,7 +574,7 @@ export default function SuperAdmin() {
                   </TableCell>
 
                   {/* 삭제 */}
-                  <TableCell align="center">
+                  <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1, pr: 2 }}>
                     <IconButton size="small" color="error" onClick={() => handleDelete(schoolId, domain, schoolName)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
@@ -581,9 +589,14 @@ export default function SuperAdmin() {
       <Divider sx={{ my: 4 }} />
 
       {/* ── 게스트 학교 관리 ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
         <Typography variant="subtitle1" fontWeight={600}>게스트 학교</Typography>
         <Chip label={`${guestSchools.length}개`} size="small" sx={{ bgcolor: '#fef3c7', color: '#92400e', fontWeight: 700 }} />
+        <Tooltip title="새로고침">
+          <IconButton size="small" onClick={loadGuestSchools} disabled={loadingGuest}>
+            <RefreshIcon fontSize="small" sx={{ color: '#888' }} />
+          </IconButton>
+        </Tooltip>
         <Typography variant="caption" color="text.secondary">미등록 도메인 계정 자동 생성 학교</Typography>
       </Box>
 
@@ -594,38 +607,38 @@ export default function SuperAdmin() {
           게스트 학교가 없습니다.
         </Typography>
       ) : (
-        <TableContainer component={Paper} sx={{ borderRadius: 3 }}>
-          <Table size="small">
+        <TableContainer component={Paper} sx={{ borderRadius: 3, overflowX: 'auto' }}>
+          <Table size="small" sx={{ width: 'auto', minWidth: '100%' }}>
             <TableHead>
               <TableRow sx={{ bgcolor: '#fef3c7' }}>
-                <TableCell><strong>학교 ID</strong></TableCell>
-                <TableCell><strong>학교명</strong></TableCell>
-                <TableCell><strong>소유자 이메일</strong></TableCell>
-                <TableCell><strong>도메인</strong></TableCell>
-                <TableCell><strong>생성일</strong></TableCell>
-                <TableCell align="center"><strong>정식 전환</strong></TableCell>
-                <TableCell align="center"><strong>삭제</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', pl: 2, pr: 1 }}><strong>학교 ID</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>학교명</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>소유자 이메일</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>도메인</strong></TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>생성일</strong></TableCell>
+                <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1 }}><strong>정식 전환</strong></TableCell>
+                <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1, pr: 2 }}><strong>삭제</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {guestSchools.map(g => (
                 <TableRow key={g.id} hover>
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', pl: 2, pr: 1 }}>
                     <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#666' }}>{g.id}</Typography>
                   </TableCell>
-                  <TableCell>{g.name}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>{g.name}</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{g.ownerEmail}</Typography>
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     <Typography variant="caption" color="text.secondary">{g.domain || '—'}</Typography>
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     <Typography variant="caption" color="text.secondary">
                       {g.createdAt?.toDate().toLocaleDateString('ko-KR') || '—'}
                     </Typography>
                   </TableCell>
-                  <TableCell align="center">
+                  <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     <Button
                       size="small"
                       variant="outlined"
@@ -636,7 +649,7 @@ export default function SuperAdmin() {
                       정식 등록
                     </Button>
                   </TableCell>
-                  <TableCell align="center">
+                  <TableCell align="center" sx={{ whiteSpace: 'nowrap', px: 1, pr: 2 }}>
                     <IconButton size="small" color="error" onClick={() => handleDeleteGuest(g)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
