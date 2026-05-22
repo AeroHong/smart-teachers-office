@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { useAuth } from '../contexts/AuthContext'
+import { useNavigate } from 'react-router-dom'
 import SuperAdminLayout from '../components/SuperAdminLayout'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
@@ -64,6 +65,7 @@ async function logAudit(userEmail, action, data = {}) {
 
 export default function SuperAdmin() {
   const { user } = useAuth()
+  const navigate = useNavigate()
 
   const [schools, setSchools] = useState([])
   const [loadingList, setLoadingList] = useState(true)
@@ -562,18 +564,25 @@ export default function SuperAdmin() {
                         <IconButton size="small" color="success" onClick={() => handleSaveDomain(schoolId, domain)}><CheckIcon fontSize="small" /></IconButton>
                         <IconButton size="small" onClick={() => setEditingDomain(null)}><CloseIcon fontSize="small" /></IconButton>
                       </Box>
-                    ) : (
+                    ) : domain ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {domain
-                          ? <Chip label={`@${domain}`} size="small" variant="outlined" />
-                          : <Typography variant="caption" color="text.disabled">도메인 없음</Typography>
-                        }
+                        <Chip label={`@${domain}`} size="small" variant="outlined" />
                         <Tooltip title="도메인 편집">
-                          <IconButton size="small" onClick={() => { setEditingDomain(schoolId); setDomainInput(domain || '') }}>
+                          <IconButton size="small" onClick={() => { setEditingDomain(schoolId); setDomainInput(domain) }}>
                             <EditIcon sx={{ fontSize: 14 }} />
                           </IconButton>
                         </Tooltip>
                       </Box>
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        onClick={() => navigate(`/super-admin/domain-setup?schoolId=${schoolId}`)}
+                        sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap', borderStyle: 'dashed' }}
+                      >
+                        + 도메인 등록
+                      </Button>
                     )}
                   </TableCell>
 

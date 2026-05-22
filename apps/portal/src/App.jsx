@@ -32,8 +32,9 @@ const TrainingSign    = lazy(() => import('./pages/training/TrainingSign'))
 const TrainingPresets = lazy(() => import('./pages/training/TrainingPresets'))
 
 // 슈퍼 어드민 - lazy load
-const SuperAdmin       = lazy(() => import('./pages/SuperAdmin'))
-const SuperAdminGuests = lazy(() => import('./pages/SuperAdminGuests'))
+const SuperAdmin            = lazy(() => import('./pages/SuperAdmin'))
+const SuperAdminGuests      = lazy(() => import('./pages/SuperAdminGuests'))
+const SuperAdminDomainSetup = lazy(() => import('./pages/SuperAdminDomainSetup'))
 
 
 function PageLoader() {
@@ -83,6 +84,7 @@ export default function App() {
           {/* ── 슈퍼 어드민 ── */}
           <Route path="/super-admin" element={<ProtectedRoute superAdminOnly><SuperAdmin /></ProtectedRoute>} />
           <Route path="/super-admin/guests" element={<ProtectedRoute superAdminOnly><SuperAdminGuests /></ProtectedRoute>} />
+          <Route path="/super-admin/domain-setup" element={<ProtectedRoute superAdminOnly><SuperAdminDomainSetup /></ProtectedRoute>} />
 
         </Routes>
       </Suspense>

@@ -11,12 +11,17 @@ const NAV_ITEMS = [
   { label: '게스트 학교 관리', path: '/super-admin/guests', icon: '👥' },
 ]
 
+const PAGE_TITLES = {
+  '/super-admin/domain-setup': '도메인 등록',
+}
+
 export default function SuperAdminLayout({ children }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
-  const currentNav = NAV_ITEMS.find(item => item.path === location.pathname) || NAV_ITEMS[0]
+  const currentNav = NAV_ITEMS.find(item => item.path === location.pathname)
+  const pageTitle = PAGE_TITLES[location.pathname] || currentNav?.label || '학교 도메인 관리'
 
   const handleLogout = async () => {
     await logout()
@@ -128,7 +133,7 @@ export default function SuperAdminLayout({ children }) {
           </Typography>
           <Typography sx={{ color: '#cbd5e1', fontSize: '0.85rem' }}>/</Typography>
           <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
-            {currentNav.label}
+            {pageTitle}
           </Typography>
         </Box>
 
