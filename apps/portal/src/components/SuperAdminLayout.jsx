@@ -138,7 +138,7 @@ export default function SuperAdminLayout({ children }) {
         </Box>
 
         {/* 콘텐츠 */}
-        <Box component="main" sx={{ flex: 1, maxWidth: 1000, width: '100%', mx: 'auto', px: 4, py: 3 }}>
+        <Box component="main" sx={{ flex: 1, width: '100%', px: 3, py: 3 }}>
           {children}
         </Box>
       </Box>
