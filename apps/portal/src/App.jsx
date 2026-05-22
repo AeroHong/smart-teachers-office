@@ -32,7 +32,8 @@ const TrainingSign    = lazy(() => import('./pages/training/TrainingSign'))
 const TrainingPresets = lazy(() => import('./pages/training/TrainingPresets'))
 
 // 슈퍼 어드민 - lazy load
-const SuperAdmin = lazy(() => import('./pages/SuperAdmin'))
+const SuperAdmin       = lazy(() => import('./pages/SuperAdmin'))
+const SuperAdminGuests = lazy(() => import('./pages/SuperAdminGuests'))
 
 
 function PageLoader() {
@@ -81,6 +82,7 @@ export default function App() {
 
           {/* ── 슈퍼 어드민 ── */}
           <Route path="/super-admin" element={<ProtectedRoute superAdminOnly><SuperAdmin /></ProtectedRoute>} />
+          <Route path="/super-admin/guests" element={<ProtectedRoute superAdminOnly><SuperAdminGuests /></ProtectedRoute>} />
 
         </Routes>
       </Suspense>

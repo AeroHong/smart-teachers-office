@@ -8,12 +8,15 @@ import { useAuth } from '../contexts/AuthContext'
 
 const NAV_ITEMS = [
   { label: '학교 도메인 관리', path: '/super-admin', icon: '🏫' },
+  { label: '게스트 학교 관리', path: '/super-admin/guests', icon: '👥' },
 ]
 
 export default function SuperAdminLayout({ children }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+
+  const currentNav = NAV_ITEMS.find(item => item.path === location.pathname) || NAV_ITEMS[0]
 
   const handleLogout = async () => {
     await logout()
@@ -125,7 +128,7 @@ export default function SuperAdminLayout({ children }) {
           </Typography>
           <Typography sx={{ color: '#cbd5e1', fontSize: '0.85rem' }}>/</Typography>
           <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
-            학교 도메인 관리
+            {currentNav.label}
           </Typography>
         </Box>
 

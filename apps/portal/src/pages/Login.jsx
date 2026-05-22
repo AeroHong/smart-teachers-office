@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
@@ -6,6 +6,29 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import { useAuth } from '../contexts/AuthContext'
+
+function detectInAppBrowser() {
+  const ua = navigator.userAgent
+  if (/KAKAOTALK/i.test(ua)) return 'kakaotalk'
+  if (/NAVER/i.test(ua)) return 'naver'
+  if (/Line\//i.test(ua)) return 'line'
+  if (/Instagram/i.test(ua)) return 'instagram'
+  if (/FB_IAB|FBAN|FBDV/i.test(ua)) return 'facebook'
+  // Android WebView
+  if (/wv\)/.test(ua) && /Android/.test(ua)) return 'webview'
+  // iOS WebView (Safari 없고 CriOS/FxiOS도 아닌 경우)
+  if (/iPhone|iPad|iPod/.test(ua) && !/Safari/.test(ua) && !/CriOS/.test(ua) && !/FxiOS/.test(ua)) return 'webview'
+  return null
+}
+
+const APP_NAMES = {
+  kakaotalk: '카카오톡',
+  naver: '네이버',
+  line: '라인',
+  instagram: '인스타그램',
+  facebook: '페이스북',
+  webview: '앱',
+}
 
 const FEATURES = [
   {
@@ -61,6 +84,11 @@ const FEATURES = [
 export default function Login() {
   const { user, role, isSuperAdmin, needsSchoolSetup, loading, login } = useAuth()
   const navigate = useNavigate()
+  const [inAppBrowser, setInAppBrowser] = useState(null)
+
+  useEffect(() => {
+    setInAppBrowser(detectInAppBrowser())
+  }, [])
 
   useEffect(() => {
     if (loading) return
@@ -96,6 +124,31 @@ export default function Login() {
         </Typography>
         <Chip label="Beta" size="small" sx={{ bgcolor: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '0.7rem', height: 20 }} />
       </Box>
+
+      {/* ── 인앱 브라우저 경고 배너 ── */}
+      {inAppBrowser && (
+        <Box sx={{
+          bgcolor: '#fff3cd',
+          borderBottom: '1px solid #ffc107',
+          px: { xs: 3, md: 6 },
+          py: 1.5,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 1.5,
+        }}>
+          <Typography sx={{ fontSize: '1.2rem', flexShrink: 0, mt: '1px' }}>⚠️</Typography>
+          <Box>
+            <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: '#856404', lineHeight: 1.4 }}>
+              {APP_NAMES[inAppBrowser] || '앱'} 내 브라우저에서는 Google 로그인이 차단됩니다
+            </Typography>
+            <Typography sx={{ fontSize: '0.82rem', color: '#664d03', mt: 0.5, lineHeight: 1.6 }}>
+              {/Android/.test(navigator.userAgent)
+                ? '오른쪽 상단 메뉴(⋮) → 다른 브라우저로 열기 → Chrome 선택 후 로그인해 주세요.'
+                : '화면 하단 또는 오른쪽 메뉴 → Safari로 열기 선택 후 로그인해 주세요.'}
+            </Typography>
+          </Box>
+        </Box>
+      )}
 
       {/* ── 히어로 ── */}
       <Box sx={{
