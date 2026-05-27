@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  collection, query, orderBy, onSnapshot,
+  collection, query, where, orderBy, onSnapshot,
   doc, updateDoc, deleteDoc, writeBatch,
-  serverTimestamp,
+  serverTimestamp, getDocs,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -25,6 +25,10 @@ import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
+import InputLabel from '@mui/material/InputLabel'
+import FormControl from '@mui/material/FormControl'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import AddIcon from '@mui/icons-material/Add'
@@ -72,14 +76,15 @@ const COLS = [
   { key: 'period',        label: '교시',     width: 55,  placeholder: '3' },
   { key: 'absentTeacher', label: '결강교사', width: 100, placeholder: '홍길동' },
   { key: 'subject',       label: '교과',     width: 80,  placeholder: '수학' },
-  { key: 'openAt',        label: '오픈예약', width: 155, placeholder: '2025-05-19 08:00' },
+  { key: 'coverTeacher',  label: '보강교사', width: 110, placeholder: '지정 시 입력', optional: true },
+  { key: 'openAt',        label: '오픈예약', width: 155, placeholder: '2025-05-19 08:00', optional: true },
 ]
 
 function emptyRow() {
-  return { date: '', className: '', period: '', absentTeacher: '', subject: '', openAt: '' }
+  return { date: '', className: '', period: '', absentTeacher: '', subject: '', coverTeacher: '', openAt: '' }
 }
 
-function SheetInput({ rows, setRows }) {
+function SheetInput({ rows, setRows, teachersList = [] }) {
   const inputRefs = useRef([])
 
   const setCell = (ri, key, val) => {
@@ -154,7 +159,7 @@ function SheetInput({ rows, setRows }) {
               sx={{ width: col.width, flexShrink: 0, px: 1 }}
             >
               <Typography variant="caption" fontWeight={700} color="text.secondary">
-                {col.label}{col.key !== 'openAt' && ' *'}
+                {col.label}{!col.optional && ' *'}
               </Typography>
             </Box>
           ))}
@@ -170,26 +175,53 @@ function SheetInput({ rows, setRows }) {
               </Typography>
               {COLS.map((col, ci) => (
                 <Box key={col.key} sx={{ width: col.width, flexShrink: 0 }}>
-                  <input
-                    ref={el => { inputRefs.current[ri][ci] = el }}
-                    value={row[col.key]}
-                    placeholder={col.placeholder}
-                    onChange={e => setCell(ri, col.key, e.target.value)}
-                    onKeyDown={e => handleKeyDown(e, ri, ci)}
-                    onPaste={e => handlePaste(e, ri, ci)}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '5px 8px',
-                      border: '1px solid #ddd',
-                      borderRadius: 4,
-                      fontSize: '0.82rem',
-                      outline: 'none',
-                      fontFamily: 'inherit',
-                    }}
-                    onFocus={e => { e.target.style.borderColor = '#1976d2'; e.target.style.boxShadow = '0 0 0 2px rgba(25,118,210,0.15)' }}
-                    onBlur={e => { e.target.style.borderColor = '#ddd'; e.target.style.boxShadow = 'none' }}
-                  />
+                  {col.key === 'coverTeacher' ? (
+                    <select
+                      ref={el => { inputRefs.current[ri][ci] = el }}
+                      value={row[col.key]}
+                      onChange={e => setCell(ri, col.key, e.target.value)}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '5px 8px',
+                        border: '1px solid #ddd',
+                        borderRadius: 4,
+                        fontSize: '0.82rem',
+                        outline: 'none',
+                        fontFamily: 'inherit',
+                        backgroundColor: 'white',
+                        cursor: 'pointer',
+                      }}
+                      onFocus={e => { e.target.style.borderColor = '#1976d2'; e.target.style.boxShadow = '0 0 0 2px rgba(25,118,210,0.15)' }}
+                      onBlur={e => { e.target.style.borderColor = '#ddd'; e.target.style.boxShadow = 'none' }}
+                    >
+                      <option value="">— 미지정 —</option>
+                      {teachersList.map(t => (
+                        <option key={t.uid} value={t.name}>{t.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      ref={el => { inputRefs.current[ri][ci] = el }}
+                      value={row[col.key]}
+                      placeholder={col.placeholder}
+                      onChange={e => setCell(ri, col.key, e.target.value)}
+                      onKeyDown={e => handleKeyDown(e, ri, ci)}
+                      onPaste={e => handlePaste(e, ri, ci)}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '5px 8px',
+                        border: '1px solid #ddd',
+                        borderRadius: 4,
+                        fontSize: '0.82rem',
+                        outline: 'none',
+                        fontFamily: 'inherit',
+                      }}
+                      onFocus={e => { e.target.style.borderColor = '#1976d2'; e.target.style.boxShadow = '0 0 0 2px rgba(25,118,210,0.15)' }}
+                      onBlur={e => { e.target.style.borderColor = '#ddd'; e.target.style.boxShadow = 'none' }}
+                    />
+                  )}
                 </Box>
               ))}
               <IconButton size="small" onClick={() => removeRow(ri)} sx={{ flexShrink: 0 }}>
@@ -221,6 +253,20 @@ export default function CoverMain() {
   const [covers, setCovers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const [teachersList, setTeachersList] = useState([])
+  useEffect(() => {
+    if (!schoolId) return
+    getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId)))
+      .then(snap => {
+        const list = snap.docs
+          .map(d => ({ uid: d.id, ...d.data() }))
+          .filter(u => u.staffType === '교사')
+          .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
+        setTeachersList(list)
+      })
+      .catch(() => {})
+  }, [schoolId])
 
   const [now, setNow] = useState(new Date())
   useEffect(() => {
@@ -323,13 +369,15 @@ export default function CoverMain() {
   // 보강 수정 저장 (관리자)
   const handleEditSave = async () => {
     if (!editTarget) return
-    const { id, date, className, period, absentTeacher, subject, openAt } = editTarget
+    const { id, date, className, period, absentTeacher, subject, openAt, coverTeacher } = editTarget
     if (!date || !className || !period || !absentTeacher || !subject) {
       setEditError('날짜, 반, 교시, 결강교사, 교과는 필수입니다.')
       return
     }
     setEditSaving(true)
     setEditError('')
+    const coverTeacherName = (coverTeacher ?? '').trim()
+    const matched = teachersList.find(t => t.name === coverTeacherName)
     try {
       await updateDoc(doc(db, 'schools', schoolId, 'coverRequests', id), {
         date: date.trim(),
@@ -338,6 +386,9 @@ export default function CoverMain() {
         absentTeacher: absentTeacher.trim(),
         subject: subject.trim(),
         openAt: openAt?.trim() || null,
+        coverTeacher: coverTeacherName || null,
+        coverTeacherEmail: coverTeacherName ? (matched?.email ?? editTarget.coverTeacherEmail ?? null) : null,
+        status: coverTeacherName ? '마감' : '대기중',
       })
       setEditTarget(null)
     } catch (err) {
@@ -371,15 +422,18 @@ export default function CoverMain() {
       const batch = writeBatch(db)
       validRows.forEach(r => {
         const ref = doc(collection(db, 'schools', schoolId, 'coverRequests'))
+        const coverTeacherName = r.coverTeacher?.trim() || ''
+        const matched = teachersList.find(t => t.name === coverTeacherName)
         batch.set(ref, {
           date: r.date.trim(),
           className: r.className.trim(),
           period: Number(r.period) || 0,
           absentTeacher: r.absentTeacher.trim(),
           subject: r.subject.trim(),
-          status: '대기중',
-          coverTeacher: null,
-          coverTeacherEmail: null,
+          status: coverTeacherName ? '마감' : '대기중',
+          coverTeacher: coverTeacherName || null,
+          coverTeacherEmail: matched?.email || null,
+          appliedAt: coverTeacherName ? serverTimestamp() : null,
           openAt: r.openAt.trim() || null,
           createdAt: serverTimestamp(),
           createdBy: user.uid,
@@ -585,6 +639,19 @@ export default function CoverMain() {
               onChange={e => setEditTarget(p => ({ ...p, subject: e.target.value }))}
             />
           </Box>
+          <FormControl size="small" fullWidth>
+            <InputLabel>보강교사 (선택)</InputLabel>
+            <Select
+              label="보강교사 (선택)"
+              value={editTarget?.coverTeacher ?? ''}
+              onChange={e => setEditTarget(p => ({ ...p, coverTeacher: e.target.value }))}
+            >
+              <MenuItem value=""><em>— 미지정 (대기중) —</em></MenuItem>
+              {teachersList.map(t => (
+                <MenuItem key={t.uid} value={t.name}>{t.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <TextField
             label="오픈예약 (선택)" size="small" fullWidth
             value={editTarget?.openAt ?? ''}
@@ -610,9 +677,9 @@ export default function CoverMain() {
         <DialogContent sx={{ pt: 2.5, pb: 1 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             아래 표에 직접 입력하거나, 엑셀/시트에서 <strong>복사 후 붙여넣기(Ctrl+V)</strong>하세요.
-            열 순서: <strong>날짜 → 반 → 교시 → 결강교사 → 교과 → 오픈예약(선택)</strong>
+            열 순서: <strong>날짜 → 반 → 교시 → 결강교사 → 교과 → 보강교사(선택) → 오픈예약(선택)</strong>
           </Typography>
-          <SheetInput rows={rows} setRows={setRows} />
+          <SheetInput rows={rows} setRows={setRows} teachersList={teachersList} />
           {submitError && <Alert severity="error" sx={{ mt: 1.5 }}>{submitError}</Alert>}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
