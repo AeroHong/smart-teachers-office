@@ -112,7 +112,8 @@ const SECTIONS = [
       {
         items: [
           '소속: 선유고등학교',
-          '담당: 홍기창',
+          '담당: 홍창기',
+          '이메일: hckgood@gmail.com',
           '문의: 카카오 오픈채팅 (https://open.kakao.com/o/gviUMYvi, 참여코드 0124)',
         ],
       },
