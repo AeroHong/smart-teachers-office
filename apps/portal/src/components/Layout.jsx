@@ -7,7 +7,7 @@ import Divider from '@mui/material/Divider'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Tooltip from '@mui/material/Tooltip'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, Link as RouterLink } from 'react-router-dom'
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
 import { useAuth } from '../contexts/AuthContext'
 import { db } from '../lib/firebase'
@@ -487,6 +487,33 @@ export default function Layout({ children, wide = false }) {
         {/* 콘텐츠 */}
         <Box component="main" sx={{ flex: 1, maxWidth: wide ? '100%' : 1100, width: '100%', mx: 'auto', px: { xs: 2, md: wide ? 3 : 4 }, py: 3 }}>
           {children}
+        </Box>
+
+        {/* 푸터 */}
+        <Box sx={{ px: { xs: 2, md: 4 }, py: 2, borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+          <Typography fontSize="0.72rem" color="text.disabled">
+            Designed &amp; Built by
+          </Typography>
+          <Typography
+            component="a"
+            href="https://github.com/AeroHong"
+            target="_blank"
+            rel="noopener noreferrer"
+            fontSize="0.72rem"
+            fontWeight={600}
+            sx={{ color: '#7c3aed', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+          >
+            @AeroHong
+          </Typography>
+          <Typography fontSize="0.72rem" color="text.disabled">·</Typography>
+          <Typography
+            component={RouterLink}
+            to="/privacy-policy"
+            fontSize="0.72rem"
+            sx={{ color: '#94a3b8', textDecoration: 'none', '&:hover': { color: '#4f46e5' } }}
+          >
+            개인정보처리방침
+          </Typography>
         </Box>
       </Box>
     </Box>

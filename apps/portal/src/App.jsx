@@ -8,6 +8,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import SchoolSetup from './pages/SchoolSetup'
+import PrivacyPolicy from './pages/PrivacyPolicy'
 
 // 보강신청
 import CoverMain from './pages/cover/CoverMain'
@@ -53,6 +54,7 @@ export default function App() {
           {/* ── 공개 ── */}
           <Route path="/login" element={<Login />} />
           <Route path="/school-setup" element={<SchoolSetup />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/attendance/checkin/:schoolId/:eventId" element={<StudentCheckin />} />
 
           {/* ── 포털 (로그인만 하면 접근) ── */}
