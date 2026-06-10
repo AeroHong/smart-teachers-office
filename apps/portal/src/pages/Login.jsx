@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
@@ -315,6 +315,15 @@ export default function Login() {
           sx={{ color: '#c4b5fd', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 0.5, '&:hover': { color: '#a78bfa' } }}
         >
           <span style={{ fontSize: '0.85rem' }}>⭐</span> GitHub
+        </Typography>
+        <Typography fontSize="0.75rem" sx={{ color: '#c4b5fd' }}>·</Typography>
+        <Typography
+          component={Link}
+          to="/privacy-policy"
+          fontSize="0.75rem"
+          sx={{ color: '#c4b5fd', textDecoration: 'none', '&:hover': { color: '#a78bfa' } }}
+        >
+          개인정보처리방침
         </Typography>
       </Box>
     </Box>

@@ -507,6 +507,17 @@ export default function Layout({ children, wide = false }) {
           </Typography>
           <Typography fontSize="0.72rem" color="text.disabled">·</Typography>
           <Typography
+            component="a"
+            href="https://github.com/AeroHong/smart-teachers-office"
+            target="_blank"
+            rel="noopener noreferrer"
+            fontSize="0.72rem"
+            sx={{ color: '#94a3b8', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 0.5, '&:hover': { color: '#7c3aed' } }}
+          >
+            <span style={{ fontSize: '0.8rem' }}>⭐</span> GitHub
+          </Typography>
+          <Typography fontSize="0.72rem" color="text.disabled">·</Typography>
+          <Typography
             component={RouterLink}
             to="/privacy-policy"
             fontSize="0.72rem"
