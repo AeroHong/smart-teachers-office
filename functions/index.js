@@ -1,10 +1,36 @@
 const { initializeApp } = require('firebase-admin/app')
 const { getFirestore, Timestamp } = require('firebase-admin/firestore')
+const { getAuth } = require('firebase-admin/auth')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
+const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2')
+const { defineString } = require('firebase-functions/params')
 
 initializeApp()
 setGlobalOptions({ region: 'asia-northeast3', maxInstances: 10 })
+
+const SUPER_ADMIN_EMAIL = defineString('SUPER_ADMIN_EMAIL')
+
+/**
+ * superAdmin Custom Claims 초기 부여 (1회 실행용)
+ *
+ * 호출 조건: 로그인 상태 + .env에 설정된 SUPER_ADMIN_EMAIL 과 일치
+ * 이후 firestore.rules의 isSuperAdmin()은 request.auth.token.superAdmin == true 로 동작
+ */
+exports.bootstrapSuperAdmin = onCall(
+  { region: 'asia-northeast3' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
+
+    const allowedEmail = SUPER_ADMIN_EMAIL.value()
+    if (request.auth.token.email !== allowedEmail) {
+      throw new HttpsError('permission-denied', '권한이 없습니다.')
+    }
+
+    await getAuth().setCustomUserClaims(request.auth.uid, { superAdmin: true })
+    return { success: true }
+  }
+)
 
 /**
  * 5분마다 실행 — 종료 시간이 지난 이벤트의 미출석 학생을 자동 결석 처리

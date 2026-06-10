@@ -12,8 +12,9 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // [C-1] Custom Claims 방식 — 이메일 하드코딩 제거
     function isSuperAdmin() {
-      return isSignedIn() && request.auth.token.email == 'hckgood@gmail.com';
+      return isSignedIn() && request.auth.token.superAdmin == true;
     }
 
     function isAdmin() {
@@ -61,16 +62,19 @@ service cloud.firestore {
                     (isSignedIn() && request.auth.uid == uid &&
                      request.resource.data.role == resource.data.role &&
                      request.resource.data.schoolId == resource.data.schoolId) ||
-                    // 게스트 학교 → 실제 학교 전환: 이메일 배정 기반 schoolId/role 변경 허용
+                    // [M-2] 게스트 → 실제 학교 전환: role은 pending/teacher만 허용 (admin 제외)
                     (isSignedIn() && request.auth.uid == uid &&
-                     resource.data.schoolId.matches('guest_.*'));
+                     resource.data.schoolId.matches('guest_.*') &&
+                     request.resource.data.role in ['pending', 'teacher']);
       allow delete: if isSuperAdmin();
       allow list: if isSuperAdmin() || isAdmin();  // 전체 목록은 관리자만
     }
 
     // ── /schools ─────────────────────────────────────────────────
     match /schools/{schoolId} {
-      allow read: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn(); // 학교 검색(SchoolSetup) 및 소속 학교 데이터
+      // [H-1] get/list 분리 — list는 관리자만, 단건 get은 SchoolSetup 미가입자도 허용
+      allow get: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
+      allow list: if isSuperAdmin() || isTeacher(schoolId);
       // 일반 사용자: school- 접두사 학교만 생성 가능 (SchoolSetup 자동 생성)
       allow create: if isSuperAdmin() ||
         (isSignedIn() && schoolId.matches('school-.*') && request.resource.data.createdBy == request.auth.token.email) ||
@@ -121,11 +125,14 @@ service cloud.firestore {
           // 학생 본인의 출결 로그 확인 (중복 체크인 방지용 get)
           allow get: if isStudent(schoolId) &&
             (resource == null || resource.data.studentId == getUserData().studentId);
+          // [H-2] isSignedIn() 추가 — QR 토큰만으로 비로그인 쓰기 불가
           allow write: if isSuperAdmin() || isTeacher(schoolId) ||
-            get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.qrToken
-              == request.resource.data.qrToken ||
-            get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.liveToken
-              == request.resource.data.qrToken;
+            (isSignedIn() && (
+              get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.qrToken
+                == request.resource.data.qrToken ||
+              get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data.liveToken
+                == request.resource.data.qrToken
+            ));
         }
       }
 
@@ -148,9 +155,10 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isAdmin();
       }
 
-      // preApproved — 자기 사전등록 확인(get)은 누구나 ───────────────
+      // [M-3] preApproved — 본인 이메일 문서만 get 허용, 전체 목록은 슈퍼관리자만
       match /preApproved/{emailId} {
-        allow read: if isSignedIn();
+        allow get: if isSignedIn() && emailId == request.auth.token.email;
+        allow list: if isSuperAdmin();
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
     }
