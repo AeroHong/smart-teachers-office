@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Card from '@mui/material/Card'
@@ -340,42 +340,6 @@ export default function Home() {
         </Box>
       </Box>
 
-      <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-        <Typography fontSize="0.78rem" color="text.disabled">
-          Designed &amp; Built by
-        </Typography>
-        <Typography
-          component="a"
-          href="https://github.com/AeroHong"
-          target="_blank"
-          rel="noopener noreferrer"
-          fontSize="0.78rem"
-          fontWeight={600}
-          sx={{ color: '#7c3aed', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
-        >
-          @AeroHong
-        </Typography>
-        <Typography fontSize="0.78rem" color="text.disabled">·</Typography>
-        <Typography
-          component="a"
-          href="https://github.com/AeroHong/smart-teachers-office"
-          target="_blank"
-          rel="noopener noreferrer"
-          fontSize="0.78rem"
-          sx={{ color: '#94a3b8', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 0.5, '&:hover': { color: '#7c3aed' } }}
-        >
-          <span style={{ fontSize: '0.9rem' }}>⭐</span> GitHub
-        </Typography>
-        <Typography fontSize="0.78rem" color="text.disabled">·</Typography>
-        <Typography
-          component={Link}
-          to="/privacy-policy"
-          fontSize="0.78rem"
-          sx={{ color: '#94a3b8', textDecoration: 'none', '&:hover': { color: '#4f46e5' } }}
-        >
-          개인정보처리방침
-        </Typography>
-      </Box>
     </Layout>
   )
 }
