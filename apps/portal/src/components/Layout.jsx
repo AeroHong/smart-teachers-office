@@ -38,6 +38,15 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    key: 'notices',
+    label: '스마트 공지',
+    icon: '📢',
+    prefix: '/notices',
+    items: [
+      { label: '공지 관리', path: '/notices', icon: '◈', exact: true },
+    ],
+  },
+  {
     key: 'cover',
     label: '보강 신청',
     icon: '👨‍🏫',
@@ -71,6 +80,7 @@ const PAGE_TITLES = {
   '/attendance/students': '학생 명단',
   '/attendance/events/new': '이벤트 생성',
   '/attendance/stats': '출결 통계',
+  '/notices': '스마트 공지',
   '/cover': '보강 목록',
   '/cover/mypage': '내 현황',
   '/cover/status': '현황판',
@@ -91,6 +101,7 @@ function getPageTitle(pathname) {
 function getSectionLabel(pathname) {
   if (pathname === '/admin') return '관리자'
   if (pathname.startsWith('/attendance')) return '스마트 출결'
+  if (pathname.startsWith('/notices')) return '스마트 공지'
   if (pathname.startsWith('/cover')) return '보강 신청'
   if (pathname.startsWith('/training')) return '연수 서명부'
   return '포털'

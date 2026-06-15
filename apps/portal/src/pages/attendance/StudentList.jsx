@@ -5,11 +5,10 @@ import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
 import StudentHistoryModal from '../../components/StudentHistoryModal'
 
-const SCHOOL_DOMAIN = 'seonyoo.hs.kr'
-
 export default function StudentList() {
   const { schoolId, user, role } = useAuth()
 
+  const [studentDomain, setStudentDomain] = useState('')
   const [groups, setGroups] = useState([])
   const [loadingGroups, setLoadingGroups] = useState(true)
   const [expandedGroupId, setExpandedGroupId] = useState(null)
@@ -53,6 +52,13 @@ export default function StudentList() {
   }
 
   useEffect(() => { if (schoolId && user) fetchGroups() }, [schoolId, user, role])
+
+  useEffect(() => {
+    if (!schoolId) return
+    getDoc(doc(db, 'schools', schoolId))
+      .then(snap => setStudentDomain(snap.data()?.studentDomain || ''))
+      .catch(() => {})
+  }, [schoolId])
 
   useEffect(() => {
     if (role !== 'school_admin') return
@@ -111,6 +117,7 @@ export default function StudentList() {
     const numberCol = find(h => h.includes('번호') || h === '번')
     const nameCol   = find(h => h.includes('성명') || h.includes('이름'))
     const yearCol   = find(h => h.includes('학년도') || h === '년도')
+    const emailCol  = find(h => h.includes('이메일') || h.toLowerCase() === 'email')
 
     if (gradeCol < 0 || classCol < 0 || numberCol < 0 || nameCol < 0) {
       const missing = [
@@ -135,7 +142,9 @@ export default function StudentList() {
       if (!grade || !cls || !num || !name) return null
 
       const studentId = `${grade}${String(cls).padStart(2, '0')}${String(num).padStart(2, '0')}`
-      const email = `${year}${studentId}@${SCHOOL_DOMAIN}`
+      const email = studentDomain
+        ? `${year}${studentId}@${studentDomain}`
+        : (emailCol >= 0 ? cols[emailCol] : '')
 
       return { studentId, year, grade, class: cls, number: num, name, email }
     }).filter(Boolean)
@@ -174,13 +183,17 @@ export default function StudentList() {
     setUploading(true)
     setUploadResult(null)
     try {
-      await Promise.all(preview.map(student =>
-        setDoc(
-          doc(db, 'schools', schoolId, 'students', student.studentId),
-          student,
-          { merge: true }
-        )
-      ))
+      await Promise.all(preview.map(student => {
+        const writes = [
+          setDoc(doc(db, 'schools', schoolId, 'students', student.studentId), student, { merge: true }),
+        ]
+        if (student.email) {
+          writes.push(setDoc(doc(db, 'studentRegistrations', student.email), {
+            schoolId, studentId: student.studentId, name: student.name,
+          }, { merge: true }))
+        }
+        return Promise.all(writes)
+      }))
 
       const studentIds = preview.map(s => s.studentId)
       const isAdminShared = role === 'school_admin' && isShared
@@ -258,9 +271,17 @@ export default function StudentList() {
     const newOnes = students.filter(s => !existing.includes(s.studentId))
     if (newOnes.length === 0) { alert('모두 이미 그룹에 포함된 학생입니다.'); return }
 
-    await Promise.all(newOnes.map(s =>
-      setDoc(doc(db, 'schools', schoolId, 'students', s.studentId), s, { merge: true })
-    ))
+    await Promise.all(newOnes.map(s => {
+      const writes = [
+        setDoc(doc(db, 'schools', schoolId, 'students', s.studentId), s, { merge: true }),
+      ]
+      if (s.email) {
+        writes.push(setDoc(doc(db, 'studentRegistrations', s.email), {
+          schoolId, studentId: s.studentId, name: s.name,
+        }, { merge: true }))
+      }
+      return Promise.all(writes)
+    }))
     const newStudentIds = [...existing, ...newOnes.map(s => s.studentId)]
     await updateDoc(doc(db, 'schools', schoolId, 'studentGroups', group.id), { studentIds: newStudentIds })
     setGroups(prev => prev.map(g => g.id === group.id ? { ...g, studentIds: newStudentIds } : g))
@@ -279,12 +300,17 @@ export default function StudentList() {
     if (!/^\d{5}$/.test(sid)) { alert('학번은 5자리 숫자로 입력해주세요.'); return }
 
     const { grade, class: cls, number } = parseStudentId(sid)
-    const email = `${new Date().getFullYear()}${sid}@${SCHOOL_DOMAIN}`
+    const manualEmail = (draft.email || '').trim()
+    const email = studentDomain
+      ? `${new Date().getFullYear()}${sid}@${studentDomain}`
+      : manualEmail
+    if (!email) { alert('학생 이메일을 입력해주세요.'); return }
+
     const studentData = { studentId: sid, name, grade, class: cls, number, email }
 
     try {
       await addStudentsToGroup(group, [studentData])
-      setAddStudentDraft(prev => ({ ...prev, [group.id]: { sid: '', name: '' } }))
+      setAddStudentDraft(prev => ({ ...prev, [group.id]: { sid: '', name: '', email: '' } }))
     } catch (err) {
       alert('학생 추가 오류: ' + err.message)
     }
@@ -393,6 +419,15 @@ export default function StudentList() {
                         placeholder="이름"
                         style={{ ...styles.textInput, flex: 1, minWidth: 0 }}
                       />
+                      {!studentDomain && (
+                        <input
+                          value={(addStudentDraft[group.id] || {}).email || ''}
+                          onChange={e => setAddStudentDraft(prev => ({ ...prev, [group.id]: { ...(prev[group.id] || {}), email: e.target.value } }))}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddStudent(group) }}
+                          placeholder="이메일"
+                          style={{ ...styles.textInput, flex: 1, minWidth: 0 }}
+                        />
+                      )}
                       <button onClick={() => handleAddStudent(group)} style={styles.addStudentBtn}>추가</button>
                       <label style={styles.csvAddBtn}>
                         {groupCsvAdding[group.id] ? '추가 중...' : 'CSV'}

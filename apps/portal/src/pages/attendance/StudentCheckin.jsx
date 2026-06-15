@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import { doc, getDoc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore'
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import { auth, db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -13,6 +13,7 @@ const STATE = {
   LATE_CUTOFF: 'late_cutoff',       // 수업 1/3 이상 경과로 QR 마감
   NOT_STARTED: 'not_started',
   ENDED: 'ended',
+  NOTICE_REQUIRED: 'notice_required', // 미확인 공지 확인 단계
   CHECKING: 'checking',
   SUCCESS: 'success',
   ALREADY: 'already',
@@ -96,11 +97,16 @@ export default function StudentCheckin() {
   const token = searchParams.get('token')
 
   const { user, role, studentId, loading: authLoading, domainError } = useAuth()
+  const navigate = useNavigate()
 
   const [state, setState] = useState(STATE.LOADING)
   const [event, setEvent] = useState(null)
   const [studentInfo, setStudentInfo] = useState(null)
   const [isLate, setIsLate] = useState(false)
+  const [notices, setNotices] = useState([])
+  const [pendingNotices, setPendingNotices] = useState([])
+  const [noticeIdx, setNoticeIdx] = useState(0)
+  const [confirmingNotice, setConfirmingNotice] = useState(false)
 
   useEffect(() => {
     if (authLoading) return
@@ -117,8 +123,7 @@ export default function StudentCheckin() {
         } else {
           // 수업/방과후/행사/기타: 라이브 세션 토큰 검증
           if (data.liveToken == null) {
-            // 1/3 이상 경과로 자동 마감된 경우 별도 안내
-            if (data.lateWindowProcessed) { setState(STATE.LATE_CUTOFF); return }
+            if (data.lateWindowProcessed) { setState(STATE.QR_INACTIVE); return }
             setState(STATE.QR_INACTIVE); return
           }
           if (data.liveToken !== token) { setState(STATE.INVALID); return }
@@ -138,13 +143,15 @@ export default function StudentCheckin() {
 
     if (!user) { setState(STATE.LOGIN_REQUIRED); return }
     if (role === 'teacher' || role === 'admin' || role === 'school_admin') { setState(STATE.TEACHER); return }
-    if (role === 'student' && studentId) { recordAttendance() }
+    if (role === 'student' && studentId) { checkAndAttend() }
+    else { setState(STATE.NOT_IN_LIST) }
   }, [authLoading, user, role, studentId, event])
 
-  const recordAttendance = async () => {
+  // 메인 플로우: 공지 확인 여부 체크 후 출석 처리
+  const checkAndAttend = async () => {
     setState(STATE.CHECKING)
 
-    // 조회는 시간 윈도우 체크, 라이브 세션 타입은 교사가 직접 제어하므로 스킵
+    // 조회는 시간 윈도우 체크, 라이브 세션 타입은 교사가 직접 제어
     if (event.type === '조회') {
       const { active, reason } = isEventActive(event)
       if (!active) {
@@ -159,26 +166,94 @@ export default function StudentCheckin() {
       if (!studentDoc.exists()) { setState(STATE.NOT_IN_LIST); return }
 
       const student = studentDoc.data()
+      setStudentInfo(student)
+
+      // 중복 체크인 확인
       const logId = buildLogId(event, studentId)
       const logRef = doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId)
-
       const existing = await getDoc(logRef)
       if (existing.exists()) {
-        setStudentInfo(student)
         setState(STATE.ALREADY)
         return
       }
 
-      let late = false
-      if (event.type === '조회' && event.lateCheckTime) {
-        const now = new Date()
-        const [lh, lm] = event.lateCheckTime.split(':').map(Number)
-        const lateTime = new Date(now)
-        lateTime.setHours(lh, lm, 0, 0)
-        late = now > lateTime
+      // 이벤트에 연결된 공지 중 미확인 공지 확인
+      if (eventId) {
+        try {
+          const snap = await getDocs(query(
+            collection(db, 'schools', schoolId, 'notices'),
+            where('eventId', '==', eventId)
+          ))
+          const relevantNotices = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(n =>
+              n.targetType === 'all' ||
+              (n.targetType === 'individual' && n.targetStudentIds?.includes(studentId))
+            )
+            .sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0))
+
+          // 각 공지의 확인 여부 체크
+          const unconfirmed = []
+          for (const notice of relevantNotices) {
+            const cfm = await getDoc(
+              doc(db, 'schools', schoolId, 'notices', notice.id, 'confirmations', studentId)
+            )
+            if (!cfm.exists()) unconfirmed.push(notice)
+          }
+
+          if (unconfirmed.length > 0) {
+            setPendingNotices(unconfirmed)
+            setNoticeIdx(0)
+            setState(STATE.NOTICE_REQUIRED)
+            return
+          }
+        } catch {
+          // 공지 로드 실패 시 출결 진행
+        }
       }
 
-      await setDoc(logRef, {
+      await doCheckin(student)
+    } catch {
+      setState(STATE.ERROR)
+    }
+  }
+
+  // 현재 공지 확인 처리
+  const confirmCurrentNotice = async () => {
+    setConfirmingNotice(true)
+    const notice = pendingNotices[noticeIdx]
+    try {
+      await setDoc(
+        doc(db, 'schools', schoolId, 'notices', notice.id, 'confirmations', studentId),
+        { confirmedAt: serverTimestamp(), studentId }
+      )
+      if (noticeIdx < pendingNotices.length - 1) {
+        setNoticeIdx(p => p + 1)
+      } else {
+        // 모든 공지 확인 완료 → 출결 처리
+        await doCheckin(studentInfo)
+      }
+    } catch {
+      setState(STATE.ERROR)
+    } finally {
+      setConfirmingNotice(false)
+    }
+  }
+
+  // 실제 출결 기록
+  const doCheckin = async (student) => {
+    setState(STATE.CHECKING)
+    let late = false
+    if (event.type === '조회' && event.lateCheckTime) {
+      const now = new Date()
+      const [lh, lm] = event.lateCheckTime.split(':').map(Number)
+      const lateTime = new Date(now)
+      lateTime.setHours(lh, lm, 0, 0)
+      late = now > lateTime
+    }
+    try {
+      const logId = buildLogId(event, student.studentId ?? studentId)
+      await setDoc(doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId), {
         studentId,
         studentName: student.name,
         grade: student.grade,
@@ -189,14 +264,31 @@ export default function StudentCheckin() {
         qrToken: token,
         late,
       })
-
-      setStudentInfo(student)
       setIsLate(late)
       setState(STATE.SUCCESS)
     } catch {
       setState(STATE.ERROR)
     }
   }
+
+  // 출석 완료 후 해당 이벤트 공지 로드
+  useEffect(() => {
+    if ((state !== STATE.SUCCESS && state !== STATE.ALREADY) || !schoolId || !eventId || !studentId) return
+    getDocs(query(
+      collection(db, 'schools', schoolId, 'notices'),
+      where('eventId', '==', eventId)
+    ))
+      .then(snap => {
+        const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        setNotices(
+          all.filter(n =>
+            n.targetType === 'all' ||
+            (n.targetType === 'individual' && n.targetStudentIds?.includes(studentId))
+          ).sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
+        )
+      })
+      .catch(() => {})
+  }, [state, schoolId, eventId, studentId])
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider()
@@ -217,6 +309,24 @@ export default function StudentCheckin() {
         <div style={styles.body}>
           {(state === STATE.LOADING || state === STATE.CHECKING) && (
             <StatusScreen icon="⏳" message="처리 중..." />
+          )}
+          {state === STATE.NOTICE_REQUIRED && pendingNotices[noticeIdx] && (
+            <div style={{ textAlign: 'left' }}>
+              {pendingNotices.length > 1 && (
+                <p style={ncs.counter}>공지 {noticeIdx + 1} / {pendingNotices.length}</p>
+              )}
+              <p style={ncs.subLabel}>📋 출석 전 확인 필요 공지</p>
+              <div style={ncs.title}>{pendingNotices[noticeIdx].title}</div>
+              <p style={ncs.content}>{pendingNotices[noticeIdx].content}</p>
+              <button
+                onClick={confirmCurrentNotice}
+                disabled={confirmingNotice}
+                style={ncs.confirmBtn}
+              >
+                {confirmingNotice ? '처리 중...' : '✓ 확인했습니다'}
+              </button>
+              <p style={ncs.hint}>공지를 확인해야 출석이 기록됩니다.</p>
+            </div>
           )}
           {state === STATE.LOGIN_REQUIRED && (
             <>
@@ -253,6 +363,25 @@ export default function StudentCheckin() {
           )}
           {state === STATE.ERROR && <StatusScreen icon="⚠️" title="오류 발생" message="잠시 후 다시 시도해 주세요." />}
         </div>
+        {(state === STATE.SUCCESS || state === STATE.ALREADY) && notices.length > 0 && (
+          <div style={checkinStyles.noticeBox}>
+            <h4 style={checkinStyles.noticeHeader}>📋 과목 공지</h4>
+            {notices.map(n => (
+              <div key={n.id} style={checkinStyles.noticeItem}>
+                {n.targetType === 'individual' && (
+                  <span style={checkinStyles.personalTag}>개인 공지</span>
+                )}
+                <div style={checkinStyles.noticeTitle}>{n.title}</div>
+                <p style={checkinStyles.noticeContent}>{n.content}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {(state === STATE.SUCCESS || state === STATE.ALREADY) && (
+          <button onClick={() => navigate('/student')} style={checkinStyles.portalBtn}>
+            전체 공지 목록 보기 →
+          </button>
+        )}
       </div>
     </div>
   )
@@ -268,6 +397,37 @@ function StatusScreen({ icon, title, message, success, late, children }) {
       {children}
     </div>
   )
+}
+
+const ncs = {
+  counter: { textAlign: 'center', fontSize: '0.78rem', color: '#888', marginBottom: '0.5rem' },
+  subLabel: { textAlign: 'center', fontSize: '0.82rem', color: '#666', marginBottom: '0.6rem', fontWeight: 600 },
+  title: { fontSize: '1rem', fontWeight: 700, color: '#1a73e8', marginBottom: '0.6rem', textAlign: 'center' },
+  content: {
+    fontSize: '0.88rem', color: '#333', lineHeight: 1.7, whiteSpace: 'pre-line',
+    margin: '0 0 1.25rem', backgroundColor: '#f8f9fa', borderRadius: '8px',
+    padding: '0.85rem 1rem', minHeight: '60px',
+  },
+  confirmBtn: {
+    width: '100%', padding: '0.85rem', backgroundColor: '#1a73e8', color: '#fff',
+    border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer',
+  },
+  hint: { textAlign: 'center', fontSize: '0.75rem', color: '#aaa', marginTop: '0.6rem', marginBottom: 0 },
+}
+
+const checkinStyles = {
+  noticeBox: { marginTop: '1.25rem', borderTop: '1px solid #eee', paddingTop: '1rem', textAlign: 'left' },
+  noticeHeader: { fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.75rem', textAlign: 'center' },
+  noticeItem: { border: '1px solid #e8ecf0', borderRadius: '8px', padding: '0.75rem', marginBottom: '0.5rem', backgroundColor: '#fafbff' },
+  personalTag: { display: 'inline-block', fontSize: '0.7rem', backgroundColor: '#f3e5f5', color: '#7b1fa2', borderRadius: '999px', padding: '0.1rem 0.4rem', marginBottom: '0.3rem', fontWeight: 600 },
+  noticeTitle: { fontSize: '0.88rem', fontWeight: 700, color: '#222', marginBottom: '0.3rem' },
+  noticeContent: { fontSize: '0.83rem', color: '#444', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-line' },
+  portalBtn: {
+    display: 'block', width: '100%', marginTop: '1rem', padding: '0.7rem',
+    backgroundColor: '#f0f4ff', color: '#1a73e8', border: '1px solid #c5d8ff',
+    borderRadius: '10px', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer',
+    textAlign: 'center',
+  },
 }
 
 const styles = {

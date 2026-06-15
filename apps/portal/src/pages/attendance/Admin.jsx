@@ -183,13 +183,33 @@ export default function Admin() {
   // ── 학교 설정 탭 ──────────────────────────────────────────
   const [logoUrl, setLogoUrl] = useState(null)
   const [logoUploading, setLogoUploading] = useState(false)
+  const [studentDomain, setStudentDomain] = useState('')
+  const [studentDomainInput, setStudentDomainInput] = useState('')
+  const [savingDomain, setSavingDomain] = useState(false)
 
   useEffect(() => {
     if (tab !== 'settings' || !schoolId) return
     getDoc(doc(db, 'schools', schoolId))
-      .then(snap => setLogoUrl(snap.data()?.logoUrl || null))
+      .then(snap => {
+        const data = snap.data() || {}
+        setLogoUrl(data.logoUrl || null)
+        setStudentDomain(data.studentDomain || '')
+        setStudentDomainInput(data.studentDomain || '')
+      })
       .catch(() => {})
   }, [tab, schoolId])
+
+  const handleSaveStudentDomain = async () => {
+    setSavingDomain(true)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId), { studentDomain: studentDomainInput.trim() })
+      setStudentDomain(studentDomainInput.trim())
+    } catch (err) {
+      alert('저장 실패: ' + err.message)
+    } finally {
+      setSavingDomain(false)
+    }
+  }
 
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0]
@@ -490,6 +510,29 @@ export default function Admin() {
             PNG, JPG, SVG 권장 · 최대 500KB · 정사각형 이미지가 가장 잘 표시됩니다.<br />
             업로드 후 페이지를 새로고침하면 사이드바에 반영됩니다.
           </p>
+
+          <div style={{ marginTop: '1.75rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
+            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.35rem' }}>학생 이메일 도메인</p>
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
+              학생 명단에서 이메일 자동 생성에 사용됩니다. 비워두면 학생 추가 시 이메일을 직접 입력합니다.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                value={studentDomainInput}
+                onChange={e => setStudentDomainInput(e.target.value)}
+                placeholder="예: seonyoo.hs.kr"
+                style={{ ...styles.input, maxWidth: '220px' }}
+              />
+              <button onClick={handleSaveStudentDomain} disabled={savingDomain} style={styles.approveBtn}>
+                {savingDomain ? '저장 중...' : '저장'}
+              </button>
+            </div>
+            {studentDomain && (
+              <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.4rem' }}>
+                현재 설정: @{studentDomain}
+              </p>
+            )}
+          </div>
         </div>
 
       ) : (

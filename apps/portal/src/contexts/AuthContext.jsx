@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import {
   onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
 } from 'firebase/auth'
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 
 const SUPER_ADMIN_EMAIL = 'hckgood@gmail.com'
@@ -67,10 +67,40 @@ export function AuthProvider({ children }) {
       const data = userDoc.data()
       const existingSchoolId = data.schoolId
 
+      // rejected/pending 상태 → studentRegistrations로 학생 자동 복구 시도
+      if (existingSchoolId && !existingSchoolId.startsWith('guest_') &&
+          (data.role === 'rejected' || data.role === 'pending')) {
+        try {
+          const regDoc = await getDoc(doc(db, 'studentRegistrations', email))
+          if (regDoc.exists()) {
+            const { schoolId: regSchoolId, studentId: regStudentId, name: regName } = regDoc.data()
+            await setDoc(userRef, {
+              ...data,
+              role: 'student',
+              schoolId: regSchoolId,
+              studentId: regStudentId,
+              updatedAt: serverTimestamp(),
+            }, { merge: true })
+            const schoolData = await fetchSchoolData(regSchoolId)
+            setUser(firebaseUser)
+            setUserName(firebaseUser.displayName || data.name || regName || '')
+            setRole('student')
+            setSchoolId(regSchoolId)
+            setSchoolName(schoolData.name || regSchoolId)
+            setCoverApiUrl(schoolData.coverApiUrl || null)
+            setStudentId(regStudentId)
+            setIsSuperAdmin(false)
+            setNeedsSchoolSetup(false)
+            return
+          }
+        } catch (e) {
+          console.warn('학생 역할 복구 실패:', e.message)
+        }
+      }
+
       // 실제 학교 소속(non-guest, 비활성화 제외) → 바로 진입
       if (existingSchoolId && !existingSchoolId.startsWith('guest_') && data.role !== 'rejected') {
         const schoolData = await fetchSchoolData(existingSchoolId)
-        const { isStudent, studentId: stid } = parseStudentEmail(email)
 
         // displayName 변경 시 업데이트
         const displayName = firebaseUser.displayName || ''
@@ -78,20 +108,53 @@ export function AuthProvider({ children }) {
           updateDoc(userRef, { name: displayName }).catch(() => {})
         }
 
+        // studentId: user doc 우선, 없으면 이메일 패턴(하위 호환)
+        const parsedEmail = parseStudentEmail(email)
+        const resolvedStudentId = data.studentId || (parsedEmail.isStudent ? parsedEmail.studentId : null)
+
         setUser(firebaseUser)
         setUserName(displayName || data.name || '')
         setRole(data.role)
         setSchoolId(existingSchoolId)
         setSchoolName(schoolData.name || existingSchoolId)
         setCoverApiUrl(schoolData.coverApiUrl || null)
-        setStudentId(isStudent ? stid : null)
+        setStudentId(resolvedStudentId)
         setIsSuperAdmin(false)
         setNeedsSchoolSetup(false)
         return
       }
     }
 
-    // user doc 없음 or guest_ schoolId → SchoolSetup
+    // user doc 없음 or guest_ schoolId → studentRegistrations로 학생 자동 등록 시도
+    try {
+      const regDoc = await getDoc(doc(db, 'studentRegistrations', email))
+      if (regDoc.exists()) {
+        const { schoolId: regSchoolId, studentId: regStudentId, name: regName } = regDoc.data()
+        await setDoc(userRef, {
+          name: firebaseUser.displayName || regName || '',
+          email,
+          role: 'student',
+          schoolId: regSchoolId,
+          studentId: regStudentId,
+          createdAt: serverTimestamp(),
+        })
+        const schoolData = await fetchSchoolData(regSchoolId)
+        setUser(firebaseUser)
+        setUserName(firebaseUser.displayName || regName || '')
+        setRole('student')
+        setSchoolId(regSchoolId)
+        setSchoolName(schoolData.name || regSchoolId)
+        setCoverApiUrl(schoolData.coverApiUrl || null)
+        setStudentId(regStudentId)
+        setIsSuperAdmin(false)
+        setNeedsSchoolSetup(false)
+        return
+      }
+    } catch (e) {
+      console.warn('학생 사전등록 조회 실패:', e.message)
+    }
+
+    // 등록된 학생 아님 → SchoolSetup
     setUser(firebaseUser)
     setUserName(firebaseUser.displayName || '')
     setNeedsSchoolSetup(true)

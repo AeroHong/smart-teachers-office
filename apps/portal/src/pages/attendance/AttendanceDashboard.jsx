@@ -703,59 +703,14 @@ export default function AttendanceDashboard() {
     const cutdownTocut = fmtCountdown(event.liveLateCutoff)
     const cutdownToEnd = fmtCountdown(event.liveClosesAt)
 
-    // Phase 2: QR 활성 (0~1/3 구간)
-    if (event.liveToken && !event.lateWindowProcessed && isLiveFromToday) {
+    // Phase 2: QR 활성
+    if (event.liveToken && isLiveFromToday) {
       return (
         <>
           <div style={styles.liveActiveBadge}>● 출석 진행 중</div>
-          {cutdownTocut && (
-            <div style={styles.cutoffCountdown}>
-              QR 마감까지 <strong>{cutdownTocut}</strong>
-            </div>
-          )}
           <QRDisplay eventName={event.name} checkinUrl={liveCheckinUrl} />
           <button onClick={closeLiveSession} style={styles.closeSessionBtn}>⏹ 출석 마감</button>
         </>
-      )
-    }
-
-    // Phase 3: 교사가 0~1/3 구간에서 수동 마감 → 재오픈 가능
-    if (event.liveOpenedAt && !event.lateWindowProcessed && isLiveFromToday) {
-      return (
-        <div style={styles.liveStartBox}>
-          <div style={styles.sessionPausedBadge}>⏸ 출석 일시 중지</div>
-          {cutdownTocut ? (
-            <p style={styles.liveStartHint}>
-              재오픈 가능: <strong style={{ color: '#1a73e8' }}>{cutdownTocut}</strong> 남음
-            </p>
-          ) : (
-            <p style={styles.liveStartHint}>재오픈 시간이 만료되었습니다.</p>
-          )}
-          {cutdownTocut && (
-            <button onClick={reopenLiveSession} style={styles.startSessionBtn}>▶ 재오픈</button>
-          )}
-          <p style={{ ...styles.liveStartHint, color: '#999', fontSize: '0.75rem', marginTop: '0.5rem' }}>
-            1/3 경과 후에는 재오픈이 불가합니다.
-          </p>
-        </div>
-      )
-    }
-
-    // Phase 4: 1/3 이후 (QR 마감, 교사 수동 입력만 가능)
-    if (event.liveOpenedAt && event.lateWindowProcessed && isLiveFromToday) {
-      return (
-        <div style={styles.liveStartBox}>
-          <div style={styles.lateCutoffBadge}>⏰ QR 체크인 마감</div>
-          <p style={styles.liveStartHint}>
-            수업 시간 1/3 경과로 QR 마감됨.<br />
-            이후 출석은 교사 수동 입력만 가능합니다.
-          </p>
-          {cutdownToEnd && (
-            <div style={styles.closeCountdown}>
-              수업 종료까지 <strong>{cutdownToEnd}</strong>
-            </div>
-          )}
-        </div>
       )
     }
 
@@ -1225,6 +1180,7 @@ const statStyles = {
   value: { fontWeight: 700, lineHeight: 1 },
   label: { fontSize: '0.72rem', color: '#888', marginTop: '0.25rem' },
 }
+
 
 const styles = {
   // 헤더

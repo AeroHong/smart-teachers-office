@@ -32,6 +32,10 @@ const TrainingDetail  = lazy(() => import('./pages/training/TrainingDetail'))
 const TrainingSign    = lazy(() => import('./pages/training/TrainingSign'))
 const TrainingPresets = lazy(() => import('./pages/training/TrainingPresets'))
 
+// 스마트 공지 - lazy load
+const NoticeList    = lazy(() => import('./pages/notices/NoticeList'))
+const StudentPortal = lazy(() => import('./pages/student/StudentPortal'))
+
 // 슈퍼 어드민 - lazy load
 const SuperAdmin            = lazy(() => import('./pages/SuperAdmin'))
 const SuperAdminGuests      = lazy(() => import('./pages/SuperAdminGuests'))
@@ -72,6 +76,12 @@ export default function App() {
           <Route path="/attendance/events/:eventId"       element={<ProtectedRoute><AttendanceDashboard /></ProtectedRoute>} />
           <Route path="/attendance/events/:eventId/edit"  element={<ProtectedRoute><EventEdit /></ProtectedRoute>} />
           <Route path="/attendance/stats"                 element={<ProtectedRoute><StatsDashboard /></ProtectedRoute>} />
+
+          {/* ── 스마트 공지 ── */}
+          <Route path="/notices" element={<ProtectedRoute><NoticeList /></ProtectedRoute>} />
+
+          {/* ── 학생 포털 ── */}
+          <Route path="/student" element={<ProtectedRoute anyUser studentAllowed><StudentPortal /></ProtectedRoute>} />
 
           {/* ── 관리자 전용 ── */}
           <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />

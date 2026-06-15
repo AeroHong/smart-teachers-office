@@ -9,6 +9,7 @@ export default function ProtectedRoute({
   adminOnly = false,
   anyUser = false,
   superAdminOnly = false,
+  studentAllowed = false,
 }) {
   const { user, role, isSuperAdmin, loading, needsSchoolSetup } = useAuth()
 
@@ -31,13 +32,17 @@ export default function ProtectedRoute({
   }
 
   // anyUser: 로그인만 하면 접근 가능 (포털 홈, 보강신청 등)
-  if (anyUser) return children
+  // 단, 학생은 studentAllowed 표시된 페이지(학생 포털)만 접근 가능
+  if (anyUser) {
+    if (role === 'student' && !studentAllowed) return <Navigate to="/student" replace />
+    return children
+  }
 
   // 슈퍼 어드민은 모든 페이지 접근 가능
   if (isSuperAdmin) return children
 
-  // 학생은 출결 교사 기능 접근 불가
-  if (role === 'student') return <Navigate to="/" replace />
+  // 학생은 교사 전용 페이지 접근 불가 → 학생 포털로
+  if (role === 'student') return <Navigate to="/student" replace />
 
   // 미승인 교사
   if (role === 'pending') return <PendingApproval />

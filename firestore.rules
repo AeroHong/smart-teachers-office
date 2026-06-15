@@ -39,6 +39,14 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
+    // ── /studentRegistrations — 학생 자동 등록용 이메일 색인 ───────
+    match /studentRegistrations/{email} {
+      allow get: if isSignedIn() && email == request.auth.token.email;
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() || isTeacher(request.resource.data.schoolId);
+      allow delete: if isSuperAdmin() || isTeacher(resource.data.schoolId);
+    }
+
     // ── /schoolDomains — get만 허용 (auth 흐름 자기 도메인 조회) ──────
     match /schoolDomains/{domain} {
       allow get: if isSignedIn();
@@ -65,7 +73,12 @@ service cloud.firestore {
                     // [M-2] 게스트 → 실제 학교 전환: role은 pending/teacher만 허용 (admin 제외)
                     (isSignedIn() && request.auth.uid == uid &&
                      resource.data.schoolId.matches('guest_.*') &&
-                     request.resource.data.role in ['pending', 'teacher']);
+                     request.resource.data.role in ['pending', 'teacher']) ||
+                    // [M-4] 학생 이메일 패턴으로 본인 역할 복구 (rejected/pending → student)
+                    (isSignedIn() && request.auth.uid == uid &&
+                     resource.data.role in ['rejected', 'pending'] &&
+                     request.resource.data.role == 'student' &&
+                     request.auth.token.email.matches('[0-9]{9}@.*'));
       allow delete: if isSuperAdmin();
       allow list: if isSuperAdmin() || isAdmin();  // 전체 목록은 관리자만
     }
@@ -79,7 +92,8 @@ service cloud.firestore {
       allow create: if isSuperAdmin() ||
         (isSignedIn() && schoolId.matches('school-.*') && request.resource.data.createdBy == request.auth.token.email) ||
         (isSignedIn() && schoolId.matches('guest_.*') && request.resource.data.ownerUid == request.auth.uid);
-      allow update, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      allow delete: if isSuperAdmin();
 
       // 보강 신청 — 소속 학교 구성원만 ────────────────────────────
       match /coverRequests/{requestId} {
@@ -103,7 +117,8 @@ service cloud.firestore {
 
       match /studentGroups/{groupId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId) ||
-          (isSignedIn() && resource.data.createdBy == request.auth.uid);
+          (isSignedIn() && resource.data.createdBy == request.auth.uid) ||
+          (isStudent(schoolId) && resource.data.studentIds.hasAny([getUserData().studentId]));
         allow write: if isSuperAdmin() || isTeacher(schoolId) ||
           (isSignedIn() && (resource.data.createdBy == request.auth.uid ||
                             request.resource.data.createdBy == request.auth.uid));
@@ -117,7 +132,7 @@ service cloud.firestore {
       // 이벤트 — QR 체크인(공개 get) 허용 ─────────────────────────
       match /events/{eventId} {
         allow get: if true;  // QR 체크인: 미로그인 학생 접근
-        allow list: if isSuperAdmin() || isTeacher(schoolId);
+        allow list: if isSuperAdmin() || isTeacher(schoolId) || isStudent(schoolId);
         allow write: if isSuperAdmin() || isTeacher(schoolId);
 
         match /attendanceLogs/{logId} {
@@ -134,6 +149,7 @@ service cloud.firestore {
                 == request.resource.data.qrToken
             ));
         }
+
       }
 
       match /trainings/{trainingId} {
@@ -153,6 +169,24 @@ service cloud.firestore {
       match /trainingPresets/{presetId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if isSuperAdmin() || isAdmin();
+      }
+
+      // 스마트 공지 — 본인 공지 쓰기, 소속 학교 구성원 읽기
+      match /notices/{noticeId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId) || isStudent(schoolId);
+        allow write: if isSuperAdmin() ||
+          (isTeacher(schoolId) && (
+            resource == null || resource.data.teacherId == request.auth.uid
+          ));
+
+        // 공지 확인 기록 — 학생 본인만 쓰기, 교사는 읽기 가능
+        match /confirmations/{confirmedStudentId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId) ||
+            (isStudent(schoolId) && getUserData().studentId == confirmedStudentId);
+          allow create, update: if isSuperAdmin() ||
+            (isStudent(schoolId) && getUserData().studentId == confirmedStudentId);
+          allow delete: if isSuperAdmin() || isTeacher(schoolId);
+        }
       }
 
       // [M-3] preApproved — 본인 이메일 문서만 get 허용, 목록은 해당 학교 관리자 이상
