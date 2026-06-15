@@ -182,3 +182,23 @@ QR 코드 기반 실시간 출결 관리 시스템.
 - [ ] 출석 통계 차트 (월별/주별)
 - [ ] 알림 기능 (미출석 학생 자동 알림)
 - [ ] 다크 모드 지원
+
+---
+
+## 개발 예정 — 개인별 공지 + 학생 포털 (2026-06-15 기획)
+
+### 1단계: 이벤트별 공지 시스템
+- AttendanceDashboard에 "공지" 탭 추가 (전체/개인 공지 작성)
+- StudentCheckin.jsx 출석 성공 화면 하단에 공지 자동 표시
+- 이벤트 복제 기능 (공지 포함 복사, 다른 이벤트로 전송)
+- Firestore: `/schools/{schoolId}/events/{eventId}/notices/{noticeId}`
+
+### 2단계: 학생 포털 (`/student/dashboard`)
+- 학생 로그인 후 내 과목 목록 + 공지 확인
+- 라이브 세션 활성 시 출석 버튼 활성화 (QR 스캔 병행 유지)
+- 기존 학생 인프라 그대로 활용 (@seonyoo.hs.kr Google 계정)
+
+### 3단계: 이메일 발송
+- Cloud Functions + Nodemailer (From: 교사 이메일, Reply-To: 교사 이메일)
+- AI HTML 이메일 생성 (Claude Haiku API)
+- 발송 여부 Firestore 기록 (emailSent 필드)

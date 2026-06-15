@@ -155,10 +155,10 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isAdmin();
       }
 
-      // [M-3] preApproved — 본인 이메일 문서만 get 허용, 전체 목록은 슈퍼관리자만
+      // [M-3] preApproved — 본인 이메일 문서만 get 허용, 목록은 해당 학교 관리자 이상
       match /preApproved/{emailId} {
         allow get: if isSignedIn() && emailId == request.auth.token.email;
-        allow list: if isSuperAdmin();
+        allow list: if isSuperAdmin() || isSchoolAdmin(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
     }
