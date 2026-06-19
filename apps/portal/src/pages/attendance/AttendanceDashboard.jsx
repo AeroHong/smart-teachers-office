@@ -322,6 +322,8 @@ export default function AttendanceDashboard() {
   const [processingId, setProcessingId] = useState(null)
   const [reasonDraft, setReasonDraft] = useState({})
   const [showCalendar, setShowCalendar] = useState(false)
+  const [showConfetti, setShowConfetti] = useState(false)
+  const confettiShownRef = useRef(false)
 
   // 수업 중 외출 관리
   const [classDuration, setClassDuration] = useState(50)
@@ -453,10 +455,32 @@ export default function AttendanceDashboard() {
     filteredLogs.filter(l => l.method === 'absent')
       .map(l => [l.studentId, l])
   )
+  const checkinRankMap = (() => {
+    const sorted = Object.values(attendedMap)
+      .sort((a, b) => (a.checkedAt?.toMillis?.() ?? 0) - (b.checkedAt?.toMillis?.() ?? 0))
+    const map = {}
+    sorted.forEach((l, i) => { map[l.studentId] = i + 1 })
+    return map
+  })()
 
   const attended = students.filter(s => attendedMap[s.studentId])
   const absent = students.filter(s => !attendedMap[s.studentId])
   const rate = students.length > 0 ? Math.round((attended.length / students.length) * 100) : null
+
+  // ── 전원 출석 시 폭죽 축하 ────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { confettiShownRef.current = false }, [selectedDate])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (students.length > 0 && attended.length === students.length && !confettiShownRef.current) {
+      confettiShownRef.current = true
+      setShowConfetti(true)
+      const t = setTimeout(() => setShowConfetti(false), 5500)
+      return () => clearTimeout(t)
+    } else if (attended.length < students.length) {
+      confettiShownRef.current = false
+    }
+  }, [attended.length, students.length])
 
   const hasLateCheck = event?.type === '조회' && event?.lateCheckTime
   const lateCount = hasLateCheck ? attended.filter(s => attendedMap[s.studentId]?.late).length : 0
@@ -852,7 +876,7 @@ export default function AttendanceDashboard() {
                       return (
                         <div key={s.studentId}>
                           <div style={styles.studentRow}>
-                            <StudentInfo student={s} />
+                            <StudentInfo student={s} rank={checkinRankMap[s.studentId]} />
                             <div style={styles.logInfo}>
                               <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>{log?.method === 'manual' ? '수동' : 'QR'}</span>
                               {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
@@ -903,6 +927,7 @@ export default function AttendanceDashboard() {
             </>
           )}
         </div>
+        {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
       </Layout>
     )
   }
@@ -1026,15 +1051,23 @@ export default function AttendanceDashboard() {
             {!hasGroup ? (
               filteredLogs.filter(l => l.method !== 'absent').length === 0
                 ? <p style={styles.empty}>출석 기록이 없습니다.</p>
-                : filteredLogs.filter(l => l.method !== 'absent').map(l => (
-                    <div key={l.id} style={styles.studentRow}>
-                      <div style={styles.studentInfo}>
-                        <span style={styles.studentName}>{l.studentName}</span>
-                        <span style={styles.studentIdText}>{l.grade}학년 {l.class}반 {l.number}번</span>
+                : filteredLogs.filter(l => l.method !== 'absent').map(l => {
+                    const rank = checkinRankMap[l.studentId]
+                    const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' }
+                    return (
+                      <div key={l.id} style={styles.studentRow}>
+                        <div style={styles.studentInfo}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            {rank && rank <= 3 && <span style={{ fontSize: '1rem', lineHeight: 1 }}>{MEDALS[rank]}</span>}
+                            <span style={styles.studentName}>{l.studentName}</span>
+                            {rank && rank <= 3 && <span style={rankBadgeStyle(rank)}>{rank}등</span>}
+                          </div>
+                          <span style={styles.studentIdText}>{l.grade}학년 {l.class}반 {l.number}번</span>
+                        </div>
+                        <span style={styles.timeText}>{formatTime(l.checkedAt)}</span>
                       </div>
-                      <span style={styles.timeText}>{formatTime(l.checkedAt)}</span>
-                    </div>
-                  ))
+                    )
+                  })
             ) : attended.length === 0
               ? <p style={styles.empty}>아직 출석한 학생이 없습니다.</p>
               : attended.map(s => {
@@ -1045,7 +1078,7 @@ export default function AttendanceDashboard() {
                   return (
                     <div key={s.studentId}>
                       <div style={styles.studentRow}>
-                        <StudentInfo student={s} />
+                        <StudentInfo student={s} rank={checkinRankMap[s.studentId]} />
                         <div style={styles.logInfo}>
                           <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>
                             {log?.method === 'manual' ? '수동' : 'QR'}
@@ -1109,7 +1142,108 @@ export default function AttendanceDashboard() {
         </div>
 
       </div>
+      {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
     </Layout>
+  )
+}
+
+// ── 전원 출석 축하 폭죽 ──────────────────────────────────────────
+function ConfettiCelebration({ onDone }) {
+  const canvasRef = useRef(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+
+    const ctx = canvas.getContext('2d')
+    const COLORS = ['#f44336','#e91e63','#9c27b0','#3f51b5','#2196f3','#4caf50','#ffeb3b','#ff9800','#ff5722','#00bcd4']
+    const particles = []
+
+    const addBurst = (x, y) => {
+      for (let i = 0; i < 70; i++) {
+        const angle = (Math.PI * 2 * i) / 70
+        const speed = Math.random() * 10 + 4
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 6,
+          color: COLORS[Math.floor(Math.random() * COLORS.length)],
+          size: Math.random() * 6 + 3,
+          life: 1,
+          decay: Math.random() * 0.016 + 0.008,
+          rotation: Math.random() * 360,
+          rotSpeed: (Math.random() - 0.5) * 12,
+          rect: Math.random() > 0.4,
+        })
+      }
+    }
+
+    const W = canvas.width, H = canvas.height
+    addBurst(W * 0.5, H * 0.75)
+    const t1 = setTimeout(() => addBurst(W * 0.2, H * 0.8), 400)
+    const t2 = setTimeout(() => addBurst(W * 0.8, H * 0.8), 700)
+    const t3 = setTimeout(() => addBurst(W * 0.35, H * 0.7), 1100)
+    const t4 = setTimeout(() => addBurst(W * 0.65, H * 0.7), 1400)
+
+    for (let i = 0; i < 90; i++) {
+      particles.push({
+        x: Math.random() * W, y: -Math.random() * H * 0.5,
+        vx: (Math.random() - 0.5) * 2.5, vy: Math.random() * 2 + 1.5,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        size: Math.random() * 9 + 4, life: 1, decay: 0,
+        rotation: Math.random() * 360, rotSpeed: (Math.random() - 0.5) * 7,
+        rect: true, falling: true,
+      })
+    }
+
+    let animId
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H)
+      let alive = 0
+      for (const p of particles) {
+        if (!p.falling && p.life <= 0) continue
+        if (p.falling && p.y > H + 20) continue
+        alive++
+        p.vx *= 0.99
+        p.vy += 0.13
+        p.x += p.vx; p.y += p.vy
+        p.rotation += p.rotSpeed
+        if (!p.falling) p.life -= p.decay
+        ctx.save()
+        ctx.globalAlpha = p.falling ? 0.85 : Math.max(0, p.life)
+        ctx.fillStyle = p.color
+        ctx.translate(p.x, p.y)
+        ctx.rotate((p.rotation * Math.PI) / 180)
+        if (p.rect) ctx.fillRect(-p.size / 2, -p.size * 0.22, p.size, p.size * 0.44)
+        else { ctx.beginPath(); ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2); ctx.fill() }
+        ctx.restore()
+      }
+      if (alive > 0) animId = requestAnimationFrame(draw)
+      else onDone?.()
+    }
+    animId = requestAnimationFrame(draw)
+    return () => {
+      cancelAnimationFrame(animId)
+      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4)
+    }
+  }, [])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999 }}>
+      <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
+      <div style={{
+        position: 'absolute', top: '13%', left: '50%', transform: 'translateX(-50%)',
+        backgroundColor: 'rgba(255,255,255,0.96)', borderRadius: '20px',
+        padding: '1.25rem 2.75rem', boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+        textAlign: 'center', border: '2px solid #ffd54f', whiteSpace: 'nowrap',
+      }}>
+        <div style={{ fontSize: '2.5rem', lineHeight: 1, marginBottom: '0.35rem' }}>🎉</div>
+        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1a73e8', letterSpacing: '-0.01em' }}>전원 출석 완료!</div>
+        <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.3rem' }}>모든 학생이 출석했습니다 🏆</div>
+      </div>
+    </div>
   )
 }
 
@@ -1157,10 +1291,22 @@ function DragHandle({ active }) {
   )
 }
 
-function StudentInfo({ student: s }) {
+const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' }
+const rankBadgeStyle = (rank) => ({
+  fontSize: '0.68rem', fontWeight: 700,
+  color: rank === 1 ? '#d97706' : rank === 2 ? '#6b7280' : '#b45309',
+  backgroundColor: rank === 1 ? '#fef3c7' : rank === 2 ? '#f3f4f6' : '#fef9e7',
+  padding: '0.1rem 0.3rem', borderRadius: '4px',
+})
+
+function StudentInfo({ student: s, rank }) {
   return (
     <div style={styles.studentInfo}>
-      <span style={styles.studentName}>{s.name}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+        {rank && rank <= 3 && <span style={{ fontSize: '1rem', lineHeight: 1 }}>{MEDALS[rank]}</span>}
+        <span style={styles.studentName}>{s.name}</span>
+        {rank && rank <= 3 && <span style={rankBadgeStyle(rank)}>{rank}등</span>}
+      </div>
       <span style={styles.studentIdText}>{s.grade}학년 {s.class}반 {s.number}번</span>
     </div>
   )

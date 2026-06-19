@@ -140,6 +140,8 @@ service cloud.firestore {
           // 학생 본인의 출결 로그 확인 (중복 체크인 방지용 get)
           allow get: if isStudent(schoolId) &&
             (resource == null || resource.data.studentId == getUserData().studentId);
+          // 학생: 순위 계산용 list (같은 학교 학생끼리 출석 현황 확인)
+          allow list: if isStudent(schoolId);
           // [H-2] isSignedIn() 추가 — QR 토큰만으로 비로그인 쓰기 불가
           allow write: if isSuperAdmin() || isTeacher(schoolId) ||
             (isSignedIn() && (

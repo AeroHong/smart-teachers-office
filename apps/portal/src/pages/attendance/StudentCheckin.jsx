@@ -107,6 +107,7 @@ export default function StudentCheckin() {
   const [pendingNotices, setPendingNotices] = useState([])
   const [noticeIdx, setNoticeIdx] = useState(0)
   const [confirmingNotice, setConfirmingNotice] = useState(false)
+  const [checkinRank, setCheckinRank] = useState(null)
 
   useEffect(() => {
     if (authLoading) return
@@ -253,6 +254,20 @@ export default function StudentCheckin() {
     }
     try {
       const logId = buildLogId(event, student.studentId ?? studentId)
+      try {
+        const logsSnap = await getDocs(collection(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs'))
+        const today = toLocalDateStr()
+        const validBefore = logsSnap.docs.filter(d => {
+          const data = d.data()
+          if (data.method !== 'QR' && data.method !== 'manual') return false
+          if (event.isRecurring) {
+            const ts = data.checkedAt?.toDate?.()
+            return ts ? toLocalDateStr(ts) === today : false
+          }
+          return true
+        }).length
+        setCheckinRank(validBefore + 1)
+      } catch { /* 순위 계산 실패 시 무시하고 체크인 진행 */ }
       await setDoc(doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId), {
         studentId,
         studentName: student.name,
@@ -358,8 +373,21 @@ export default function StudentCheckin() {
             isLate
               ? <StatusScreen icon="⚠️" title="지각으로 기록되었습니다" late
                   message={`${studentInfo?.name}\n(${studentInfo?.grade}학년 ${studentInfo?.class}반 ${studentInfo?.number}번)\n기준 시간 이후 입실로 지각 처리됩니다.`} />
-              : <StatusScreen icon="🎉" title="출석 완료!" success
-                  message={`${studentInfo?.name}\n(${studentInfo?.grade}학년 ${studentInfo?.class}반 ${studentInfo?.number}번)\n출석이 기록되었습니다.`} />
+              : <>
+                  <StatusScreen
+                    icon={checkinRank === 1 ? '🥇' : checkinRank === 2 ? '🥈' : checkinRank === 3 ? '🥉' : '🎉'}
+                    title={checkinRank && checkinRank <= 3 ? `${checkinRank}등 출석!` : '출석 완료!'}
+                    success
+                    message={`${studentInfo?.name}\n(${studentInfo?.grade}학년 ${studentInfo?.class}반 ${studentInfo?.number}번)\n출석이 기록되었습니다.`}
+                  />
+                  {checkinRank && checkinRank <= 3 && (
+                    <div style={checkinStyles.rankBanner}>
+                      {checkinRank === 1 && '🎊 가장 먼저 출석했어요! 최고예요!'}
+                      {checkinRank === 2 && '👏 두 번째로 출석했어요! 멋져요!'}
+                      {checkinRank === 3 && '👍 세 번째로 출석했어요! 잘했어요!'}
+                    </div>
+                  )}
+                </>
           )}
           {state === STATE.ERROR && <StatusScreen icon="⚠️" title="오류 발생" message="잠시 후 다시 시도해 주세요." />}
         </div>
@@ -427,6 +455,12 @@ const checkinStyles = {
     backgroundColor: '#f0f4ff', color: '#1a73e8', border: '1px solid #c5d8ff',
     borderRadius: '10px', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer',
     textAlign: 'center',
+  },
+  rankBanner: {
+    marginTop: '0.75rem', padding: '0.65rem 1rem',
+    backgroundColor: '#fffde7', border: '1px solid #ffd54f',
+    borderRadius: '10px', fontSize: '0.9rem', fontWeight: 700,
+    color: '#f57f17', textAlign: 'center',
   },
 }
 
