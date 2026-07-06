@@ -202,3 +202,94 @@ QR 코드 기반 실시간 출결 관리 시스템.
 - Cloud Functions + Nodemailer (From: 교사 이메일, Reply-To: 교사 이메일)
 - AI HTML 이메일 생성 (Claude Haiku API)
 - 발송 여부 Firestore 기록 (emailSent 필드)
+
+---
+
+## 개발 예정 — 학습평가 운영계획 DB화 시스템 (아이디어 단계)
+
+### 배경 및 목표
+교사들이 학기 초 제출하는 **교사학습 평가 운영 계획** 문서(hwpx 형식)에서 핵심 평가 데이터를 자동 추출·DB화하여 관리.
+
+### 추출 대상 데이터
+| 항목 | 설명 |
+|------|------|
+| 정기시험 / 수행평가 반영 비율 | 중간·기말고사 vs 수행평가 비율 |
+| 수행평가 영역(내용) 및 반영 비율 | 영역명, 배점, 반영 % |
+| 성적산출방법 | 석차등급 / 성취도 단계 / 성취 분할 점수(고정·추정) 여부 |
+
+### Firestore 설계안
+```
+/schools/{schoolId}/
+  /evaluationPlans/{planId}
+    - semester: "2026-1"
+    - subject: "수학"
+    - teacherUid: "uid-..."
+    - examRatio: { midterm: 35, final: 35, performance: 30 }
+    - performanceItems: [
+        { name: "논술형", ratio: 15 },
+        { name: "관찰평가", ratio: 15 }
+      ]
+    - gradeMethod: "석차등급" | "성취도" | "성취분할"
+    - cutScores: { A: 90, B: 80, C: 70, D: 60 }  // 성취 분할 시
+    - uploadedAt: Timestamp
+    - sourceFile: "파일명.hwpx"
+```
+
+### 핵심 기술 과제 — hwpx 파싱
+**hwpx는 ZIP + XML 구조** (docx와 동일한 방식). 내부 XML을 직접 파싱하거나 전용 라이브러리 활용.
+
+| 방법 | 장점 | 단점 |
+|------|------|------|
+| **hwpx XML 직접 파싱** (unzip → XML 읽기) | 의존성 없음, 경량 | XML 스키마 분석 필요 |
+| **MCP HWP 서버** (커뮤니티 존재 확인 필요) | Claude Code 통합 용이 | MCP 안정성 미검증 |
+| **pyhwp / python-hwp** (Cloud Functions Python) | 성숙한 라이브러리 | Functions 런타임 Python 필요 |
+| **Claude Vision API** (hwpx → PDF 변환 후 스크린샷) | 복잡한 표도 처리 가능 | 비용 발생, 정확도 의존 |
+
+### 구현 방향 — XML 파싱 + Vision 이중 검증
+
+**핵심 아이디어**: XML 파싱과 Claude Vision API를 **동시에** 실행 후 결과를 비교.  
+일치 여부로 신뢰도를 자동 판정하여 교사 검수 부담을 최소화.
+
+#### 처리 파이프라인
+```
+hwpx 업로드
+    │
+    ├─── [1단계] XML 파싱 ────────────────────────────────────→ 구조화 데이터 (A)
+    │         unzip → content.hml → 표 셀 추출
+    │
+    └─── [2단계] Vision 인식 ─────────────────────────────────→ 구조화 데이터 (B)
+              hwpx → PDF/이미지 변환 → Claude Vision API
+    │
+    ↓
+[3단계] A vs B 비교
+    │
+    ├─ 일치 → 자동 승인 → Firestore 확정 저장
+    │
+    └─ 불일치 → 검수 UI (항목별 차이 하이라이트) → 교사 선택/수정 → 저장
+         (XML 파싱 실패 시 B 단독으로 검수 대상)
+```
+
+#### 신뢰도 판정 기준
+| 상태 | 조건 | 처리 |
+|------|------|------|
+| ✅ 자동 확정 | A = B (모든 핵심 필드 일치) | 즉시 DB 저장, 교사 알림만 |
+| ⚠️ 검수 필요 | A ≠ B (일부 불일치) | 항목별 diff 표시, 교사 선택 |
+| 🔴 수동 입력 | XML 파싱 실패 + Vision 저신뢰 | 빈 폼 + 원본 이미지 나란히 표시 |
+
+#### 검수 UI 화면 구성
+```
+┌─────────────────────────────────────────────────┐
+│ 📄 원본 문서 미리보기          🔍 추출 결과 비교  │
+│ (hwpx → 이미지 렌더링)       ┌──────┬──────────┐│
+│                              │ 항목 │XML │Vision││
+│                              │수행% │ 30 │  30  ││  ← 일치 ✅
+│                              │시험% │ 70 │  70  ││  ← 일치 ✅
+│                              │등급법│등급│ 성취도││  ← 불일치 ⚠️ → 교사 선택
+│                              └──────┴──────────┘│
+└─────────────────────────────────────────────────┘
+```
+
+#### Cloud Functions 설계
+- `parseEvaluationPlan(hwpxBase64)` — XML 파싱 + Vision 동시 호출 (Promise.all)
+- 비교 결과와 원본 데이터 모두 Firestore에 임시 저장 (`status: 'pending_review'`)
+- 교사 확정 후 `status: 'confirmed'` 로 업데이트
