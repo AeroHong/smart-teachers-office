@@ -1,0 +1,4 @@
+streamlit==1.57.0
+PyMuPDF==1.28.0
+python-docx==1.2.0
+docxcompose==2.2.0

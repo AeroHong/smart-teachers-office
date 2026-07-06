@@ -12,3 +12,9 @@ portal/manual/
 
 # Claude Code
 .claude/
+
+# Python (tools/)
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -70,6 +70,16 @@ const NAV_SECTIONS = [
       { label: '연수 명단', path: '/training/presets', icon: '◈' },
     ],
   },
+  {
+    key: 'tools',
+    label: '도구모음',
+    icon: '🧰',
+    prefix: '/tools',
+    items: [
+      { label: '전체 보기', path: '/tools', icon: '◈', exact: true },
+      { label: 'QR 안내문 생성기', path: '/tools/qr-notice', icon: '◈' },
+    ],
+  },
 ]
 
 // 경로 → 페이지 제목 매핑
@@ -87,6 +97,8 @@ const PAGE_TITLES = {
   '/training': '연수 목록',
   '/training/new': '연수 만들기',
   '/training/presets': '연수 명단',
+  '/tools': '도구모음',
+  '/tools/qr-notice': 'QR 안내문 생성기',
 }
 
 function getPageTitle(pathname) {
@@ -104,6 +116,7 @@ function getSectionLabel(pathname) {
   if (pathname.startsWith('/notices')) return '스마트 공지'
   if (pathname.startsWith('/cover')) return '보강 신청'
   if (pathname.startsWith('/training')) return '연수 서명부'
+  if (pathname.startsWith('/tools')) return '도구모음'
   return '포털'
 }
 

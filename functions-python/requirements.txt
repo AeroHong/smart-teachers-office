@@ -1,0 +1,5 @@
+firebase-functions
+firebase-admin
+PyMuPDF==1.28.0
+python-docx==1.2.0
+docxcompose==2.2.0

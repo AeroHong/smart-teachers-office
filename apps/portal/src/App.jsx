@@ -41,6 +41,10 @@ const SuperAdmin            = lazy(() => import('./pages/SuperAdmin'))
 const SuperAdminGuests      = lazy(() => import('./pages/SuperAdminGuests'))
 const SuperAdminDomainSetup = lazy(() => import('./pages/SuperAdminDomainSetup'))
 
+// 도구모음 - lazy load
+const ToolsHome         = lazy(() => import('./pages/tools/ToolsHome'))
+const QrNoticeGenerator = lazy(() => import('./pages/tools/QrNoticeGenerator'))
+
 
 function PageLoader() {
   return (
@@ -85,6 +89,10 @@ export default function App() {
 
           {/* ── 관리자 전용 ── */}
           <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+
+          {/* ── 도구모음 ── */}
+          <Route path="/tools"           element={<ProtectedRoute anyUser><ToolsHome /></ProtectedRoute>} />
+          <Route path="/tools/qr-notice" element={<ProtectedRoute anyUser><QrNoticeGenerator /></ProtectedRoute>} />
 
           {/* ── 연수 서명부 ── */}
           <Route path="/training"              element={<ProtectedRoute anyUser><TrainingList /></ProtectedRoute>} />

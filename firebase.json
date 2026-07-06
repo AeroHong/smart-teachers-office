@@ -80,6 +80,18 @@
         "firebase-debug.*.log",
         "*.local"
       ]
+    },
+    {
+      "source": "functions-python",
+      "codebase": "python-tools",
+      "ignore": [
+        "venv",
+        ".venv",
+        "__pycache__",
+        "*.pyc",
+        ".git",
+        "*.local"
+      ]
     }
   ]
 }
