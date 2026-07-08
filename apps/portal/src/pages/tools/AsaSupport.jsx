@@ -38,10 +38,9 @@ export default function AsaSupport() {
 
   const [parsing, setParsing] = useState(false)
   const [error, setError] = useState(null)
-  const [fileName, setFileName] = useState('')
-  // groups: 과목+학년 단위로 모든 학급을 통합한 결과
-  // [{ subjectName, grade, classLabels, teacherName, studentCount, cutoff, aggregate }]
-  // cutoff: false = 등록 안 됨, object = 있음
+  // groups: 과목+학년 단위로 모든 학급(여러 파일에서 온 것 포함)을 통합한 결과
+  // [{ subjectName, grade, classLabels, teacherName, sourceFileNames, studentCount, cutoff, duplicates, aggregate }]
+  // cutoff: false = 등록 안 됨, object = 있음 / duplicates: 중복 포함된 학급명(있으면 aggregate는 null)
   const [groups, setGroups] = useState(null)
   const [saving, setSaving] = useState(false)
   const [snackbar, setSnackbar] = useState('')
@@ -59,24 +58,40 @@ export default function AsaSupport() {
     const unsub = onSnapshot(q, (snap) => {
       setResults(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
       setLoadingResults(false)
-    }, () => setLoadingResults(false))
+    }, (err) => {
+      setError(`저장된 결과 목록을 불러오지 못했습니다: ${err.message}`)
+      setLoadingResults(false)
+    })
     return unsub
   }, [schoolId, user])
 
   const handleFileChange = async (e) => {
-    const file = e.target.files[0]
+    const files = Array.from(e.target.files)
     e.target.value = ''
-    if (!file) return
+    if (!files.length) return
     setError(null)
     setGroups(null)
     setParsing(true)
     try {
-      const parsedBlocks = await parseGradeSummaryFile(file)
-      setFileName(file.name)
+      // 파일별로 파싱하되 하나가 실패해도 나머지는 계속 처리 (형식이 다른 파일 하나 때문에 전체를 막지 않음)
+      const parseErrors = []
+      const allBlocks = []
+      for (const file of files) {
+        try {
+          const blocks = await parseGradeSummaryFile(file)
+          blocks.forEach((blk) => allBlocks.push({ ...blk, sourceFileName: file.name }))
+        } catch (err) {
+          parseErrors.push(`${file.name}: ${err.message}`)
+        }
+      }
+      if (!allBlocks.length) {
+        throw new Error(parseErrors.join('\n') || '인식된 학급 데이터가 없습니다.')
+      }
 
-      // 과목+학년 단위로 모든 학급 블록을 하나로 통합 (총원·평균 등은 학급별이 아니라 과목 전체 기준)
+      // 과목+학년 단위로 모든 학급 블록을 하나로 통합 (여러 파일에서 온 블록도 동일하게 병합 —
+      // 동일 과목을 나누어 담당하는 선생님들의 파일을 한 번에 선택하면 자동으로 과목 전체 통계가 됨)
       const byKey = new Map()
-      parsedBlocks.forEach((blk) => {
+      allBlocks.forEach((blk) => {
         const key = `${blk.grade}_${blk.subjectName}`
         if (!byKey.has(key)) {
           byKey.set(key, {
@@ -84,32 +99,40 @@ export default function AsaSupport() {
             grade: blk.grade,
             classLabels: [],
             teacherNames: new Set(),
+            sourceFileNames: new Set(),
             students: [],
           })
         }
         const g = byKey.get(key)
         g.classLabels.push(blk.classLabel)
         if (blk.teacherName) g.teacherNames.add(blk.teacherName)
+        g.sourceFileNames.add(blk.sourceFileName)
         g.students.push(...blk.students)
       })
 
       const enriched = []
       for (const g of byKey.values()) {
+        // 같은 학급이 서로 다른 파일에 중복 포함되면 이중 집계되므로 감지해서 막는다.
+        const seen = new Set()
+        const duplicates = [...new Set(g.classLabels.filter((c) => (seen.has(c) ? true : (seen.add(c), false))))]
         const ref = doc(db, 'schools', schoolId, 'asaCutoffs', `${g.grade}_${g.subjectName}`)
         const snap = await getDoc(ref)
         const cutoff = snap.exists() ? snap.data() : false
-        const aggregate = cutoff ? computeAggregate(g.students, cutoff.boundaries) : null
+        const aggregate = (cutoff && duplicates.length === 0) ? computeAggregate(g.students, cutoff.boundaries) : null
         enriched.push({
           subjectName: g.subjectName,
           grade: g.grade,
           classLabels: g.classLabels,
           teacherName: [...g.teacherNames].join(', '),
+          sourceFileNames: [...g.sourceFileNames],
           studentCount: g.students.length,
           cutoff,
+          duplicates,
           aggregate,
         })
       }
       setGroups(enriched)
+      if (parseErrors.length) setError(parseErrors.join('\n'))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -142,7 +165,7 @@ export default function AsaSupport() {
           averageVsAB: g.aggregate.averageVsAB,
           belowLowest: g.grade === 1 ? g.aggregate.belowLowest : null,
           lowestBoundary: g.grade === 1 ? g.aggregate.lowestBoundary : null,
-          sourceFileName: fileName,
+          sourceFileNames: g.sourceFileNames,
           createdAt: serverTimestamp(),
         })
       }))
@@ -212,14 +235,41 @@ export default function AsaSupport() {
         </AccordionDetails>
       </Accordion>
 
+      <Accordion variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            ⚠️ 동일 과목을 여러 선생님이 나누어 담당하는 경우
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            나이스는 <b>본인이 담당하는 학급</b>의 성적 일람표만 다운로드할 수 있습니다. 같은 과목을 여러 선생님이 학급을 나누어 가르치는 경우, 파일 하나만 올리면 본인이 맡은 학급만 반영되어 <b>과목 전체 통계(총 인원·성취도 A 비율·교과평균 등)와는 다릅니다.</b>
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            과목 전체 기준으로 통계를 확인하려면 아래처럼 해주세요.
+          </Typography>
+          <Box component="ol" sx={{ m: 0, pl: 2.5, fontSize: '0.85rem', color: 'text.secondary' }}>
+            <li>동일 과목을 담당하는 선생님들께 각자 나이스에서 받은 <b>성적 일람표(환산점수) xlsx 파일</b>을 받습니다(대표 선생님 한 분이 모아주세요).</li>
+            <li>아래 「성적 일람표 xlsx 선택」에서 <b>모은 파일을 한 번에 여러 개 선택</b>합니다.</li>
+            <li>같은 과목·학년의 학급이 자동으로 통합되어 과목 전체 통계로 계산됩니다. 파일을 합치거나 편집할 필요가 없습니다.</li>
+          </Box>
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1.5 }}>
+            * 같은 학급이 서로 다른 파일에 중복 포함되면 오류로 표시되니 확인 후 다시 올려주세요. 선생님별로 각자 업로드해도 자동으로 합산되는 기능은 추후 추가 예정입니다.
+          </Typography>
+        </AccordionDetails>
+      </Accordion>
+
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle1" fontWeight={700} mb={1.5}>
           성적 일람표 업로드
         </Typography>
         <Button variant="outlined" component="label" disabled={parsing}>
-          {parsing ? '분석 중...' : '성적 일람표 xlsx 선택'}
-          <input type="file" accept=".xlsx" hidden onChange={handleFileChange} />
+          {parsing ? '분석 중...' : '성적 일람표 xlsx 선택 (여러 개 선택 가능)'}
+          <input type="file" accept=".xlsx" hidden multiple onChange={handleFileChange} />
         </Button>
+        <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
+          동일 과목을 나누어 담당하는 선생님들의 파일을 모았다면, 여러 파일을 한 번에 선택하면 학급이 자동으로 통합됩니다.
+        </Typography>
         {parsing && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
             <CircularProgress size={18} />
@@ -230,7 +280,11 @@ export default function AsaSupport() {
 
         {groups && groups.map((g, i) => (
           <Box key={i} sx={{ mt: 2 }}>
-            {g.cutoff === false ? (
+            {g.duplicates.length > 0 ? (
+              <Alert severity="error">
+                <b>{g.subjectName}</b>({g.grade}학년): 학급이 중복 포함되어 있습니다 ({g.duplicates.join(', ')}). 같은 학급이 서로 다른 파일에 겹쳐 들어간 것 같습니다. 파일을 확인한 뒤 다시 업로드해주세요.
+              </Alert>
+            ) : g.cutoff === false ? (
               <Alert severity="error">
                 <b>{g.subjectName}</b>({g.grade}학년): 분할점수 기준이 아직 등록되지 않았습니다. 학교 관리자에게 등록을 요청해주세요.
               </Alert>
@@ -238,6 +292,7 @@ export default function AsaSupport() {
               <>
                 <Alert severity="success" sx={{ mb: 1 }}>
                   <b>{g.subjectName}</b>({g.grade}학년) · 담당: {g.teacherName || '-'} · 학급 {g.classLabels.length}개 통합 ({g.classLabels.join(', ')})
+                  {g.sourceFileNames.length > 1 && ` · 파일 ${g.sourceFileNames.length}개 통합`}
                   {g.aggregate.withdrawnCount > 0 && ` · 자퇴 등 제외 ${g.aggregate.withdrawnCount}명`}
                 </Alert>
                 <Table size="small">
