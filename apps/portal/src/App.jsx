@@ -42,8 +42,10 @@ const SuperAdminGuests      = lazy(() => import('./pages/SuperAdminGuests'))
 const SuperAdminDomainSetup = lazy(() => import('./pages/SuperAdminDomainSetup'))
 
 // 도구모음 - lazy load
-const ToolsHome         = lazy(() => import('./pages/tools/ToolsHome'))
-const QrNoticeGenerator = lazy(() => import('./pages/tools/QrNoticeGenerator'))
+const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
+const QrNoticeGenerator  = lazy(() => import('./pages/tools/QrNoticeGenerator'))
+const AsaSupport         = lazy(() => import('./pages/tools/AsaSupport'))
+const AsaSupportCutoffs  = lazy(() => import('./pages/tools/AsaSupportCutoffs'))
 
 
 function PageLoader() {
@@ -91,8 +93,10 @@ export default function App() {
           <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
 
           {/* ── 도구모음 ── */}
-          <Route path="/tools"           element={<ProtectedRoute anyUser><ToolsHome /></ProtectedRoute>} />
-          <Route path="/tools/qr-notice" element={<ProtectedRoute anyUser><QrNoticeGenerator /></ProtectedRoute>} />
+          <Route path="/tools"                    element={<ProtectedRoute anyUser><ToolsHome /></ProtectedRoute>} />
+          <Route path="/tools/qr-notice"           element={<ProtectedRoute anyUser><QrNoticeGenerator /></ProtectedRoute>} />
+          <Route path="/tools/asa-support"         element={<ProtectedRoute anyUser><AsaSupport /></ProtectedRoute>} />
+          <Route path="/tools/asa-support/cutoffs" element={<ProtectedRoute adminOnly><AsaSupportCutoffs /></ProtectedRoute>} />
 
           {/* ── 연수 서명부 ── */}
           <Route path="/training"              element={<ProtectedRoute anyUser><TrainingList /></ProtectedRoute>} />

@@ -35,15 +35,7 @@ const NAV_SECTIONS = [
       { label: '학생 명단', path: '/attendance/students', icon: '◈' },
       { label: '이벤트 생성', path: '/attendance/events/new', icon: '◈' },
       { label: '출결 통계', path: '/attendance/stats', icon: '◈' },
-    ],
-  },
-  {
-    key: 'notices',
-    label: '스마트 공지',
-    icon: '📢',
-    prefix: '/notices',
-    items: [
-      { label: '공지 관리', path: '/notices', icon: '◈', exact: true },
+      { label: '공지 관리', path: '/notices', icon: '◈' },
     ],
   },
   {
@@ -78,6 +70,10 @@ const NAV_SECTIONS = [
     items: [
       { label: '전체 보기', path: '/tools', icon: '◈', exact: true },
       { label: 'QR 안내문 생성기', path: '/tools/qr-notice', icon: '◈' },
+      { label: '성취평가제 체크리스트', path: '/tools/asa-support', icon: '◈' },
+    ],
+    adminItems: [
+      { label: '분할점수 기준 관리', path: '/tools/asa-support/cutoffs', icon: '◈' },
     ],
   },
 ]
@@ -90,7 +86,7 @@ const PAGE_TITLES = {
   '/attendance/students': '학생 명단',
   '/attendance/events/new': '이벤트 생성',
   '/attendance/stats': '출결 통계',
-  '/notices': '스마트 공지',
+  '/notices': '공지 관리',
   '/cover': '보강 목록',
   '/cover/mypage': '내 현황',
   '/cover/status': '현황판',
@@ -99,6 +95,8 @@ const PAGE_TITLES = {
   '/training/presets': '연수 명단',
   '/tools': '도구모음',
   '/tools/qr-notice': 'QR 안내문 생성기',
+  '/tools/asa-support': '성취평가제 체크리스트',
+  '/tools/asa-support/cutoffs': '분할점수 기준 관리',
 }
 
 function getPageTitle(pathname) {
@@ -112,12 +110,21 @@ function getPageTitle(pathname) {
 
 function getSectionLabel(pathname) {
   if (pathname === '/admin') return '관리자'
-  if (pathname.startsWith('/attendance')) return '스마트 출결'
-  if (pathname.startsWith('/notices')) return '스마트 공지'
+  if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return '스마트 출결'
   if (pathname.startsWith('/cover')) return '보강 신청'
   if (pathname.startsWith('/training')) return '연수 서명부'
   if (pathname.startsWith('/tools')) return '도구모음'
   return '포털'
+}
+
+// 현재 경로가 속한 사이드바 섹션의 key (아코디언 자동 펼침용)
+function getActiveSectionKey(pathname) {
+  if (pathname === '/admin') return 'portal'
+  if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return 'attendance'
+  if (pathname.startsWith('/cover')) return 'cover'
+  if (pathname.startsWith('/training')) return 'training'
+  if (pathname.startsWith('/tools')) return 'tools'
+  return 'portal'
 }
 
 const SIDEBAR_WIDTH = 220
@@ -131,6 +138,23 @@ export default function Layout({ children, wide = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
   const [pendingCount, setPendingCount] = useState(0)
   const [logoUrl, setLogoUrl] = useState(null)
+  // 사이드바 섹션 아코디언: 도구모음은 기본 펼침 + 현재 페이지가 속한 섹션은 자동 펼침
+  const [openSections, setOpenSections] = useState(() => new Set(['tools', getActiveSectionKey(location.pathname)]))
+
+  // 경로 이동 시 새로 활성화된 섹션을 자동으로 펼침 (기존에 펼쳐둔 섹션은 그대로 유지)
+  useEffect(() => {
+    const key = getActiveSectionKey(location.pathname)
+    setOpenSections(prev => (prev.has(key) ? prev : new Set(prev).add(key)))
+  }, [location.pathname])
+
+  const toggleSection = (key) => {
+    setOpenSections(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!schoolId) { setLogoUrl(null); return }
@@ -258,26 +282,46 @@ export default function Layout({ children, wide = false }) {
               ...(section.adminItems && (role === 'admin' || role === 'school_admin') ? section.adminItems : []),
             ]
 
+            const open = openSections.has(section.key)
+
             return (
-              <Box key={section.key} sx={{ mb: 1 }}>
-                {/* 섹션 헤더 */}
-                <Typography sx={{
-                  px: 2.5, py: 0.5,
-                  fontSize: '0.7rem',
-                  fontWeight: 700,
-                  color: '#94a3b8',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.75,
-                }}>
-                  <span>{section.icon}</span>
-                  {section.label}
-                </Typography>
+              <Box key={section.key} sx={{ mb: 0.5 }}>
+                {/* 섹션 헤더 — 클릭 시 펼침/접힘 */}
+                <Box
+                  onClick={() => toggleSection(section.key)}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                    mx: 1.5,
+                    px: 1,
+                    py: 0.65,
+                    borderRadius: '8px',
+                    fontSize: '0.84rem',
+                    fontWeight: 800,
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    '&:hover': { bgcolor: '#f8fafc' },
+                  }}
+                >
+                  <span style={{ fontSize: '1rem', lineHeight: 1 }}>{section.icon}</span>
+                  <Typography sx={{ flex: 1, fontSize: 'inherit', fontWeight: 'inherit', color: 'inherit' }}>
+                    {section.label}
+                  </Typography>
+                  <span style={{
+                    fontSize: '0.62rem',
+                    color: '#94a3b8',
+                    transition: 'transform 0.16s ease',
+                    transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+                    display: 'inline-block',
+                  }}>
+                    ▸
+                  </span>
+                </Box>
 
                 {/* 섹션 아이템들 */}
-                {items.map((item) => {
+                {open && items.map((item) => {
                   const active = isActive(item)
                   return (
                     <Box
@@ -290,13 +334,14 @@ export default function Layout({ children, wide = false }) {
                         alignItems: 'center',
                         gap: 1.25,
                         mx: 1.5,
-                        px: 1.25,
-                        py: 0.65,
-                        borderRadius: '8px',
+                        pl: 2, pr: 1.25,
+                        py: 0.55,
+                        borderRadius: '0 8px 8px 0',
+                        borderLeft: active ? '2.5px solid #4f46e5' : '2.5px solid transparent',
                         textDecoration: 'none',
-                        fontSize: '0.875rem',
+                        fontSize: '0.8rem',
                         fontWeight: active ? 600 : 400,
-                        color: active ? '#4f46e5' : '#475569',
+                        color: active ? '#4f46e5' : '#64748b',
                         bgcolor: active ? '#eef2ff' : 'transparent',
                         transition: 'all 0.15s',
                         '&:hover': {
@@ -305,12 +350,6 @@ export default function Layout({ children, wide = false }) {
                         },
                       }}
                     >
-                      <Box sx={{
-                        width: 6, height: 6,
-                        borderRadius: '50%',
-                        bgcolor: active ? '#4f46e5' : '#cbd5e1',
-                        flexShrink: 0,
-                      }} />
                       {item.label}
                       {item.path === '/admin' && pendingCount > 0 && (
                         <Box sx={{

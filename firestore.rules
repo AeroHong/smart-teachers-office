@@ -197,6 +197,23 @@ service cloud.firestore {
         allow list: if isSuperAdmin() || isSchoolAdmin(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
+
+      // 성취평가제 체크리스트 지원 도구 (ASA-support)
+      // 분할점수 기준 — 조회는 소속 교사 전체, 등록/수정/삭제는 관리자만
+      match /asaCutoffs/{cutoffId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 분석 결과 — 업로드한 본인 교사만 조회/수정/삭제 (관리자는 전체 열람 가능)
+      match /asaResults/{resultId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+        allow create: if isSuperAdmin() ||
+          (isTeacher(schoolId) && request.resource.data.createdBy == request.auth.uid);
+        allow update, delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+      }
     }
   }
 }

@@ -17,6 +17,14 @@ const TOOLS = [
     color: '#4f46e5',
     bgColor: '#eef2ff',
   },
+  {
+    icon: '📊',
+    title: '성취평가제 체크리스트',
+    description: '나이스 성적 일람표(환산점수)를 업로드하면 성취도 분포·교과평균 등 체크리스트 항목을 자동으로 계산합니다.',
+    path: '/tools/asa-support',
+    color: '#0ea5e9',
+    bgColor: '#e0f2fe',
+  },
 ]
 
 export default function ToolsHome() {
