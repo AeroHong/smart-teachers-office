@@ -15,6 +15,10 @@ import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import Divider from '@mui/material/Divider'
+import Accordion from '@mui/material/Accordion'
+import AccordionSummary from '@mui/material/AccordionSummary'
+import AccordionDetails from '@mui/material/AccordionDetails'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import {
   collection, query, where, orderBy, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
@@ -168,6 +172,45 @@ export default function AsaSupport() {
       <Alert severity="warning" sx={{ mb: 3, fontSize: '0.82rem' }}>
         결과는 나이스 확정 성적을 대체하지 않는 참고용 체크리스트 보조 정보입니다. 업로드한 환산점수 원본은 저장되지 않으며, 계산 결과만 저장됩니다.
       </Alert>
+
+      <Accordion variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            📥 나이스에서 성적 일람표(환산점수) 다운로드하는 방법
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box component="ol" sx={{ m: 0, pl: 2.5, fontSize: '0.85rem', color: 'text.secondary' }}>
+            <li>나이스 <b>교과담임</b> 메뉴 → <b>성적조회/통계 → 학기말성적조회</b>로 이동해 <b>「정기시험/수행평가성적일람표」</b> 탭을 선택합니다.</li>
+            <li>학년도·학기·학년·과목·강의실을 선택하고 <b>「환산점기준」</b>을 선택한 뒤 <b>「전반출력」</b>을 클릭합니다.</li>
+            <li>미리보기 창에서 저장 아이콘을 누르고 <b>「XLS」</b>를 선택해 다운로드합니다.</li>
+          </Box>
+          <Box
+            component="a"
+            href="/tools/asa-neis-download-guide.png"
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ display: 'block', mt: 2 }}
+          >
+            <Box
+              component="img"
+              src="/tools/asa-neis-download-guide.png"
+              alt="나이스 성적 일람표 다운로드 방법 안내 스크린샷"
+              sx={{
+                width: '100%',
+                maxWidth: 640,
+                borderRadius: '10px',
+                border: '1px solid',
+                borderColor: 'divider',
+                display: 'block',
+              }}
+            />
+          </Box>
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
+            이미지를 클릭하면 원본 크기로 볼 수 있습니다.
+          </Typography>
+        </AccordionDetails>
+      </Accordion>
 
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle1" fontWeight={700} mb={1.5}>
