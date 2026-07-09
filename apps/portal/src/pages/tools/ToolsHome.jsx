@@ -25,6 +25,14 @@ const TOOLS = [
     color: '#0ea5e9',
     bgColor: '#e0f2fe',
   },
+  {
+    icon: '🏆',
+    title: '내신등급 계산기',
+    description: '나이스 성적 일람표(환산점수)를 업로드하면 상대평가 내신등급(1·2학년 5등급제 / 3학년 9등급제)의 등급별 경계 점수를 계산합니다.',
+    path: '/tools/grade-rank',
+    color: '#16a34a',
+    bgColor: '#dcfce7',
+  },
 ]
 
 export default function ToolsHome() {

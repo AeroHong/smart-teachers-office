@@ -15,17 +15,14 @@ import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import Divider from '@mui/material/Divider'
-import Accordion from '@mui/material/Accordion'
-import AccordionSummary from '@mui/material/AccordionSummary'
-import AccordionDetails from '@mui/material/AccordionDetails'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import {
   collection, query, where, orderBy, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
-import { parseGradeSummaryFile, computeAggregate } from './asaUtils'
+import { parseGradeSummaryFile, computeAggregate, groupBlocksBySubject } from './asaUtils'
+import GradeSummaryUploadGuide from './GradeSummaryUploadGuide'
 
 function fmt(n, digits = 1) {
   return n == null ? '-' : Number(n).toFixed(digits)
@@ -90,44 +87,21 @@ export default function AsaSupport() {
 
       // 과목+학년 단위로 모든 학급 블록을 하나로 통합 (여러 파일에서 온 블록도 동일하게 병합 —
       // 동일 과목을 나누어 담당하는 선생님들의 파일을 한 번에 선택하면 자동으로 과목 전체 통계가 됨)
-      const byKey = new Map()
-      allBlocks.forEach((blk) => {
-        const key = `${blk.grade}_${blk.subjectName}`
-        if (!byKey.has(key)) {
-          byKey.set(key, {
-            subjectName: blk.subjectName,
-            grade: blk.grade,
-            classLabels: [],
-            teacherNames: new Set(),
-            sourceFileNames: new Set(),
-            students: [],
-          })
-        }
-        const g = byKey.get(key)
-        g.classLabels.push(blk.classLabel)
-        if (blk.teacherName) g.teacherNames.add(blk.teacherName)
-        g.sourceFileNames.add(blk.sourceFileName)
-        g.students.push(...blk.students)
-      })
-
       const enriched = []
-      for (const g of byKey.values()) {
-        // 같은 학급이 서로 다른 파일에 중복 포함되면 이중 집계되므로 감지해서 막는다.
-        const seen = new Set()
-        const duplicates = [...new Set(g.classLabels.filter((c) => (seen.has(c) ? true : (seen.add(c), false))))]
+      for (const g of groupBlocksBySubject(allBlocks)) {
         const ref = doc(db, 'schools', schoolId, 'asaCutoffs', `${g.grade}_${g.subjectName}`)
         const snap = await getDoc(ref)
         const cutoff = snap.exists() ? snap.data() : false
-        const aggregate = (cutoff && duplicates.length === 0) ? computeAggregate(g.students, cutoff.boundaries) : null
+        const aggregate = (cutoff && g.duplicates.length === 0) ? computeAggregate(g.students, cutoff.boundaries) : null
         enriched.push({
           subjectName: g.subjectName,
           grade: g.grade,
           classLabels: g.classLabels,
-          teacherName: [...g.teacherNames].join(', '),
-          sourceFileNames: [...g.sourceFileNames],
+          teacherName: g.teacherName,
+          sourceFileNames: g.sourceFileNames,
           studentCount: g.students.length,
           cutoff,
-          duplicates,
+          duplicates: g.duplicates,
           aggregate,
         })
       }
@@ -196,68 +170,7 @@ export default function AsaSupport() {
         결과는 나이스 확정 성적을 대체하지 않는 참고용 체크리스트 보조 정보입니다. 업로드한 환산점수 원본은 저장되지 않으며, 계산 결과만 저장됩니다.
       </Alert>
 
-      <Accordion variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2" fontWeight={700}>
-            📥 나이스에서 성적 일람표(환산점수) 다운로드하는 방법
-          </Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Box component="ol" sx={{ m: 0, pl: 2.5, fontSize: '0.85rem', color: 'text.secondary' }}>
-            <li>나이스 <b>교과담임</b> 메뉴 → <b>성적조회/통계 → 학기말성적조회</b>로 이동해 <b>「정기시험/수행평가성적일람표」</b> 탭을 선택합니다.</li>
-            <li>학년도·학기·학년·과목·강의실을 선택하고 <b>「환산점기준」</b>을 선택한 뒤 <b>「전반출력」</b>을 클릭합니다.</li>
-            <li>미리보기 창에서 저장 아이콘을 누르고 <b>「XLS」</b>를 선택해 다운로드합니다.</li>
-          </Box>
-          <Box
-            component="a"
-            href="/tools/asa-neis-download-guide.png"
-            target="_blank"
-            rel="noopener noreferrer"
-            sx={{ display: 'block', mt: 2 }}
-          >
-            <Box
-              component="img"
-              src="/tools/asa-neis-download-guide.png"
-              alt="나이스 성적 일람표 다운로드 방법 안내 스크린샷"
-              sx={{
-                width: '100%',
-                maxWidth: 640,
-                borderRadius: '10px',
-                border: '1px solid',
-                borderColor: 'divider',
-                display: 'block',
-              }}
-            />
-          </Box>
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
-            이미지를 클릭하면 원본 크기로 볼 수 있습니다.
-          </Typography>
-        </AccordionDetails>
-      </Accordion>
-
-      <Accordion variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2" fontWeight={700}>
-            ⚠️ 동일 과목을 여러 선생님이 나누어 담당하는 경우
-          </Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            나이스는 <b>본인이 담당하는 학급</b>의 성적 일람표만 다운로드할 수 있습니다. 같은 과목을 여러 선생님이 학급을 나누어 가르치는 경우, 파일 하나만 올리면 본인이 맡은 학급만 반영되어 <b>과목 전체 통계(총 인원·성취도 A 비율·교과평균 등)와는 다릅니다.</b>
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            과목 전체 기준으로 통계를 확인하려면 아래처럼 해주세요.
-          </Typography>
-          <Box component="ol" sx={{ m: 0, pl: 2.5, fontSize: '0.85rem', color: 'text.secondary' }}>
-            <li>동일 과목을 담당하는 선생님들께 각자 나이스에서 받은 <b>성적 일람표(환산점수) xlsx 파일</b>을 받습니다(대표 선생님 한 분이 모아주세요).</li>
-            <li>아래 「성적 일람표 xlsx 선택」에서 <b>모은 파일을 한 번에 여러 개 선택</b>합니다.</li>
-            <li>같은 과목·학년의 학급이 자동으로 통합되어 과목 전체 통계로 계산됩니다. 파일을 합치거나 편집할 필요가 없습니다.</li>
-          </Box>
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1.5 }}>
-            * 같은 학급이 서로 다른 파일에 중복 포함되면 오류로 표시되니 확인 후 다시 올려주세요. 선생님별로 각자 업로드해도 자동으로 합산되는 기능은 추후 추가 예정입니다.
-          </Typography>
-        </AccordionDetails>
-      </Accordion>
+      <GradeSummaryUploadGuide />
 
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle1" fontWeight={700} mb={1.5}>

@@ -46,6 +46,7 @@ const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
 const QrNoticeGenerator  = lazy(() => import('./pages/tools/QrNoticeGenerator'))
 const AsaSupport         = lazy(() => import('./pages/tools/AsaSupport'))
 const AsaSupportCutoffs  = lazy(() => import('./pages/tools/AsaSupportCutoffs'))
+const GradeRankCalculator = lazy(() => import('./pages/tools/GradeRankCalculator'))
 
 
 function PageLoader() {
@@ -97,6 +98,7 @@ export default function App() {
           <Route path="/tools/qr-notice"           element={<ProtectedRoute anyUser><QrNoticeGenerator /></ProtectedRoute>} />
           <Route path="/tools/asa-support"         element={<ProtectedRoute anyUser><AsaSupport /></ProtectedRoute>} />
           <Route path="/tools/asa-support/cutoffs" element={<ProtectedRoute adminOnly><AsaSupportCutoffs /></ProtectedRoute>} />
+          <Route path="/tools/grade-rank"          element={<ProtectedRoute anyUser><GradeRankCalculator /></ProtectedRoute>} />
 
           {/* ── 연수 서명부 ── */}
           <Route path="/training"              element={<ProtectedRoute anyUser><TrainingList /></ProtectedRoute>} />

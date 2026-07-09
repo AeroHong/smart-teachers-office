@@ -187,6 +187,47 @@ export async function parseGradeSummaryFile(file) {
   return blocks
 }
 
+// ── 여러 파일에서 파싱된 학급 블록을 과목+학년 단위로 통합 ──────────────
+// 동일 과목을 나누어 담당하는 선생님들의 파일을 한 번에 선택하면 자동으로
+// 과목 전체 학생 목록이 되도록 병합한다. (성취평가제 체크리스트 / 내신등급
+// 계산기 등 성적 일람표를 사용하는 도구들이 공통으로 사용)
+export function groupBlocksBySubject(allBlocks) {
+  const byKey = new Map()
+  allBlocks.forEach((blk) => {
+    const key = `${blk.grade}_${blk.subjectName}`
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        subjectName: blk.subjectName,
+        grade: blk.grade,
+        classLabels: [],
+        teacherNames: new Set(),
+        sourceFileNames: new Set(),
+        students: [],
+      })
+    }
+    const g = byKey.get(key)
+    g.classLabels.push(blk.classLabel)
+    if (blk.teacherName) g.teacherNames.add(blk.teacherName)
+    g.sourceFileNames.add(blk.sourceFileName)
+    g.students.push(...blk.students)
+  })
+
+  return [...byKey.values()].map((g) => {
+    // 같은 학급이 서로 다른 파일에 중복 포함되면 이중 집계되므로 감지해서 막는다.
+    const seen = new Set()
+    const duplicates = [...new Set(g.classLabels.filter((c) => (seen.has(c) ? true : (seen.add(c), false))))]
+    return {
+      subjectName: g.subjectName,
+      grade: g.grade,
+      classLabels: g.classLabels,
+      teacherName: [...g.teacherNames].join(', '),
+      sourceFileNames: [...g.sourceFileNames],
+      students: g.students,
+      duplicates,
+    }
+  })
+}
+
 // ── 집계 계산 (원본 학생별 환산점수는 반환값에 포함하지 않음 — 저장 금지 원칙) ──
 export function computeAggregate(students, boundaries) {
   const valid = students.filter((s) => !s.withdrawn && Number.isFinite(s.total))
@@ -222,4 +263,72 @@ export function computeAggregate(students, boundaries) {
     lowestBoundary,
     belowLowest,
   }
+}
+
+// ── 내신(석차) 등급 계산 — 1·2학년 5등급제 / 3학년 9등급제 ──────────────
+// 등급별 누적 비율(교육부 고시 기준). 마지막 등급의 누적은 항상 100%.
+export const GRADE_SCALE_RATIOS = {
+  5: [
+    { grade: 1, cumRatio: 0.10 },
+    { grade: 2, cumRatio: 0.34 },
+    { grade: 3, cumRatio: 0.66 },
+    { grade: 4, cumRatio: 0.90 },
+    { grade: 5, cumRatio: 1.00 },
+  ],
+  9: [
+    { grade: 1, cumRatio: 0.04 },
+    { grade: 2, cumRatio: 0.11 },
+    { grade: 3, cumRatio: 0.23 },
+    { grade: 4, cumRatio: 0.40 },
+    { grade: 5, cumRatio: 0.60 },
+    { grade: 6, cumRatio: 0.77 },
+    { grade: 7, cumRatio: 0.89 },
+    { grade: 8, cumRatio: 0.96 },
+    { grade: 9, cumRatio: 1.00 },
+  ],
+}
+
+// 1·2학년은 5등급제, 3학년은 9등급제
+export function scaleForSchoolGrade(schoolGrade) {
+  return schoolGrade >= 3 ? 9 : 5
+}
+
+// 재적인원(n) × 누적비율을 반올림해 등급 경계 인원을 정하되, 그 경계에서
+// 점수가 같은 동점자가 걸리면 전부 상위(더 좋은) 등급에 포함되도록 경계를
+// 뒤로 밀어서 조정한다(동점자는 상위 등급 부여 원칙).
+export function computeGradeCutoffs(students, scale) {
+  const ratios = GRADE_SCALE_RATIOS[scale]
+  if (!ratios) throw new Error(`지원하지 않는 등급제입니다: ${scale}`)
+
+  const valid = students
+    .filter((s) => !s.withdrawn && Number.isFinite(s.total))
+    .slice()
+    .sort((a, b) => b.total - a.total)
+  const n = valid.length
+  if (n === 0) return []
+
+  const idealCum = ratios.map((r) => Math.round(n * r.cumRatio))
+
+  let prev = 0
+  const cutIndexes = idealCum.map((ideal, i) => {
+    let cut = Math.min(n, Math.max(ideal, prev))
+    if (i === ratios.length - 1) cut = n
+    while (cut < n && cut > prev && valid[cut - 1].total === valid[cut].total) cut++
+    prev = cut
+    return cut
+  })
+
+  let start = 0
+  return ratios.map((r, i) => {
+    const end = cutIndexes[i]
+    const group = valid.slice(start, end)
+    start = end
+    return {
+      grade: r.grade,
+      count: group.length,
+      ratio: n > 0 ? group.length / n : null,
+      topScore: group.length > 0 ? group[0].total : null,
+      bottomScore: group.length > 0 ? group[group.length - 1].total : null,
+    }
+  })
 }

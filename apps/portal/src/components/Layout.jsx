@@ -71,6 +71,7 @@ const NAV_SECTIONS = [
       { label: '전체 보기', path: '/tools', icon: '◈', exact: true },
       { label: 'QR 안내문 생성기', path: '/tools/qr-notice', icon: '◈' },
       { label: '성취평가제 체크리스트', path: '/tools/asa-support', icon: '◈' },
+      { label: '내신등급 계산기', path: '/tools/grade-rank', icon: '◈' },
     ],
     adminItems: [
       { label: '분할점수 기준 관리', path: '/tools/asa-support/cutoffs', icon: '◈' },
@@ -97,6 +98,7 @@ const PAGE_TITLES = {
   '/tools/qr-notice': 'QR 안내문 생성기',
   '/tools/asa-support': '성취평가제 체크리스트',
   '/tools/asa-support/cutoffs': '분할점수 기준 관리',
+  '/tools/grade-rank': '내신등급 계산기',
 }
 
 function getPageTitle(pathname) {
