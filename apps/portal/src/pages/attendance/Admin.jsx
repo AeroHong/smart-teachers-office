@@ -12,6 +12,7 @@ const ROLE_LABELS = {
   teacher: '교직원',
   school_admin: '학교 관리자',
   admin: '시스템 관리자',
+  principal: '교감',
 }
 
 const STAFF_TYPE_STYLE = {
@@ -446,6 +447,9 @@ export default function Admin() {
                           {u.role !== 'teacher' && (
                             <button onClick={() => changeRole(u.id, 'teacher')} style={styles.changeBtn}>교사로</button>
                           )}
+                          {u.role !== 'principal' && (
+                            <button onClick={() => changeRole(u.id, 'principal')} style={styles.principalBtn}>교감으로</button>
+                          )}
                           {u.role !== 'school_admin' && (
                             <button onClick={() => changeRole(u.id, 'school_admin')} style={styles.schoolAdminBtn}>관리자로</button>
                           )}
@@ -675,6 +679,7 @@ const styles = {
   select: { padding: '0.25rem 0.5rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.84rem', cursor: 'pointer', outline: 'none' },
   approveBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
   staffBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#15803d', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
+  principalBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#0f766e', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
   schoolAdminBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#7b1fa2', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
   rejectBtn: { padding: '0.3rem 0.75rem', backgroundColor: '#fff', color: '#d32f2f', border: '1px solid #d32f2f', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
   changeBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#fff', color: '#1a73e8', border: '1px solid #1a73e8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },

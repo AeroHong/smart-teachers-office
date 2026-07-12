@@ -9,8 +9,6 @@ import TableCell from '@mui/material/TableCell'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Radio from '@mui/material/Radio'
-import Checkbox from '@mui/material/Checkbox'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -19,6 +17,7 @@ import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
+import TextField from '@mui/material/TextField'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 import {
   collection, query, where, onSnapshot, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp, FieldPath,
@@ -27,8 +26,11 @@ import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
 import SignaturePad from '../../components/SignaturePad'
-import { PROCESS_CHECKLIST_GROUPS, ALL_PROCESS_QUESTION_IDS } from './asaChecklistData'
-import { openProcessChecklistPrint } from './asaChecklistPrint'
+import {
+  RESULT_GATE_QUESTIONS,
+  RESULT_CHECKLIST_GROUPS,
+} from './asaChecklistData'
+import { openResultChecklistPrint } from './asaChecklistPrint'
 import { cleanTeacherName } from '../../utils/nameUtils'
 
 const STATUS_CONFIG = {
@@ -42,7 +44,7 @@ function todayString() {
   return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`
 }
 
-export default function AsaChecklistForm() {
+export default function AsaChecklistFormResult() {
   const { subjectId } = useParams()
   const { user, userName, schoolId, schoolName } = useAuth()
 
@@ -57,6 +59,8 @@ export default function AsaChecklistForm() {
   const [checkDateInput, setCheckDateInput] = useState('')
   const checkDateRef = useRef('')
   const [teacherNameMap, setTeacherNameMap] = useState({}) // email → name
+  const [opinionInput, setOpinionInput] = useState('')
+  const opinionRef = useRef('')
 
   // ── 교사 이름 맵 로드 (email → name) ───────────────────────
   useEffect(() => {
@@ -91,7 +95,7 @@ export default function AsaChecklistForm() {
     const q = query(
       collection(db, 'schools', schoolId, 'asaSubmissions'),
       where('subjectId', '==', subjectId),
-      where('checklistType', '==', 'process'),
+      where('checklistType', '==', 'result'),
     )
     const unsub = onSnapshot(q, async (snap) => {
       if (!snap.empty) {
@@ -103,23 +107,35 @@ export default function AsaChecklistForm() {
           setCheckDateInput(data.checkDate)
           checkDateRef.current = data.checkDate
         }
+        // opinion 동기화 (외부 변경 시에만)
+        if (data.opinion !== undefined && data.opinion !== opinionRef.current) {
+          setOpinionInput(data.opinion || '')
+          opinionRef.current = data.opinion || ''
+        }
         setLoadingSubmission(false)
       } else {
         try {
           const today = todayString()
           const initialAnswers = {}
-          // 기본값: 모두 '예'
-          ALL_PROCESS_QUESTION_IDS.forEach((id) => {
-            initialAnswers[id] = { value: '예', evidenceChecks: [] }
+          // 게이트 질문 기본값: '아니오'
+          RESULT_GATE_QUESTIONS.forEach((q) => {
+            initialAnswers[q.id] = { value: '아니오' }
+          })
+          // 세부 질문 기본값: '예'
+          RESULT_CHECKLIST_GROUPS.forEach((g) => {
+            g.questions.forEach((q) => {
+              initialAnswers[q.id] = { value: '예' }
+            })
           })
           const newDoc = {
             subjectId,
             subjectName: subject.name || '',
-            checklistType: 'process',
+            checklistType: 'result',
             schoolName: schoolName || schoolId,
             status: 'draft',
             teacherEmails: subject.teacherEmails || [],
             answers: initialAnswers,
+            opinion: '',
             signatures: {},
             principalSignature: null,
             checkDate: today,
@@ -130,6 +146,8 @@ export default function AsaChecklistForm() {
           setSubmissionId(ref.id)
           setCheckDateInput(today)
           checkDateRef.current = today
+          setOpinionInput('')
+          opinionRef.current = ''
         } catch (e) {
           setError(`체크리스트 초기화 실패: ${e.message}`)
           setLoadingSubmission(false)
@@ -153,16 +171,6 @@ export default function AsaChecklistForm() {
     } catch (e) { console.error('답변 저장 실패:', e) }
   }
 
-  const handleEvidenceChange = async (qId, evidenceLabel, checked) => {
-    const ref = getRef()
-    if (!ref || !submission) return
-    const current = submission.answers?.[qId]?.evidenceChecks || []
-    const next = checked ? [...current, evidenceLabel] : current.filter((e) => e !== evidenceLabel)
-    try {
-      await updateDoc(ref, { [`answers.${qId}.evidenceChecks`]: next, updatedAt: serverTimestamp() })
-    } catch (e) { console.error('근거자료 저장 실패:', e) }
-  }
-
   const handleCheckDateBlur = async () => {
     const ref = getRef()
     if (!ref) return
@@ -170,6 +178,15 @@ export default function AsaChecklistForm() {
       await updateDoc(ref, { checkDate: checkDateInput, updatedAt: serverTimestamp() })
       checkDateRef.current = checkDateInput
     } catch (e) { console.error('점검일자 저장 실패:', e) }
+  }
+
+  const handleOpinionBlur = async () => {
+    const ref = getRef()
+    if (!ref) return
+    try {
+      await updateDoc(ref, { opinion: opinionInput, updatedAt: serverTimestamp() })
+      opinionRef.current = opinionInput
+    } catch (e) { console.error('종합 분석 의견 저장 실패:', e) }
   }
 
   const handleSignatureSave = async (dataUrl) => {
@@ -185,9 +202,24 @@ export default function AsaChecklistForm() {
     } catch (e) { console.error('서명 저장 실패:', e) }
   }
 
+  const gateTriggered =
+    submission?.answers?.rg1?.value === '예' ||
+    submission?.answers?.rg2?.value === '예'
+
   const isAllAnswered = () => {
     if (!submission) return false
-    return ALL_PROCESS_QUESTION_IDS.every((id) => submission.answers?.[id]?.value != null)
+    const gateAnswered = RESULT_GATE_QUESTIONS.every(
+      (q) => submission.answers?.[q.id]?.value != null,
+    )
+    const triggered =
+      submission.answers?.rg1?.value === '예' ||
+      submission.answers?.rg2?.value === '예'
+    const subAnswered =
+      !triggered ||
+      RESULT_CHECKLIST_GROUPS.flatMap((g) => g.questions).every(
+        (q) => submission.answers?.[q.id]?.value != null,
+      )
+    return gateAnswered && subAnswered
   }
 
   const isAllSigned = () => {
@@ -215,6 +247,19 @@ export default function AsaChecklistForm() {
   const isLocked = submission?.status === 'locked'
   const isReadOnly = !isAssigned || isLocked
 
+  // 미답변/미서명 개수 계산
+  const unansweredGate = RESULT_GATE_QUESTIONS.filter(
+    (q) => !submission?.answers?.[q.id]?.value,
+  ).length
+  const unansweredSub = gateTriggered
+    ? RESULT_CHECKLIST_GROUPS.flatMap((g) => g.questions).filter(
+        (q) => !submission?.answers?.[q.id]?.value,
+      ).length
+    : 0
+  const unsignedCount = (subject?.teacherEmails || []).filter(
+    (e) => !submission?.signatures?.[e]?.dataUrl,
+  ).length
+
   if (loadingSubject || loadingSubmission) {
     return (
       <Layout>
@@ -237,14 +282,14 @@ export default function AsaChecklistForm() {
       <Box mb={2}>
         <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" mb={0.5}>
           <Typography variant="h6" fontWeight={700}>
-            붙임1 성취평가제 운영 과정 점검 체크리스트
+            붙임2 성취평가제 운영 결과 점검 체크리스트
           </Typography>
           <Chip label={statusCfg.label} color={statusCfg.color} size="small" />
           <Button
             size="small"
             variant="outlined"
             startIcon={<PrintOutlinedIcon />}
-            onClick={() => openProcessChecklistPrint(submission, subject, teacherNameMap)}
+            onClick={() => openResultChecklistPrint(submission, subject, teacherNameMap)}
             sx={{ ml: 'auto' }}
           >
             인쇄 / PDF 저장
@@ -280,92 +325,153 @@ export default function AsaChecklistForm() {
         </Box>
       </Box>
 
-      {/* ── 체크리스트 표 ── */}
+      {/* ── 1단계: 게이트 질문 섹션 ── */}
       <Paper variant="outlined" sx={{ mb: 3, overflow: 'auto' }}>
-        <Table size="small" sx={{ minWidth: 700 }}>
+        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            1단계: 성취수준 A 분포 확인
+          </Typography>
+        </Box>
+        <Table size="small" sx={{ minWidth: 500 }}>
           <TableHead>
             <TableRow sx={{ bgcolor: '#f8fafc' }}>
-              <TableCell align="center" sx={{ fontWeight: 700, width: 80, borderRight: '1px solid #e2e8f0' }}>
-                점검 단계
+              <TableCell align="center" sx={{ fontWeight: 700, width: 48, borderRight: '1px solid #e2e8f0' }}>
+                No
               </TableCell>
               <TableCell sx={{ fontWeight: 700 }}>점검 내용</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700, width: 52 }}>예</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700, width: 64 }}>아니오</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 220, fontSize: '0.75rem' }}>
-                확인 근거자료
-              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {PROCESS_CHECKLIST_GROUPS.map((group) =>
-              group.questions.map((q, idx) => {
-                const ans = submission?.answers?.[q.id] || {}
-                const checkedEvidence = ans.evidenceChecks || []
-                return (
-                  <TableRow key={q.id} hover sx={{ verticalAlign: 'top' }}>
-                    {idx === 0 && (
-                      <TableCell
-                        rowSpan={group.questions.length}
-                        align="center"
-                        sx={{
-                          fontWeight: 700,
-                          fontSize: '0.8rem',
-                          bgcolor: '#f8fafc',
-                          borderRight: '1px solid #e2e8f0',
-                          verticalAlign: 'middle',
-                          wordBreak: 'keep-all',
-                        }}
-                      >
-                        {group.groupName}
-                      </TableCell>
-                    )}
-                    <TableCell sx={{ fontSize: '0.82rem', py: 1, lineHeight: 1.5 }}>
-                      <Typography variant="body2" sx={{ fontSize: '0.82rem' }}>
-                        {q.id.replace('p', '')}. {q.text}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center" sx={{ py: 0.5 }}>
-                      <Radio
-                        checked={ans.value === '예'}
-                        onChange={() => { if (!isReadOnly) handleAnswerChange(q.id, '예') }}
-                        disabled={isReadOnly}
-                        size="small"
-                        color="success"
-                      />
-                    </TableCell>
-                    <TableCell align="center" sx={{ py: 0.5 }}>
-                      <Radio
-                        checked={ans.value === '아니오'}
-                        onChange={() => { if (!isReadOnly) handleAnswerChange(q.id, '아니오') }}
-                        disabled={isReadOnly}
-                        size="small"
-                        color="error"
-                      />
-                    </TableCell>
-                    <TableCell sx={{ py: 0.5 }}>
-                      {q.evidence.map((ev) => (
-                        <FormControlLabel
-                          key={ev}
-                          control={
-                            <Checkbox
-                              size="small"
-                              checked={checkedEvidence.includes(ev)}
-                              disabled={isReadOnly}
-                              onChange={(e) => handleEvidenceChange(q.id, ev, e.target.checked)}
-                              sx={{ py: 0.25 }}
-                            />
-                          }
-                          label={<Typography variant="caption" sx={{ fontSize: '0.72rem' }}>{ev}</Typography>}
-                          sx={{ display: 'flex', ml: 0, mr: 0 }}
-                        />
-                      ))}
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
+            {RESULT_GATE_QUESTIONS.map((q, idx) => {
+              const ans = submission?.answers?.[q.id] || {}
+              return (
+                <TableRow key={q.id} hover sx={{ verticalAlign: 'top' }}>
+                  <TableCell align="center" sx={{ borderRight: '1px solid #e2e8f0', color: 'text.secondary', fontSize: '0.8rem' }}>
+                    {idx + 1}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.82rem', py: 1, lineHeight: 1.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.82rem' }}>
+                      {q.text}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center" sx={{ py: 0.5 }}>
+                    <Radio
+                      checked={ans.value === '예'}
+                      onChange={() => { if (!isReadOnly) handleAnswerChange(q.id, '예') }}
+                      disabled={isReadOnly}
+                      size="small"
+                      color="success"
+                    />
+                  </TableCell>
+                  <TableCell align="center" sx={{ py: 0.5 }}>
+                    <Radio
+                      checked={ans.value === '아니오'}
+                      onChange={() => { if (!isReadOnly) handleAnswerChange(q.id, '아니오') }}
+                      disabled={isReadOnly}
+                      size="small"
+                      color="error"
+                    />
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
+      </Paper>
+
+      {/* ── 2단계: 세부 점검 항목 (게이트 트리거 시 표시) ── */}
+      {gateTriggered && (
+        <Paper variant="outlined" sx={{ mb: 3, overflow: 'auto' }}>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #e2e8f0', bgcolor: '#fff8e1' }}>
+            <Typography variant="subtitle2" fontWeight={700}>
+              2단계: 세부 점검 항목
+            </Typography>
+          </Box>
+          <Alert severity="info" sx={{ mx: 2, mt: 1.5, mb: 1 }}>
+            성취수준 A의 분포에 이상이 확인되어 세부 점검이 필요합니다.
+          </Alert>
+          <Table size="small" sx={{ minWidth: 500 }}>
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                <TableCell align="center" sx={{ fontWeight: 700, width: 100, borderRight: '1px solid #e2e8f0' }}>
+                  점검 단계
+                </TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>점검 내용</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 700, width: 52 }}>예</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 700, width: 64 }}>아니오</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {RESULT_CHECKLIST_GROUPS.map((group) =>
+                group.questions.map((q, idx) => {
+                  const ans = submission?.answers?.[q.id] || {}
+                  return (
+                    <TableRow key={q.id} hover sx={{ verticalAlign: 'top' }}>
+                      {idx === 0 && (
+                        <TableCell
+                          rowSpan={group.questions.length}
+                          align="center"
+                          sx={{
+                            fontWeight: 700,
+                            fontSize: '0.8rem',
+                            bgcolor: '#f8fafc',
+                            borderRight: '1px solid #e2e8f0',
+                            verticalAlign: 'middle',
+                            wordBreak: 'keep-all',
+                          }}
+                        >
+                          {group.groupName}
+                        </TableCell>
+                      )}
+                      <TableCell sx={{ fontSize: '0.82rem', py: 1, lineHeight: 1.5 }}>
+                        <Typography variant="body2" sx={{ fontSize: '0.82rem' }}>
+                          {q.id.replace('r', '')}. {q.text}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center" sx={{ py: 0.5 }}>
+                        <Radio
+                          checked={ans.value === '예'}
+                          onChange={() => { if (!isReadOnly) handleAnswerChange(q.id, '예') }}
+                          disabled={isReadOnly}
+                          size="small"
+                          color="success"
+                        />
+                      </TableCell>
+                      <TableCell align="center" sx={{ py: 0.5 }}>
+                        <Radio
+                          checked={ans.value === '아니오'}
+                          onChange={() => { if (!isReadOnly) handleAnswerChange(q.id, '아니오') }}
+                          disabled={isReadOnly}
+                          size="small"
+                          color="error"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+
+      {/* ── 종합 분석 의견 ── */}
+      <Paper variant="outlined" sx={{ p: 2.5, mb: 3 }}>
+        <Typography variant="subtitle2" fontWeight={700} mb={1.5}>종합 분석 의견</Typography>
+        <TextField
+          multiline
+          minRows={4}
+          fullWidth
+          placeholder="성취평가 운영 결과에 대한 종합적인 분석 의견을 입력하세요."
+          value={opinionInput}
+          disabled={isReadOnly}
+          onChange={(e) => setOpinionInput(e.target.value)}
+          onBlur={handleOpinionBlur}
+          size="small"
+          sx={{ '& .MuiInputBase-root': { fontSize: '0.875rem' } }}
+        />
       </Paper>
 
       {/* ── 서명 섹션 ── */}
@@ -423,9 +529,11 @@ export default function AsaChecklistForm() {
           </Button>
           {!canSubmit && (
             <Typography variant="caption" color="text.secondary">
-              {!isAllAnswered()
-                ? `미답변 ${ALL_PROCESS_QUESTION_IDS.filter((id) => !submission?.answers?.[id]?.value).length}문항 남음`
-                : `미서명 ${(subject?.teacherEmails || []).filter((e) => !submission?.signatures?.[e]?.dataUrl).length}명 남음`}
+              {unansweredGate > 0
+                ? `1단계 미답변 ${unansweredGate}문항 남음`
+                : unansweredSub > 0
+                  ? `2단계 미답변 ${unansweredSub}문항 남음`
+                  : `미서명 ${unsignedCount}명 남음`}
             </Typography>
           )}
         </Box>

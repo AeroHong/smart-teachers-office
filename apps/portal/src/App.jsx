@@ -51,6 +51,7 @@ const AsaChecklistHome       = lazy(() => import('./pages/tools/AsaChecklistHome
 const AsaChecklistAdmin      = lazy(() => import('./pages/tools/AsaChecklistAdmin'))
 const AsaChecklistPrincipal  = lazy(() => import('./pages/tools/AsaChecklistPrincipal'))
 const AsaChecklistForm       = lazy(() => import('./pages/tools/AsaChecklistForm'))
+const AsaChecklistFormResult = lazy(() => import('./pages/tools/AsaChecklistFormResult'))
 
 
 function PageLoader() {
@@ -106,6 +107,7 @@ export default function App() {
           <Route path="/tools/asa-checklist/admin"                    element={<ProtectedRoute adminOnly><AsaChecklistAdmin /></ProtectedRoute>} />
           <Route path="/tools/asa-checklist/principal"                element={<ProtectedRoute principalAllowed><AsaChecklistPrincipal /></ProtectedRoute>} />
           <Route path="/tools/asa-checklist/:subjectId/process"       element={<ProtectedRoute anyUser><AsaChecklistForm /></ProtectedRoute>} />
+          <Route path="/tools/asa-checklist/:subjectId/result"        element={<ProtectedRoute anyUser><AsaChecklistFormResult /></ProtectedRoute>} />
           <Route path="/tools/grade-rank"          element={<ProtectedRoute anyUser><GradeRankCalculator /></ProtectedRoute>} />
 
           {/* ── 연수 서명부 ── */}

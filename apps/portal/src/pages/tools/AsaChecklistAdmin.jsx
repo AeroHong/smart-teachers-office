@@ -24,14 +24,17 @@ import InputLabel from '@mui/material/InputLabel'
 import Alert from '@mui/material/Alert'
 import Snackbar from '@mui/material/Snackbar'
 import CircularProgress from '@mui/material/CircularProgress'
+import Divider from '@mui/material/Divider'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import {
-  collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy, query,
+  collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy, query, where,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { openProcessChecklistPrint } from './asaChecklistPrint'
+import { cleanTeacherName } from '../../utils/nameUtils'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
 
@@ -94,8 +97,32 @@ export default function AsaChecklistAdmin() {
   const [filterStatus, setFilterStatus] = useState('all')
 
 
+  // 등록된 교사 목록 (picker용)
+  const [teachers, setTeachers] = useState([])
+
   const [snackbar, setSnackbar] = useState('')
   const [error, setError] = useState(null)
+
+  // ── Firestore 구독: teachers (/users 에서 schoolId 필터) ──
+  useEffect(() => {
+    if (!schoolId) return
+    const q = query(
+      collection(db, 'users'),
+      where('schoolId', '==', schoolId),
+    )
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs
+          .map((d) => ({ uid: d.id, ...d.data() }))
+          .filter((t) => t.email && ['teacher', 'admin', 'school_admin', 'principal'].includes(t.role))
+          .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
+        setTeachers(list)
+      },
+      (err) => console.error('[Admin] teachers fetch error:', err),
+    )
+    return unsub
+  }, [schoolId])
 
   // ── Firestore 구독: asaSubjects ──────────────────────────
   useEffect(() => {
@@ -281,6 +308,21 @@ export default function AsaChecklistAdmin() {
     }
   }
 
+  // ── 엑셀 양식 다운로드 ───────────────────────────────────
+  const handleDownloadTemplate = async () => {
+    const XLSX = await import('xlsx')
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['학년', '학기', '과목명', '교사이메일(콤마구분)'],
+      [1, 1, '국어', 'teacher1@school.kr,teacher2@school.kr'],
+      [1, 1, '수학', 'teacher3@school.kr'],
+      [2, 1, '영어', ''],
+    ])
+    ws['!cols'] = [{ wch: 8 }, { wch: 8 }, { wch: 20 }, { wch: 40 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '과목목록')
+    XLSX.writeFile(wb, '성취평가제_과목목록_양식.xlsx')
+  }
+
   const handleXlsxSave = async () => {
     setXlsxSaving(true)
     try {
@@ -307,7 +349,8 @@ export default function AsaChecklistAdmin() {
   // ── 인쇄/PDF: 체크리스트 인쇄 창 열기 ───────────────────────────
   const openPrint = (submission) => {
     const subjectObj = subjects.find((s) => s.id === submission.subjectId)
-    openProcessChecklistPrint(submission, subjectObj)
+    const nameMap = Object.fromEntries(teachers.map((t) => [t.email, t.name]))
+    openProcessChecklistPrint(submission, subjectObj, nameMap)
   }
 
   // ── 체크리스트 현황 필터링 (삭제된 과목의 submission 제외) ──────
@@ -381,6 +424,14 @@ export default function AsaChecklistAdmin() {
                   onChange={handleXlsxFile}
                 />
               </Button>
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<DownloadOutlinedIcon />}
+                onClick={handleDownloadTemplate}
+              >
+                양식 다운로드
+              </Button>
             </Box>
 
             {/* 과목 목록 */}
@@ -412,9 +463,18 @@ export default function AsaChecklistAdmin() {
                           {(subject.teacherEmails || []).length === 0 ? (
                             <Typography variant="caption" color="text.disabled">미배정</Typography>
                           ) : (
-                            (subject.teacherEmails || []).map((email) => (
-                              <Chip key={email} label={email} size="small" variant="outlined" />
-                            ))
+                            (subject.teacherEmails || []).map((email) => {
+                              const t = teachers.find((t) => t.email === email)
+                              const tName = t?.name ? cleanTeacherName(t.name) : null
+                              return (
+                                <Chip
+                                  key={email}
+                                  label={tName ? `${tName} (${email})` : email}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              )
+                            })
                           )}
                         </Box>
                       </TableCell>
@@ -515,7 +575,13 @@ export default function AsaChecklistAdmin() {
                         <TableCell>{subjectName}</TableCell>
                         <TableCell>{grade !== '-' ? `${grade}학년` : '-'}</TableCell>
                         <TableCell>{semester !== '-' ? `${semester}학기` : '-'}</TableCell>
-                        <TableCell>{sub.type || '-'}</TableCell>
+                        <TableCell>
+                          {sub.checklistType === 'process'
+                            ? '붙임1 과정'
+                            : sub.checklistType === 'result'
+                              ? '붙임2 결과'
+                              : '-'}
+                        </TableCell>
                         <TableCell>
                           <Chip
                             label={STATUS_LABELS[sub.status] ?? sub.status ?? '-'}
@@ -633,6 +699,58 @@ export default function AsaChecklistAdmin() {
               />
             </Box>
           </Box>
+
+          {/* 등록된 교사 목록에서 선택 */}
+          {teachers.length > 0 && (
+            <Box>
+              <Divider sx={{ my: 1.5 }}>
+                <Typography variant="caption" color="text.secondary">등록된 교사 목록에서 선택</Typography>
+              </Divider>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 1 }}>
+                {teachers.map((t) => {
+                  const alreadyAdded = form.teacherEmails.includes(t.email)
+                  const displayName = cleanTeacherName(t.name || t.email)
+                  const initials = displayName.slice(0, 1)
+                  return (
+                    <Box
+                      key={t.uid}
+                      onClick={() => {
+                        if (alreadyAdded) removeEmailTag(t.email)
+                        else setForm((prev) => ({ ...prev, teacherEmails: [...prev.teacherEmails, t.email] }))
+                      }}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 1,
+                        px: 1.5, py: 1, borderRadius: 2, cursor: 'pointer',
+                        border: '1.5px solid',
+                        borderColor: alreadyAdded ? 'primary.main' : '#e2e8f0',
+                        bgcolor: alreadyAdded ? 'primary.50' : '#fafafa',
+                        transition: 'all 0.15s',
+                        '&:hover': { borderColor: 'primary.light', bgcolor: '#f0f4ff' },
+                      }}
+                    >
+                      <Box sx={{
+                        width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                        bgcolor: alreadyAdded ? 'primary.main' : '#e2e8f0',
+                        color: alreadyAdded ? '#fff' : '#64748b',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, fontSize: '0.85rem',
+                      }}>
+                        {initials}
+                      </Box>
+                      <Box sx={{ overflow: 'hidden', minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={600} noWrap>
+                          {displayName}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', fontSize: '0.7rem' }}>
+                          {t.email}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  )
+                })}
+              </Box>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={handleCloseDialog} disabled={saving}>취소</Button>

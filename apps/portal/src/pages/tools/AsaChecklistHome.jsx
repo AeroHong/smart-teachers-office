@@ -32,7 +32,7 @@ export default function AsaChecklistHome() {
   const { user, schoolId, role, isAdmin, isPrincipal } = useAuth()
 
   const [subjects, setSubjects] = useState([])
-  const [submissions, setSubmissions] = useState({}) // subjectId → { process: status }
+  const [submissions, setSubmissions] = useState({}) // subjectId → { process: status, result: status }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -59,7 +59,7 @@ export default function AsaChecklistHome() {
     return unsub
   }, [schoolId, user, isPrincipal])
 
-  // 과정 체크리스트 submission 상태 조회
+  // 과정/결과 체크리스트 submission 상태 조회
   useEffect(() => {
     if (!schoolId || !subjects.length) return
 
@@ -67,7 +67,7 @@ export default function AsaChecklistHome() {
     const chunks = []
     for (let i = 0; i < subjectIds.length; i += 30) chunks.push(subjectIds.slice(i, i + 30))
 
-    const unsubscribers = chunks.map((chunk) => {
+    const processUnsubs = chunks.map((chunk) => {
       const q = query(
         collection(db, 'schools', schoolId, 'asaSubmissions'),
         where('subjectId', 'in', chunk),
@@ -85,7 +85,28 @@ export default function AsaChecklistHome() {
         })
       })
     })
-    return () => unsubscribers.forEach((u) => u())
+
+    const resultUnsubs = chunks.map((chunk) => {
+      const q = query(
+        collection(db, 'schools', schoolId, 'asaSubmissions'),
+        where('subjectId', 'in', chunk),
+        where('checklistType', '==', 'result'),
+      )
+      return onSnapshot(q, (snap) => {
+        setSubmissions((prev) => {
+          const next = { ...prev }
+          snap.docs.forEach((d) => {
+            const data = d.data()
+            if (!next[data.subjectId]) next[data.subjectId] = {}
+            next[data.subjectId].result = data.status
+          })
+          return next
+        })
+      })
+    })
+
+    const allUnsubs = [...processUnsubs, ...resultUnsubs]
+    return () => allUnsubs.forEach((u) => u())
   }, [schoolId, subjects])
 
   if (isPrincipal) return null
@@ -127,6 +148,7 @@ export default function AsaChecklistHome() {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {subjects.map((subject) => {
             const processStatus = submissions[subject.id]?.process ?? null
+            const resultStatus = submissions[subject.id]?.result ?? null
             return (
               <Card key={subject.id} variant="outlined">
                 <CardContent sx={{ pb: '16px !important' }}>
@@ -155,6 +177,18 @@ export default function AsaChecklistHome() {
                           붙임1 과정 체크리스트
                         </Button>
                         <StatusChip status={processStatus} />
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="secondary"
+                          onClick={() => navigate(`/tools/asa-checklist/${subject.id}/result`)}
+                          sx={{ flexShrink: 0 }}
+                        >
+                          붙임2 결과 체크리스트
+                        </Button>
+                        <StatusChip status={resultStatus} />
                       </Box>
                     </Box>
                   </Box>
