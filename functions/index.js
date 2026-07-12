@@ -370,3 +370,201 @@ async function processSessionClose(db, schoolId, eventId, ev) {
 
   console.log(`[${schoolId}] 세션 종료 완료 — 이벤트: ${eventId}`)
 }
+
+// ── 성취평가제 체크리스트 PDF 생성 (Puppeteer) ──────────────────────
+exports.generateAsaChecklistPdf = onCall(
+  { region: 'asia-northeast3', memory: '1GiB', timeoutSeconds: 120 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
+
+    const { submissionId, schoolId } = request.data
+    if (!submissionId || !schoolId) {
+      throw new HttpsError('invalid-argument', 'submissionId와 schoolId가 필요합니다.')
+    }
+
+    const db = getFirestore()
+
+    // 권한 확인: 관리자 또는 배정 교사 또는 교감
+    const userDoc = await db.collection('users').doc(request.auth.uid).get()
+    if (!userDoc.exists) throw new HttpsError('permission-denied', '사용자 정보를 찾을 수 없습니다.')
+    const userData = userDoc.data()
+    if (userData.schoolId !== schoolId) throw new HttpsError('permission-denied', '해당 학교 접근 권한이 없습니다.')
+
+    const submissionDoc = await db
+      .collection('schools').doc(schoolId)
+      .collection('asaSubmissions').doc(submissionId).get()
+    if (!submissionDoc.exists) throw new HttpsError('not-found', '제출물을 찾을 수 없습니다.')
+
+    const submission = submissionDoc.data()
+    const userEmail = request.auth.token.email
+
+    const isAdmin = userData.role === 'admin' || userData.role === 'school_admin'
+    const isPrincipal = userData.role === 'principal'
+    const isAssigned = submission.teacherEmails?.includes(userEmail)
+    if (!isAdmin && !isPrincipal && !isAssigned) {
+      throw new HttpsError('permission-denied', '이 체크리스트에 접근 권한이 없습니다.')
+    }
+
+    // HTML 생성
+    const html = buildChecklistHtml(submission)
+
+    // Puppeteer로 PDF 생성
+    let puppeteer
+    try {
+      puppeteer = require('puppeteer')
+    } catch {
+      throw new HttpsError('internal', 'PDF 생성 모듈이 설치되지 않았습니다.')
+    }
+
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    })
+    try {
+      const page = await browser.newPage()
+      await page.setContent(html, { waitUntil: 'networkidle0' })
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' },
+      })
+      return { pdfBase64: Buffer.from(pdfBuffer).toString('base64') }
+    } finally {
+      await browser.close()
+    }
+  }
+)
+
+function buildChecklistHtml(submission) {
+  const isProcess = submission.checklistType === 'process'
+  const answers = submission.answers || {}
+  const signatures = submission.signatures || {}
+
+  // 과정 체크리스트 문항 데이터 (함수 내 인라인 정의 — Functions는 ESM 미사용)
+  const PROCESS_GROUPS = [
+    { groupName: '평가계획', questions: [
+      { id: 'p1', text: '평가계획(지필평가와 수행평가의 비율, 방식 등) 수립 시 시·도교육청의 지침과 학교의 학업성적관리 규정을 준수하였는가?', evidence: ['시·도 학업성적관리 시행 지침', '학업성적관리규정', '과목별 평가계획'] },
+      { id: 'p2', text: '평가계획 수립 시 학기단위 성취수준 진술을 고려하였는가?', evidence: ['과목별 평가계획'] },
+      { id: 'p3', text: '학교 및 교과 특성에 맞게 수행평가의 기본 점수 부여 기준을 적절하게 설정하였는가?', evidence: ['과목별 평가계획'] },
+      { id: 'p4', text: '학교 교육과정 운영 상황과 교과 및 학생 특성을 고려하여 분할점수 설정 방법(성취수준별 고정분할점수/성취수준별 추정분할점수)를 결정하고 평가계획에 포함하였는가?', evidence: ['과목별 평가계획'] },
+      { id: 'p5', text: '과목별 평가계획을 학생 및 학부모에게 공지하였는가?', evidence: ['가정통신문 또는 학교 홈페이지 공지 내역'] },
+      { id: 'p6', text: '학기 중에 평가계획을 수정할 경우 교과협의회와 학업성적관리위원회의 심의 및 학교장의 결재를 거쳤는가?', evidence: ['과목별 평가계획', '학업성적관리위원회 회의록'] },
+    ]},
+    { groupName: '평가 문항 출제', questions: [
+      { id: 'p7', text: '학교장의 결재를 받은 지필평가 및 수행평가 계획과 실제 평가도구가 일치하는가?(문항 수, 고사 범위 등)', evidence: ['과목별 평가계획', '지필평가 도구', '수행평가 도구'] },
+      { id: 'p8', text: '평가도구가 각 성취수준 도달 여부를 판단할 수 있도록 다양한 수준의 문항을 출제하였는가?', evidence: ['문항정보표'] },
+    ]},
+    { groupName: '분할점수 산출', questions: [
+      { id: 'p9', text: '성취수준별 추정분할점수 적용 시, 성취수준별 분할점수 산출을 위한 프로그램을 사용하고, 교사별 분할점수 설정 과정을 2회 이상 반복하였는가?(예. NEIS) ※(9~12번) 고정분할점수 사용 과목은 모두 미체크', evidence: ['성취수준별 분할점수 산출 결과 출력물'] },
+      { id: 'p10', text: '성취수준별 최종 분할점수는 평가 시행 전에 내부결재를 거쳤는가?', evidence: ['관련 내부 결재문서'] },
+      { id: 'p11', text: '평가 시행 전에 성취수준별 최종 분할점수를 학생과 학부모에게 공지하였는가?', evidence: ['가정통신문 또는 학교 홈페이지 공지 내역'] },
+      { id: 'p12', text: '분할점수 산출을 평가 시행 전에 확정하고 시행 후에는 수정하지 않았는가?', evidence: ['성취수준별 분할점수 공지 내역'] },
+    ]},
+    { groupName: '평가결과 분석 및 피드백', questions: [
+      { id: 'p13', text: '채점이 끝난 후 학생들에게 채점 결과를 알려주고 이의신청할 기회를 제공하였는가?', evidence: ['이의신청 절차 공지 내역'] },
+      { id: 'p14', text: '평가 시행 후 그 결과에 대한 분석(예. 과목별, 학급별 평균 분석, 평가 문항 정답률 분석 등)을 실시하고 이를 교수·학습 방법의 개선과 이후 평가 문항 출제를 위한 기초 자료로 활용하였는가?', evidence: [] },
+      { id: 'p15', text: '평가 시행 후 그 결과에 대한 분석을 활용하여 개별 학생의 학습 수준에 따라 피드백을 제공하였는가?', evidence: [] },
+    ]},
+    { groupName: '의사소통', questions: [
+      { id: 'p16', text: '평가계획은 교과(학년)협의회를 통해 교사 간 충분한 협의를 거쳐 작성하였는가?', evidence: [] },
+      { id: 'p17', text: '평가 문항 개발 시 교과 공동 출제 및 공동 검토를 하였는가?', evidence: [] },
+      { id: 'p18', text: '교과협의회에서 평가 결과 산출 제반 사항을 협의하고 실행하였는가?', evidence: [] },
+      { id: 'p19', text: '성취수준별 비율이 특정 수준에 편중된 경우 교과협의회 등을 통해 원인을 분석하였는가?', evidence: [] },
+    ]},
+  ]
+
+  let qNum = 1
+  let rows = ''
+  for (const group of PROCESS_GROUPS) {
+    const groupRowCount = group.questions.length
+    let firstInGroup = true
+    for (const q of group.questions) {
+      const ans = answers[q.id] || {}
+      const val = ans.value || ''
+      const checkedEvidence = ans.evidenceChecks || []
+
+      const evidenceHtml = q.evidence.length > 0
+        ? q.evidence.map(e => `<span class="ev-item">${checkedEvidence.includes(e) ? '☑' : '☐'} ${e}</span>`).join(' ')
+        : ''
+
+      rows += `<tr>
+        ${firstInGroup ? `<td class="group-cell" rowspan="${groupRowCount}">${group.groupName}</td>` : ''}
+        <td class="num-cell">${qNum++}</td>
+        <td class="q-cell">
+          <div class="q-text">${q.text}</div>
+          ${evidenceHtml ? `<div class="evidence">${evidenceHtml}</div>` : ''}
+        </td>
+        <td class="ans-cell">${val === '예' ? '● 예<br>○ 아니오' : val === '아니오' ? '○ 예<br>● 아니오' : '○ 예<br>○ 아니오'}</td>
+      </tr>`
+      firstInGroup = false
+    }
+  }
+
+  // 서명 HTML
+  const teacherSigs = (submission.teacherEmails || []).map((email, i) => {
+    const sig = signatures[email]
+    return `<div class="sig-box">
+      <div class="sig-label">공동출제교사 ${i + 1}<br><span class="sig-email">${email}</span></div>
+      ${sig?.dataUrl ? `<img class="sig-img" src="${sig.dataUrl}" />` : '<div class="sig-empty"></div>'}
+    </div>`
+  }).join('')
+
+  const principalSig = submission.principalSignature
+  const principalHtml = `<div class="sig-box">
+    <div class="sig-label">확인자(교감)</div>
+    ${principalSig?.dataUrl ? `<img class="sig-img" src="${principalSig.dataUrl}" />` : '<div class="sig-empty"></div>'}
+  </div>`
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 10px; color: #000; }
+  h1 { text-align: center; font-size: 14px; margin-bottom: 8px; }
+  .meta { display: flex; gap: 24px; margin-bottom: 8px; font-size: 10px; }
+  .meta span { border-bottom: 1px solid #000; min-width: 120px; padding-bottom: 2px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  th, td { border: 1px solid #666; padding: 4px 6px; vertical-align: top; }
+  th { background: #f0f0f0; text-align: center; font-size: 10px; }
+  .group-cell { text-align: center; font-weight: bold; font-size: 9px; vertical-align: middle; white-space: nowrap; }
+  .num-cell { text-align: center; vertical-align: middle; width: 24px; }
+  .q-cell { width: auto; }
+  .q-text { margin-bottom: 3px; line-height: 1.4; }
+  .evidence { font-size: 9px; color: #333; }
+  .ev-item { margin-right: 6px; }
+  .ans-cell { text-align: center; vertical-align: middle; white-space: nowrap; width: 60px; line-height: 1.8; }
+  .sig-section { display: flex; gap: 8px; margin-top: 8px; }
+  .sig-box { border: 1px solid #666; padding: 4px; width: 120px; text-align: center; }
+  .sig-label { font-size: 9px; margin-bottom: 4px; line-height: 1.4; }
+  .sig-email { font-size: 8px; color: #555; }
+  .sig-img { width: 100px; height: 50px; object-fit: contain; }
+  .sig-empty { width: 100px; height: 50px; border: 1px dashed #ccc; margin: 0 auto; }
+</style>
+</head>
+<body>
+  <h1>단위학교(과목별) 성취평가 운영 과정 점검 체크리스트</h1>
+  <div class="meta">
+    <span>학교명: ${submission.schoolName || ''}</span>
+    <span>점검 과목: ${submission.subjectName || ''} (${submission.grade || ''}학년 ${submission.semester || ''}학기)</span>
+    <span>점검일자: ${submission.checkDate || ''}</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:70px">단계</th>
+        <th style="width:24px">번호</th>
+        <th>점검 내용</th>
+        <th style="width:60px">예/아니오</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="sig-section">
+    ${teacherSigs}
+    ${principalHtml}
+  </div>
+</body>
+</html>`
+}

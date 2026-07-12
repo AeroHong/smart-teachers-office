@@ -63,6 +63,21 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    key: 'asa-checklist',
+    label: '성취평가제 체크리스트',
+    icon: '✅',
+    prefix: '/tools/asa-checklist',
+    items: [
+      { label: '체크리스트 홈', path: '/tools/asa-checklist', icon: '◈', exact: true },
+    ],
+    adminItems: [
+      { label: '과목·교사 관리', path: '/tools/asa-checklist/admin', icon: '◈' },
+    ],
+    principalItems: [
+      { label: '서명 관리', path: '/tools/asa-checklist/principal', icon: '◈' },
+    ],
+  },
+  {
     key: 'tools',
     label: '도구모음',
     icon: '🧰',
@@ -70,7 +85,7 @@ const NAV_SECTIONS = [
     items: [
       { label: '전체 보기', path: '/tools', icon: '◈', exact: true },
       { label: 'QR 안내문 생성기', path: '/tools/qr-notice', icon: '◈' },
-      { label: '성취평가제 체크리스트', path: '/tools/asa-support', icon: '◈' },
+      { label: '성취평가제 점검 도구', path: '/tools/asa-support', icon: '◈' },
       { label: '내신등급 계산기', path: '/tools/grade-rank', icon: '◈' },
     ],
     adminItems: [
@@ -98,6 +113,9 @@ const PAGE_TITLES = {
   '/tools/qr-notice': 'QR 안내문 생성기',
   '/tools/asa-support': '성취평가제 체크리스트',
   '/tools/asa-support/cutoffs': '분할점수 기준 관리',
+  '/tools/asa-checklist': '체크리스트 홈',
+  '/tools/asa-checklist/admin': '과목·교사 관리',
+  '/tools/asa-checklist/principal': '서명 관리',
   '/tools/grade-rank': '내신등급 계산기',
 }
 
@@ -107,6 +125,8 @@ function getPageTitle(pathname) {
   if (pathname.match(/\/attendance\/events\/[^/]+/)) return '출결 현황'
   if (pathname.match(/\/training\/[^/]+\/sign/)) return '서명'
   if (pathname.match(/\/training\/[^/]+/)) return '연수 상세'
+  if (pathname.match(/\/tools\/asa-checklist\/[^/]+\/process/)) return '과정 체크리스트 작성'
+  if (pathname.match(/\/tools\/asa-checklist\/[^/]+/)) return '체크리스트 작성'
   return ''
 }
 
@@ -115,6 +135,7 @@ function getSectionLabel(pathname) {
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return '스마트 출결'
   if (pathname.startsWith('/cover')) return '보강 신청'
   if (pathname.startsWith('/training')) return '연수 서명부'
+  if (pathname.startsWith('/tools/asa-checklist')) return '성취평가제 체크리스트'
   if (pathname.startsWith('/tools')) return '도구모음'
   return '포털'
 }
@@ -125,6 +146,7 @@ function getActiveSectionKey(pathname) {
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return 'attendance'
   if (pathname.startsWith('/cover')) return 'cover'
   if (pathname.startsWith('/training')) return 'training'
+  if (pathname.startsWith('/tools/asa-checklist')) return 'asa-checklist'
   if (pathname.startsWith('/tools')) return 'tools'
   return 'portal'
 }
@@ -141,7 +163,7 @@ export default function Layout({ children, wide = false }) {
   const [pendingCount, setPendingCount] = useState(0)
   const [logoUrl, setLogoUrl] = useState(null)
   // 사이드바 섹션 아코디언: 도구모음은 기본 펼침 + 현재 페이지가 속한 섹션은 자동 펼침
-  const [openSections, setOpenSections] = useState(() => new Set(['tools', getActiveSectionKey(location.pathname)]))
+  const [openSections, setOpenSections] = useState(() => new Set([getActiveSectionKey(location.pathname)]))
 
   // 경로 이동 시 새로 활성화된 섹션을 자동으로 펼침 (기존에 펼쳐둔 섹션은 그대로 유지)
   useEffect(() => {
@@ -197,7 +219,7 @@ export default function Layout({ children, wide = false }) {
 
       {/* ── 사이드바 경계 토글 탭 ── */}
       <Tooltip title={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'} placement="right">
-        <Box
+        <Box data-print-hide="true"
           onClick={() => setSidebarOpen(p => !p)}
           sx={{
             position: 'fixed',
@@ -234,7 +256,7 @@ export default function Layout({ children, wide = false }) {
       </Tooltip>
 
       {/* ── 사이드바 ── */}
-      <Box sx={{
+      <Box data-print-hide="true" sx={{
         width: sidebarOpen ? SIDEBAR_WIDTH : 0,
         flexShrink: 0,
         bgcolor: '#fff',
@@ -282,6 +304,7 @@ export default function Layout({ children, wide = false }) {
             const items = [
               ...section.items,
               ...(section.adminItems && (role === 'admin' || role === 'school_admin') ? section.adminItems : []),
+              ...(section.principalItems && role === 'principal' ? section.principalItems : []),
             ]
 
             const open = openSections.has(section.key)

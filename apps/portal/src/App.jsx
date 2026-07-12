@@ -46,7 +46,11 @@ const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
 const QrNoticeGenerator  = lazy(() => import('./pages/tools/QrNoticeGenerator'))
 const AsaSupport         = lazy(() => import('./pages/tools/AsaSupport'))
 const AsaSupportCutoffs  = lazy(() => import('./pages/tools/AsaSupportCutoffs'))
-const GradeRankCalculator = lazy(() => import('./pages/tools/GradeRankCalculator'))
+const GradeRankCalculator    = lazy(() => import('./pages/tools/GradeRankCalculator'))
+const AsaChecklistHome       = lazy(() => import('./pages/tools/AsaChecklistHome'))
+const AsaChecklistAdmin      = lazy(() => import('./pages/tools/AsaChecklistAdmin'))
+const AsaChecklistPrincipal  = lazy(() => import('./pages/tools/AsaChecklistPrincipal'))
+const AsaChecklistForm       = lazy(() => import('./pages/tools/AsaChecklistForm'))
 
 
 function PageLoader() {
@@ -59,7 +63,7 @@ function PageLoader() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* ── 공개 ── */}
@@ -98,6 +102,10 @@ export default function App() {
           <Route path="/tools/qr-notice"           element={<ProtectedRoute anyUser><QrNoticeGenerator /></ProtectedRoute>} />
           <Route path="/tools/asa-support"         element={<ProtectedRoute anyUser><AsaSupport /></ProtectedRoute>} />
           <Route path="/tools/asa-support/cutoffs" element={<ProtectedRoute adminOnly><AsaSupportCutoffs /></ProtectedRoute>} />
+          <Route path="/tools/asa-checklist"                         element={<ProtectedRoute anyUser><AsaChecklistHome /></ProtectedRoute>} />
+          <Route path="/tools/asa-checklist/admin"                    element={<ProtectedRoute adminOnly><AsaChecklistAdmin /></ProtectedRoute>} />
+          <Route path="/tools/asa-checklist/principal"                element={<ProtectedRoute principalAllowed><AsaChecklistPrincipal /></ProtectedRoute>} />
+          <Route path="/tools/asa-checklist/:subjectId/process"       element={<ProtectedRoute anyUser><AsaChecklistForm /></ProtectedRoute>} />
           <Route path="/tools/grade-rank"          element={<ProtectedRoute anyUser><GradeRankCalculator /></ProtectedRoute>} />
 
           {/* ── 연수 서명부 ── */}

@@ -29,7 +29,13 @@ service cloud.firestore {
 
     function isTeacher(schoolId) {
       return isSignedIn() &&
-        getUserData().role in ['teacher', 'admin', 'school_admin'] &&
+        getUserData().role in ['teacher', 'admin', 'school_admin', 'principal'] &&
+        getUserData().schoolId == schoolId;
+    }
+
+    function isPrincipal(schoolId) {
+      return isSignedIn() &&
+        getUserData().role == 'principal' &&
         getUserData().schoolId == schoolId;
     }
 
@@ -196,6 +202,34 @@ service cloud.firestore {
         allow get: if isSignedIn() && emailId == request.auth.token.email;
         allow list: if isSuperAdmin() || isSchoolAdmin(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // ── 성취평가제 운영 체크리스트 (ASA-checklist) ──────────────
+      // 과목 — 관리자만 생성/수정, 교사·교감은 조회
+      match /asaSubjects/{subjectId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 제출물 — 배정된 교사·교감은 읽기/수정, 관리자는 전체, 잠금(locked) 후 수정 불가
+      match /asaSubmissions/{submissionId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId) ||
+          (isTeacher(schoolId) && request.auth.token.email in resource.data.teacherEmails);
+        allow create: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && request.auth.token.email in request.resource.data.teacherEmails);
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId) ||
+          (isTeacher(schoolId) &&
+           request.auth.token.email in resource.data.teacherEmails &&
+           resource.data.status != 'locked');
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 교감 서명 재사용 저장소 — 본인만 읽기/쓰기, 관리자는 읽기
+      match /asaPrincipalSignature/{uid} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isSignedIn() && request.auth.uid == uid);
+        allow write: if isSuperAdmin() ||
+          (isPrincipal(schoolId) && request.auth.uid == uid);
       }
 
       // 성취평가제 체크리스트 지원 도구 (ASA-support)

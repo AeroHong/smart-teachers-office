@@ -54,6 +54,16 @@ const SERVICES = [
     external: true,
   },
   {
+    icon: '✅',
+    title: '성취평가제 운영 체크리스트',
+    description: '교육청 제출용 성취평가 운영 점검 체크리스트를 웹에서 공동 작성하고 PDF로 다운로드합니다.',
+    path: '/tools/asa-checklist',
+    color: '#d97706',
+    bgColor: '#fef3c7',
+    status: '시범운영중',
+    statusColor: 'warning',
+  },
+  {
     icon: '✈️',
     title: '교무 교과서 배정 업무',
     description: '교과서 선정 및 배부 업무 시스템입니다.',

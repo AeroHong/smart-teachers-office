@@ -1,0 +1,169 @@
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
+import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+import Card from '@mui/material/Card'
+import CardContent from '@mui/material/CardContent'
+import Button from '@mui/material/Button'
+import Chip from '@mui/material/Chip'
+import CircularProgress from '@mui/material/CircularProgress'
+import Alert from '@mui/material/Alert'
+import Divider from '@mui/material/Divider'
+import { db } from '../../lib/firebase'
+import { useAuth } from '../../contexts/AuthContext'
+import Layout from '../../components/Layout'
+
+// 제출 상태 → Chip 표시 설정
+const STATUS_CHIP = {
+  draft:     { label: '작성중',   color: 'warning' },
+  submitted: { label: '제출완료', color: 'success' },
+  locked:    { label: '잠금',     color: 'default' },
+}
+
+function StatusChip({ status }) {
+  if (!status) return <Chip size="small" label="미작성" variant="outlined" />
+  const cfg = STATUS_CHIP[status] || { label: status, color: 'default' }
+  return <Chip size="small" label={cfg.label} color={cfg.color} />
+}
+
+export default function AsaChecklistHome() {
+  const navigate = useNavigate()
+  const { user, schoolId, role, isAdmin, isPrincipal } = useAuth()
+
+  const [subjects, setSubjects] = useState([])
+  const [submissions, setSubmissions] = useState({}) // subjectId → { process: status }
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  // 교감은 서명 페이지로 redirect
+  useEffect(() => {
+    if (isPrincipal) navigate('/tools/asa-checklist/principal', { replace: true })
+  }, [isPrincipal, navigate])
+
+  // 배정 과목 조회 — admin도 교사로 배정될 수 있으므로 포함
+  useEffect(() => {
+    if (!schoolId || !user || isPrincipal) return
+
+    const q = query(
+      collection(db, 'schools', schoolId, 'asaSubjects'),
+      where('teacherEmails', 'array-contains', user.email),
+    )
+    const unsub = onSnapshot(q, (snap) => {
+      setSubjects(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setLoading(false)
+    }, (err) => {
+      setError(`과목 목록을 불러오지 못했습니다: ${err.message}`)
+      setLoading(false)
+    })
+    return unsub
+  }, [schoolId, user, isPrincipal])
+
+  // 과정 체크리스트 submission 상태 조회
+  useEffect(() => {
+    if (!schoolId || !subjects.length) return
+
+    const subjectIds = subjects.map((s) => s.id)
+    const chunks = []
+    for (let i = 0; i < subjectIds.length; i += 30) chunks.push(subjectIds.slice(i, i + 30))
+
+    const unsubscribers = chunks.map((chunk) => {
+      const q = query(
+        collection(db, 'schools', schoolId, 'asaSubmissions'),
+        where('subjectId', 'in', chunk),
+        where('checklistType', '==', 'process'),
+      )
+      return onSnapshot(q, (snap) => {
+        setSubmissions((prev) => {
+          const next = { ...prev }
+          snap.docs.forEach((d) => {
+            const data = d.data()
+            if (!next[data.subjectId]) next[data.subjectId] = {}
+            next[data.subjectId].process = data.status
+          })
+          return next
+        })
+      })
+    })
+    return () => unsubscribers.forEach((u) => u())
+  }, [schoolId, subjects])
+
+  if (isPrincipal) return null
+
+  return (
+    <Layout>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 0.5, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="h5" fontWeight={700}>
+          성취평가제 체크리스트
+        </Typography>
+        {/* 관리자는 관리 페이지 바로가기 버튼 표시 */}
+        {isAdmin && (
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => navigate('/tools/asa-checklist/admin')}
+          >
+            과목·교사 관리 →
+          </Button>
+        )}
+      </Box>
+      <Typography variant="body2" color="text.secondary" mb={3}>
+        배정된 과목의 체크리스트를 작성·제출합니다.
+      </Typography>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {loading ? (
+        <Box display="flex" justifyContent="center" py={6}>
+          <CircularProgress />
+        </Box>
+      ) : subjects.length === 0 ? (
+        <Alert severity="info">
+          {isAdmin
+            ? '배정된 과목이 없습니다. 과목·교사 관리에서 본인 이메일을 교사로 추가하세요.'
+            : '배정된 과목이 없습니다. 관리자에게 문의하세요.'}
+        </Alert>
+      ) : (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {subjects.map((subject) => {
+            const processStatus = submissions[subject.id]?.process ?? null
+            return (
+              <Card key={subject.id} variant="outlined">
+                <CardContent sx={{ pb: '16px !important' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                    <Box>
+                      <Typography variant="h6" fontWeight={700}>
+                        {subject.name || '(과목명 없음)'}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                        {subject.grade && <Chip size="small" label={`${subject.grade}학년`} variant="outlined" />}
+                        {subject.semester && <Chip size="small" label={`${subject.semester}학기`} variant="outlined" />}
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 260 }}>
+                      <Divider textAlign="left">
+                        <Typography variant="caption" color="text.secondary">체크리스트</Typography>
+                      </Divider>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => navigate(`/tools/asa-checklist/${subject.id}/process`)}
+                          sx={{ flexShrink: 0 }}
+                        >
+                          붙임1 과정 체크리스트
+                        </Button>
+                        <StatusChip status={processStatus} />
+                      </Box>
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </Box>
+      )}
+    </Layout>
+  )
+}

@@ -224,7 +224,10 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, userName, schoolId, schoolName, coverApiUrl, role, studentId,
-      isSuperAdmin, loading, needsSchoolSetup,
+      isSuperAdmin,
+      isAdmin: role === 'admin' || role === 'school_admin',
+      isPrincipal: role === 'principal',
+      loading, needsSchoolSetup,
       login, logout, completeSchoolSetup,
     }}>
       {children}

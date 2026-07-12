@@ -10,6 +10,7 @@ export default function ProtectedRoute({
   anyUser = false,
   superAdminOnly = false,
   studentAllowed = false,
+  principalAllowed = false,  // 교감도 접근 가능한 페이지
 }) {
   const { user, role, isSuperAdmin, loading, needsSchoolSetup } = useAuth()
 
@@ -47,6 +48,10 @@ export default function ProtectedRoute({
   // 미승인 교사
   if (role === 'pending') return <PendingApproval />
   if (role === 'rejected') return <Navigate to="/login" replace />
+
+  // 교감 전용: principalAllowed 없는 페이지는 홈으로
+  if (role === 'principal' && !principalAllowed && !adminOnly) return children
+  if (role === 'principal' && adminOnly) return <Navigate to="/" replace />
 
   // 관리자 전용 페이지
   if (adminOnly && role !== 'admin' && role !== 'school_admin') return <Navigate to="/" replace />
