@@ -80,7 +80,7 @@ export function openProcessChecklistPrint(submission, subject, teacherNameMap = 
   table { width: 100%; border-collapse: collapse; }
   td, th { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
   .label-cell { background: #e8e8e8; font-weight: bold; text-align: center; white-space: nowrap; width: 90px; }
-  .check-th { background: #e8e8e8; font-weight: bold; text-align: center; }
+  .check-th { background: #e8e8e8; font-weight: bold; text-align: center; white-space: nowrap; }
   .check-table { margin-top: 6px; }
   @media print {
     @page { size: A4 portrait; margin: 8mm 10mm; }
@@ -258,7 +258,7 @@ export function openResultChecklistPrint(submission, subject, teacherNameMap = {
   table { width: 100%; border-collapse: collapse; }
   td, th { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
   .label-cell { background: #e8e8e8; font-weight: bold; text-align: center; white-space: nowrap; width: 90px; }
-  .check-th { background: #e8e8e8; font-weight: bold; text-align: center; }
+  .check-th { background: #e8e8e8; font-weight: bold; text-align: center; white-space: nowrap; }
   .check-table { margin-top: 6px; }
   @media print {
     @page { size: A4 portrait; margin: 8mm 10mm; }

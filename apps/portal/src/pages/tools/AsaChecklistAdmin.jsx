@@ -35,7 +35,7 @@ import {
   collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy, query, where, getDocs, arrayUnion, limit,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
-import { openProcessChecklistPrint } from './asaChecklistPrint'
+import { openProcessChecklistPrint, openResultChecklistPrint } from './asaChecklistPrint'
 import { cleanTeacherName } from '../../utils/nameUtils'
 import { getFixedCategory, parseNeisTeacherSubjectFile } from './asaUtils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -648,10 +648,15 @@ export default function AsaChecklistAdmin() {
   }
 
   // ── 인쇄/PDF: 체크리스트 인쇄 창 열기 ───────────────────────────
+  // checklistType에 따라 붙임1/붙임2 인쇄 함수를 분기해야 하는데 항상 붙임1로 고정돼 있던 버그 수정
   const openPrint = (submission) => {
     const subjectObj = subjects.find((s) => s.id === submission.subjectId)
     const nameMap = Object.fromEntries(teachers.map((t) => [t.email, t.name]))
-    openProcessChecklistPrint(submission, subjectObj, nameMap)
+    if (submission.checklistType === 'result') {
+      openResultChecklistPrint(submission, subjectObj, nameMap)
+    } else {
+      openProcessChecklistPrint(submission, subjectObj, nameMap)
+    }
   }
 
   // ── 체크리스트 현황 필터링 (삭제된 과목의 submission 제외) ──────
@@ -926,7 +931,7 @@ export default function AsaChecklistAdmin() {
                           {sigTotal > 0 ? `${sigDone}/${sigTotal}명` : '-'}
                         </TableCell>
                         <TableCell>
-                          {sub.principalSigned
+                          {sub.principalSignature?.dataUrl
                             ? <Chip label="완료" color="success" size="small" />
                             : <Chip label="미완" size="small" />}
                         </TableCell>
