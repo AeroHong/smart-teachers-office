@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import Box from '@mui/material/Box'
@@ -31,10 +31,23 @@ export default function AsaChecklistHome() {
   const navigate = useNavigate()
   const { user, schoolId, role, isAdmin, isPrincipal } = useAuth()
 
-  const [subjects, setSubjects] = useState([])
+  const [matchedSubjects, setMatchedSubjects] = useState([]) // 교사에게 매칭된 모든 과목 (학년 무관)
   const [submissions, setSubmissions] = useState({}) // subjectId → { process: status, result: status }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // 체크리스트 대상: 1·2학년 + 성취도 5단계 산출 과목만
+  // (achievementLevel 필드가 없는 기존 과목은 5단계로 취급 — 과학탐구실험/체육·예술 교과군 등만 3단계로 별도 등록됨)
+  // useMemo로 참조를 고정 — 아래 submissions 조회 useEffect가 매 렌더마다 재구독되는 것 방지
+  const isTargetSubject = (s) => (s.grade === 1 || s.grade === 2) && (s.achievementLevel ?? 5) === 5
+  const subjects = useMemo(
+    () => matchedSubjects.filter(isTargetSubject),
+    [matchedSubjects],
+  )
+  const nonTargetSubjects = useMemo(
+    () => matchedSubjects.filter((s) => !isTargetSubject(s)),
+    [matchedSubjects],
+  )
 
   // 교감은 서명 페이지로 redirect
   useEffect(() => {
@@ -50,7 +63,7 @@ export default function AsaChecklistHome() {
       where('teacherEmails', 'array-contains', user.email),
     )
     const unsub = onSnapshot(q, (snap) => {
-      setSubjects(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setMatchedSubjects(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
       setLoading(false)
     }, (err) => {
       setError(`과목 목록을 불러오지 못했습니다: ${err.message}`)
@@ -138,11 +151,18 @@ export default function AsaChecklistHome() {
         <Box display="flex" justifyContent="center" py={6}>
           <CircularProgress />
         </Box>
+      ) : subjects.length === 0 && nonTargetSubjects.length > 0 ? (
+        <Alert severity="warning">
+          성취평가제 체크리스트 대상 과목이 아닙니다. (대상: 1·2학년 성취도 5단계 산출 과목)
+          <Box component="span" sx={{ display: 'block', mt: 0.5, fontSize: '0.8rem', color: 'text.secondary' }}>
+            배정된 과목: {nonTargetSubjects.map((s) => `${s.name || '(과목명 없음)'}(${s.grade}학년·${(s.achievementLevel ?? 5) === 3 ? '3단계' : '5단계'})`).join(', ')}
+          </Box>
+        </Alert>
       ) : subjects.length === 0 ? (
-        <Alert severity="info">
+        <Alert severity={isAdmin ? 'info' : 'warning'}>
           {isAdmin
             ? '배정된 과목이 없습니다. 과목·교사 관리에서 본인 이메일을 교사로 추가하세요.'
-            : '배정된 과목이 없습니다. 관리자에게 문의하세요.'}
+            : '권한이 없습니다.'}
         </Alert>
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

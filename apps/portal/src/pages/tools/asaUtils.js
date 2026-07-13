@@ -117,6 +117,45 @@ export async function parseCutoffFile(file) {
   return results
 }
 
+// ── 나이스 "교사별 담당과목 목록" 파일 파싱 (관리자가 교사-과목 자동 매칭에 사용) ──
+// 나이스 인쇄용 서식이라 파일 안에 제목·헤더 행이 여러 번(페이지마다) 반복 삽입되고
+// 맨 끝에는 인쇄 페이지 푸터(쪽수/학교명) 행이 붙는다. 학년을 인식 못 하는 행은 전부
+// 그런 비데이터 행이므로 그냥 건너뛴다 — 별도로 페이지 경계를 찾을 필요가 없다.
+export async function parseNeisTeacherSubjectFile(file) {
+  const rows = await loadRows(file)
+
+  const headerRowIdx = findRowIdx(rows, (r) => r.includes('교사명') && r.includes('과목명'))
+  if (headerRowIdx < 0) {
+    throw new Error('나이스 "교사별 담당과목 목록" 형식이 아닙니다. (교사명/과목명 헤더를 찾을 수 없습니다)')
+  }
+  const header = rows[headerRowIdx]
+  const teacherCol = header.indexOf('교사명')
+  const subjectCol = header.indexOf('과목명')
+  const gradeCol = header.indexOf('계열/학년/학과')
+  const hoursCol = header.lastIndexOf('시수배정')
+  if (gradeCol < 0 || hoursCol < 0) {
+    throw new Error('나이스 "교사별 담당과목 목록" 형식이 아닙니다. (학년/시수배정 헤더를 찾을 수 없습니다)')
+  }
+
+  const results = []
+  for (let i = headerRowIdx + 1; i < rows.length; i++) {
+    const row = rows[i]
+    const teacherName = row[teacherCol]
+    const subjectName = row[subjectCol]
+    if (!teacherName || !subjectName) continue
+    const m = (row[gradeCol] || '').match(GRADE_PATTERN)
+    if (!m) continue
+    const hours = Number(row[hoursCol])
+    // 시수배정 0 = 자율활동/동아리활동/봉사활동/진로활동 등 창의적 체험활동 — 성취평가(A~E) 대상 아님
+    if (!Number.isFinite(hours) || hours <= 0) continue
+    results.push({ teacherName, subjectName, grade: Number(m[1]), hours })
+  }
+  if (!results.length) {
+    throw new Error('인식된 담당과목 데이터가 없습니다. 나이스 "교사별 담당과목 목록" 엑셀 파일이 맞는지 확인해주세요.')
+  }
+  return results
+}
+
 // ── 성적 일람표(환산점수) 파일 파싱 (교과 담당 교사 업로드) ──────────────
 // 파일 하나에 여러 학급(강의실) 블록이 빈 행 하나를 사이에 두고 연속으로
 // 반복될 수 있어("2학년 1강의실" → "2학년 2강의실" → ...), 제목 행을 기준으로

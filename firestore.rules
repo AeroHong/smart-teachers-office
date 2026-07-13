@@ -211,6 +211,12 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
+      // 나이스 담당과목 업로드 이력 — 관리자만 (교사 로스터 데이터, 관리 목적 전용)
+      match /asaNeisImports/{importId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
       // 제출물 — 배정된 교사·교감은 읽기/수정, 관리자는 전체, 잠금(locked) 후 수정 불가
       match /asaSubmissions/{submissionId} {
         allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId) ||

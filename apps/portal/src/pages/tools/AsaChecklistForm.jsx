@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
@@ -44,6 +44,7 @@ function todayString() {
 
 export default function AsaChecklistForm() {
   const { subjectId } = useParams()
+  const navigate = useNavigate()
   const { user, userName, schoolId, schoolName } = useAuth()
 
   const [subject, setSubject] = useState(null)
@@ -432,7 +433,21 @@ export default function AsaChecklistForm() {
       )}
 
       {submission?.status === 'submitted' && (
-        <Alert severity="success" sx={{ mb: 4 }}>제출이 완료된 체크리스트입니다.</Alert>
+        <Alert
+          severity="success"
+          sx={{ mb: 4 }}
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => navigate(`/tools/asa-checklist/${subjectId}/result`)}
+            >
+              붙임2 결과 체크리스트로 이동
+            </Button>
+          }
+        >
+          제출이 완료된 체크리스트입니다.
+        </Alert>
       )}
 
       <Dialog open={submitDialogOpen} onClose={() => setSubmitDialogOpen(false)}>

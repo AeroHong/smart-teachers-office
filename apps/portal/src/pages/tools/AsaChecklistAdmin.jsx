@@ -12,6 +12,8 @@ import TableRow from '@mui/material/TableRow'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import Chip from '@mui/material/Chip'
+import Checkbox from '@mui/material/Checkbox'
+import Tooltip from '@mui/material/Tooltip'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -30,13 +32,60 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import {
-  collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy, query, where,
+  collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy, query, where, getDocs, arrayUnion, limit,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { openProcessChecklistPrint } from './asaChecklistPrint'
 import { cleanTeacherName } from '../../utils/nameUtils'
+import { getFixedCategory, parseNeisTeacherSubjectFile } from './asaUtils'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
+
+// 분할점수 경계 개수로 성취도 단계 추정 (A~C=3단계는 경계 2~3개, A~E=5단계는 경계 4~5개)
+function levelFromBoundaries(boundaries) {
+  return (boundaries?.length ?? 0) <= 3 ? 3 : 5
+}
+
+// asaCutoffs의 과목명은 나이스 표기 그대로 뒤에 운영학점이 "(4)" 형태로 붙어있다
+// (성적 일람표 파싱과 매칭하는 키로 쓰이므로 asaCutoffs 원본에서는 지우면 안 됨).
+// 체크리스트 과목명(공문서 "점검 과목"란)에는 학점수가 필요 없으므로 가져올 때만 제거한다.
+function stripCreditSuffix(name) {
+  return (name || '').replace(/\s*\(\d+\)\s*$/, '').trim()
+}
+
+// 나이스 담당과목 그룹({grade, subjectName, teacherNames})을 현재 teachers/subjects 상태 기준으로
+// 매칭한다. 최초 업로드와 이력에서 다시 매칭할 때(재매칭) 둘 다 이 함수를 공유해서 쓴다 —
+// 재매칭은 스냅샷 당시가 아니라 "지금" 등록돼 있는 계정/과목 기준으로 다시 계산해야 의미가 있다.
+function buildNeisMatchRows(groups, teachers, subjects) {
+  const byName = new Map()
+  teachers.forEach((t) => {
+    const cleaned = cleanTeacherName(t.name || '')
+    if (!cleaned) return
+    if (!byName.has(cleaned)) byName.set(cleaned, [])
+    byName.get(cleaned).push(t)
+  })
+
+  return groups.map(({ grade, subjectName, teacherNames }) => {
+    const resolved = []
+    const unresolved = []
+    ;[...new Set(teacherNames)].forEach((name) => {
+      const candidates = byName.get(name) || []
+      if (candidates.length === 1) resolved.push({ name, email: candidates[0].email })
+      else unresolved.push({ name, candidateEmails: candidates.map((c) => c.email) })
+    })
+    const matchingDocs = subjects.filter((s) => s.grade === grade && s.name === subjectName)
+    return {
+      key: `${grade}_${subjectName}`,
+      grade,
+      subjectName,
+      teacherNames: [...new Set(teacherNames)],
+      resolved,
+      unresolved,
+      registered: matchingDocs.length > 0,
+      matchingDocs, // 런타임 전용 (asaSubjects 문서 참조) — 저장 시 제외
+    }
+  }).sort((a, b) => a.grade - b.grade || a.subjectName.localeCompare(b.subjectName, 'ko'))
+}
 
 // ── 상태 레이블 ──────────────────────────────────────────────
 const STATUS_LABELS = {
@@ -64,10 +113,11 @@ function isValidEmail(email) {
 }
 
 // ── 기본 빈 과목 폼 ──────────────────────────────────────────
-const EMPTY_FORM = { name: '', grade: '', semester: '', teacherEmails: [] }
+// achievementLevel: 성취도 산출 단계 (5=A~E, 3=A~C — 과학탐구실험/체육·예술 교과군 등)
+const EMPTY_FORM = { name: '', grade: '', semester: '', teacherEmails: [], achievementLevel: 5 }
 
 export default function AsaChecklistAdmin() {
-  const { schoolId: authSchoolId, isAdmin, isPrincipal, isSuperAdmin } = useAuth()
+  const { schoolId: authSchoolId, user, userName, isAdmin, isPrincipal, isSuperAdmin } = useAuth()
   // 슈퍼어드민은 schoolId가 null이므로 직접 입력 가능
   const [superAdminSchoolId, setSuperAdminSchoolId] = useState('seonyoo-hs')
   const schoolId = isSuperAdmin ? superAdminSchoolId : authSchoolId
@@ -88,6 +138,29 @@ export default function AsaChecklistAdmin() {
   const [xlsxParsing, setXlsxParsing] = useState(false)
   const [xlsxSaving, setXlsxSaving] = useState(false)
   const xlsxInputRef = useRef(null)
+
+  // 분할점수 기준(asaCutoffs)에서 과목 가져오기
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importCutoffs, setImportCutoffs] = useState([]) // [{ id, subjectName, grade, boundaries, source, fixedCategory }]
+  const [importSemester, setImportSemester] = useState(1)
+  const [importSelected, setImportSelected] = useState(new Set())
+  const [importSaving, setImportSaving] = useState(false)
+
+  // 나이스 "교사별 담당과목 목록"으로 이미 등록된 과목에 배정 교사 자동 매칭
+  const [neisDialogOpen, setNeisDialogOpen] = useState(false)
+  const [neisParsing, setNeisParsing] = useState(false)
+  const [neisSaving, setNeisSaving] = useState(false)
+  const [neisRows, setNeisRows] = useState([]) // [{ key, grade, subjectName, resolved, unresolved, matchingDocs }] (등록된 과목만)
+  const [neisSelected, setNeisSelected] = useState(new Set())
+  const [neisOverrides, setNeisOverrides] = useState({}) // `${rowKey}|${teacherName}` → email ('' = 건너뛰기)
+  const [neisImportDocId, setNeisImportDocId] = useState(null) // 이번 업로드의 이력 문서 id (적용 시 갱신용)
+  const neisInputRef = useRef(null)
+
+  // 나이스 업로드 이력
+  const [neisHistory, setNeisHistory] = useState([])
+  const [loadingNeisHistory, setLoadingNeisHistory] = useState(true)
+  const [neisHistoryDetail, setNeisHistoryDetail] = useState(null) // 상세보기 중인 이력 문서
 
   // 체크리스트 현황
   const [submissions, setSubmissions] = useState([])
@@ -141,6 +214,24 @@ export default function AsaChecklistAdmin() {
     return unsub
   }, [schoolId])
 
+  // ── Firestore 구독: asaNeisImports (나이스 업로드 이력) ────
+  useEffect(() => {
+    if (!schoolId) return
+    const q = query(
+      collection(db, 'schools', schoolId, 'asaNeisImports'),
+      orderBy('uploadedAt', 'desc'),
+      limit(30),
+    )
+    const unsub = onSnapshot(q, (snap) => {
+      setNeisHistory(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setLoadingNeisHistory(false)
+    }, (err) => {
+      setError(`나이스 업로드 이력을 불러오지 못했습니다: ${err.message}`)
+      setLoadingNeisHistory(false)
+    })
+    return unsub
+  }, [schoolId])
+
   // ── Firestore 구독: asaSubmissions ───────────────────────
   useEffect(() => {
     if (!schoolId) return
@@ -173,6 +264,7 @@ export default function AsaChecklistAdmin() {
       grade: subject.grade ?? '',
       semester: subject.semester ?? '',
       teacherEmails: subject.teacherEmails || [],
+      achievementLevel: subject.achievementLevel ?? 5, // 기존 과목(필드 없음)은 5단계로 취급
     })
     setEmailInput('')
     setDialogOpen(true)
@@ -234,6 +326,7 @@ export default function AsaChecklistAdmin() {
         grade: Number(form.grade),
         semester: Number(form.semester),
         teacherEmails: finalEmails,
+        achievementLevel: Number(form.achievementLevel) === 3 ? 3 : 5,
         updatedAt: serverTimestamp(),
       }
       if (editingId) {
@@ -288,11 +381,12 @@ export default function AsaChecklistAdmin() {
         const semester = Number(row[1])
         const name = String(row[2] || '').trim()
         const emailRaw = String(row[3] || '').trim()
+        const achievementLevel = Number(row[4]) === 3 ? 3 : 5
         if (!name) continue
         const teacherEmails = emailRaw
           ? emailRaw.split(',').map((s) => s.trim()).filter((s) => s && isValidEmail(s))
           : []
-        parsed.push({ grade, semester, name, teacherEmails })
+        parsed.push({ grade, semester, name, teacherEmails, achievementLevel })
       }
       if (!parsed.length) {
         setError('인식된 데이터가 없습니다. A=학년, B=학기, C=과목명, D=교사이메일 형식을 확인하세요.')
@@ -308,19 +402,26 @@ export default function AsaChecklistAdmin() {
     }
   }
 
-  // ── 엑셀 양식 다운로드 ───────────────────────────────────
+  // ── 엑셀 다운로드: 현재 등록된 과목 목록을 그대로 내보냄 (엑셀 업로드로 재사용 가능한 형식) ──
   const handleDownloadTemplate = async () => {
     const XLSX = await import('xlsx')
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['학년', '학기', '과목명', '교사이메일(콤마구분)'],
-      [1, 1, '국어', 'teacher1@school.kr,teacher2@school.kr'],
-      [1, 1, '수학', 'teacher3@school.kr'],
-      [2, 1, '영어', ''],
+    const sorted = [...subjects].sort((a, b) =>
+      a.grade - b.grade || a.semester - b.semester || a.name.localeCompare(b.name, 'ko'))
+    const rows = sorted.map((s) => [
+      s.grade,
+      s.semester,
+      s.name,
+      (s.teacherEmails || []).join(','),
+      (s.achievementLevel ?? 5) === 3 ? 3 : 5,
     ])
-    ws['!cols'] = [{ wch: 8 }, { wch: 8 }, { wch: 20 }, { wch: 40 }]
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['학년', '학기', '과목명', '교사이메일(콤마구분)', '성취도단계(5 또는 3, 비우면 5)'],
+      ...rows,
+    ])
+    ws['!cols'] = [{ wch: 8 }, { wch: 8 }, { wch: 20 }, { wch: 40 }, { wch: 24 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '과목목록')
-    XLSX.writeFile(wb, '성취평가제_과목목록_양식.xlsx')
+    XLSX.writeFile(wb, '성취평가제_과목목록.xlsx')
   }
 
   const handleXlsxSave = async () => {
@@ -332,6 +433,7 @@ export default function AsaChecklistAdmin() {
           grade: row.grade,
           semester: row.semester,
           teacherEmails: row.teacherEmails,
+          achievementLevel: row.achievementLevel,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }),
@@ -343,6 +445,205 @@ export default function AsaChecklistAdmin() {
       setError(`일괄 저장 실패: ${err.message}`)
     } finally {
       setXlsxSaving(false)
+    }
+  }
+
+  // ── 분할점수 기준(asaCutoffs)에서 과목 가져오기 ──────────────────
+  const handleOpenImport = async () => {
+    setImportDialogOpen(true)
+    setImportLoading(true)
+    try {
+      const snap = await getDocs(query(collection(db, 'schools', schoolId, 'asaCutoffs'), orderBy('grade')))
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => a.grade - b.grade || a.subjectName.localeCompare(b.subjectName, 'ko'))
+      setImportCutoffs(list)
+      // 이미 등록된(같은 학년+과목명+학기) 과목은 기본 선택 해제
+      const already = new Set(
+        subjects.filter((s) => s.semester === importSemester).map((s) => `${s.grade}_${s.name}`),
+      )
+      setImportSelected(new Set(
+        list.filter((c) => !already.has(`${c.grade}_${stripCreditSuffix(c.subjectName)}`)).map((c) => c.id),
+      ))
+    } catch (err) {
+      setError(`분할점수 기준 목록을 불러오지 못했습니다: ${err.message}`)
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  const handleCloseImport = () => {
+    setImportDialogOpen(false)
+    setImportCutoffs([])
+    setImportSelected(new Set())
+  }
+
+  const toggleImportSelected = (id) => {
+    setImportSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const isAlreadyImported = (c) =>
+    subjects.some((s) => s.grade === c.grade && s.name === stripCreditSuffix(c.subjectName) && s.semester === importSemester)
+
+  const handleImportSave = async () => {
+    const targets = importCutoffs.filter((c) => importSelected.has(c.id) && !isAlreadyImported(c))
+    if (!targets.length) { setError('추가할 과목이 없습니다.'); return }
+    setImportSaving(true)
+    try {
+      await Promise.all(targets.map((c) =>
+        addDoc(collection(db, 'schools', schoolId, 'asaSubjects'), {
+          name: stripCreditSuffix(c.subjectName),
+          grade: c.grade,
+          semester: importSemester,
+          teacherEmails: [],
+          achievementLevel: levelFromBoundaries(c.boundaries),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }),
+      ))
+      setSnackbar(`${targets.length}개 과목이 추가됐습니다. 배정 교사는 각 과목을 수정해서 입력하세요.`)
+      handleCloseImport()
+    } catch (err) {
+      setError(`가져오기 실패: ${err.message}`)
+    } finally {
+      setImportSaving(false)
+    }
+  }
+
+  // ── 나이스 "교사별 담당과목 목록"으로 배정 교사 자동 매칭 ──────────
+  const handleNeisFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setNeisParsing(true)
+    setError(null)
+    try {
+      const parsed = await parseNeisTeacherSubjectFile(file)
+
+      // grade+과목명 단위로 담당 교사명 취합
+      const grouped = new Map()
+      parsed.forEach(({ teacherName, subjectName, grade }) => {
+        const key = `${grade}_${subjectName}`
+        if (!grouped.has(key)) grouped.set(key, { grade, subjectName, teacherNames: new Set() })
+        grouped.get(key).teacherNames.add(teacherName)
+      })
+
+      // 파일 안의 모든 학년+과목 조합을 스냅샷으로 남김 (체크리스트에 등록 안 된 과목도 포함 —
+      // 나중에 과목을 등록하고 나서 이 이력을 참고할 수 있도록). 실제 "적용"은 등록된 과목만 가능.
+      const groupList = [...grouped.values()].map((g) => ({ ...g, teacherNames: [...g.teacherNames] }))
+      const allRows = buildNeisMatchRows(groupList, teachers, subjects)
+
+      if (!allRows.length) {
+        setError('인식된 담당과목 데이터가 없습니다.')
+        return
+      }
+
+      // 이력 저장 (등록 안 된 과목 포함 전체 스냅샷 — matchingDocs 런타임 필드는 제외)
+      const importRef = await addDoc(collection(db, 'schools', schoolId, 'asaNeisImports'), {
+        fileName: file.name,
+        uploadedBy: user.uid,
+        uploadedByName: userName || user.email,
+        rows: allRows.map(({ matchingDocs, ...rest }) => rest),
+        appliedKeys: [],
+        uploadedAt: serverTimestamp(),
+      })
+      setNeisImportDocId(importRef.id)
+
+      const registeredRows = allRows.filter((r) => r.registered)
+      if (!registeredRows.length) {
+        setSnackbar('업로드 이력에 저장했습니다. 다만 이미 체크리스트에 등록된 과목과 일치하는 항목이 없어 바로 적용할 내용은 없습니다.')
+        return
+      }
+
+      setNeisRows(registeredRows)
+      // 전원 자동 매칭된(동명이인/미매칭 없는) 행만 기본 선택
+      setNeisSelected(new Set(registeredRows.filter((r) => r.unresolved.length === 0).map((r) => r.key)))
+      setNeisOverrides({})
+      setNeisDialogOpen(true)
+    } catch (err) {
+      setError(`나이스 파일 파싱 실패: ${err.message}`)
+    } finally {
+      setNeisParsing(false)
+    }
+  }
+
+  const handleCloseNeis = () => {
+    setNeisDialogOpen(false)
+    setNeisRows([])
+    setNeisSelected(new Set())
+    setNeisOverrides({})
+    setNeisImportDocId(null)
+  }
+
+  const toggleNeisSelected = (key) => {
+    setNeisSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  // 업로드 이력에 저장된 원본 담당 교사명을 "지금" 계정/과목 상태로 다시 매칭한다.
+  // (스냅샷 당시 registered:false였어도 그 뒤 과목이 등록됐으면 지금은 매칭될 수 있음)
+  const openNeisRematch = (historyDoc, rowKeys) => {
+    const source = (historyDoc.rows || []).filter((r) => !rowKeys || rowKeys.includes(r.key))
+    if (!source.length) return
+    const groupList = source.map((r) => ({ grade: r.grade, subjectName: r.subjectName, teacherNames: r.teacherNames || [] }))
+    const rows = buildNeisMatchRows(groupList, teachers, subjects)
+    const registeredRows = rows.filter((r) => r.registered)
+    if (!registeredRows.length) {
+      setError('현재 체크리스트에 등록된 과목과 일치하는 항목이 없습니다. 먼저 과목을 등록하세요.')
+      return
+    }
+    setNeisRows(registeredRows)
+    setNeisSelected(new Set(registeredRows.filter((r) => r.unresolved.length === 0).map((r) => r.key)))
+    setNeisOverrides({})
+    setNeisImportDocId(historyDoc.id) // 재적용 시 이 이력 문서의 appliedKeys를 갱신
+    setNeisHistoryDetail(null)
+    setNeisDialogOpen(true)
+  }
+
+  const handleRematchAll = (historyDoc) => openNeisRematch(historyDoc, null)
+  const handleRematchOne = (historyDoc, rowKey) => openNeisRematch(historyDoc, [rowKey])
+
+  const handleNeisSave = async () => {
+    const targets = neisRows.filter((r) => neisSelected.has(r.key))
+    if (!targets.length) { setError('적용할 과목이 없습니다.'); return }
+    setNeisSaving(true)
+    try {
+      const updates = []
+      targets.forEach((r) => {
+        const emails = new Set(r.resolved.map((x) => x.email))
+        r.unresolved.forEach((u) => {
+          const override = neisOverrides[`${r.key}|${u.name}`]
+          if (override) emails.add(override)
+        })
+        r.matchingDocs.forEach((docObj) => {
+          const merged = new Set([...(docObj.teacherEmails || []), ...emails])
+          updates.push(updateDoc(doc(db, 'schools', schoolId, 'asaSubjects', docObj.id), {
+            teacherEmails: [...merged],
+            updatedAt: serverTimestamp(),
+          }))
+        })
+      })
+      if (neisImportDocId) {
+        updates.push(updateDoc(doc(db, 'schools', schoolId, 'asaNeisImports', neisImportDocId), {
+          appliedKeys: arrayUnion(...targets.map((r) => r.key)),
+        }))
+      }
+      await Promise.all(updates)
+      setSnackbar(`${targets.length}개 과목의 배정 교사가 업데이트됐습니다.`)
+      handleCloseNeis()
+    } catch (err) {
+      setError(`적용 실패: ${err.message}`)
+    } finally {
+      setNeisSaving(false)
     }
   }
 
@@ -362,6 +663,8 @@ export default function AsaChecklistAdmin() {
     if (filterStatus !== 'all' && s.status !== filterStatus) return false
     return true
   })
+
+  const importAddCount = importCutoffs.filter((c) => importSelected.has(c.id) && !isAlreadyImported(c)).length
 
   // ── 접근 제한 ────────────────────────────────────────────
   if (!isAdmin && !isPrincipal && !isSuperAdmin) {
@@ -399,6 +702,7 @@ export default function AsaChecklistAdmin() {
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: '1px solid #e2e8f0', px: 2 }}>
           <Tab label="과목 관리" />
           <Tab label="체크리스트 현황" />
+          <Tab label="나이스 업로드 이력" />
         </Tabs>
 
         {/* ══ 탭 1: 과목 관리 ══════════════════════════════════ */}
@@ -430,7 +734,29 @@ export default function AsaChecklistAdmin() {
                 startIcon={<DownloadOutlinedIcon />}
                 onClick={handleDownloadTemplate}
               >
-                양식 다운로드
+                과목 목록 다운로드
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleOpenImport}
+              >
+                분할점수 기준에서 가져오기
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                component="label"
+                disabled={neisParsing}
+              >
+                {neisParsing ? '분석 중...' : '나이스 담당과목으로 교사 매칭'}
+                <input
+                  ref={neisInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  hidden
+                  onChange={handleNeisFile}
+                />
               </Button>
             </Box>
 
@@ -442,22 +768,28 @@ export default function AsaChecklistAdmin() {
                 과목이 없습니다. 과목을 추가하거나 엑셀로 업로드하세요.
               </Alert>
             ) : (
-              <Table size="small">
+              <Table size="small" sx={{ tableLayout: 'fixed' }}>
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                    <TableCell sx={{ fontWeight: 700 }}>학년</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>학기</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>과목명</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 64 }}>학년</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 64 }}>학기</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 160 }}>과목명</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 96 }}>단계</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>배정 교사</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 100 }}>작업</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 80 }}>작업</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {subjects.map((subject) => (
                     <TableRow key={subject.id} hover>
-                      <TableCell>{subject.grade}학년</TableCell>
-                      <TableCell>{subject.semester}학기</TableCell>
-                      <TableCell>{subject.name}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{subject.grade}학년</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{subject.semester}학기</TableCell>
+                      <TableCell sx={{ wordBreak: 'keep-all' }}>{subject.name}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        {(subject.achievementLevel ?? 5) === 3
+                          ? <Chip label="3단계" size="small" color="warning" variant="outlined" />
+                          : <Chip label="5단계" size="small" variant="outlined" />}
+                      </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                           {(subject.teacherEmails || []).length === 0 ? (
@@ -467,12 +799,13 @@ export default function AsaChecklistAdmin() {
                               const t = teachers.find((t) => t.email === email)
                               const tName = t?.name ? cleanTeacherName(t.name) : null
                               return (
-                                <Chip
-                                  key={email}
-                                  label={tName ? `${tName} (${email})` : email}
-                                  size="small"
-                                  variant="outlined"
-                                />
+                                <Tooltip key={email} title={email}>
+                                  <Chip
+                                    label={tName || email}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </Tooltip>
                               )
                             })
                           )}
@@ -615,6 +948,58 @@ export default function AsaChecklistAdmin() {
             )}
           </Box>
         )}
+
+        {/* ══ 탭 3: 나이스 업로드 이력 ════════════════════════════ */}
+        {tab === 2 && (
+          <Box sx={{ p: 3 }}>
+            {loadingNeisHistory ? (
+              <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+            ) : neisHistory.length === 0 ? (
+              <Alert severity="info">
+                아직 업로드한 나이스 담당과목 파일이 없습니다. "과목 관리" 탭에서 "나이스 담당과목으로 교사 매칭"으로 업로드하세요.
+              </Alert>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                    <TableCell sx={{ fontWeight: 700 }}>파일명</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>업로드일시</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>업로더</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="right">조합 수</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="right">등록 과목 매칭</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="right">적용됨</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 180 }}>작업</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {neisHistory.map((h) => {
+                    const rows = h.rows || []
+                    const registeredCount = rows.filter((r) => r.registered).length
+                    const appliedCount = (h.appliedKeys || []).length
+                    return (
+                      <TableRow key={h.id} hover>
+                        <TableCell>{h.fileName}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          {h.uploadedAt?.toDate
+                            ? h.uploadedAt.toDate().toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                            : '-'}
+                        </TableCell>
+                        <TableCell>{h.uploadedByName || '-'}</TableCell>
+                        <TableCell align="right">{rows.length}개</TableCell>
+                        <TableCell align="right">{registeredCount}개</TableCell>
+                        <TableCell align="right">{appliedCount}개</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <Button size="small" onClick={() => setNeisHistoryDetail(h)}>보기</Button>
+                          <Button size="small" onClick={() => handleRematchAll(h)}>전체 재매칭</Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </Box>
+        )}
       </Paper>
 
       {/* ══ 과목 추가/수정 Dialog ══════════════════════════════ */}
@@ -645,7 +1030,21 @@ export default function AsaChecklistAdmin() {
                 <MenuItem value={2}>2학기</MenuItem>
               </Select>
             </FormControl>
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>성취도 단계 *</InputLabel>
+              <Select
+                value={form.achievementLevel}
+                label="성취도 단계 *"
+                onChange={(e) => setForm((p) => ({ ...p, achievementLevel: e.target.value }))}
+              >
+                <MenuItem value={5}>5단계 (A~E)</MenuItem>
+                <MenuItem value={3}>3단계 (A~C)</MenuItem>
+              </Select>
+            </FormControl>
           </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+            과학탐구실험·체육/예술 교과(군) 등 3단계 산출 과목은 성취평가제 체크리스트 대상(1·2학년 5단계 산출 과목)이 아닙니다.
+          </Typography>
           <TextField
             label="과목명 *"
             size="small"
@@ -773,6 +1172,7 @@ export default function AsaChecklistAdmin() {
                 <TableCell sx={{ fontWeight: 700 }}>학년</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>학기</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>과목명</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>단계</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>배정 교사 이메일</TableCell>
               </TableRow>
             </TableHead>
@@ -782,6 +1182,7 @@ export default function AsaChecklistAdmin() {
                   <TableCell>{row.grade}학년</TableCell>
                   <TableCell>{row.semester}학기</TableCell>
                   <TableCell>{row.name}</TableCell>
+                  <TableCell>{row.achievementLevel}단계</TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                       {row.teacherEmails.length === 0
@@ -799,6 +1200,271 @@ export default function AsaChecklistAdmin() {
           <Button variant="contained" onClick={handleXlsxSave} disabled={xlsxSaving}>
             {xlsxSaving ? '저장 중...' : `저장 (${xlsxPreview.length}개)`}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ══ 분할점수 기준에서 가져오기 Dialog ══════════════════════ */}
+      <Dialog open={importDialogOpen} onClose={handleCloseImport} maxWidth="md" fullWidth>
+        <DialogTitle>분할점수 기준에서 과목 가져오기</DialogTitle>
+        <DialogContent sx={{ pt: '12px !important' }}>
+          <Alert severity="info" sx={{ mb: 2, fontSize: '0.82rem' }}>
+            "분할점수 기준 관리"에 등록된 과목명·학년을 그대로 가져오고, 성취도 단계(5/3)는 분할점수 경계 개수로 자동 판별합니다.
+            배정 교사는 가져온 뒤 각 과목을 수정해서 입력하세요.
+          </Alert>
+          <FormControl size="small" sx={{ minWidth: 120, mb: 2 }}>
+            <InputLabel>등록할 학기</InputLabel>
+            <Select
+              value={importSemester}
+              label="등록할 학기"
+              onChange={(e) => setImportSemester(e.target.value)}
+            >
+              <MenuItem value={1}>1학기</MenuItem>
+              <MenuItem value={2}>2학기</MenuItem>
+            </Select>
+          </FormControl>
+          {importLoading ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+          ) : importCutoffs.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              분할점수 기준 관리에 등록된 과목이 없습니다.
+            </Typography>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                  <TableCell padding="checkbox" />
+                  <TableCell sx={{ fontWeight: 700 }}>학년</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>과목명</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>단계</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>출처</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>상태</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {importCutoffs.map((c) => {
+                  const exists = isAlreadyImported(c)
+                  const level = levelFromBoundaries(c.boundaries)
+                  const cleanName = stripCreditSuffix(c.subjectName)
+                  return (
+                    <TableRow key={c.id} hover>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          size="small"
+                          checked={importSelected.has(c.id)}
+                          onChange={() => toggleImportSelected(c.id)}
+                          disabled={exists}
+                        />
+                      </TableCell>
+                      <TableCell>{c.grade}학년</TableCell>
+                      <TableCell>
+                        {cleanName}
+                        {cleanName !== c.subjectName && (
+                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
+                            원본: {c.subjectName}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={`${level}단계`}
+                          size="small"
+                          color={level === 3 ? 'warning' : 'default'}
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {c.source === 'estimated' ? '추정분할점수' : (getFixedCategory(c.fixedCategory)?.label || '고정분할점수')}
+                      </TableCell>
+                      <TableCell>
+                        {exists
+                          ? <Chip label={`이미 등록됨(${importSemester}학기)`} size="small" />
+                          : <Typography variant="caption" color="text.secondary">신규</Typography>}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleCloseImport} disabled={importSaving}>취소</Button>
+          <Button variant="contained" onClick={handleImportSave} disabled={importSaving || importLoading || importAddCount === 0}>
+            {importSaving ? '추가 중...' : `선택한 과목 추가 (${importAddCount}개)`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ══ 나이스 담당과목 → 배정 교사 자동 매칭 Dialog ══════════════ */}
+      <Dialog open={neisDialogOpen} onClose={handleCloseNeis} maxWidth="lg" fullWidth>
+        <DialogTitle>나이스 담당과목으로 배정 교사 매칭</DialogTitle>
+        <DialogContent sx={{ pt: '12px !important' }}>
+          <Alert severity="info" sx={{ mb: 2, fontSize: '0.82rem' }}>
+            나이스 "교사별 담당과목 목록" 엑셀에서 학년+과목명이 일치하는, <b>이미 체크리스트에 등록된 과목</b>에만 담당 교사를 매칭합니다.
+            아직 등록 안 된 과목이나 창의적 체험활동은 자동으로 제외됩니다. 기존에 배정된 교사는 유지되고 새로 찾은 교사만 추가됩니다.
+            업로드 내용 전체는 "나이스 업로드 이력" 탭에 저장되어 나중에 다시 확인할 수 있습니다.
+          </Alert>
+          {neisRows.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">매칭할 과목이 없습니다.</Typography>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                  <TableCell padding="checkbox" />
+                  <TableCell sx={{ fontWeight: 700 }}>학년</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>과목명</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>현재 배정</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>나이스에서 찾은 교사</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {neisRows.map((r) => {
+                  const currentEmails = new Set()
+                  r.matchingDocs.forEach((d) => (d.teacherEmails || []).forEach((e) => currentEmails.add(e)))
+                  return (
+                    <TableRow key={r.key} hover>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          size="small"
+                          checked={neisSelected.has(r.key)}
+                          onChange={() => toggleNeisSelected(r.key)}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.grade}학년</TableCell>
+                      <TableCell>{r.subjectName}</TableCell>
+                      <TableCell>
+                        {[...currentEmails].length === 0 ? (
+                          <Typography variant="caption" color="text.disabled">미배정</Typography>
+                        ) : (
+                          [...currentEmails].map((email) => {
+                            const t = teachers.find((tc) => tc.email === email)
+                            return (
+                              <Chip
+                                key={email}
+                                label={t?.name ? cleanTeacherName(t.name) : email}
+                                size="small"
+                                variant="outlined"
+                                sx={{ mr: 0.5, mb: 0.5 }}
+                              />
+                            )
+                          })
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
+                          {r.resolved.map((x) => (
+                            <Chip
+                              key={x.name}
+                              label={cleanTeacherName(teachers.find((tc) => tc.email === x.email)?.name || x.name)}
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                            />
+                          ))}
+                          {r.unresolved.map((u) => {
+                            const candidateTeachers = (u.candidateEmails || [])
+                              .map((email) => teachers.find((t) => t.email === email))
+                              .filter(Boolean)
+                            const options = candidateTeachers.length ? candidateTeachers : teachers
+                            return (
+                              <FormControl key={u.name} size="small" sx={{ minWidth: 220 }}>
+                                <Select
+                                  displayEmpty
+                                  value={neisOverrides[`${r.key}|${u.name}`] || ''}
+                                  onChange={(e) => setNeisOverrides((prev) => ({
+                                    ...prev, [`${r.key}|${u.name}`]: e.target.value,
+                                  }))}
+                                >
+                                  <MenuItem value="">
+                                    ⚠ {u.name} — {candidateTeachers.length > 1 ? '동명이인, 직접 선택' : '미매칭, 직접 선택'}
+                                  </MenuItem>
+                                  {options.map((t) => (
+                                    <MenuItem key={t.email} value={t.email}>
+                                      {cleanTeacherName(t.name)} ({t.email})
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            )
+                          })}
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleCloseNeis} disabled={neisSaving}>취소</Button>
+          <Button variant="contained" onClick={handleNeisSave} disabled={neisSaving || neisSelected.size === 0}>
+            {neisSaving ? '적용 중...' : `선택한 과목에 적용 (${neisSelected.size}개)`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ══ 나이스 업로드 이력 상세보기 Dialog (읽기 전용) ═══════════ */}
+      <Dialog open={!!neisHistoryDetail} onClose={() => setNeisHistoryDetail(null)} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          업로드 이력: {neisHistoryDetail?.fileName}
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 400 }}>
+            {neisHistoryDetail?.uploadedAt?.toDate
+              ? neisHistoryDetail.uploadedAt.toDate().toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+              : ''}
+            {' · '}{neisHistoryDetail?.uploadedByName}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: '12px !important' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                <TableCell sx={{ fontWeight: 700 }}>학년</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>과목명</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>나이스 담당 교사</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>매칭 결과</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>상태</TableCell>
+                <TableCell sx={{ fontWeight: 700, width: 90 }}>작업</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(neisHistoryDetail?.rows || []).map((r) => {
+                const applied = (neisHistoryDetail.appliedKeys || []).includes(r.key)
+                return (
+                  <TableRow key={r.key} hover>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.grade}학년</TableCell>
+                    <TableCell>{r.subjectName}</TableCell>
+                    <TableCell>{(r.teacherNames || []).join(', ')}</TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {(r.resolved || []).map((x) => (
+                          <Chip key={x.name} label={x.name} size="small" color="success" variant="outlined" />
+                        ))}
+                        {(r.unresolved || []).map((u) => (
+                          <Chip key={u.name} label={`${u.name} (미매칭)`} size="small" color="warning" variant="outlined" />
+                        ))}
+                      </Box>
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                      {!r.registered
+                        ? <Chip label="미등록 과목" size="small" />
+                        : applied
+                          ? <Chip label="적용됨" size="small" color="primary" />
+                          : <Chip label="미적용" size="small" variant="outlined" />}
+                    </TableCell>
+                    <TableCell>
+                      <Button size="small" onClick={() => handleRematchOne(neisHistoryDetail, r.key)}>
+                        재매칭
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNeisHistoryDetail(null)}>닫기</Button>
         </DialogActions>
       </Dialog>
 
