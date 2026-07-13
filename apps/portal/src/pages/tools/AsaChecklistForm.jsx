@@ -446,14 +446,14 @@ export default function AsaChecklistForm() {
             </Button>
           }
         >
-          제출이 완료된 체크리스트입니다.
+          제출이 완료된 체크리스트입니다. 필요하면 제출 후에도 계속 수정할 수 있습니다.
         </Alert>
       )}
 
       <Dialog open={submitDialogOpen} onClose={() => setSubmitDialogOpen(false)}>
         <DialogTitle>체크리스트 제출</DialogTitle>
         <DialogContent>
-          <Typography>제출 후에는 수정이 불가합니다. 정말 제출하시겠습니까?</Typography>
+          <Typography>제출하시겠습니까? 제출 후에도 필요하면 계속 수정할 수 있습니다.</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSubmitDialogOpen(false)} disabled={submitting}>취소</Button>
