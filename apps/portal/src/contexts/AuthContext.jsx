@@ -4,6 +4,7 @@ import {
 } from 'firebase/auth'
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
+import { emailToDocId } from '../lib/emailToDocId'
 
 const SUPER_ADMIN_EMAIL = 'hckgood@gmail.com'
 
@@ -152,6 +153,44 @@ export function AuthProvider({ children }) {
       }
     } catch (e) {
       console.warn('학생 사전등록 조회 실패:', e.message)
+    }
+
+    // 사전 등록(preApproved) 교직원 자동 활성화 시도 — 이메일 도메인으로 학교 매핑 후 조회
+    try {
+      const emailDomain = email.split('@')[1]
+      if (emailDomain) {
+        const domainSnap = await getDoc(doc(db, 'schoolDomains', emailDomain))
+        if (domainSnap.exists()) {
+          const { schoolId: domainSchoolId } = domainSnap.data()
+          const preSnap = await getDoc(
+            doc(db, 'schools', domainSchoolId, 'preApproved', emailToDocId(email))
+          )
+          if (preSnap.exists()) {
+            const { name: preName, staffType, role: preRole } = preSnap.data()
+            await setDoc(userRef, {
+              name: firebaseUser.displayName || preName || '',
+              email,
+              role: preRole || 'teacher',
+              schoolId: domainSchoolId,
+              staffType: staffType || '교사',
+              createdAt: serverTimestamp(),
+            })
+            const schoolData = await fetchSchoolData(domainSchoolId)
+            setUser(firebaseUser)
+            setUserName(firebaseUser.displayName || preName || '')
+            setRole(preRole || 'teacher')
+            setSchoolId(domainSchoolId)
+            setSchoolName(schoolData.name || domainSchoolId)
+            setCoverApiUrl(schoolData.coverApiUrl || null)
+            setStudentId(null)
+            setIsSuperAdmin(false)
+            setNeedsSchoolSetup(false)
+            return
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('교직원 사전등록 조회 실패:', e.message)
     }
 
     // 등록된 학생 아님 → SchoolSetup

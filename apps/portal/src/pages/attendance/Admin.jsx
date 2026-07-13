@@ -7,6 +7,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { db, storage } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
+import { emailToDocId } from '../../lib/emailToDocId'
 
 const ROLE_LABELS = {
   teacher: '교직원',
@@ -18,11 +19,6 @@ const ROLE_LABELS = {
 const STAFF_TYPE_STYLE = {
   '교사':   { bg: '#e0f2fe', color: '#0369a1' },
   '교직원': { bg: '#f0fdf4', color: '#15803d' },
-}
-
-// 이메일을 Firestore doc ID로 안전하게 변환
-function emailToDocId(email) {
-  return email.toLowerCase().replace(/\./g, '_').replace(/@/g, '__at__')
 }
 
 // TSV 파싱: "이름\t이메일\t구분" 형식

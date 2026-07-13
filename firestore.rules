@@ -214,8 +214,10 @@ service cloud.firestore {
       }
 
       // [M-3] preApproved — 본인 이메일 문서만 get 허용, 목록은 해당 학교 관리자 이상
+      // [FIX] 문서 ID는 이메일을 변환한 값(emailToDocId)이라 emailId와 원본 이메일이 항상
+      // 달라 get이 실질적으로 막혀 있었음 — 문서 데이터의 email 필드로 비교하도록 수정
       match /preApproved/{emailId} {
-        allow get: if isSignedIn() && emailId == request.auth.token.email;
+        allow get: if isSignedIn() && resource.data.email == request.auth.token.email;
         allow list: if isSuperAdmin() || isSchoolAdmin(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
