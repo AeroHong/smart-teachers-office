@@ -101,7 +101,15 @@ service cloud.firestore {
     match /schools/{schoolId} {
       // [H-1] get/list 분리 — list는 관리자만, 단건 get은 SchoolSetup 미가입자도 허용
       allow get: if isSuperAdmin() || isTeacher(schoolId) || isSignedIn();
-      allow list: if isSuperAdmin() || isTeacher(schoolId);
+      // [FIX] list는 원래 관리자/소속 교사만 허용하려 했으나, schoolId는 문서마다 달라지는
+      // 와일드카드라 컬렉션 전체를 조회하는 list 쿼리에서는 isTeacher(schoolId)가 절대 참이 될 수
+      // 없어 SchoolSetup의 학교 검색이 슈퍼 어드민 외 전원에게 permission-denied로 막혀 있었음.
+      // users 문서가 아직 없는(온보딩 전) 계정과 rejected 계정은 학교 목록을 조회할 수 있어야
+      // SchoolSetup에서 소속 학교를 찾아 가입 신청할 수 있다.
+      allow list: if isSuperAdmin() || isTeacher(schoolId) ||
+        (isSignedIn() &&
+          (!exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+           getUserData().role == 'rejected'));
       // 일반 사용자: school- 접두사 학교만 생성 가능 (SchoolSetup 자동 생성)
       allow create: if isSuperAdmin() ||
         (isSignedIn() && schoolId.matches('school-.*') && request.resource.data.createdBy == request.auth.token.email) ||
