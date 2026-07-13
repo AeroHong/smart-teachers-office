@@ -45,6 +45,14 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
+    // asaSubmissions 문서 자체의 teacherEmails는 생성 시점 스냅샷이라, 나중에 asaSubjects에서
+    // 교사가 추가/제거돼도 기존 submission 문서에는 반영되지 않아 배정 현황과 어긋날 수 있다.
+    // 그래서 배정 여부는 항상 asaSubjects의 실시간 teacherEmails로 판단한다.
+    function isAssignedToAsaSubject(schoolId, subjectId) {
+      return request.auth.token.email in
+        get(/databases/$(database)/documents/schools/$(schoolId)/asaSubjects/$(subjectId)).data.teacherEmails;
+    }
+
     // ── /studentRegistrations — 학생 자동 등록용 이메일 색인 ───────
     match /studentRegistrations/{email} {
       allow get: if isSignedIn() && email == request.auth.token.email;
@@ -218,14 +226,15 @@ service cloud.firestore {
       }
 
       // 제출물 — 배정된 교사·교감은 읽기/수정, 관리자는 전체, 잠금(locked) 후 수정 불가
+      // 배정 여부는 문서 자체의 teacherEmails(스냅샷)가 아니라 asaSubjects의 실시간 값으로 판단
       match /asaSubmissions/{submissionId} {
         allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId) ||
-          (isTeacher(schoolId) && request.auth.token.email in resource.data.teacherEmails);
+          (isTeacher(schoolId) && isAssignedToAsaSubject(schoolId, resource.data.subjectId));
         allow create: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
-          (isTeacher(schoolId) && request.auth.token.email in request.resource.data.teacherEmails);
+          (isTeacher(schoolId) && isAssignedToAsaSubject(schoolId, request.resource.data.subjectId));
         allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId) ||
           (isTeacher(schoolId) &&
-           request.auth.token.email in resource.data.teacherEmails &&
+           isAssignedToAsaSubject(schoolId, resource.data.subjectId) &&
            resource.data.status != 'locked');
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
