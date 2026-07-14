@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
+import { useState, useEffect, useRef, useCallback, Fragment, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
@@ -13,6 +13,7 @@ import TableCell from '@mui/material/TableCell'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import TextField from '@mui/material/TextField'
+import MenuItem from '@mui/material/MenuItem'
 import Chip from '@mui/material/Chip'
 import Snackbar from '@mui/material/Snackbar'
 import Collapse from '@mui/material/Collapse'
@@ -32,6 +33,17 @@ import { db } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { parseGradeSummaryFile, groupBlocksBySubject } from './asaUtils'
+
+// 현재 학년도·학기 계산
+function currentYearSemester() {
+  const now = new Date()
+  const month = now.getMonth() + 1
+  const calYear = now.getFullYear()
+  return {
+    year: month <= 2 ? calYear - 1 : calYear,
+    semester: (month >= 3 && month <= 8) ? 1 : 2,
+  }
+}
 
 function noteKey(subjectName, classNumber) {
   return `${subjectName}__${classNumber}`
@@ -64,6 +76,11 @@ function buildStudentMap(results) {
 
 export default function MinAchievement() {
   const { schoolId, user, role } = useAuth()
+
+  // ── 학년도·학기 ──
+  const { year: defaultYear, semester: defaultSemester } = useMemo(currentYearSemester, [])
+  const [cutoffYear, setCutoffYear] = useState(defaultYear)
+  const [cutoffSemester, setCutoffSemester] = useState(defaultSemester)
 
   // ── 안내 패널 ──
   const [showGuide, setShowGuide] = useState(true)
@@ -122,13 +139,13 @@ export default function MinAchievement() {
     return unsub
   }, [schoolId, mainTab])
 
-  // Firestore에서 과목 분할점수 조회
+  // Firestore에서 과목 분할점수 조회 (선택된 학년도·학기 기준)
   const fetchCutoffs = useCallback(async (subjectNames) => {
     if (!schoolId) return
     const entries = await Promise.all(
       subjectNames.map(async (name) => {
         try {
-          const snap = await getDoc(doc(db, 'schools', schoolId, 'asaCutoffs', `1_${name}`))
+          const snap = await getDoc(doc(db, 'schools', schoolId, 'asaCutoffs', `${cutoffYear}_${cutoffSemester}_1_${name}`))
           if (!snap.exists()) return [name, null]
           const eMido = (snap.data().boundaries || []).find(b => b.label === 'E/미도달')
           if (!eMido) return [name, null]
@@ -141,7 +158,7 @@ export default function MinAchievement() {
     const newMap = {}
     entries.forEach(([name, val]) => { if (val) newMap[name] = val })
     setCutoffMap(prev => ({ ...prev, ...newMap }))
-  }, [schoolId])
+  }, [schoolId, cutoffYear, cutoffSemester])
 
   // 파일 처리
   const handleFiles = async (fileList) => {
@@ -383,6 +400,39 @@ export default function MinAchievement() {
       {/* ══ 탭 0: 성적일람표 등록 ══════════════════════════════ */}
       {mainTab === 0 && (
         <Box>
+          {/* 학년도·학기 선택 */}
+          <Box sx={{ display: 'flex', gap: 2, mb: 2.5, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mr: 0.5 }}>
+              분할점수 기준 조회 학기:
+            </Typography>
+            <TextField
+              label="학년도" select size="small" value={cutoffYear}
+              onChange={e => {
+                setCutoffYear(Number(e.target.value))
+                setCutoffMap({})  // 학기 바뀌면 분할점수 초기화
+              }}
+              sx={{ minWidth: 100 }}
+            >
+              {[defaultYear - 1, defaultYear, defaultYear + 1].map(y => (
+                <MenuItem key={y} value={y}>{y}년</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="학기" select size="small" value={cutoffSemester}
+              onChange={e => {
+                setCutoffSemester(Number(e.target.value))
+                setCutoffMap({})
+              }}
+              sx={{ minWidth: 82 }}
+            >
+              <MenuItem value={1}>1학기</MenuItem>
+              <MenuItem value={2}>2학기</MenuItem>
+            </TextField>
+            <Typography variant="caption" color="text.disabled">
+              분할점수 기준 관리에 등록된 {cutoffYear}년 {cutoffSemester}학기 기준으로 E/미도달 점수를 불러옵니다.
+            </Typography>
+          </Box>
+
           <Paper
             onDragOver={e => { e.preventDefault(); setDragging(true) }}
             onDragLeave={() => setDragging(false)}
