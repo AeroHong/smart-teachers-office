@@ -12,7 +12,7 @@ import { emailToDocId } from '../../lib/emailToDocId'
 const ROLE_LABELS = {
   teacher: '교직원',
   school_admin: '학교 관리자',
-  admin: '시스템 관리자',
+  admin: '학교 관리자',   // 구 시스템 관리자 역할 — school_admin과 동일 처리
   principal: '교감',
 }
 
@@ -428,8 +428,8 @@ export default function Admin() {
                       ) : (
                         <span style={{
                           ...styles.roleBadge,
-                          backgroundColor: u.role === 'school_admin' ? '#f3e5f5' : u.role === 'admin' ? '#e8f0fe' : '#f0f0f0',
-                          color: u.role === 'school_admin' ? '#7b1fa2' : u.role === 'admin' ? '#1a73e8' : '#555',
+                          backgroundColor: (u.role === 'school_admin' || u.role === 'admin') ? '#f3e5f5' : '#f0f0f0',
+                          color: (u.role === 'school_admin' || u.role === 'admin') ? '#7b1fa2' : '#555',
                         }}>
                           {ROLE_LABELS[u.role] || u.role}
                         </span>
@@ -438,7 +438,7 @@ export default function Admin() {
                     <td style={styles.td}>
                       {isPreOnly ? (
                         <span style={styles.muted}>로그인 후 활성화</span>
-                      ) : u.role !== 'admin' ? (
+                      ) : (
                         <>
                           {u.role !== 'teacher' && (
                             <button onClick={() => changeRole(u.id, 'teacher')} style={styles.changeBtn}>교사로</button>
@@ -450,14 +450,10 @@ export default function Admin() {
                             <button onClick={() => changeRole(u.id, 'school_admin')} style={styles.schoolAdminBtn}>관리자로</button>
                           )}
                         </>
-                      ) : (
-                        <span style={styles.muted}>변경 불가</span>
                       )}
                     </td>
                     <td style={styles.td}>
-                      {u.role !== 'admin' && (
-                        <button onClick={() => removeMember(u)} style={styles.rejectBtn}>제거</button>
-                      )}
+                      <button onClick={() => removeMember(u)} style={styles.rejectBtn}>제거</button>
                     </td>
                   </tr>
                 )

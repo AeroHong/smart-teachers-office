@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -41,12 +41,16 @@ const SuperAdmin            = lazy(() => import('./pages/SuperAdmin'))
 const SuperAdminGuests      = lazy(() => import('./pages/SuperAdminGuests'))
 const SuperAdminDomainSetup = lazy(() => import('./pages/SuperAdminDomainSetup'))
 
+// 관리자 허브
+const AdminHub = lazy(() => import('./pages/AdminHub'))
+
 // 도구모음 - lazy load
 const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
 const QrNoticeGenerator  = lazy(() => import('./pages/tools/QrNoticeGenerator'))
 const AsaSupport         = lazy(() => import('./pages/tools/AsaSupport'))
 const AsaSupportCutoffs  = lazy(() => import('./pages/tools/AsaSupportCutoffs'))
 const GradeRankCalculator    = lazy(() => import('./pages/tools/GradeRankCalculator'))
+const MinAchievement         = lazy(() => import('./pages/tools/MinAchievement'))
 const AsaChecklistHome       = lazy(() => import('./pages/tools/AsaChecklistHome'))
 const AsaChecklistAdmin      = lazy(() => import('./pages/tools/AsaChecklistAdmin'))
 const AsaChecklistPrincipal  = lazy(() => import('./pages/tools/AsaChecklistPrincipal'))
@@ -96,15 +100,23 @@ export default function App() {
           <Route path="/student" element={<ProtectedRoute anyUser studentAllowed><StudentPortal /></ProtectedRoute>} />
 
           {/* ── 관리자 전용 ── */}
-          <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+          <Route path="/admin"                      element={<ProtectedRoute adminOnly><AdminHub /></ProtectedRoute>} />
+          <Route path="/admin/users"                element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+          <Route path="/admin/asa-cutoffs"          element={<ProtectedRoute adminOnly><AsaSupportCutoffs /></ProtectedRoute>} />
+          <Route path="/admin/asa-checklist"        element={<ProtectedRoute adminOnly><AsaChecklistAdmin /></ProtectedRoute>} />
+          <Route path="/admin/training-presets"     element={<ProtectedRoute adminOnly><TrainingPresets /></ProtectedRoute>} />
+
+          {/* ── 구 관리자 경로 리다이렉트 ── */}
+          <Route path="/tools/asa-support/cutoffs" element={<Navigate to="/admin/asa-cutoffs" replace />} />
+          <Route path="/tools/asa-checklist/admin" element={<Navigate to="/admin/asa-checklist" replace />} />
+          <Route path="/training/presets"          element={<Navigate to="/admin/training-presets" replace />} />
 
           {/* ── 도구모음 ── */}
           <Route path="/tools"                    element={<ProtectedRoute anyUser><ToolsHome /></ProtectedRoute>} />
           <Route path="/tools/qr-notice"           element={<ProtectedRoute anyUser><QrNoticeGenerator /></ProtectedRoute>} />
           <Route path="/tools/asa-support"         element={<ProtectedRoute anyUser><AsaSupport /></ProtectedRoute>} />
-          <Route path="/tools/asa-support/cutoffs" element={<ProtectedRoute adminOnly><AsaSupportCutoffs /></ProtectedRoute>} />
+          <Route path="/tools/min-achievement"     element={<ProtectedRoute anyUser><MinAchievement /></ProtectedRoute>} />
           <Route path="/tools/asa-checklist"                         element={<ProtectedRoute anyUser><AsaChecklistHome /></ProtectedRoute>} />
-          <Route path="/tools/asa-checklist/admin"                    element={<ProtectedRoute adminOnly><AsaChecklistAdmin /></ProtectedRoute>} />
           <Route path="/tools/asa-checklist/principal"                element={<ProtectedRoute principalAllowed><AsaChecklistPrincipal /></ProtectedRoute>} />
           <Route path="/tools/asa-checklist/:subjectId/process"       element={<ProtectedRoute anyUser><AsaChecklistForm /></ProtectedRoute>} />
           <Route path="/tools/asa-checklist/:subjectId/result"        element={<ProtectedRoute anyUser><AsaChecklistFormResult /></ProtectedRoute>} />
@@ -113,7 +125,6 @@ export default function App() {
           {/* ── 연수 서명부 ── */}
           <Route path="/training"              element={<ProtectedRoute anyUser><TrainingList /></ProtectedRoute>} />
           <Route path="/training/new"          element={<ProtectedRoute anyUser><TrainingCreate /></ProtectedRoute>} />
-          <Route path="/training/presets"      element={<ProtectedRoute adminOnly><TrainingPresets /></ProtectedRoute>} />
           <Route path="/training/:id/sign"     element={<ProtectedRoute anyUser><TrainingSign /></ProtectedRoute>} />
           <Route path="/training/:id"          element={<ProtectedRoute anyUser><TrainingDetail /></ProtectedRoute>} />
 

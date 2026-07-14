@@ -273,6 +273,15 @@ service cloud.firestore {
         allow update, delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
       }
+
+      // 최소성취수준 보장지도 결과 — 조회는 소속 교사 전체, 쓰기는 본인 doc만 (관리자는 전체)
+      match /minAchievementResults/{resultId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow create, update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resultId.matches(request.auth.uid + '_.*'));
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resultId.matches(request.auth.uid + '_.*'));
+      }
     }
   }
 }

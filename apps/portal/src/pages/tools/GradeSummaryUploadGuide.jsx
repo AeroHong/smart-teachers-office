@@ -11,7 +11,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 export default function GradeSummaryUploadGuide() {
   return (
     <>
-      <Accordion variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
+      <Accordion defaultExpanded variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="subtitle2" fontWeight={700}>
             📥 나이스에서 성적 일람표(환산점수) 다운로드하는 방법

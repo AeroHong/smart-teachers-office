@@ -33,6 +33,14 @@ const TOOLS = [
     color: '#16a34a',
     bgColor: '#dcfce7',
   },
+  {
+    icon: '🎯',
+    title: '최소성취수준 보장지도',
+    description: '1학년 성적일람표를 업로드하면 등록된 E/미도달 분할점수 기준으로 보장지도 대상 학생을 과목별로 추출하고 명단을 게시합니다.',
+    path: '/tools/min-achievement',
+    color: '#dc2626',
+    bgColor: '#fef2f2',
+  },
 ]
 
 export default function ToolsHome() {

@@ -21,9 +21,6 @@ const NAV_SECTIONS = [
     items: [
       { label: '홈', path: '/', icon: '⊞', exact: true },
     ],
-    adminItems: [
-      { label: '관리자', path: '/admin', icon: '◈' },
-    ],
   },
   {
     key: 'attendance',
@@ -58,9 +55,6 @@ const NAV_SECTIONS = [
       { label: '연수 목록', path: '/training', icon: '◈', exact: true },
       { label: '연수 만들기', path: '/training/new', icon: '◈' },
     ],
-    adminItems: [
-      { label: '연수 명단', path: '/training/presets', icon: '◈' },
-    ],
   },
   {
     key: 'asa-checklist',
@@ -69,9 +63,6 @@ const NAV_SECTIONS = [
     prefix: '/tools/asa-checklist',
     items: [
       { label: '체크리스트 홈', path: '/tools/asa-checklist', icon: '◈', exact: true },
-    ],
-    adminItems: [
-      { label: '과목·교사 관리', path: '/tools/asa-checklist/admin', icon: '◈' },
     ],
     principalItems: [
       { label: '서명 관리', path: '/tools/asa-checklist/principal', icon: '◈' },
@@ -87,9 +78,7 @@ const NAV_SECTIONS = [
       { label: 'QR 안내문 생성기', path: '/tools/qr-notice', icon: '◈' },
       { label: '성취평가제 점검 도구', path: '/tools/asa-support', icon: '◈' },
       { label: '내신등급 계산기', path: '/tools/grade-rank', icon: '◈' },
-    ],
-    adminItems: [
-      { label: '분할점수 기준 관리', path: '/tools/asa-support/cutoffs', icon: '◈' },
+      { label: '최소성취수준 보장지도', path: '/tools/min-achievement', icon: '◈' },
     ],
   },
 ]
@@ -97,7 +86,10 @@ const NAV_SECTIONS = [
 // 경로 → 페이지 제목 매핑
 const PAGE_TITLES = {
   '/': '홈',
-  '/admin': '관리자',
+  '/admin/users': '사용자 관리',
+  '/admin/asa-cutoffs': '분할점수 기준 관리',
+  '/admin/asa-checklist': '성취평가제 과목·교사 관리',
+  '/admin/training-presets': '연수 명단 관리',
   '/attendance': '대시보드',
   '/attendance/students': '학생 명단',
   '/attendance/events/new': '이벤트 생성',
@@ -108,15 +100,13 @@ const PAGE_TITLES = {
   '/cover/status': '현황판',
   '/training': '연수 목록',
   '/training/new': '연수 만들기',
-  '/training/presets': '연수 명단',
   '/tools': '도구모음',
   '/tools/qr-notice': 'QR 안내문 생성기',
   '/tools/asa-support': '성취평가제 체크리스트',
-  '/tools/asa-support/cutoffs': '분할점수 기준 관리',
   '/tools/asa-checklist': '체크리스트 홈',
-  '/tools/asa-checklist/admin': '과목·교사 관리',
   '/tools/asa-checklist/principal': '서명 관리',
   '/tools/grade-rank': '내신등급 계산기',
+  '/tools/min-achievement': '최소성취수준 보장지도',
 }
 
 function getPageTitle(pathname) {
@@ -131,7 +121,7 @@ function getPageTitle(pathname) {
 }
 
 function getSectionLabel(pathname) {
-  if (pathname === '/admin') return '관리자'
+  if (pathname.startsWith('/admin')) return '관리자 페이지'
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return '스마트 출결'
   if (pathname.startsWith('/cover')) return '보강 신청'
   if (pathname.startsWith('/training')) return '연수 서명부'
@@ -142,7 +132,7 @@ function getSectionLabel(pathname) {
 
 // 현재 경로가 속한 사이드바 섹션의 key (아코디언 자동 펼침용)
 function getActiveSectionKey(pathname) {
-  if (pathname === '/admin') return 'portal'
+  if (pathname.startsWith('/admin')) return 'admin'
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return 'attendance'
   if (pathname.startsWith('/cover')) return 'cover'
   if (pathname.startsWith('/training')) return 'training'
@@ -303,7 +293,6 @@ export default function Layout({ children, wide = false }) {
           {NAV_SECTIONS.map((section) => {
             const items = [
               ...section.items,
-              ...(section.adminItems && (role === 'admin' || role === 'school_admin') ? section.adminItems : []),
               ...(section.principalItems && role === 'principal' ? section.principalItems : []),
             ]
 
@@ -401,6 +390,54 @@ export default function Layout({ children, wide = false }) {
             )
           })}
         </Box>
+
+        {/* ── 관리자 페이지 고정 링크 (admin/school_admin만) ── */}
+        {(role === 'admin' || role === 'school_admin') && (
+          <Box sx={{ mx: 1.5, mb: 1, pt: 1, borderTop: '1px solid #f1f5f9' }}>
+            <Box
+              component={Link}
+              to="/admin"
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 1.5,
+                py: 0.75,
+                borderRadius: '8px',
+                textDecoration: 'none',
+                fontSize: '0.82rem',
+                fontWeight: location.pathname.startsWith('/admin') ? 700 : 500,
+                color: location.pathname.startsWith('/admin') ? '#7c3aed' : '#64748b',
+                bgcolor: location.pathname.startsWith('/admin') ? '#f5f3ff' : 'transparent',
+                border: `1px solid ${location.pathname.startsWith('/admin') ? '#ddd6fe' : 'transparent'}`,
+                transition: 'all 0.15s',
+                '&:hover': { bgcolor: '#f5f3ff', color: '#7c3aed', borderColor: '#ddd6fe' },
+              }}
+            >
+              <span style={{ fontSize: '0.95rem', lineHeight: 1 }}>⚙️</span>
+              <Typography sx={{ flex: 1, fontSize: 'inherit', fontWeight: 'inherit', color: 'inherit' }}>
+                관리자 페이지
+              </Typography>
+              {pendingCount > 0 && (
+                <Box sx={{
+                  minWidth: 18, height: 18,
+                  px: 0.5,
+                  borderRadius: '9px',
+                  bgcolor: '#ef4444',
+                  color: '#fff',
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  lineHeight: 1,
+                }}>
+                  {pendingCount}
+                </Box>
+              )}
+            </Box>
+          </Box>
+        )}
 
         {/* 카카오 오픈채팅 문의 배너 */}
         <Box
