@@ -22,6 +22,21 @@ const CALL_EXPIRE_MS = 5 * 60 * 1000         // pending 5분 경과 시 자동 �
 const RECALL_COOLDOWN_MS = 60 * 1000         // 같은 학생 1분 이내 재호출 차단
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
 
+// 재실 상태 — apps/shared/lib/presence.js와 같은 규칙.
+// Functions는 CommonJS라 그 파일을 직접 import할 수 없어 최소한만 옮겨 둔다. 함께 고쳐야 함.
+const PRESENCE_TTL_MS = 4 * 60 * 60 * 1000
+const BLOCKED_PRESENCE = {
+  busy: '수업 중이라',
+  away: '자리를 비우셔서',
+}
+
+function effectivePresence(data) {
+  if (!data?.status) return 'unknown'
+  const ms = data.updatedAt?.toMillis?.() ?? 0
+  if (!ms || Date.now() - ms > PRESENCE_TTL_MS) return 'unknown'
+  return data.status
+}
+
 // ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
 async function requireSchoolAdmin(db, request, schoolId) {
   if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
@@ -196,6 +211,17 @@ exports.submitCallRequest = onCall({ region: REGION }, async (request) => {
   const teachers = await loadOfficeTeachers(db, schoolId, office)
   const teacher = teachers.find(t => t.uid === teacherUid)
   if (!teacher) throw new HttpsError('failed-precondition', '이 사무실에 배정된 교사가 아닙니다.')
+
+  // 수업 중이거나 자리를 비운 교사는 호출 불가 (선택 후 제출 사이에 상태가 바뀌었을 수도 있어 서버에서도 확인)
+  const presenceSnap = await db
+    .collection('schools').doc(schoolId).collection('presence').doc(teacherUid).get()
+  const blockedReason = BLOCKED_PRESENCE[effectivePresence(presenceSnap.data())]
+  if (blockedReason) {
+    throw new HttpsError(
+      'failed-precondition',
+      `${teacher.name} 선생님은 지금 ${blockedReason} 호출할 수 없습니다.`,
+    )
+  }
 
   // 재호출 제한 — 같은 학생이 1분 이내 재호출 차단
   const cooldownStart = Timestamp.fromMillis(Date.now() - RECALL_COOLDOWN_MS)

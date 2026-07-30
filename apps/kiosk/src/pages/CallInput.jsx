@@ -28,6 +28,12 @@ const CALL_STRIP_STYLE = {
 const CARD_W_PCT = 19
 const CARD_H_PCT = 18
 
+// 이 상태의 선생님은 호출할 수 없다 (서버 submitCallRequest에서도 동일하게 막는다)
+const BLOCKED_PRESENCE = {
+  busy: '수업 중입니다',
+  away: '자리를 비우셨습니다',
+}
+
 export default function CallInput() {
   const { device } = useKiosk()
   const [teachers, setTeachers] = useState(null)
@@ -126,8 +132,10 @@ export default function CallInput() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const blockedReason = teacher ? BLOCKED_PRESENCE[presence[teacher.uid]] : null
+
   const submit = async () => {
-    if (submitting || !teacher || !student?.found) return
+    if (submitting || !teacher || !student?.found || blockedReason) return
     setSubmitting(true)
     try {
       const { data } = await httpsCallable(functions, 'submitCallRequest')({
@@ -206,9 +214,10 @@ export default function CallInput() {
           </Typography>
 
           <Box sx={{
-            px: 2, py: 1.2, mb: 2, borderRadius: 2,
-            bgcolor: teacher ? '#eef2ff' : '#f1f5f9',
-            border: '1px solid', borderColor: teacher ? '#c7d2fe' : '#e2e8f0',
+            px: 2, py: 1.2, mb: blockedReason ? 1.2 : 2, borderRadius: 2,
+            bgcolor: blockedReason ? '#fff7ed' : teacher ? '#eef2ff' : '#f1f5f9',
+            border: '1px solid',
+            borderColor: blockedReason ? '#fdba74' : teacher ? '#c7d2fe' : '#e2e8f0',
           }}>
             {teacher ? (
               <>
@@ -234,6 +243,21 @@ export default function CallInput() {
               </Typography>
             )}
           </Box>
+
+          {blockedReason && (
+            <Box sx={{
+              px: 2, py: 1.5, mb: 2, borderRadius: 2,
+              bgcolor: '#fef2f2', border: '2px solid #fca5a5',
+            }}>
+              <Typography fontSize="1.05rem" fontWeight={800} sx={{ color: '#b91c1c' }}>
+                ⚠️ 지금은 호출할 수 없습니다
+              </Typography>
+              <Typography fontSize="0.9rem" sx={{ color: '#7f1d1d', mt: 0.4, lineHeight: 1.5 }}>
+                {teacher.name} 선생님은 <strong>{blockedReason}</strong>.<br />
+                나중에 다시 오거나 다른 선생님을 찾아주세요.
+              </Typography>
+            </Box>
+          )}
 
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', mb: 1.5 }}>
             {Array.from({ length: STUDENT_ID_LENGTH }).map((_, i) => (
@@ -277,11 +301,11 @@ export default function CallInput() {
           <Button
             variant="contained"
             size="large"
-            disabled={!teacher || !student?.found || submitting}
+            disabled={!teacher || !student?.found || submitting || !!blockedReason}
             onClick={submit}
             sx={{ py: 1.5, fontSize: '1.1rem', mt: 'auto' }}
           >
-            {submitting ? '신청 중...' : '호출하기'}
+            {blockedReason ? '호출 불가' : submitting ? '신청 중...' : '호출하기'}
           </Button>
         </Box>
       </Box>
@@ -370,9 +394,9 @@ function PresenceDot({ status, withLabel }) {
   )
 }
 
-function DeskCardText({ teacher, status }) {
+function DeskCardText({ teacher, status, blocked }) {
   return (
-    <Box sx={{ minWidth: 0, flex: 1 }}>
+    <Box sx={{ minWidth: 0, flex: 1, opacity: blocked ? 0.55 : 1 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, minWidth: 0 }}>
         <Typography fontWeight={700} fontSize="1rem" lineHeight={1.3} color="#111827" noWrap>
           {teacher.name}
@@ -420,7 +444,7 @@ function SeatMap({ teachers, presence, selected, onSelect }) {
             }}
           >
             <DeskIcon size={38} active={selected?.uid === t.uid} />
-            <DeskCardText teacher={t} status={presence?.[t.uid]} />
+            <DeskCardText teacher={t} status={presence?.[t.uid]} blocked={!!BLOCKED_PRESENCE[presence?.[t.uid]]} />
           </Box>
         ))}
       </Box>
