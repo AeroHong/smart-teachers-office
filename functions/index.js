@@ -11,6 +11,10 @@ setGlobalOptions({ region: 'asia-northeast3', maxInstances: 10 })
 
 const SUPER_ADMIN_EMAIL = defineString('SUPER_ADMIN_EMAIL')
 
+const { syncWorkspaceDirectory, runWorkspaceSyncNow } = require('./workspaceSync')
+exports.syncWorkspaceDirectory = syncWorkspaceDirectory
+exports.runWorkspaceSyncNow = runWorkspaceSyncNow
+
 /**
  * superAdmin Custom Claims 초기 부여 (1회 실행용)
  *

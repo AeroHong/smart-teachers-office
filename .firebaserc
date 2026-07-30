@@ -5,9 +5,17 @@
   "targets": {
     "seonyoo-system": {
       "hosting": {
-        "seonyoo": ["seonyoo-system"],
-        "smart-school": ["smart-school-kr"]
+        "seonyoo": [
+          "seonyoo-system"
+        ],
+        "smart-school": [
+          "smart-school-kr"
+        ],
+        "dashboard": [
+          "smart-school-dashboard"
+        ]
       }
     }
-  }
+  },
+  "etags": {}
 }

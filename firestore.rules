@@ -129,12 +129,38 @@ service cloud.firestore {
         allow read, write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
+      // 업무 관리 — 개인 업무는 본인·담당자만, 전체공개는 소속 교사 전체가 조회
+      match /tasks/{taskId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && (
+            resource.data.visibility == '전체공개' ||
+            resource.data.createdBy == request.auth.uid ||
+            request.auth.uid in resource.data.assignees
+          ));
+        allow create: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && request.resource.data.createdBy == request.auth.uid);
+        // 담당자는 상태 변경(체크박스 완료 처리)을 위해 본인 생성분이 아니어도 수정 가능
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && (
+            resource.data.createdBy == request.auth.uid ||
+            request.auth.uid in resource.data.assignees
+          ));
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+      }
+
       // 학생 — 소속 학교 구성원만 ──────────────────────────────────
       match /students/{studentId} {
         // 학생 본인도 자신의 학생 정보를 읽을 수 있음 (QR 체크인용)
         allow read: if isSuperAdmin() || isTeacher(schoolId) ||
           (isStudent(schoolId) && getUserData().studentId == studentId);
         allow write: if isSuperAdmin() || isTeacher(schoolId);
+      }
+
+      // 연도별 교원 배정 정보(담당교과·부서·담임·좌석·직함) — 조회는 소속 교사 전체, 쓰기는 관리자만
+      match /teacherAssignments/{assignmentId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       match /studentGroups/{groupId} {
