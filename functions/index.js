@@ -15,6 +15,14 @@ const { syncWorkspaceDirectory, runWorkspaceSyncNow } = require('./workspaceSync
 exports.syncWorkspaceDirectory = syncWorkspaceDirectory
 exports.runWorkspaceSyncNow = runWorkspaceSyncNow
 
+const callSystem = require('./callSystem')
+exports.generatePairingCode = callSystem.generatePairingCode
+exports.claimKioskDevice = callSystem.claimKioskDevice
+exports.getKioskTeachers = callSystem.getKioskTeachers
+exports.lookupStudentName = callSystem.lookupStudentName
+exports.submitCallRequest = callSystem.submitCallRequest
+exports.expireCallRequests = callSystem.expireCallRequests
+
 /**
  * superAdmin Custom Claims 초기 부여 (1회 실행용)
  *

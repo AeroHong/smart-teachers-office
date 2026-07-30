@@ -3,6 +3,7 @@ import ProtectedRoute from '@shared/components/ProtectedRoute'
 import Login from './pages/Login'
 import MyTasks from './pages/MyTasks'
 import AdminTasks from './pages/AdminTasks'
+import CallNotifications from './pages/CallNotifications'
 import RedirectToPortal from './pages/RedirectToPortal'
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/school-setup" element={<RedirectToPortal path="/school-setup" />} />
         <Route path="/student" element={<RedirectToPortal path="/student" />} />
         <Route path="/" element={<ProtectedRoute anyUser><MyTasks /></ProtectedRoute>} />
+        <Route path="/calls" element={<ProtectedRoute anyUser><CallNotifications /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminTasks /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>

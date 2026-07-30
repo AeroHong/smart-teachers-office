@@ -11,7 +11,11 @@
     "dev:dashboard": "vite --config apps/dashboard/vite.config.js",
     "build:dashboard": "vite build --config apps/dashboard/vite.config.js",
     "deploy:dashboard": "npm run build:dashboard && firebase deploy --only hosting:dashboard",
-    "preview:dashboard": "vite preview --config apps/dashboard/vite.config.js"
+    "preview:dashboard": "vite preview --config apps/dashboard/vite.config.js",
+    "dev:kiosk": "vite --config apps/kiosk/vite.config.js",
+    "build:kiosk": "vite build --config apps/kiosk/vite.config.js",
+    "deploy:kiosk": "npm run build:kiosk && firebase deploy --only hosting:kiosk",
+    "preview:kiosk": "vite preview --config apps/kiosk/vite.config.js"
   },
   "dependencies": {
     "@emotion/react": "^11.11.0",

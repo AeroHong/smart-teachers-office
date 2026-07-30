@@ -13,6 +13,9 @@
         ],
         "dashboard": [
           "smart-school-dashboard"
+        ],
+        "kiosk": [
+          "smart-school-kiosk"
         ]
       }
     }

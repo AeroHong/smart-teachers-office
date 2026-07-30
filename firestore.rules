@@ -45,6 +45,12 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
+    // 호출 시스템 키오스크 기기 — 관리자가 발급한 페어링 코드로 Custom Claims를 받은
+    // 익명 계정만 통과. 사무실(kioskOffice) 단위까지 범위를 좁힌다.
+    function isKioskDevice(schoolId) {
+      return isSignedIn() && request.auth.token.kioskSchoolId == schoolId;
+    }
+
     // asaSubmissions 문서 자체의 teacherEmails는 생성 시점 스냅샷이라, 나중에 asaSubjects에서
     // 교사가 추가/제거돼도 기존 submission 문서에는 반영되지 않아 배정 현황과 어긋날 수 있다.
     // 그래서 배정 여부는 항상 asaSubjects의 실시간 teacherEmails로 판단한다.
@@ -66,6 +72,13 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow list: if isSuperAdmin();
       allow write: if isSuperAdmin();
+    }
+
+    // ── /kioskPairingCodes — 호출 시스템 기기 페어링 코드 ─────────
+    // 발급·검증 모두 콜러블 함수(Admin SDK)에서만 처리하므로 클라이언트 접근은 전면 차단.
+    // (코드를 클라이언트가 조회할 수 있으면 무작위 대입으로 기기 권한을 탈취할 수 있음)
+    match /kioskPairingCodes/{code} {
+      allow read, write: if false;
     }
 
     // ── /auditLogs ──────────────────────────────────────────────
@@ -161,6 +174,18 @@ service cloud.firestore {
       match /teacherAssignments/{assignmentId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 선생님 호출 — 생성은 콜러블(submitCallRequest)에서만 처리하므로 클라이언트 create 금지.
+      // 현황판 기기는 자기 사무실 호출만 읽고, 확인·완료 처리는 로그인한 교사만 가능.
+      match /callRequests/{requestId} {
+        // list는 반환되는 모든 문서에 대해 이 규칙이 통과해야 성공하므로,
+        // 키오스크가 office 필터 없이 전체를 조회하면 자동으로 거부된다.
+        allow read: if isSuperAdmin() || isTeacher(schoolId) ||
+          (isKioskDevice(schoolId) && resource.data.office == request.auth.token.kioskOffice);
+        allow create: if false;
+        allow update: if isSuperAdmin() || isTeacher(schoolId);
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       match /studentGroups/{groupId} {

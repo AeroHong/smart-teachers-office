@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import {
-  collection, query, where, getDocs,
+  collection, query, where, getDocs, orderBy, limit,
   updateDoc, doc, setDoc, deleteDoc, getDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
@@ -15,6 +15,13 @@ const ROLE_LABELS = {
   school_admin: '학교 관리자',
   admin: '학교 관리자',   // 구 시스템 관리자 역할 — school_admin과 동일 처리
   principal: '교감',
+}
+
+const CALL_STATUS_STYLE = {
+  pending:      { label: '대기 중', bg: '#fdecea', color: '#d32f2f' },
+  acknowledged: { label: '확인함',  bg: '#e8f5e9', color: '#2e7d32' },
+  done:         { label: '완료',    bg: '#f1f3f4', color: '#5f6368' },
+  expired:      { label: '만료',    bg: '#f1f3f4', color: '#9aa0a6' },
 }
 
 const STAFF_TYPE_STYLE = {
@@ -66,7 +73,7 @@ function downloadCsvTemplate() {
 
 export default function Admin() {
   const { schoolId } = useAuth()
-  const [tab, setTab] = useState('pending')   // 'pending' | 'teachers' | 'preapprove' | 'students' | 'assignments' | 'settings'
+  const [tab, setTab] = useState('pending')   // 'pending' | 'teachers' | 'preapprove' | 'students' | 'assignments' | 'callsystem' | 'settings'
 
   const [pendingList, setPendingList]   = useState([])
   const [teacherList, setTeacherList]   = useState([])
@@ -144,6 +151,7 @@ export default function Admin() {
     else if (tab === 'teachers')    fetchTeachers()
     else if (tab === 'preapprove')  fetchPreApproved()
     else if (tab === 'students')    fetchStudents()
+    else if (tab === 'callsystem')  fetchCallSystem()
     else if (tab === 'settings')    setLoading(false)
   }, [tab, schoolId])
 
@@ -531,6 +539,55 @@ export default function Admin() {
     }
   }
 
+  // ── 호출 시스템 탭 ────────────────────────────────────────
+  const [callOffices, setCallOffices] = useState([])
+  const [pairOffice, setPairOffice] = useState('')
+  const [pairDeviceType, setPairDeviceType] = useState('input')
+  const [issuedCode, setIssuedCode] = useState(null)   // { code, office, deviceType, expiresAt }
+  const [issuingCode, setIssuingCode] = useState(false)
+  const [recentCalls, setRecentCalls] = useState([])
+
+  const fetchCallSystem = async () => {
+    if (!schoolId) return
+    setLoading(true)
+    const [assignSnap, callSnap] = await Promise.all([
+      getDocs(query(
+        collection(db, 'schools', schoolId, 'teacherAssignments'),
+        where('year', '==', currentSchoolYear()),
+      )),
+      getDocs(query(
+        collection(db, 'schools', schoolId, 'callRequests'),
+        orderBy('createdAt', 'desc'),
+        limit(30),
+      )),
+    ])
+
+    // 사무실 목록은 별도 컬렉션 없이 교원 배정의 office 값을 그대로 집계
+    const offices = [...new Set(
+      assignSnap.docs.map(d => (d.data().office || '').trim()).filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, 'ko'))
+
+    setCallOffices(offices)
+    setPairOffice(prev => (prev && offices.includes(prev)) ? prev : (offices[0] || ''))
+    setRecentCalls(callSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setLoading(false)
+  }
+
+  const issuePairingCode = async () => {
+    if (!pairOffice) return
+    setIssuingCode(true)
+    setIssuedCode(null)
+    try {
+      const gen = httpsCallable(functions, 'generatePairingCode')
+      const { data } = await gen({ schoolId, office: pairOffice, deviceType: pairDeviceType })
+      setIssuedCode({ ...data, office: pairOffice, deviceType: pairDeviceType })
+    } catch (err) {
+      alert('코드 발급 실패: ' + err.message)
+    } finally {
+      setIssuingCode(false)
+    }
+  }
+
   // ── 학교 설정 탭 ──────────────────────────────────────────
   const [logoUrl, setLogoUrl] = useState(null)
   const [logoUploading, setLogoUploading] = useState(false)
@@ -737,6 +794,10 @@ export default function Admin() {
         <button onClick={() => setTab('assignments')}
           style={{ ...styles.tab, ...(tab === 'assignments' ? styles.tabActive : {}) }}>
           교원 배정
+        </button>
+        <button onClick={() => setTab('callsystem')}
+          style={{ ...styles.tab, ...(tab === 'callsystem' ? styles.tabActive : {}) }}>
+          호출 시스템
         </button>
         <button onClick={() => setTab('settings')}
           style={{ ...styles.tab, ...(tab === 'settings' ? styles.tabActive : {}) }}>
@@ -1091,6 +1152,99 @@ export default function Admin() {
                   </button>
                 </div>
               )
+            )}
+          </div>
+        </div>
+
+      ) : tab === 'callsystem' ? (
+
+        /* ── 호출 시스템 탭 ── */
+        <div>
+          <div style={styles.infoBox}>
+            사무실 앞 <strong>학생용 입력 기기</strong>와 사무실 내부 <strong>현황판 기기</strong>를 각각 등록합니다.
+            기기에서 호출 사이트를 연 뒤 아래에서 발급한 6자리 코드를 입력하면 등록이 완료되며, 재부팅 후에도 유지됩니다.
+          </div>
+
+          <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.75rem' }}>기기 등록 코드 발급</p>
+
+          {callOffices.length === 0 ? (
+            <p style={styles.empty}>
+              등록된 사무실이 없습니다. 교원 배정 탭에서 교원별 사무실을 먼저 입력해 주세요.
+            </p>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
+                <select value={pairOffice} onChange={e => setPairOffice(e.target.value)} style={styles.select}>
+                  {callOffices.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+                <select value={pairDeviceType} onChange={e => setPairDeviceType(e.target.value)} style={styles.select}>
+                  <option value="input">학생용 입력 기기</option>
+                  <option value="display">사무실 현황판</option>
+                </select>
+                <button onClick={issuePairingCode} disabled={issuingCode} style={styles.approveBtn}>
+                  {issuingCode ? '발급 중...' : '코드 발급'}
+                </button>
+              </div>
+
+              {issuedCode && (
+                <div style={{
+                  border: '1px solid #bfdbfe', backgroundColor: '#eff6ff', borderRadius: 8,
+                  padding: '1rem 1.25rem', marginBottom: '1.25rem', maxWidth: 460,
+                }}>
+                  <p style={{ fontSize: '0.8rem', color: '#1e40af', margin: 0 }}>
+                    {issuedCode.office} · {issuedCode.deviceType === 'display' ? '사무실 현황판' : '학생용 입력 기기'}
+                  </p>
+                  <p style={{
+                    fontSize: '2.6rem', fontWeight: 800, letterSpacing: '0.4rem',
+                    color: '#1e3a8a', margin: '0.35rem 0',
+                  }}>
+                    {issuedCode.code}
+                  </p>
+                  <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0 }}>
+                    10분 내 기기에서 입력하세요 (만료: {new Date(issuedCode.expiresAt).toLocaleTimeString('ko-KR')})
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
+            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.75rem' }}>최근 호출 내역</p>
+            {recentCalls.length === 0 ? (
+              <p style={styles.empty}>호출 기록이 없습니다.</p>
+            ) : (
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>시각</th>
+                    <th style={styles.th}>사무실</th>
+                    <th style={styles.th}>학생</th>
+                    <th style={styles.th}>호출 대상</th>
+                    <th style={styles.th}>상태</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentCalls.map(c => (
+                    <tr key={c.id}>
+                      <td style={styles.td}>
+                        {c.createdAt?.toDate?.().toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) || '—'}
+                      </td>
+                      <td style={styles.td}>{c.office || '—'}</td>
+                      <td style={styles.td}>{c.grade}-{c.classNo}-{c.number} {c.studentName}</td>
+                      <td style={styles.td}>{c.teacherName || '—'}</td>
+                      <td style={styles.td}>
+                        <span style={{
+                          ...styles.roleBadge,
+                          backgroundColor: CALL_STATUS_STYLE[c.status]?.bg || '#f0f0f0',
+                          color: CALL_STATUS_STYLE[c.status]?.color || '#555',
+                        }}>
+                          {CALL_STATUS_STYLE[c.status]?.label || c.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         </div>
