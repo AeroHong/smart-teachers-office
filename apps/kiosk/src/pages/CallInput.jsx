@@ -21,9 +21,10 @@ const CALL_STRIP_STYLE = {
   expired:      { label: '응답이 없습니다',   bg: '#f1f5f9', border: '#e2e8f0', fg: '#94a3b8' },
 }
 
-// 자리 배치 캔버스의 카드 크기 — 관리자 편집기(OfficeLayoutEditor)와 같은 16:9 기준
-const CARD_W_PCT = 15.5
-const CARD_H_PCT = 15.5
+// 자리 배치 카드 크기 — 관리자 편집기(OfficeLayoutEditor.jsx)와 반드시 같은 값이어야
+// 관리자가 맞춘 배치가 키오스크에서 그대로 재현된다
+const CARD_W_PCT = 19
+const CARD_H_PCT = 18
 
 export default function CallInput() {
   const { device } = useKiosk()
@@ -327,8 +328,9 @@ function SeatMap({ teachers, selected, onSelect }) {
               left: `${t.seat.x * 100}%`,
               top: `${t.seat.y * 100}%`,
               width: `${CARD_W_PCT}%`,
-              minHeight: `${CARD_H_PCT}%`,
-              px: 1, py: 0.8, cursor: 'pointer', borderRadius: 2, overflow: 'hidden',
+              height: `${CARD_H_PCT}%`,
+              px: 1.2, py: 0.8, cursor: 'pointer', borderRadius: 2, overflow: 'hidden',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px',
               border: '2px solid',
               borderColor: selected?.uid === t.uid ? '#4f46e5' : '#e2e8f0',
               bgcolor: selected?.uid === t.uid ? '#eef2ff' : '#fff',
@@ -336,12 +338,16 @@ function SeatMap({ teachers, selected, onSelect }) {
               transition: 'background-color .12s, border-color .12s',
             }}
           >
-            <Typography fontWeight={700} fontSize="1rem" noWrap>{t.name}</Typography>
+            <Typography fontWeight={700} fontSize="1.05rem" lineHeight={1.25} noWrap>{t.name}</Typography>
             {t.positionLabel && (
-              <Typography fontSize="0.72rem" color="primary.main" noWrap>{t.positionLabel}</Typography>
+              <Typography fontSize="0.78rem" fontWeight={600} color="primary.main" lineHeight={1.2} noWrap>
+                {t.positionLabel}
+              </Typography>
             )}
             {t.subject && (
-              <Typography fontSize="0.72rem" color="text.secondary" noWrap>{t.subject}</Typography>
+              <Typography fontSize="0.78rem" color="text.secondary" lineHeight={1.2} noWrap>
+                {t.subject}
+              </Typography>
             )}
           </Box>
         ))}

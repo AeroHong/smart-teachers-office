@@ -14,8 +14,11 @@ import { db } from '@shared/lib/firebase'
  */
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
-const CARD_W = 132   // 캔버스 내 카드 크기(px) — 좌표 클램프 계산에 사용
-const CARD_H = 66
+
+// 카드 크기는 캔버스 대비 비율로 지정한다. 키오스크(CallInput.jsx)도 같은 값을 쓰므로
+// 화면 크기가 달라도 관리자가 맞춘 배치가 그대로 재현된다. 두 파일을 함께 고쳐야 함.
+const CARD_W_PCT = 0.19   // 캔버스 가로 대비
+const CARD_H_PCT = 0.18   // 캔버스 세로 대비
 
 export function officeLayoutId(year, office) {
   return `${year}__${office.replace(/\//g, '_')}`
@@ -87,8 +90,8 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
     const d = dragRef.current
     if (!d || !canvasRef.current) return
     const c = canvasRef.current.getBoundingClientRect()
-    const maxX = Math.max(0, 1 - CARD_W / c.width)
-    const maxY = Math.max(0, 1 - CARD_H / c.height)
+    const maxX = 1 - CARD_W_PCT
+    const maxY = 1 - CARD_H_PCT
     const x = Math.min(Math.max((e.clientX - d.dx - c.left) / c.width, 0), maxX)
     const y = Math.min(Math.max((e.clientY - d.dy - c.top) / c.height, 0), maxY)
     setSeats(prev => ({ ...prev, [d.uid]: { x, y } }))
@@ -106,10 +109,14 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
     setSeats(prev => {
       // 이미 놓인 카드와 겹치지 않게 빈 격자 칸을 찾아 배치
       const taken = Object.values(prev)
-      for (let row = 0; row < 6; row++) {
-        for (let col = 0; col < 5; col++) {
-          const x = 0.04 + col * 0.19
-          const y = 0.05 + row * 0.155
+      const gapX = CARD_W_PCT + 0.012
+      const gapY = CARD_H_PCT + 0.02
+      const cols = Math.floor((1 - 0.02) / gapX)
+      const rows = Math.floor((1 - 0.02) / gapY)
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const x = 0.015 + col * gapX
+          const y = 0.02 + row * gapY
           const overlap = taken.some(s => Math.abs(s.x - x) < 0.02 && Math.abs(s.y - y) < 0.02)
           if (!overlap) return { ...prev, [uid]: { x, y } }
         }
@@ -212,18 +219,23 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
               onPointerDown={e => handlePointerDown(e, t.uid)}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
+              title={[t.name, t.positionLabel, t.subject].filter(Boolean).join(' · ')}
               style={{
                 position: 'absolute',
                 left: `${s.x * 100}%`,
                 top: `${s.y * 100}%`,
-                width: CARD_W,
-                height: CARD_H,
+                width: `${CARD_W_PCT * 100}%`,
+                height: `${CARD_H_PCT * 100}%`,
                 boxSizing: 'border-box',
-                padding: '0.4rem 0.55rem',
+                padding: '0.5rem 0.7rem',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                gap: 2,
                 backgroundColor: '#fff',
                 border: '1px solid #c7d2fe',
-                borderLeft: '4px solid #4f46e5',
-                borderRadius: 8,
+                borderLeft: '5px solid #4f46e5',
+                borderRadius: 10,
                 boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
                 cursor: 'grab',
                 userSelect: 'none',
@@ -231,22 +243,16 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
                 overflow: 'hidden',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <strong style={{ fontSize: '0.9rem' }}>{t.name}</strong>
-                {t.positionLabel && (
-                  <span style={{ fontSize: '0.68rem', color: '#7c3aed' }}>{t.positionLabel}</span>
-                )}
-              </div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {t.subject || ' '}
-              </div>
+              <div style={cardText.name}>{t.name}</div>
+              {t.positionLabel && <div style={cardText.position}>{t.positionLabel}</div>}
+              {t.subject && <div style={cardText.subject}>{t.subject}</div>}
               <button
                 onClick={() => removeTeacher(t.uid)}
                 onPointerDown={e => e.stopPropagation()}
                 title="배치에서 빼기"
                 style={{
-                  position: 'absolute', top: 2, right: 4, border: 'none', background: 'none',
-                  cursor: 'pointer', color: '#cbd5e1', fontSize: '0.85rem', lineHeight: 1, padding: 2,
+                  position: 'absolute', top: 3, right: 6, border: 'none', background: 'none',
+                  cursor: 'pointer', color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1, padding: 2,
                 }}
               >
                 ×
@@ -276,6 +282,14 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
       {msg && <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.75rem' }}>{msg}</p>}
     </div>
   )
+}
+
+// 카드 안 텍스트 — 한 줄씩, 넘치면 말줄임
+const ellipsis = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+const cardText = {
+  name:     { ...ellipsis, fontSize: '1.05rem', fontWeight: 700, lineHeight: 1.25 },
+  position: { ...ellipsis, fontSize: '0.78rem', fontWeight: 600, color: '#7c3aed', lineHeight: 1.2 },
+  subject:  { ...ellipsis, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.2 },
 }
 
 const btn = {
