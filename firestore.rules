@@ -176,6 +176,13 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
+      // 사무실 자리 배치 (교사 카드 좌표) — 조회는 소속 교사, 편집은 관리자만.
+      // 키오스크는 getKioskTeachers 콜러블을 통해 받으므로 직접 읽기 권한은 주지 않는다.
+      match /officeLayouts/{layoutId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
       // 선생님 호출 — 생성은 콜러블(submitCallRequest)에서만 처리하므로 클라이언트 create 금지.
       // 현황판 기기는 자기 사무실 호출만 읽고, 확인·완료 처리는 로그인한 교사만 가능.
       match /callRequests/{requestId} {

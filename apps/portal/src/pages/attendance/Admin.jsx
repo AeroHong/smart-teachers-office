@@ -8,6 +8,7 @@ import { httpsCallable } from 'firebase/functions'
 import { db, storage, functions } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
+import OfficeLayoutEditor from './OfficeLayoutEditor'
 import { emailToDocId } from '@shared/lib/emailToDocId'
 
 const ROLE_LABELS = {
@@ -546,6 +547,7 @@ export default function Admin() {
   const [issuedCode, setIssuedCode] = useState(null)   // { code, office, deviceType, expiresAt }
   const [issuingCode, setIssuingCode] = useState(false)
   const [recentCalls, setRecentCalls] = useState([])
+  const [layoutOffice, setLayoutOffice] = useState('')
 
   const fetchCallSystem = async () => {
     if (!schoolId) return
@@ -569,6 +571,7 @@ export default function Admin() {
 
     setCallOffices(offices)
     setPairOffice(prev => (prev && offices.includes(prev)) ? prev : (offices[0] || ''))
+    setLayoutOffice(prev => (prev && offices.includes(prev)) ? prev : (offices[0] || ''))
     setRecentCalls(callSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setLoading(false)
   }
@@ -1208,7 +1211,29 @@ export default function Admin() {
             </>
           )}
 
-          <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
+          {callOffices.length > 0 && (
+            <div style={{ marginTop: '1.75rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+                <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', margin: 0 }}>사무실 자리 배치</p>
+                <select value={layoutOffice} onChange={e => setLayoutOffice(e.target.value)} style={styles.select}>
+                  {callOffices.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.9rem' }}>
+                여기서 맞춘 배치가 학생용 키오스크 화면에 그대로 표시되어, 학생이 선생님 자리를 보고 찾을 수 있습니다.
+              </p>
+              {layoutOffice && (
+                <OfficeLayoutEditor
+                  key={`${currentSchoolYear()}__${layoutOffice}`}
+                  schoolId={schoolId}
+                  year={currentSchoolYear()}
+                  office={layoutOffice}
+                />
+              )}
+            </div>
+          )}
+
+          <div style={{ marginTop: '1.75rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
             <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.75rem' }}>최근 호출 내역</p>
             {recentCalls.length === 0 ? (
               <p style={styles.empty}>호출 기록이 없습니다.</p>

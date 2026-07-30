@@ -47,6 +47,11 @@ function currentSchoolYear() {
   return now.getMonth() + 1 <= 2 ? now.getFullYear() - 1 : now.getFullYear()
 }
 
+// 사무실 자리 배치 문서 ID — 관리자 화면(OfficeLayoutEditor.jsx)과 동일한 규칙을 써야 한다
+function officeLayoutId(year, office) {
+  return `${year}__${office.replace(/\//g, '_')}`
+}
+
 // 해당 사무실 소속 교직원 목록 (연도별 배정 정보 + users 이름 조인)
 async function loadOfficeTeachers(db, schoolId, office) {
   const assignSnap = await db
@@ -55,18 +60,24 @@ async function loadOfficeTeachers(db, schoolId, office) {
     .where('office', '==', office)
     .get()
 
-  const uids = assignSnap.docs.map(d => d.data().uid).filter(Boolean)
-  if (uids.length === 0) return []
+  const assignments = assignSnap.docs.map(d => d.data()).filter(a => a.uid)
+  if (assignments.length === 0) return []
 
-  // Firestore documentId in 쿼리는 30개 제한 → 청크 분할
+  // Firestore getAll은 한 번에 너무 많이 넘기지 않도록 청크 분할
   const teachers = []
-  for (let i = 0; i < uids.length; i += 30) {
-    const chunk = uids.slice(i, i + 30)
-    const userDocs = await db.getAll(...chunk.map(uid => db.collection('users').doc(uid)))
-    userDocs.forEach(d => {
+  for (let i = 0; i < assignments.length; i += 30) {
+    const chunk = assignments.slice(i, i + 30)
+    const userDocs = await db.getAll(...chunk.map(a => db.collection('users').doc(a.uid)))
+    userDocs.forEach((d, idx) => {
       const u = d.data()
       if (u && STAFF_ROLES.includes(u.role)) {
-        teachers.push({ uid: d.id, name: u.name || u.email || '' })
+        const a = chunk[idx]
+        teachers.push({
+          uid: d.id,
+          name: u.name || u.email || '',
+          positionLabel: a.positionLabel || '',
+          subject: a.subject || '',
+        })
       }
     })
   }
@@ -134,11 +145,24 @@ exports.claimKioskDevice = onCall({ region: REGION }, async (request) => {
   return { schoolId: data.schoolId, office: data.office, deviceType: data.deviceType }
 })
 
-// ── 3. 이 키오스크 사무실의 교직원 목록 ────────────────────────────────────────
+// ── 3. 이 키오스크 사무실의 교직원 목록 + 자리 배치 ─────────────────────────────
 exports.getKioskTeachers = onCall({ region: REGION }, async (request) => {
   const { schoolId, office } = requireKiosk(request)
   const db = getFirestore()
-  return { office, teachers: await loadOfficeTeachers(db, schoolId, office) }
+
+  const [teachers, layoutSnap] = await Promise.all([
+    loadOfficeTeachers(db, schoolId, office),
+    db.collection('schools').doc(schoolId).collection('officeLayouts')
+      .doc(officeLayoutId(currentSchoolYear(), office)).get(),
+  ])
+
+  const seats = layoutSnap.exists ? (layoutSnap.data().seats || {}) : {}
+  return {
+    office,
+    // 배치가 저장돼 있으면 키오스크가 실제 자리 배치 그대로 그리고, 없으면 단순 격자로 표시
+    hasLayout: Object.keys(seats).length > 0,
+    teachers: teachers.map(t => ({ ...t, seat: seats[t.uid] || null })),
+  }
 })
 
 // ── 4. 학번으로 학생 이름 확인 (본인 확인용, 이름만 반환) ───────────────────────

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -9,24 +9,31 @@ import { useKiosk } from '../contexts/KioskContext'
 
 const STUDENT_ID_LENGTH = 5   // 학년1 + 반2 + 번호2
 const SUCCESS_RESET_MS = 5000
-const IDLE_RESET_MS = 60000   // 학생이 중간에 자리를 뜬 경우 자동 초기화
+const IDLE_RESET_MS = 90000   // 학생이 중간에 자리를 뜬 경우 자동 초기화
+
+// 자리 배치 캔버스의 카드 크기 — 관리자 편집기(OfficeLayoutEditor)와 같은 16:9 기준
+const CARD_W_PCT = 15.5
+const CARD_H_PCT = 15.5
 
 export default function CallInput() {
   const { device } = useKiosk()
   const [teachers, setTeachers] = useState(null)
+  const [hasLayout, setHasLayout] = useState(false)
   const [loadError, setLoadError] = useState('')
 
   const [teacher, setTeacher] = useState(null)
   const [studentId, setStudentId] = useState('')
-  const [student, setStudent] = useState(null)     // { found, name, ... }
+  const [student, setStudent] = useState(null)
   const [checking, setChecking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState(null)       // { ok, message }
+  const [result, setResult] = useState(null)
 
-  // ── 교사 목록 로드 ────────────────────────────────────────
   useEffect(() => {
     httpsCallable(functions, 'getKioskTeachers')()
-      .then(({ data }) => setTeachers(data.teachers || []))
+      .then(({ data }) => {
+        setTeachers(data.teachers || [])
+        setHasLayout(!!data.hasLayout)
+      })
       .catch(err => setLoadError(err.message || '교사 목록을 불러오지 못했습니다.'))
   }, [])
 
@@ -34,21 +41,20 @@ export default function CallInput() {
     setTeacher(null); setStudentId(''); setStudent(null); setResult(null)
   }, [])
 
-  // ── 성공/실패 후 자동 초기화 ───────────────────────────────
   useEffect(() => {
     if (!result) return
     const t = setTimeout(reset, SUCCESS_RESET_MS)
     return () => clearTimeout(t)
   }, [result, reset])
 
-  // ── 입력하다 만 상태로 방치되면 자동 초기화 ─────────────────
+  // 입력하다 만 상태로 방치되면 자동 초기화
   useEffect(() => {
-    if (!teacher || result) return
+    if (!teacher && !studentId) return
     const t = setTimeout(reset, IDLE_RESET_MS)
     return () => clearTimeout(t)
-  }, [teacher, studentId, result, reset])
+  }, [teacher, studentId, reset])
 
-  // ── 학번 다 입력되면 이름 조회 ─────────────────────────────
+  // 학번을 다 입력하면 이름 조회 (본인 확인용)
   useEffect(() => {
     if (studentId.length !== STUDENT_ID_LENGTH) { setStudent(null); return }
     let cancelled = false
@@ -60,21 +66,16 @@ export default function CallInput() {
     return () => { cancelled = true }
   }, [studentId])
 
-  // ── 물리 키보드 입력도 지원 ────────────────────────────────
-  const studentIdRef = useRef(studentId)
-  studentIdRef.current = studentId
+  // 물리 키보드 입력도 지원
   useEffect(() => {
-    if (!teacher || result) return
+    if (result) return
     const onKey = (e) => {
-      if (/^\d$/.test(e.key)) {
-        setStudentId(prev => (prev + e.key).slice(0, STUDENT_ID_LENGTH))
-      } else if (e.key === 'Backspace') {
-        setStudentId(prev => prev.slice(0, -1))
-      }
+      if (/^\d$/.test(e.key)) setStudentId(prev => (prev + e.key).slice(0, STUDENT_ID_LENGTH))
+      else if (e.key === 'Backspace') setStudentId(prev => prev.slice(0, -1))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [teacher, result])
+  }, [result])
 
   const submit = async () => {
     if (submitting || !teacher || !student?.found) return
@@ -91,13 +92,11 @@ export default function CallInput() {
     }
   }
 
-  // ── 화면 상태별 렌더 ──────────────────────────────────────
-  if (loadError) return <Centered icon="⚠️" title="교사 목록을 불러오지 못했습니다" sub={loadError} />
-  if (teachers === null) return <Centered spinner />
-
+  if (loadError) return <FullScreen icon="⚠️" title="교사 목록을 불러오지 못했습니다" sub={loadError} />
+  if (teachers === null) return <FullScreen spinner />
   if (result) {
     return (
-      <Centered
+      <FullScreen
         icon={result.ok ? '✅' : '⚠️'}
         title={result.ok ? '호출 완료' : '호출하지 못했습니다'}
         sub={result.message}
@@ -111,136 +110,226 @@ export default function CallInput() {
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: '#f8fafc', overflow: 'hidden' }}>
       <Box sx={{
-        px: 4, py: 2, bgcolor: '#fff', borderBottom: '1px solid #e8eaed',
-        display: 'flex', alignItems: 'center', gap: 2,
+        px: 3, py: 1.5, bgcolor: '#fff', borderBottom: '1px solid #e8eaed',
+        display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0,
       }}>
-        <Typography fontWeight={800} fontSize="1.15rem">🔔 선생님 호출</Typography>
-        <Typography color="text.secondary" fontSize="0.95rem">{device.office}</Typography>
-        {teacher && (
-          <Button onClick={reset} sx={{ ml: 'auto' }}>처음으로</Button>
-        )}
+        <Typography fontWeight={800} fontSize="1.1rem">🔔 선생님 호출</Typography>
+        <Typography color="text.secondary" fontSize="0.9rem">{device.office}</Typography>
       </Box>
 
-      {!teacher ? (
-        <TeacherPicker teachers={teachers} onPick={setTeacher} />
-      ) : (
-        <StudentIdEntry
-          teacher={teacher}
-          studentId={studentId}
-          student={student}
-          checking={checking}
-          submitting={submitting}
-          onDigit={(d) => setStudentId(prev => (prev + d).slice(0, STUDENT_ID_LENGTH))}
-          onBackspace={() => setStudentId(prev => prev.slice(0, -1))}
-          onClear={() => setStudentId('')}
-          onSubmit={submit}
-        />
+      <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* ── 왼쪽: 선생님 자리 배치 ── */}
+        <Box sx={{ flex: 1, p: 2.5, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <Typography fontSize="1.05rem" fontWeight={700} mb={1.5}>
+            1. 찾는 선생님을 선택하세요
+          </Typography>
+          {teachers.length === 0 ? (
+            <Typography color="text.secondary">
+              이 사무실에 배정된 선생님이 없습니다. 관리자에게 문의하세요.
+            </Typography>
+          ) : hasLayout ? (
+            <SeatMap teachers={teachers} selected={teacher} onSelect={setTeacher} />
+          ) : (
+            <TeacherGrid teachers={teachers} selected={teacher} onSelect={setTeacher} />
+          )}
+        </Box>
+
+        {/* ── 오른쪽: 학번 입력 ── */}
+        <Box sx={{
+          width: 430, flexShrink: 0, bgcolor: '#fff', borderLeft: '1px solid #e8eaed',
+          p: 2.5, display: 'flex', flexDirection: 'column', overflowY: 'auto',
+        }}>
+          <Typography fontSize="1.05rem" fontWeight={700} mb={1.5}>
+            2. 본인 학번을 입력하세요
+          </Typography>
+
+          <Box sx={{
+            px: 2, py: 1.2, mb: 2, borderRadius: 2,
+            bgcolor: teacher ? '#eef2ff' : '#f1f5f9',
+            border: '1px solid', borderColor: teacher ? '#c7d2fe' : '#e2e8f0',
+          }}>
+            {teacher ? (
+              <>
+                <Typography fontSize="0.75rem" color="text.secondary">호출할 선생님</Typography>
+                <Typography fontSize="1.25rem" fontWeight={800} sx={{ lineHeight: 1.3 }}>
+                  {teacher.name}
+                  {teacher.positionLabel && (
+                    <Typography component="span" fontSize="0.85rem" color="primary.main" ml={0.8}>
+                      {teacher.positionLabel}
+                    </Typography>
+                  )}
+                </Typography>
+                {teacher.subject && (
+                  <Typography fontSize="0.8rem" color="text.secondary">{teacher.subject}</Typography>
+                )}
+              </>
+            ) : (
+              <Typography color="text.secondary" fontSize="0.9rem">
+                왼쪽에서 선생님을 먼저 선택하세요
+              </Typography>
+            )}
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', mb: 1.5 }}>
+            {Array.from({ length: STUDENT_ID_LENGTH }).map((_, i) => (
+              <Box key={i} sx={{
+                width: 52, height: 62, borderRadius: 2,
+                border: '2px solid', borderColor: studentId[i] ? '#4f46e5' : '#e2e8f0',
+                bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.9rem', fontWeight: 700,
+              }}>
+                {studentId[i] || ''}
+              </Box>
+            ))}
+          </Box>
+
+          <Box sx={{ minHeight: 52, textAlign: 'center', mb: 1 }}>
+            {checking && <CircularProgress size={24} />}
+            {!checking && student?.found && (
+              <>
+                <Typography fontSize="1.3rem" fontWeight={800} color="primary.main" sx={{ lineHeight: 1.3 }}>
+                  {student.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {student.grade}학년 {student.classNo}반 {student.number}번
+                </Typography>
+              </>
+            )}
+            {!checking && student && !student.found && (
+              <Typography color="error" fontWeight={600}>학번을 찾을 수 없습니다</Typography>
+            )}
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, mb: 1.5 }}>
+            {['1','2','3','4','5','6','7','8','9'].map(d => (
+              <KeypadButton key={d} onClick={() => setStudentId(p => (p + d).slice(0, STUDENT_ID_LENGTH))}>{d}</KeypadButton>
+            ))}
+            <KeypadButton muted onClick={() => setStudentId('')}>지움</KeypadButton>
+            <KeypadButton onClick={() => setStudentId(p => (p + '0').slice(0, STUDENT_ID_LENGTH))}>0</KeypadButton>
+            <KeypadButton muted onClick={() => setStudentId(p => p.slice(0, -1))}>←</KeypadButton>
+          </Box>
+
+          <Button
+            variant="contained"
+            size="large"
+            disabled={!teacher || !student?.found || submitting}
+            onClick={submit}
+            sx={{ py: 1.5, fontSize: '1.1rem', mt: 'auto' }}
+          >
+            {submitting ? '호출 중...' : '호출하기'}
+          </Button>
+        </Box>
+      </Box>
+    </Box>
+  )
+}
+
+// ── 실제 사무실 배치대로 카드 표시 ────────────────────────────
+function SeatMap({ teachers, selected, onSelect }) {
+  const placed = teachers.filter(t => t.seat)
+  const unplaced = teachers.filter(t => !t.seat)
+
+  return (
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <Box sx={{
+        position: 'relative', width: '100%', aspectRatio: '16 / 9',
+        bgcolor: '#fff', border: '1px solid #e2e8f0', borderRadius: 3,
+        backgroundImage: 'radial-gradient(#eef2f7 1px, transparent 1px)',
+        backgroundSize: '24px 24px',
+      }}>
+        {placed.map(t => (
+          <Box
+            key={t.uid}
+            onClick={() => onSelect(t)}
+            sx={{
+              position: 'absolute',
+              left: `${t.seat.x * 100}%`,
+              top: `${t.seat.y * 100}%`,
+              width: `${CARD_W_PCT}%`,
+              minHeight: `${CARD_H_PCT}%`,
+              px: 1, py: 0.8, cursor: 'pointer', borderRadius: 2, overflow: 'hidden',
+              border: '2px solid',
+              borderColor: selected?.uid === t.uid ? '#4f46e5' : '#e2e8f0',
+              bgcolor: selected?.uid === t.uid ? '#eef2ff' : '#fff',
+              boxShadow: selected?.uid === t.uid ? '0 0 0 3px rgba(79,70,229,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
+              transition: 'background-color .12s, border-color .12s',
+            }}
+          >
+            <Typography fontWeight={700} fontSize="1rem" noWrap>{t.name}</Typography>
+            {t.positionLabel && (
+              <Typography fontSize="0.72rem" color="primary.main" noWrap>{t.positionLabel}</Typography>
+            )}
+            {t.subject && (
+              <Typography fontSize="0.72rem" color="text.secondary" noWrap>{t.subject}</Typography>
+            )}
+          </Box>
+        ))}
+      </Box>
+
+      {unplaced.length > 0 && (
+        <Box sx={{ mt: 1.5 }}>
+          <Typography fontSize="0.78rem" color="text.secondary" mb={0.8}>자리 미지정</Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {unplaced.map(t => (
+              <TeacherChip key={t.uid} teacher={t} selected={selected?.uid === t.uid} onSelect={onSelect} />
+            ))}
+          </Box>
+        </Box>
       )}
     </Box>
   )
 }
 
-// ── 1단계: 선생님 선택 ────────────────────────────────────────
-function TeacherPicker({ teachers, onPick }) {
-  if (teachers.length === 0) {
-    return (
-      <Centered
-        icon="📋"
-        title="이 사무실에 배정된 선생님이 없습니다"
-        sub="관리자 페이지의 교원 배정에서 사무실을 지정해 주세요."
-      />
-    )
-  }
+// ── 배치 정보가 없을 때의 기본 격자 ───────────────────────────
+function TeacherGrid({ teachers, selected, onSelect }) {
   return (
-    <Box sx={{ flex: 1, p: 4, overflowY: 'auto' }}>
-      <Typography fontSize="1.35rem" fontWeight={700} mb={3}>
-        어느 선생님을 찾으시나요?
-      </Typography>
-      <Box sx={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-        gap: 2,
-      }}>
-        {teachers.map(t => (
-          <Button
-            key={t.uid}
-            variant="outlined"
-            onClick={() => onPick(t)}
-            sx={{
-              py: 2.5, fontSize: '1.2rem', fontWeight: 600, borderRadius: 3,
-              bgcolor: '#fff', borderColor: '#e2e8f0', color: '#1e293b',
-              '&:hover': { bgcolor: '#eef2ff', borderColor: '#4f46e5' },
-            }}
-          >
-            {t.name}
-          </Button>
-        ))}
-      </Box>
+    <Box sx={{
+      flex: 1, overflowY: 'auto', display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))',
+      gap: 1.5, alignContent: 'start',
+    }}>
+      {teachers.map(t => (
+        <Box
+          key={t.uid}
+          onClick={() => onSelect(t)}
+          sx={{
+            px: 1.5, py: 1.4, cursor: 'pointer', borderRadius: 2,
+            border: '2px solid',
+            borderColor: selected?.uid === t.uid ? '#4f46e5' : '#e2e8f0',
+            bgcolor: selected?.uid === t.uid ? '#eef2ff' : '#fff',
+          }}
+        >
+          <Typography fontWeight={700} fontSize="1.1rem" noWrap>{t.name}</Typography>
+          {t.positionLabel && (
+            <Typography fontSize="0.78rem" color="primary.main" noWrap>{t.positionLabel}</Typography>
+          )}
+          {t.subject && (
+            <Typography fontSize="0.78rem" color="text.secondary" noWrap>{t.subject}</Typography>
+          )}
+        </Box>
+      ))}
     </Box>
   )
 }
 
-// ── 2단계: 학번 입력 + 본인 확인 ──────────────────────────────
-function StudentIdEntry({ teacher, studentId, student, checking, submitting, onDigit, onBackspace, onClear, onSubmit }) {
-  const filled = studentId.length === STUDENT_ID_LENGTH
+function TeacherChip({ teacher, selected, onSelect }) {
   return (
-    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, p: 4, flexWrap: 'wrap' }}>
-      {/* 왼쪽: 안내 + 입력 상태 */}
-      <Box sx={{ textAlign: 'center', minWidth: 300 }}>
-        <Typography color="text.secondary" fontSize="1rem">호출할 선생님</Typography>
-        <Typography fontSize="1.8rem" fontWeight={800} mb={3}>{teacher.name}</Typography>
-
-        <Typography color="text.secondary" fontSize="1rem" mb={1}>본인 학번을 입력하세요</Typography>
-        <Box sx={{ display: 'flex', gap: 1.2, justifyContent: 'center', mb: 2 }}>
-          {Array.from({ length: STUDENT_ID_LENGTH }).map((_, i) => (
-            <Box key={i} sx={{
-              width: 52, height: 66, borderRadius: 2,
-              border: '2px solid', borderColor: studentId[i] ? '#4f46e5' : '#e2e8f0',
-              bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '2rem', fontWeight: 700,
-            }}>
-              {studentId[i] || ''}
-            </Box>
-          ))}
-        </Box>
-
-        <Box sx={{ minHeight: 56 }}>
-          {checking && <CircularProgress size={26} />}
-          {!checking && filled && student?.found && (
-            <>
-              <Typography fontSize="1.5rem" fontWeight={800} color="primary.main">{student.name}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                {student.grade}학년 {student.classNo}반 {student.number}번 — 본인이 맞으면 호출하기를 누르세요
-              </Typography>
-            </>
-          )}
-          {!checking && filled && student && !student.found && (
-            <Typography color="error" fontWeight={600}>학번을 찾을 수 없습니다. 다시 확인해 주세요.</Typography>
-          )}
-        </Box>
-
-        <Button
-          variant="contained"
-          size="large"
-          disabled={!filled || !student?.found || submitting}
-          onClick={onSubmit}
-          sx={{ mt: 2, px: 6, py: 1.6, fontSize: '1.15rem' }}
-        >
-          {submitting ? '호출 중...' : '호출하기'}
-        </Button>
-      </Box>
-
-      {/* 오른쪽: 숫자 키패드 (터치 없는 기기에서도 물리 키보드로 입력 가능) */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 92px)', gap: 1.5 }}>
-        {['1','2','3','4','5','6','7','8','9'].map(d => (
-          <KeypadButton key={d} onClick={() => onDigit(d)}>{d}</KeypadButton>
-        ))}
-        <KeypadButton onClick={onClear} muted>지움</KeypadButton>
-        <KeypadButton onClick={() => onDigit('0')}>0</KeypadButton>
-        <KeypadButton onClick={onBackspace} muted>←</KeypadButton>
-      </Box>
+    <Box
+      onClick={() => onSelect(teacher)}
+      sx={{
+        px: 1.5, py: 0.8, cursor: 'pointer', borderRadius: 5,
+        border: '2px solid', borderColor: selected ? '#4f46e5' : '#e2e8f0',
+        bgcolor: selected ? '#eef2ff' : '#fff',
+      }}
+    >
+      <Typography fontWeight={600} fontSize="0.95rem" component="span">{teacher.name}</Typography>
+      {teacher.positionLabel && (
+        <Typography fontSize="0.75rem" color="primary.main" component="span" ml={0.6}>
+          {teacher.positionLabel}
+        </Typography>
+      )}
     </Box>
   )
 }
@@ -250,9 +339,9 @@ function KeypadButton({ children, onClick, muted }) {
     <Button
       onClick={onClick}
       sx={{
-        height: 76, fontSize: muted ? '1.1rem' : '1.7rem', fontWeight: 700, borderRadius: 3,
+        height: 62, fontSize: muted ? '1rem' : '1.55rem', fontWeight: 700, borderRadius: 2,
         bgcolor: muted ? '#f1f5f9' : '#fff', color: muted ? '#64748b' : '#1e293b',
-        border: '1px solid #e2e8f0',
+        border: '1px solid #e2e8f0', minWidth: 0,
         '&:hover': { bgcolor: muted ? '#e2e8f0' : '#eef2ff' },
       }}
     >
@@ -261,7 +350,7 @@ function KeypadButton({ children, onClick, muted }) {
   )
 }
 
-function Centered({ icon, title, sub, extra, spinner }) {
+function FullScreen({ icon, title, sub, extra, spinner }) {
   return (
     <Box sx={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
