@@ -31,7 +31,17 @@ export default function AsaChecklistHome() {
   const navigate = useNavigate()
   const { user, schoolId, role, isAdmin, isPrincipal } = useAuth()
 
-  const [matchedSubjects, setMatchedSubjects] = useState([]) // 교사에게 매칭된 모든 과목 (학년 무관)
+  // 담당 과목 조회는 uid(teacherUids, 신규)와 이메일(teacherEmails, 기존 데이터) 두 경로를
+  // 각각 구독해 합집합으로 쓴다. Firestore는 한 쿼리에 array-contains를 두 개 넣을 수 없고,
+  // 전환 중에는 문서마다 uid만/이메일만 있는 상태가 섞여 있을 수 있기 때문.
+  const [subjectsByUid, setSubjectsByUid] = useState([])
+  const [subjectsByEmail, setSubjectsByEmail] = useState([])
+  const matchedSubjects = useMemo(() => {
+    const map = new Map()
+    ;[...subjectsByUid, ...subjectsByEmail].forEach((s) => map.set(s.id, s))
+    return [...map.values()]
+  }, [subjectsByUid, subjectsByEmail])
+
   const [submissions, setSubmissions] = useState({}) // subjectId → { process: status, result: status }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -58,18 +68,41 @@ export default function AsaChecklistHome() {
   useEffect(() => {
     if (!schoolId || !user || isPrincipal) return
 
-    const q = query(
-      collection(db, 'schools', schoolId, 'asaSubjects'),
-      where('teacherEmails', 'array-contains', user.email),
+    const col = collection(db, 'schools', schoolId, 'asaSubjects')
+    const settled = { uid: false, email: false }
+    const markSettled = (key) => {
+      settled[key] = true
+      if (settled.uid && settled.email) setLoading(false)
+    }
+
+    // (1) uid 기반 — 전환 후 문서
+    const unsubUid = onSnapshot(
+      query(col, where('teacherUids', 'array-contains', user.uid)),
+      (snap) => {
+        setSubjectsByUid(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+        markSettled('uid')
+      },
+      (err) => {
+        // uid 경로가 실패해도 이메일 폴백이 살아 있으므로 목록 자체는 막지 않는다
+        console.error('[AsaChecklistHome] teacherUids 조회 실패:', err)
+        markSettled('uid')
+      },
     )
-    const unsub = onSnapshot(q, (snap) => {
-      setMatchedSubjects(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-      setLoading(false)
-    }, (err) => {
-      setError(`과목 목록을 불러오지 못했습니다: ${err.message}`)
-      setLoading(false)
-    })
-    return unsub
+
+    // (2) 이메일 기반 — 아직 teacherUids가 없는 기존 문서 폴백
+    const unsubEmail = onSnapshot(
+      query(col, where('teacherEmails', 'array-contains', user.email)),
+      (snap) => {
+        setSubjectsByEmail(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+        markSettled('email')
+      },
+      (err) => {
+        setError(`과목 목록을 불러오지 못했습니다: ${err.message}`)
+        markSettled('email')
+      },
+    )
+
+    return () => { unsubUid(); unsubEmail() }
   }, [schoolId, user, isPrincipal])
 
   // 과정/결과 체크리스트 submission 상태 조회

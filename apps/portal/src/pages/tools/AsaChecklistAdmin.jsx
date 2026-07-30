@@ -39,6 +39,9 @@ import { openProcessChecklistPrint, openResultChecklistPrint } from './asaCheckl
 import { cleanTeacherName } from '../../utils/nameUtils'
 import { getFixedCategory, parseNeisTeacherSubjectFile } from './asaUtils'
 import { useAuth } from '@shared/contexts/AuthContext'
+import {
+  buildEmailToTeacher, resolveTeacherUids, teacherRefFields, needsUidBackfill, normalizeEmail,
+} from '@shared/lib/asaTeacherRefs'
 
 // 분할점수 경계 개수로 성취도 단계 추정 (A~C=3단계는 경계 2~3개, A~E=5단계는 경계 4~5개)
 function levelFromBoundaries(boundaries) {
@@ -171,6 +174,11 @@ export default function AsaChecklistAdmin() {
 
   // 등록된 교사 목록 (picker용)
   const [teachers, setTeachers] = useState([])
+
+  // 담당 교사 uid 백필 (기존 teacherEmails 문서에 teacherUids 채우기)
+  const [backfillOpen, setBackfillOpen] = useState(false)
+  const [backfillRunning, setBackfillRunning] = useState(false)
+  const [backfillResult, setBackfillResult] = useState(null)
 
   const [snackbar, setSnackbar] = useState('')
   const [error, setError] = useState(null)
@@ -320,11 +328,13 @@ export default function AsaChecklistAdmin() {
 
     setSaving(true)
     try {
+      // 담당 교사는 uid로도 함께 저장한다 (teacherEmails는 그대로 유지 — 비파괴적 전환)
+      const { fields: teacherFields, unmatchedEmails } = teacherRefFields(finalEmails, teachers)
       const payload = {
         name: form.name.trim(),
         grade: Number(form.grade),
         semester: Number(form.semester),
-        teacherEmails: finalEmails,
+        ...teacherFields,
         achievementLevel: Number(form.achievementLevel) === 3 ? 3 : 5,
         updatedAt: serverTimestamp(),
       }
@@ -337,6 +347,10 @@ export default function AsaChecklistAdmin() {
           createdAt: serverTimestamp(),
         })
         setSnackbar('과목이 추가됐습니다.')
+      }
+      // 계정을 못 찾은 이메일은 조용히 넘기지 않고 알린다 (배정은 이메일로 저장돼 있음)
+      if (unmatchedEmails.length) {
+        setError(`저장됐지만 계정을 찾지 못한 이메일이 있습니다 (uid 미연결): ${unmatchedEmails.join(', ')}`)
       }
       handleCloseDialog()
     } catch (err) {
@@ -426,18 +440,24 @@ export default function AsaChecklistAdmin() {
   const handleXlsxSave = async () => {
     setXlsxSaving(true)
     try {
-      await Promise.all(xlsxPreview.map((row) =>
-        addDoc(collection(db, 'schools', schoolId, 'asaSubjects'), {
+      const unmatchedAll = new Set()
+      await Promise.all(xlsxPreview.map((row) => {
+        const { fields: teacherFields, unmatchedEmails } = teacherRefFields(row.teacherEmails, teachers)
+        unmatchedEmails.forEach((e) => unmatchedAll.add(e))
+        return addDoc(collection(db, 'schools', schoolId, 'asaSubjects'), {
           name: row.name,
           grade: row.grade,
           semester: row.semester,
-          teacherEmails: row.teacherEmails,
+          ...teacherFields,
           achievementLevel: row.achievementLevel,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-        }),
-      ))
+        })
+      }))
       setSnackbar(`${xlsxPreview.length}개 과목이 추가됐습니다.`)
+      if (unmatchedAll.size) {
+        setError(`계정을 찾지 못한 이메일 ${unmatchedAll.size}건 (uid 미연결): ${[...unmatchedAll].join(', ')}`)
+      }
       setXlsxDialogOpen(false)
       setXlsxPreview([])
     } catch (err) {
@@ -500,6 +520,7 @@ export default function AsaChecklistAdmin() {
           grade: c.grade,
           semester: importSemester,
           teacherEmails: [],
+          teacherUids: [],
           achievementLevel: levelFromBoundaries(c.boundaries),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -617,6 +638,7 @@ export default function AsaChecklistAdmin() {
     setNeisSaving(true)
     try {
       const updates = []
+      const unmatchedAll = new Set()
       targets.forEach((r) => {
         const emails = new Set(r.resolved.map((x) => x.email))
         r.unresolved.forEach((u) => {
@@ -624,9 +646,13 @@ export default function AsaChecklistAdmin() {
           if (override) emails.add(override)
         })
         r.matchingDocs.forEach((docObj) => {
-          const merged = new Set([...(docObj.teacherEmails || []), ...emails])
+          const merged = [...new Set([...(docObj.teacherEmails || []), ...emails])]
+          // 합쳐진 이메일 전체를 다시 uid로 해석해 teacherUids도 함께 갱신한다
+          // (기존 문서의 teacherUids가 비어 있어도 이 시점에 채워진다)
+          const { fields: teacherFields, unmatchedEmails } = teacherRefFields(merged, teachers)
+          unmatchedEmails.forEach((e) => unmatchedAll.add(e))
           updates.push(updateDoc(doc(db, 'schools', schoolId, 'asaSubjects', docObj.id), {
-            teacherEmails: [...merged],
+            ...teacherFields,
             updatedAt: serverTimestamp(),
           }))
         })
@@ -638,11 +664,68 @@ export default function AsaChecklistAdmin() {
       }
       await Promise.all(updates)
       setSnackbar(`${targets.length}개 과목의 배정 교사가 업데이트됐습니다.`)
+      if (unmatchedAll.size) {
+        setError(`계정을 찾지 못해 uid를 연결하지 못한 이메일: ${[...unmatchedAll].join(', ')}`)
+      }
       handleCloseNeis()
     } catch (err) {
       setError(`적용 실패: ${err.message}`)
     } finally {
       setNeisSaving(false)
+    }
+  }
+
+  // ── 담당 교사 uid 백필 ───────────────────────────────────────
+  // asaSubjects는 원래 담당 교사를 이메일(teacherEmails)로만 들고 있었고, 나머지 시스템은
+  // 전부 uid로 교사를 식별한다. 기존 문서에 teacherUids를 채워 넣어 이메일 문자열 매칭
+  // 의존을 줄인다. teacherEmails는 지우지 않고 그대로 둔다(비파괴적).
+  const backfillPreview = subjects.filter(needsUidBackfill)
+
+  const runUidBackfill = async () => {
+    setBackfillRunning(true)
+    setBackfillResult(null)
+    try {
+      const byEmail = buildEmailToTeacher(teachers)
+      const unmatchedMap = new Map() // 이메일 → 그 이메일이 들어 있는 과목 라벨 목록
+      const writes = []
+      let updated = 0
+      let alreadyLinked = 0
+      let noTeacher = 0
+
+      subjects.forEach((s) => {
+        const label = `${s.grade ?? '?'}학년 ${s.semester ?? '?'}학기 ${s.name || '(과목명 없음)'}`
+        const emails = s.teacherEmails || []
+        if (emails.length === 0) { noTeacher++; return }
+
+        const { uids, unmatchedEmails } = resolveTeacherUids(emails, byEmail)
+        unmatchedEmails.forEach((e) => {
+          if (!unmatchedMap.has(e)) unmatchedMap.set(e, [])
+          unmatchedMap.get(e).push(label)
+        })
+
+        const current = s.teacherUids || []
+        const same = current.length === uids.length && uids.every((u) => current.includes(u))
+        if (same) { alreadyLinked++; return }
+
+        updated++
+        writes.push(updateDoc(doc(db, 'schools', schoolId, 'asaSubjects', s.id), {
+          teacherUids: uids,
+          updatedAt: serverTimestamp(),
+        }))
+      })
+
+      await Promise.all(writes)
+      setBackfillResult({
+        total: subjects.length,
+        updated,
+        alreadyLinked,
+        noTeacher,
+        unmatched: [...unmatchedMap.entries()].map(([email, subjectLabels]) => ({ email, subjectLabels })),
+      })
+    } catch (err) {
+      setError(`uid 백필 실패: ${err.message}`)
+    } finally {
+      setBackfillRunning(false)
     }
   }
 
@@ -762,7 +845,23 @@ export default function AsaChecklistAdmin() {
                   onChange={handleNeisFile}
                 />
               </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                color={backfillPreview.length > 0 ? 'warning' : 'inherit'}
+                onClick={() => { setBackfillResult(null); setBackfillOpen(true) }}
+              >
+                담당 교사 uid 연결
+                {backfillPreview.length > 0 ? ` (${backfillPreview.length})` : ''}
+              </Button>
             </Box>
+
+            {backfillPreview.length > 0 && (
+              <Alert severity="warning" sx={{ mb: 2, fontSize: '0.82rem' }}>
+                담당 교사가 이메일로만 저장된 과목이 {backfillPreview.length}개 있습니다.
+                "담당 교사 uid 연결"을 실행하면 계정 uid를 함께 저장해 이메일이 바뀌어도 배정이 유지됩니다.
+              </Alert>
+            )}
 
             {/* 과목 목록 */}
             {loadingSubjects ? (
@@ -800,14 +899,17 @@ export default function AsaChecklistAdmin() {
                             <Typography variant="caption" color="text.disabled">미배정</Typography>
                           ) : (
                             (subject.teacherEmails || []).map((email) => {
-                              const t = teachers.find((t) => t.email === email)
+                              // 이름 조회는 uid 우선, 없으면 이메일(대소문자 무시)로 폴백
+                              const t = teachers.find((tc) => normalizeEmail(tc.email) === normalizeEmail(email))
+                              const linked = !!t && (subject.teacherUids || []).includes(t.uid)
                               const tName = t?.name ? cleanTeacherName(t.name) : null
                               return (
-                                <Tooltip key={email} title={email}>
+                                <Tooltip key={email} title={linked ? email : `${email} (uid 미연결)`}>
                                   <Chip
                                     label={tName || email}
                                     size="small"
                                     variant="outlined"
+                                    color={linked ? 'default' : 'warning'}
                                   />
                                 </Tooltip>
                               )
@@ -1469,6 +1571,106 @@ export default function AsaChecklistAdmin() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setNeisHistoryDetail(null)}>닫기</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ══ 담당 교사 uid 백필 Dialog ═══════════════════════════ */}
+      <Dialog
+        open={backfillOpen}
+        onClose={() => !backfillRunning && setBackfillOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>담당 교사 uid 연결</DialogTitle>
+        <DialogContent sx={{ pt: '12px !important' }}>
+          <Alert severity="info" sx={{ mb: 2, fontSize: '0.82rem' }}>
+            과목의 담당 교사 이메일(<code>teacherEmails</code>)을 계정 uid(<code>teacherUids</code>)로
+            해석해 함께 저장합니다. <b>기존 이메일 목록은 지우지 않습니다.</b> 계정 조회는 이 학교의
+            <code> /users</code> 문서에서 이메일(대소문자 무시)로 합니다.
+          </Alert>
+
+          {!backfillResult ? (
+            <>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                등록 과목 {subjects.length}개 · 조회된 교사 계정 {teachers.length}명
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                uid가 아직 연결되지 않은 과목: <b>{backfillPreview.length}개</b>
+                {backfillPreview.length > 0 && ' — 실행하면 이 과목들의 teacherUids가 채워집니다.'}
+              </Typography>
+              {backfillPreview.length > 0 && (
+                <Box sx={{ mt: 1.5, maxHeight: 220, overflow: 'auto' }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                        <TableCell sx={{ fontWeight: 700 }}>과목</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>배정 교사 이메일</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {backfillPreview.map((s) => (
+                        <TableRow key={s.id}>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            {s.grade}학년 {s.semester}학기 {s.name}
+                          </TableCell>
+                          <TableCell>{(s.teacherEmails || []).join(', ')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+              )}
+            </>
+          ) : (
+            <>
+              <Alert severity={backfillResult.unmatched.length ? 'warning' : 'success'} sx={{ mb: 2 }}>
+                과목 {backfillResult.total}개 중 {backfillResult.updated}개 갱신 ·
+                {' '}{backfillResult.alreadyLinked}개는 이미 연결됨 ·
+                {' '}{backfillResult.noTeacher}개는 배정 교사 없음
+              </Alert>
+              {backfillResult.unmatched.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  계정을 찾지 못한 이메일은 없습니다.
+                </Typography>
+              ) : (
+                <>
+                  <Typography variant="subtitle2" fontWeight={700} color="warning.dark" sx={{ mb: 1 }}>
+                    계정을 찾지 못한 이메일 {backfillResult.unmatched.length}건 — uid가 연결되지 않았습니다
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    해당 이메일로 가입한 교사 계정이 없거나 이메일이 바뀐 경우입니다.
+                    계정을 확인한 뒤 과목 수정에서 올바른 교사를 다시 지정하고 이 작업을 다시 실행하세요.
+                  </Typography>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: '#fff7ed' }}>
+                        <TableCell sx={{ fontWeight: 700 }}>이메일</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>해당 과목</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {backfillResult.unmatched.map((u) => (
+                        <TableRow key={u.email}>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>{u.email}</TableCell>
+                          <TableCell>{u.subjectLabels.join(', ')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setBackfillOpen(false)} disabled={backfillRunning}>닫기</Button>
+          <Button
+            variant="contained"
+            onClick={runUidBackfill}
+            disabled={backfillRunning || subjects.length === 0 || teachers.length === 0}
+          >
+            {backfillRunning ? '연결 중...' : backfillResult ? '다시 실행' : '실행'}
+          </Button>
         </DialogActions>
       </Dialog>
 

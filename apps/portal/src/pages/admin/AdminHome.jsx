@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { officeLayoutId } from '@shared/lib/officeLayout'
+import { COL, USERS, SCHOOLS, schoolPath, officeLayoutId } from '@shared/lib/schema'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
@@ -52,15 +52,15 @@ export default function AdminHome() {
     try {
       // 1. 승인 대기 계정 수
       const pendingSnap = await getDocs(
-        query(collection(db, 'users'),
+        query(collection(db, USERS),
           where('schoolId', '==', schoolId),
           where('role', '==', 'pending'))
       )
 
-      // 2. 교원 배정 데이터
+      // 2. 교원 배정 데이터 (year = 학년도)
       const assignmentsSnap = await getDocs(
         query(
-          collection(db, 'schools', schoolId, 'teacherAssignments'),
+          collection(db, ...schoolPath(schoolId, COL.TEACHER_ASSIGNMENTS)),
           where('year', '==', year)
         )
       )
@@ -80,14 +80,14 @@ export default function AdminHome() {
       // 4. 자리배치 미완료 사무실 (confirmed: true가 아닌 경우)
       const offices = [...new Set(assignmentsSnap.docs.map(d => d.data().office).filter(Boolean))]
       const layoutDocs = await Promise.all(offices.map(office =>
-        getDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, office)))
+        getDoc(doc(db, ...schoolPath(schoolId, COL.OFFICE_LAYOUTS), officeLayoutId(year, office)))
       ))
       const officesNoLayout = offices.filter((_, i) =>
         !layoutDocs[i].exists() || !layoutDocs[i].data()?.confirmed
       )
 
       // 5. 학생 OU 갱신 필요 여부
-      const schoolDoc = await getDoc(doc(db, 'schools', schoolId))
+      const schoolDoc = await getDoc(doc(db, SCHOOLS, schoolId))
       const ouPath = schoolDoc.data()?.workspaceSync?.studentOuPath || ''
       const studentOuOutdated = ouPath && !ouPath.includes(year.toString())
 

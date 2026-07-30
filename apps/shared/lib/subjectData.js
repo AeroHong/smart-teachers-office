@@ -1,5 +1,11 @@
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where } from 'firebase/firestore'
 import { db } from './firebase'
+import { COL, schoolPath } from './schema'
+
+// subjects 는 학년도(year)가 아니라 입학년도(entryYear)로 스코프된다.
+// 교육과정 편제가 입학 코호트 단위로 고정되기 때문. 자세한 구분은 schema.js 참고.
+// 문서 ID는 auto-ID를 쓰고, 스코프는 문서 안의 entryYear 필드로 표현한다.
+const subjectsCol = (schoolId) => collection(db, ...schoolPath(schoolId, COL.SUBJECTS))
 
 /**
  * 과목 데이터 로드
@@ -7,7 +13,7 @@ import { db } from './firebase'
  * @returns {Promise<Array>} 과목 배열
  */
 export async function loadSubjects(schoolId) {
-  const snap = await getDocs(collection(db, 'schools', schoolId, 'subjects'))
+  const snap = await getDocs(subjectsCol(schoolId))
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
@@ -18,8 +24,8 @@ export async function loadSubjects(schoolId) {
  */
 export async function saveSubject(schoolId, subjectData) {
   const { id, ...data } = subjectData
-  const docId = id || doc(collection(db, 'schools', schoolId, 'subjects')).id
-  await setDoc(doc(db, 'schools', schoolId, 'subjects', docId), {
+  const docId = id || doc(subjectsCol(schoolId)).id
+  await setDoc(doc(db, ...schoolPath(schoolId, COL.SUBJECTS), docId), {
     ...data,
     updatedAt: new Date()
   }, { merge: true })
@@ -31,7 +37,7 @@ export async function saveSubject(schoolId, subjectData) {
  * @param {string} subjectId
  */
 export async function deleteSubject(schoolId, subjectId) {
-  await deleteDoc(doc(db, 'schools', schoolId, 'subjects', subjectId))
+  await deleteDoc(doc(db, ...schoolPath(schoolId, COL.SUBJECTS), subjectId))
 }
 
 // Firestore writeBatch 1회 최대 작업 수
@@ -49,7 +55,7 @@ async function commitInChunks(items, apply) {
 
 // 특정 입학년도(없으면 전체)의 기존 과목 문서 레퍼런스 목록
 async function getSubjectRefsByYear(schoolId, entryYear) {
-  const col = collection(db, 'schools', schoolId, 'subjects')
+  const col = subjectsCol(schoolId)
   const snap = await getDocs(
     entryYear ? query(col, where('entryYear', '==', entryYear)) : col
   )
@@ -68,6 +74,7 @@ export async function deleteSubjectsByYear(schoolId, entryYear) {
 
 /**
  * 과목 일괄 저장 (입학년도별) — 해당 입학년도 기존 데이터를 새 데이터로 교체한다.
+ * 여기서 말하는 "년도"는 학년도(year)가 아니라 입학년도(entryYear)다.
  *
  * 삭제와 생성을 가능하면 한 배치로 묶어 원자적으로 처리한다.
  * 500개를 넘어 나눠야 할 때는 "생성 후 삭제" 순서로 커밋한다.
@@ -82,7 +89,7 @@ export async function bulkSaveSubjectsByYear(schoolId, subjects, entryYear) {
   const oldRefs = await getSubjectRefsByYear(schoolId, entryYear)
   const now = new Date()
   const newDocs = subjects.map(subject => ({
-    ref: doc(collection(db, 'schools', schoolId, 'subjects')),
+    ref: doc(subjectsCol(schoolId)),
     data: { ...subject, createdAt: now, updatedAt: now },
   }))
 
@@ -106,7 +113,7 @@ export async function bulkSaveSubjectsByYear(schoolId, subjects, entryYear) {
  * @returns {Promise<Array>}
  */
 export async function loadStudents(schoolId) {
-  const snap = await getDocs(collection(db, 'schools', schoolId, 'students'))
+  const snap = await getDocs(collection(db, ...schoolPath(schoolId, COL.STUDENTS)))
   return snap.docs.map(d => {
     const data = d.data()
     return {

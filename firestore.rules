@@ -53,10 +53,17 @@ service cloud.firestore {
 
     // asaSubmissions 문서 자체의 teacherEmails는 생성 시점 스냅샷이라, 나중에 asaSubjects에서
     // 교사가 추가/제거돼도 기존 submission 문서에는 반영되지 않아 배정 현황과 어긋날 수 있다.
-    // 그래서 배정 여부는 항상 asaSubjects의 실시간 teacherEmails로 판단한다.
+    // 그래서 배정 여부는 항상 asaSubjects의 실시간 값으로 판단한다.
+    //
+    // 교사 식별을 이메일 → uid로 옮기는 중이라 두 필드를 모두 본다.
+    //  - teacherUids: 신규/백필된 문서 (계정 이메일이 바뀌어도 유지됨)
+    //  - teacherEmails: 아직 백필되지 않은 기존 문서 폴백
+    // 한쪽만 맞아도 통과시켜 전환 도중 담당 교사가 잠기지 않게 한다.
+    // .get(key, []) 를 쓰므로 필드가 아예 없는 문서에서도 규칙 평가가 실패하지 않는다.
     function isAssignedToAsaSubject(schoolId, subjectId) {
-      return request.auth.token.email in
-        get(/databases/$(database)/documents/schools/$(schoolId)/asaSubjects/$(subjectId)).data.teacherEmails;
+      let subject = get(/databases/$(database)/documents/schools/$(schoolId)/asaSubjects/$(subjectId)).data;
+      return request.auth.uid in subject.get('teacherUids', []) ||
+             request.auth.token.email in subject.get('teacherEmails', []);
     }
 
     // ── /studentRegistrations — 학생 자동 등록용 이메일 색인 ───────

@@ -427,7 +427,10 @@ exports.generateAsaChecklistPdf = onCall(
 
     const isAdmin = userData.role === 'admin' || userData.role === 'school_admin'
     const isPrincipal = userData.role === 'principal'
-    const isAssigned = submission.teacherEmails?.includes(userEmail)
+    // 담당 교사 식별은 uid(teacherUids) 우선, 아직 백필 안 된 문서는 이메일(teacherEmails) 폴백
+    const isAssigned =
+      submission.teacherUids?.includes(request.auth.uid) ||
+      submission.teacherEmails?.includes(userEmail)
     if (!isAdmin && !isPrincipal && !isAssigned) {
       throw new HttpsError('permission-denied', '이 체크리스트에 접근 권한이 없습니다.')
     }

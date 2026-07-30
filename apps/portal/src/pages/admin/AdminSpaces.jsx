@@ -3,6 +3,7 @@ import { collection, query, where, getDocs, orderBy, limit } from 'firebase/fire
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { COL, schoolPath, officeLayoutId } from '@shared/lib/schema'
 import OfficeLayoutEditor from '../attendance/OfficeLayoutEditor'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
@@ -54,11 +55,11 @@ export default function AdminSpaces() {
     setLoading(true)
     const [assignSnap, callSnap] = await Promise.all([
       getDocs(query(
-        collection(db, 'schools', schoolId, 'teacherAssignments'),
+        collection(db, ...schoolPath(schoolId, COL.TEACHER_ASSIGNMENTS)),
         where('year', '==', currentSchoolYear()),
       )),
       getDocs(query(
-        collection(db, 'schools', schoolId, 'callRequests'),
+        collection(db, ...schoolPath(schoolId, COL.CALL_REQUESTS)),
         orderBy('createdAt', 'desc'),
         limit(30),
       )),
@@ -166,7 +167,8 @@ export default function AdminSpaces() {
 
               {layoutOffice && (
                 <OfficeLayoutEditor
-                  key={`${currentSchoolYear()}__${layoutOffice}`}
+                  /* 편집 대상 문서가 바뀌면 에디터를 다시 마운트한다 — key를 문서 ID와 맞춰 둔다 */
+                  key={officeLayoutId(currentSchoolYear(), layoutOffice)}
                   schoolId={schoolId}
                   year={currentSchoolYear()}
                   office={layoutOffice}

@@ -30,20 +30,10 @@ import {
   collection, doc, setDoc, updateDoc, query, orderBy, onSnapshot, getDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
+import { asaCutoffId, currentYearSemester } from '@shared/lib/schema'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { parseGradeSummaryFile, groupBlocksBySubject } from './asaUtils'
-
-// 현재 학년도·학기 계산
-function currentYearSemester() {
-  const now = new Date()
-  const month = now.getMonth() + 1
-  const calYear = now.getFullYear()
-  return {
-    year: month <= 2 ? calYear - 1 : calYear,
-    semester: (month >= 3 && month <= 8) ? 1 : 2,
-  }
-}
 
 function noteKey(subjectName, classNumber) {
   return `${subjectName}__${classNumber}`
@@ -145,7 +135,8 @@ export default function MinAchievement() {
     const entries = await Promise.all(
       subjectNames.map(async (name) => {
         try {
-          const snap = await getDoc(doc(db, 'schools', schoolId, 'asaCutoffs', `${cutoffYear}_${cutoffSemester}_1_${name}`))
+          const snap = await getDoc(doc(db, 'schools', schoolId, 'asaCutoffs',
+            asaCutoffId(cutoffYear, cutoffSemester, 1, name)))
           if (!snap.exists()) return [name, null]
           const eMido = (snap.data().boundaries || []).find(b => b.label === 'E/미도달')
           if (!eMido) return [name, null]

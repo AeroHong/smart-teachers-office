@@ -21,18 +21,9 @@ import {
   collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, writeBatch, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
+import { asaCutoffId, currentYearSemester } from '@shared/lib/schema'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { parseCutoffFile, FIXED_CATEGORIES, getFixedCategory } from './asaUtils'
-
-// 현재 학년도·학기 계산 (3~8월 = 1학기, 9~2월 = 2학기 / 1~2월은 전년도 2학기)
-function currentYearSemester() {
-  const now = new Date()
-  const month = now.getMonth() + 1
-  const calYear = now.getFullYear()
-  const schoolYear = month <= 2 ? calYear - 1 : calYear
-  const semester = (month >= 3 && month <= 8) ? 1 : 2
-  return { year: schoolYear, semester }
-}
 
 function boundariesSummary(boundaries) {
   return boundaries.map((b) => `${b.label} ${b.value}`).join(' · ')
@@ -116,7 +107,7 @@ export default function AsaSupportCutoffs() {
       const batch = writeBatch(db)
       parsed.forEach(({ subjectName, grade, boundaries }) => {
         const ref = doc(db, 'schools', schoolId, 'asaCutoffs',
-          `${selectedYear}_${selectedSemester}_${grade}_${subjectName}`)
+          asaCutoffId(selectedYear, selectedSemester, grade, subjectName))
         batch.set(ref, {
           subjectName,
           grade,
@@ -143,7 +134,7 @@ export default function AsaSupportCutoffs() {
     if (!manualSubject.trim() || !category) return
     try {
       const ref = doc(db, 'schools', schoolId, 'asaCutoffs',
-        `${selectedYear}_${selectedSemester}_${manualGrade}_${manualSubject.trim()}`)
+        asaCutoffId(selectedYear, selectedSemester, manualGrade, manualSubject.trim()))
       await setDoc(ref, {
         subjectName: manualSubject.trim(),
         grade: Number(manualGrade),
@@ -178,7 +169,7 @@ export default function AsaSupportCutoffs() {
     try {
       const batch = writeBatch(db)
       legacyDocs.forEach(({ id, ...data }) => {
-        const newId = `${selectedYear}_${selectedSemester}_${data.grade}_${data.subjectName}`
+        const newId = asaCutoffId(selectedYear, selectedSemester, data.grade, data.subjectName)
         batch.set(doc(db, 'schools', schoolId, 'asaCutoffs', newId), {
           ...data,
           year: selectedYear,

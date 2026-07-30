@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { collection, query, where, getDocs, setDoc, doc, deleteDoc, serverTimestamp, addDoc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
+import { loadSubjects } from '@shared/lib/subjectData'
+import { buildEmailToTeacher, subjectTeacherUids } from '@shared/lib/asaTeacherRefs'
+import { entryYearFor, teacherSubjectId } from '@shared/lib/schema'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -19,11 +22,98 @@ import IconButton from '@mui/material/IconButton'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
 import Chip from '@mui/material/Chip'
+import Autocomplete from '@mui/material/Autocomplete'
+import Tooltip from '@mui/material/Tooltip'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+
+// 배정 화면은 교사 수 × 과목 수만큼 조회가 일어나므로 카탈로그를 미리 색인해 둔다.
+// 배정 한 건당 선형 탐색을 하면 교사 80명 규모에서 렌더가 눈에 띄게 느려진다.
+function buildCatalogIndex(catalog) {
+  const byId = new Map()
+  const byCode = new Map()
+  const byName = new Map()
+  const put = (map, key, val) => { if (key && !map.has(key)) map.set(key, val) }
+
+  for (const c of catalog) {
+    byId.set(c.id, c)
+    const code = (c.subjectCode || '').trim()
+    const name = (c.name || '').trim()
+    put(byCode, `${code}|${c.grade}`, c)
+    put(byCode, code, c)
+    put(byName, `${name}|${c.grade}`, c)
+    put(byName, name, c)
+  }
+  return { byId, byCode, byName }
+}
+
+// 배정된 과목을 subjects 카탈로그의 문서와 연결한다.
+// 이미 subjectId가 있으면 그대로 쓰고, 없으면 과목코드 → 과목명 순으로 찾는다.
+// 학년이 지정된 행은 같은 학년의 과목만 후보로 본다.
+// (기존에 자유 입력으로 쌓인 데이터를 화면에서 자동 보정하기 위한 경로)
+function matchCatalogSubject(index, subject) {
+  if (!index || !subject) return null
+
+  if (subject.subjectId) {
+    const hit = index.byId.get(subject.subjectId)
+    if (hit) return hit
+  }
+
+  const grade = Number(subject.grade) || null
+  const code = (subject.subjectCode || '').trim()
+  if (code) {
+    const hit = grade ? index.byCode.get(`${code}|${grade}`) : index.byCode.get(code)
+    if (hit) return hit
+  }
+
+  const name = (subject.subjectName || '').trim()
+  if (!name) return null
+  return (grade ? index.byName.get(`${name}|${grade}`) : index.byName.get(name)) || null
+}
+
+// 해당 학기에 배정 가능한 카탈로그 과목 (양학기 과목은 두 학기 모두 노출).
+// 이번 학년도에 실제로 편성된 과목을 앞에 놓되, 나머지도 고를 수 있게 남겨둔다.
+function catalogOptionsFor(catalog, semester, assignmentYear) {
+  const offThisYear = (c) => (isOfferedIn(c, assignmentYear) ? 0 : 1)
+  return catalog
+    .filter(c => c.semester === 'both' || Number(c.semester) === semester)
+    .sort((a, b) =>
+      offThisYear(a) - offThisYear(b) ||
+      (a.grade || 0) - (b.grade || 0) ||
+      (a.name || '').localeCompare(b.name || '', 'ko')
+    )
+}
+
+// 그 과목의 입학년도가 해당 학년도의 학년과 맞아떨어지는가
+function isOfferedIn(subject, assignmentYear) {
+  return subject.entryYear === entryYearFor(assignmentYear, subject.grade)
+}
+
+function catalogOptionLabel(option) {
+  if (typeof option === 'string') return option
+  return option?.name || ''
+}
+
+// 목록의 과목 칩. 교육과정 과목과 연결되지 않은 과목은 주황색 외곽선으로 구분한다.
+function SubjectChip({ subject, catalogIndex }) {
+  const linked = !!matchCatalogSubject(catalogIndex, subject)
+  return (
+    <Chip
+      label={`${subject.subjectName} (${subject.grade}-${subject.classes.join(',')}) ${subject.hoursPerWeek}시간`}
+      size="small"
+      color={linked ? 'default' : 'warning'}
+      variant={linked ? 'filled' : 'outlined'}
+      title={linked ? '' : '교육과정 과목 목록에 없는 과목'}
+      sx={{ mr: 0.5, mb: 0.5 }}
+    />
+  )
+}
 
 export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
   const [loading, setLoading] = useState(true)
   const [teachers, setTeachers] = useState([]) // 전체 교사 목록
   const [subjectAssignments, setSubjectAssignments] = useState([]) // 과목 배정 목록
+  const [catalog, setCatalog] = useState([]) // subjects 컬렉션 (교육과정 과목)
+  const catalogIndex = useMemo(() => buildCatalogIndex(catalog), [catalog])
 
   // 편집
   const [editingSubject, setEditingSubject] = useState(null)
@@ -62,7 +152,10 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
       setTeachers(teacherList)
 
-      // 2. 과목 배정 데이터 (학기 통합)
+      // 2. 교육과정 과목 카탈로그 (배정 시 참조 대상)
+      setCatalog(await loadSubjects(schoolId))
+
+      // 3. 과목 배정 데이터 (학기 통합)
       const subjectsSnap = await getDocs(query(
         collection(db, 'schools', schoolId, 'teacherSubjects'),
         where('year', '==', assignmentYear)
@@ -72,14 +165,14 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         assignmentsMap.set(d.data().teacherUid, { id: d.id, ...d.data() })
       })
 
-      // 3. 모든 교사에 대해 과목 배정 데이터 생성 (없으면 빈 데이터)
+      // 4. 모든 교사에 대해 과목 배정 데이터 생성 (없으면 빈 데이터)
       const assignments = teacherList.map(teacher => {
         const existing = assignmentsMap.get(teacher.uid)
         if (existing) {
           return existing
         } else {
           return {
-            id: `${assignmentYear}_${teacher.uid}`,
+            id: teacherSubjectId(assignmentYear, teacher.uid),
             year: assignmentYear,
             teacherUid: teacher.uid,
             teacherName: teacher.name,
@@ -114,7 +207,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
       ...prev,
       [field]: [
         ...prev[field],
-        { subjectCode: '', subjectName: '', grade: '', classes: [], studentRange: '', hoursPerWeek: '' }
+        { subjectId: '', subjectCode: '', subjectName: '', grade: '', classes: [], studentRange: '', hoursPerWeek: '' }
       ]
     }))
   }
@@ -125,6 +218,27 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
     setEditingSubject(prev => ({
       ...prev,
       [arrayField]: prev[arrayField].map((s, i) => i === index ? { ...s, [field]: value } : s)
+    }))
+  }
+
+  // 과목명 칸에서 카탈로그 과목을 고르거나 직접 입력했을 때
+  const selectCatalogSubject = (semester, index, value) => {
+    if (!editingSubject) return
+    const arrayField = semester === 1 ? 'semester1Subjects' : 'semester2Subjects'
+
+    // 카탈로그에 없는 과목명을 직접 입력한 경우 — 참조 없이 이름만 남긴다
+    const patch = typeof value === 'string' || value == null
+      ? { subjectId: '', subjectName: value || '' }
+      : {
+          subjectId: value.id,
+          subjectName: value.name || '',
+          subjectCode: value.subjectCode || '',
+          grade: value.grade || '',
+        }
+
+    setEditingSubject(prev => ({
+      ...prev,
+      [arrayField]: prev[arrayField].map((s, i) => i === index ? { ...s, ...patch } : s)
     }))
   }
 
@@ -141,31 +255,29 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
     if (!editingSubject || !editingSubject.teacherUid) return
     setSavingSubject(true)
     try {
-      const docId = `${assignmentYear}_${editingSubject.teacherUid}`
+      const docId = teacherSubjectId(assignmentYear, editingSubject.teacherUid)
       const teacher = teachers.find(t => t.uid === editingSubject.teacherUid)
 
-      // 유효성 검사
-      const validSem1 = editingSubject.semester1Subjects.filter(s =>
-        s.subjectName && s.grade && s.classes.length > 0
-      ).map(s => ({
-        subjectCode: s.subjectCode || '',
-        subjectName: s.subjectName,
-        grade: Number(s.grade),
-        classes: s.classes.map(c => Number(c)),
-        studentRange: s.studentRange || '',
-        hoursPerWeek: Number(s.hoursPerWeek) || 0
-      }))
+      // 유효성 검사 + 카탈로그 참조 보정
+      const normalize = (rows) => rows
+        .filter(s => s.subjectName && s.grade && s.classes.length > 0)
+        .map(s => {
+          // 저장 시점에 한 번 더 카탈로그와 맞춰본다.
+          // 코드/이름만 손으로 고친 행도 참조를 되찾을 수 있다.
+          const matched = matchCatalogSubject(catalogIndex, s)
+          return {
+            subjectId: matched?.id || '',
+            subjectCode: matched?.subjectCode || s.subjectCode || '',
+            subjectName: matched?.name || s.subjectName,
+            grade: Number(s.grade),
+            classes: s.classes.map(c => Number(c)),
+            studentRange: s.studentRange || '',
+            hoursPerWeek: Number(s.hoursPerWeek) || 0
+          }
+        })
 
-      const validSem2 = editingSubject.semester2Subjects.filter(s =>
-        s.subjectName && s.grade && s.classes.length > 0
-      ).map(s => ({
-        subjectCode: s.subjectCode || '',
-        subjectName: s.subjectName,
-        grade: Number(s.grade),
-        classes: s.classes.map(c => Number(c)),
-        studentRange: s.studentRange || '',
-        hoursPerWeek: Number(s.hoursPerWeek) || 0
-      }))
+      const validSem1 = normalize(editingSubject.semester1Subjects)
+      const validSem2 = normalize(editingSubject.semester2Subjects)
 
       await setDoc(doc(db, 'schools', schoolId, 'teacherSubjects', docId), {
         year: assignmentYear,
@@ -200,35 +312,51 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
     setAsaImporting(true)
     try {
       const snap = await getDocs(collection(db, 'schools', schoolId, 'asaSubjects'))
-      const subjectsByEmail = {}
+      // 담당 교사 식별은 uid 기준. asaSubjects에 teacherUids가 있으면 그것을 쓰고,
+      // 아직 없는 기존 문서만 teacherEmails → uid로 해석해 폴백한다.
+      const byEmail = buildEmailToTeacher(teachers)
+      const teacherByUid = new Map(teachers.map(t => [t.uid, t]))
+      const subjectsByUid = {}
+      const unresolvedEmails = new Set()   // 계정을 찾지 못한 이메일
+      const legacySubjects = new Set()     // 아직 uid가 없어 이메일로 매칭한 과목
 
+      let unmatched = 0
       snap.docs.forEach(d => {
         const data = d.data()
+        // asaSubjects 문서에는 name / grade / semester / achievementLevel / 담당교사만 있다.
+        // 과목코드와 반 정보는 없으므로 이름+학년으로만 카탈로그와 맞춘다.
+        // (과목코드는 매칭된 카탈로그 과목에서 가져온다)
+        const matched = matchCatalogSubject(catalogIndex, {
+          subjectName: data.name, grade: data.grade
+        })
+        if (!matched) unmatched++
         const subjectInfo = {
-          subjectCode: data.code || '',
-          subjectName: data.name || '',
+          subjectId: matched?.id || '',
+          subjectCode: matched?.subjectCode || '',
+          subjectName: matched?.name || data.name || '',
           grade: data.grade || 0,
-          classes: data.classes || [],
+          classes: [],          // ASA에 반 정보가 없다 — 가져온 뒤 직접 입력해야 한다
           studentRange: '',
           hoursPerWeek: 0
         }
 
-        ;(data.teacherEmails || []).forEach(email => {
-          const key = email.toLowerCase()
-          if (!subjectsByEmail[key]) subjectsByEmail[key] = []
-          subjectsByEmail[key].push(subjectInfo)
+        const { uids, unmatchedEmails, source } = subjectTeacherUids(data, byEmail)
+        if (source === 'emails') legacySubjects.add(data.name || d.id)
+        unmatchedEmails.forEach(e => unresolvedEmails.add(e))
+
+        uids.forEach(uid => {
+          if (!subjectsByUid[uid]) subjectsByUid[uid] = []
+          subjectsByUid[uid].push(subjectInfo)
         })
       })
 
-      const emailToTeacher = {}
-      teachers.forEach(t => { if (t.email) emailToTeacher[t.email.toLowerCase()] = t })
-
       let imported = 0
-      await Promise.all(Object.entries(subjectsByEmail).map(async ([email, subjects]) => {
-        const teacher = emailToTeacher[email]
+      await Promise.all(Object.entries(subjectsByUid).map(async ([uid, subjects]) => {
+        const teacher = teacherByUid.get(uid)
+        // 이 학교 교사 목록에 없는 uid (퇴직·전출 등) — 배정을 만들지 않는다
         if (!teacher) return
 
-        const docId = `${assignmentYear}_${teacher.uid}`
+        const docId = teacherSubjectId(assignmentYear, teacher.uid)
         const existing = subjectAssignments.find(a => a.id === docId)
 
         const field = asaSemester === 1 ? 'semester1Subjects' : 'semester2Subjects'
@@ -245,7 +373,15 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         imported++
       }))
 
-      alert(`✅ ${imported}명의 ${asaSemester}학기 과목을 ASA에서 가져왔습니다.`)
+      alert(
+        `✅ ${imported}명의 ${asaSemester}학기 과목을 ASA에서 가져왔습니다.` +
+        // ASA에는 반 정보가 없어 반 칸이 비어 있다. 이 상태로 편집 화면에서 저장하면
+        // 유효성 검사(반 1개 이상)에 걸려 행이 사라지므로 미리 알린다.
+        `\n\n📝 가져온 과목은 담당 "반"이 비어 있습니다. 각 교사의 과목 배정을 수정해 반을 입력하세요. 반을 채우지 않은 채 저장하면 해당 과목은 저장되지 않습니다.` +
+        (unmatched > 0 ? `\n\n⚠️ ${unmatched}개 과목은 교육과정 과목 목록에서 찾지 못해 이름만 저장했습니다. 과목 관리에서 등록 여부를 확인하세요.` : '') +
+        (legacySubjects.size > 0 ? `\n\n⚠️ ${legacySubjects.size}개 과목은 담당 교사가 아직 이메일로만 저장돼 있어 이메일로 매칭했습니다. 성취평가제 과목 관리에서 "담당 교사 uid 연결"을 실행하세요.` : '') +
+        (unresolvedEmails.size > 0 ? `\n\n❌ 계정을 찾지 못한 담당 교사 이메일 ${unresolvedEmails.size}건 — 이 교사들의 과목은 가져오지 못했습니다:\n${[...unresolvedEmails].join('\n')}` : '')
+      )
       setAsaDialogOpen(false)
       await fetchData()
     } catch (err) {
@@ -370,6 +506,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
 
       // 교사별, 학기별로 그룹화
       const byTeacher = {}
+      let unmatchedRows = 0
       parsedRows.forEach(row => {
         const teacher = emailToTeacher[row.email]
         if (!teacher) return
@@ -383,9 +520,12 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
           }
         }
 
+        const matched = matchCatalogSubject(catalogIndex, row)
+        if (!matched) unmatchedRows++
         const subject = {
-          subjectCode: row.subjectCode,
-          subjectName: row.subjectName,
+          subjectId: matched?.id || '',
+          subjectCode: matched?.subjectCode || row.subjectCode,
+          subjectName: matched?.name || row.subjectName,
           grade: Number(row.grade),
           classes: row.classes.map(c => Number(c)),
           studentRange: row.studentRange,
@@ -402,7 +542,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
       // 저장
       let saved = 0
       await Promise.all(Object.entries(byTeacher).map(async ([uid, data]) => {
-        const docId = `${assignmentYear}_${uid}`
+        const docId = teacherSubjectId(assignmentYear, uid)
         await setDoc(doc(db, 'schools', schoolId, 'teacherSubjects', docId), {
           year: assignmentYear,
           ...data,
@@ -411,7 +551,10 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         saved++
       }))
 
-      setUploadMsg(`✅ ${saved}명의 과목 배정을 저장했습니다.`)
+      setUploadMsg(
+        `✅ ${saved}명의 과목 배정을 저장했습니다.` +
+        (unmatchedRows > 0 ? ` (${unmatchedRows}개 행은 교육과정 과목 목록에 없어 이름만 저장)` : '')
+      )
       setParsedRows([])
       await fetchData()
     } catch (err) {
@@ -482,12 +625,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                       {(assignment.semester1Subjects || []).length > 0 ? (
                         <Box>
                           {assignment.semester1Subjects.map((subject, idx) => (
-                            <Chip
-                              key={idx}
-                              label={`${subject.subjectName} (${subject.grade}-${subject.classes.join(',')}) ${subject.hoursPerWeek}시간`}
-                              size="small"
-                              sx={{ mr: 0.5, mb: 0.5 }}
-                            />
+                            <SubjectChip key={idx} subject={subject} catalogIndex={catalogIndex} />
                           ))}
                           <Typography variant="caption" color="text.secondary" display="block">
                             총 {sem1Total}시간
@@ -501,12 +639,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                       {(assignment.semester2Subjects || []).length > 0 ? (
                         <Box>
                           {assignment.semester2Subjects.map((subject, idx) => (
-                            <Chip
-                              key={idx}
-                              label={`${subject.subjectName} (${subject.grade}-${subject.classes.join(',')}) ${subject.hoursPerWeek}시간`}
-                              size="small"
-                              sx={{ mr: 0.5, mb: 0.5 }}
-                            />
+                            <SubjectChip key={idx} subject={subject} catalogIndex={catalogIndex} />
                           ))}
                           <Typography variant="caption" color="text.secondary" display="block">
                             총 {sem2Total}시간
@@ -542,131 +675,120 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         <DialogContent>
           <Box sx={{ pt: 1 }}>
 
-            {/* 1학기 과목 */}
-            <Box sx={{ mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <Typography variant="h6">1학기 과목</Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={() => addSubjectRow(1)} sx={{ ml: 2 }}>
-                  과목 추가
-                </Button>
-              </Box>
+            {catalog.length === 0 && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                등록된 교육과정 과목이 없습니다. <strong>과목 관리</strong>에서 먼저 과목을 등록하면
+                여기서 목록으로 선택할 수 있고, 과목명이 바뀌어도 배정이 따라갑니다.
+              </Alert>
+            )}
 
-              {editingSubject?.semester1Subjects?.map((subject, idx) => (
-                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
-                  <TextField
-                    label="과목코드"
-                    value={subject.subjectCode || ''}
-                    onChange={e => updateSubjectRow(1, idx, 'subjectCode', e.target.value)}
-                    size="small"
-                    sx={{ width: 100 }}
-                  />
-                  <TextField
-                    label="과목명"
-                    value={subject.subjectName || ''}
-                    onChange={e => updateSubjectRow(1, idx, 'subjectName', e.target.value)}
-                    size="small"
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    label="학년"
-                    type="number"
-                    value={subject.grade || ''}
-                    onChange={e => updateSubjectRow(1, idx, 'grade', e.target.value)}
-                    size="small"
-                    sx={{ width: 80 }}
-                  />
-                  <TextField
-                    label="반(쉼표)"
-                    value={subject.classes?.join(',') || ''}
-                    onChange={e => updateSubjectRow(1, idx, 'classes', e.target.value.split(',').map(c => c.trim()).filter(Boolean))}
-                    size="small"
-                    sx={{ width: 100 }}
-                  />
-                  <TextField
-                    label="학생범위"
-                    value={subject.studentRange || ''}
-                    onChange={e => updateSubjectRow(1, idx, 'studentRange', e.target.value)}
-                    size="small"
-                    placeholder="1-20"
-                    sx={{ width: 100 }}
-                  />
-                  <TextField
-                    label="시수"
-                    type="number"
-                    value={subject.hoursPerWeek || ''}
-                    onChange={e => updateSubjectRow(1, idx, 'hoursPerWeek', e.target.value)}
-                    size="small"
-                    sx={{ width: 80 }}
-                  />
-                  <IconButton size="small" onClick={() => removeSubjectRow(1, idx)} color="error">
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
+            {[1, 2].map(semester => {
+              const field = semester === 1 ? 'semester1Subjects' : 'semester2Subjects'
+              const options = catalogOptionsFor(catalog, semester, assignmentYear)
+              return (
+                <Box key={semester} sx={{ mb: semester === 1 ? 3 : 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="h6">{semester}학기 과목</Typography>
+                    <Button size="small" startIcon={<AddIcon />} onClick={() => addSubjectRow(semester)} sx={{ ml: 2 }}>
+                      과목 추가
+                    </Button>
+                  </Box>
+
+                  {editingSubject?.[field]?.map((subject, idx) => {
+                    const matched = matchCatalogSubject(catalogIndex, subject)
+                    return (
+                      <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+                        <TextField
+                          label="과목코드"
+                          value={subject.subjectCode || ''}
+                          onChange={e => updateSubjectRow(semester, idx, 'subjectCode', e.target.value)}
+                          size="small"
+                          sx={{ width: 100 }}
+                        />
+                        <Autocomplete
+                          freeSolo
+                          options={options}
+                          value={matched || subject.subjectName || ''}
+                          getOptionLabel={catalogOptionLabel}
+                          isOptionEqualToValue={(opt, val) => opt.id === val?.id}
+                          groupBy={(o) => isOfferedIn(o, assignmentYear)
+                            ? `${assignmentYear}학년도 편성 과목`
+                            : '다른 학년도 과목'}
+                          onChange={(_, val) => selectCatalogSubject(semester, idx, val)}
+                          onInputChange={(_, val, reason) => {
+                            // 직접 타이핑한 경우에만 이름을 갱신한다 (선택 시에는 onChange가 처리)
+                            if (reason === 'input') selectCatalogSubject(semester, idx, val)
+                          }}
+                          renderOption={(props, option) => (
+                            <li {...props} key={option.id}>
+                              {option.name}
+                              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                {option.grade}학년 · {option.entryYear}학번 · {option.credits}학점
+                              </Typography>
+                            </li>
+                          )}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="과목명"
+                              size="small"
+                              InputProps={{
+                                ...params.InputProps,
+                                endAdornment: (
+                                  <>
+                                    {subject.subjectName && !matched && (
+                                      <Tooltip title="교육과정 과목 목록에 없는 과목입니다. 이름만 저장되며 과목 관리에서 이름이 바뀌어도 연동되지 않습니다.">
+                                        <WarningAmberIcon sx={{ fontSize: '1.1rem', color: '#ed6c02' }} />
+                                      </Tooltip>
+                                    )}
+                                    {params.InputProps.endAdornment}
+                                  </>
+                                ),
+                              }}
+                            />
+                          )}
+                          sx={{ flex: 1 }}
+                        />
+                        <TextField
+                          label="학년"
+                          type="number"
+                          value={subject.grade || ''}
+                          onChange={e => updateSubjectRow(semester, idx, 'grade', e.target.value)}
+                          size="small"
+                          sx={{ width: 80 }}
+                        />
+                        <TextField
+                          label="반(쉼표)"
+                          value={subject.classes?.join(',') || ''}
+                          onChange={e => updateSubjectRow(semester, idx, 'classes', e.target.value.split(',').map(c => c.trim()).filter(Boolean))}
+                          size="small"
+                          sx={{ width: 100 }}
+                        />
+                        <TextField
+                          label="학생범위"
+                          value={subject.studentRange || ''}
+                          onChange={e => updateSubjectRow(semester, idx, 'studentRange', e.target.value)}
+                          size="small"
+                          placeholder="1-20"
+                          sx={{ width: 100 }}
+                        />
+                        <TextField
+                          label="시수"
+                          type="number"
+                          value={subject.hoursPerWeek || ''}
+                          onChange={e => updateSubjectRow(semester, idx, 'hoursPerWeek', e.target.value)}
+                          size="small"
+                          sx={{ width: 80 }}
+                        />
+                        <IconButton size="small" onClick={() => removeSubjectRow(semester, idx)} color="error">
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    )
+                  })}
                 </Box>
-              ))}
-            </Box>
-
-            {/* 2학기 과목 */}
-            <Box sx={{ mb: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <Typography variant="h6">2학기 과목</Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={() => addSubjectRow(2)} sx={{ ml: 2 }}>
-                  과목 추가
-                </Button>
-              </Box>
-
-              {editingSubject?.semester2Subjects?.map((subject, idx) => (
-                <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
-                  <TextField
-                    label="과목코드"
-                    value={subject.subjectCode || ''}
-                    onChange={e => updateSubjectRow(2, idx, 'subjectCode', e.target.value)}
-                    size="small"
-                    sx={{ width: 100 }}
-                  />
-                  <TextField
-                    label="과목명"
-                    value={subject.subjectName || ''}
-                    onChange={e => updateSubjectRow(2, idx, 'subjectName', e.target.value)}
-                    size="small"
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    label="학년"
-                    type="number"
-                    value={subject.grade || ''}
-                    onChange={e => updateSubjectRow(2, idx, 'grade', e.target.value)}
-                    size="small"
-                    sx={{ width: 80 }}
-                  />
-                  <TextField
-                    label="반(쉼표)"
-                    value={subject.classes?.join(',') || ''}
-                    onChange={e => updateSubjectRow(2, idx, 'classes', e.target.value.split(',').map(c => c.trim()).filter(Boolean))}
-                    size="small"
-                    sx={{ width: 100 }}
-                  />
-                  <TextField
-                    label="학생범위"
-                    value={subject.studentRange || ''}
-                    onChange={e => updateSubjectRow(2, idx, 'studentRange', e.target.value)}
-                    size="small"
-                    placeholder="1-20"
-                    sx={{ width: 100 }}
-                  />
-                  <TextField
-                    label="시수"
-                    type="number"
-                    value={subject.hoursPerWeek || ''}
-                    onChange={e => updateSubjectRow(2, idx, 'hoursPerWeek', e.target.value)}
-                    size="small"
-                    sx={{ width: 80 }}
-                  />
-                  <IconButton size="small" onClick={() => removeSubjectRow(2, idx)} color="error">
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              ))}
-            </Box>
+              )
+            })}
           </Box>
         </DialogContent>
         <DialogActions>

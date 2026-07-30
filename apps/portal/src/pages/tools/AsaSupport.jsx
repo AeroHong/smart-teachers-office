@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
@@ -12,6 +12,10 @@ import TableCell from '@mui/material/TableCell'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Chip from '@mui/material/Chip'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
 import IconButton from '@mui/material/IconButton'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import Divider from '@mui/material/Divider'
@@ -19,6 +23,7 @@ import {
   collection, query, where, orderBy, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
+import { asaCutoffId, currentYearSemester } from '@shared/lib/schema'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { parseGradeSummaryFile, computeAggregate, groupBlocksBySubject } from './asaUtils'
@@ -44,6 +49,12 @@ export default function AsaSupport() {
 
   const [results, setResults] = useState([])
   const [loadingResults, setLoadingResults] = useState(true)
+
+  // 분할점수 기준(asaCutoffs)은 학년도·학기로 스코프된다.
+  // 기본값은 오늘 기준이되, 지난 학기 자료를 분석할 수 있게 바꿀 수 있다.
+  const { year: defaultYear, semester: defaultSemester } = useMemo(currentYearSemester, [])
+  const [cutoffYear, setCutoffYear] = useState(defaultYear)
+  const [cutoffSemester, setCutoffSemester] = useState(defaultSemester)
 
   useEffect(() => {
     if (!schoolId || !user) return
@@ -89,7 +100,8 @@ export default function AsaSupport() {
       // 동일 과목을 나누어 담당하는 선생님들의 파일을 한 번에 선택하면 자동으로 과목 전체 통계가 됨)
       const enriched = []
       for (const g of groupBlocksBySubject(allBlocks)) {
-        const ref = doc(db, 'schools', schoolId, 'asaCutoffs', `${g.grade}_${g.subjectName}`)
+        const ref = doc(db, 'schools', schoolId, 'asaCutoffs',
+          asaCutoffId(cutoffYear, cutoffSemester, g.grade, g.subjectName))
         const snap = await getDoc(ref)
         const cutoff = snap.exists() ? snap.data() : false
         const aggregate = (cutoff && g.duplicates.length === 0) ? computeAggregate(g.students, cutoff.boundaries) : null
@@ -176,6 +188,39 @@ export default function AsaSupport() {
         <Typography variant="subtitle1" fontWeight={700} mb={1.5}>
           성적 일람표 업로드
         </Typography>
+
+        {/* 분할점수 기준을 어느 학년도·학기에서 찾을지. 업로드 전에 정해야 한다. */}
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>학년도</InputLabel>
+            <Select
+              value={cutoffYear}
+              label="학년도"
+              onChange={(e) => setCutoffYear(Number(e.target.value))}
+              disabled={parsing}
+            >
+              {[defaultYear - 2, defaultYear - 1, defaultYear, defaultYear + 1].map(y => (
+                <MenuItem key={y} value={y}>{y}학년도</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 100 }}>
+            <InputLabel>학기</InputLabel>
+            <Select
+              value={cutoffSemester}
+              label="학기"
+              onChange={(e) => setCutoffSemester(Number(e.target.value))}
+              disabled={parsing}
+            >
+              <MenuItem value={1}>1학기</MenuItem>
+              <MenuItem value={2}>2학기</MenuItem>
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary">
+            이 학년도·학기에 등록된 분할점수 기준과 대조합니다.
+          </Typography>
+        </Box>
+
         <Button variant="outlined" component="label" disabled={parsing}>
           {parsing ? '분석 중...' : '성적 일람표 xlsx 선택 (여러 개 선택 가능)'}
           <input type="file" accept=".xlsx" hidden multiple onChange={handleFileChange} />

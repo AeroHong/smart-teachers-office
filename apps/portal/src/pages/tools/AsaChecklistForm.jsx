@@ -30,6 +30,7 @@ import SignaturePad from '../../components/SignaturePad'
 import { PROCESS_CHECKLIST_GROUPS, ALL_PROCESS_QUESTION_IDS } from './asaChecklistData'
 import { openProcessChecklistPrint } from './asaChecklistPrint'
 import { cleanTeacherName } from '../../utils/nameUtils'
+import { isSubjectTeacher } from '@shared/lib/asaTeacherRefs'
 
 const STATUS_CONFIG = {
   draft:     { label: '작성중',   color: 'default' },
@@ -119,7 +120,9 @@ export default function AsaChecklistForm() {
             checklistType: 'process',
             schoolName: schoolName || schoolId,
             status: 'draft',
+            // 생성 시점 스냅샷 — 이메일과 uid를 함께 남긴다 (uid는 아직 백필 전이면 빈 배열)
             teacherEmails: subject.teacherEmails || [],
+            teacherUids: subject.teacherUids || [],
             answers: initialAnswers,
             signatures: {},
             principalSignature: null,
@@ -212,7 +215,8 @@ export default function AsaChecklistForm() {
     }
   }
 
-  const isAssigned = subject?.teacherEmails?.includes(user?.email)
+  // 담당 교사 판정은 uid(teacherUids) 우선, 없으면 이메일(teacherEmails) 폴백
+  const isAssigned = isSubjectTeacher(subject, user)
   const isLocked = submission?.status === 'locked'
   const isReadOnly = !isAssigned || isLocked
 
