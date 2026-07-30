@@ -5,10 +5,11 @@ import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
 import Snackbar from '@mui/material/Snackbar'
 import Alert from '@mui/material/Alert'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '@shared/lib/firebase'
 import DeskIcon from '@shared/components/DeskIcon'
+import { PRESENCE, effectivePresence } from '@shared/lib/presence'
 import { useKiosk } from '../contexts/KioskContext'
 
 const STUDENT_ID_LENGTH = 5   // 학년1 + 반2 + 번호2
@@ -41,6 +42,8 @@ export default function CallInput() {
   const [toast, setToast] = useState(null)      // { ok, message }
   const [myCalls, setMyCalls] = useState([])    // 이 기기에서 신청한 호출의 진행 상황
 
+  const [presence, setPresence] = useState({})   // { uid: 'available' | ... }
+
   useEffect(() => {
     httpsCallable(functions, 'getKioskTeachers')()
       .then(({ data }) => {
@@ -49,6 +52,19 @@ export default function CallInput() {
       })
       .catch(err => setLoadError(err.message || '교사 목록을 불러오지 못했습니다.'))
   }, [])
+
+  // 재실 상태 실시간 구독 — 자리에 계신지 학생이 보고 판단할 수 있도록
+  useEffect(() => {
+    return onSnapshot(
+      collection(db, 'schools', device.schoolId, 'presence'),
+      snap => {
+        const next = {}
+        snap.docs.forEach(d => { next[d.id] = effectivePresence(d.data()) })
+        setPresence(next)
+      },
+      () => {},
+    )
+  }, [device.schoolId])
 
   // 입력 상태만 초기화 — 신청 현황(myCalls)은 그대로 남는다
   const reset = useCallback(() => {
@@ -167,9 +183,9 @@ export default function CallInput() {
                 이 사무실에 배정된 선생님이 없습니다. 관리자에게 문의하세요.
               </Typography>
             ) : hasLayout ? (
-              <SeatMap teachers={teachers} selected={teacher} onSelect={setTeacher} />
+              <SeatMap teachers={teachers} presence={presence} selected={teacher} onSelect={setTeacher} />
             ) : (
-              <TeacherGrid teachers={teachers} selected={teacher} onSelect={setTeacher} />
+              <TeacherGrid teachers={teachers} presence={presence} selected={teacher} onSelect={setTeacher} />
             )}
           </Box>
 
@@ -208,6 +224,9 @@ export default function CallInput() {
                 {teacher.subject && (
                   <Typography fontSize="0.8rem" color="text.secondary">{teacher.subject}</Typography>
                 )}
+                <Box sx={{ mt: 0.6 }}>
+                  <PresenceDot status={presence[teacher.uid] || 'unknown'} withLabel />
+                </Box>
               </>
             ) : (
               <Typography color="text.secondary" fontSize="0.9rem">
@@ -337,12 +356,29 @@ const deskCardSx = (active) => ({
   '&:active': { transform: 'translateY(-1px)' },
 })
 
-function DeskCardText({ teacher }) {
+// 재실 상태 점 — 카드에 작게, 이름 옆에
+function PresenceDot({ status, withLabel }) {
+  const p = PRESENCE[status] || PRESENCE.unknown
+  if (status === 'unknown' && !withLabel) return null
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+      <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: p.color, flexShrink: 0 }} />
+      {withLabel && (
+        <Typography fontSize="0.78rem" fontWeight={700} sx={{ color: p.color }}>{p.label}</Typography>
+      )}
+    </Box>
+  )
+}
+
+function DeskCardText({ teacher, status }) {
   return (
     <Box sx={{ minWidth: 0, flex: 1 }}>
-      <Typography fontWeight={700} fontSize="1rem" lineHeight={1.3} color="#111827" noWrap>
-        {teacher.name}
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, minWidth: 0 }}>
+        <Typography fontWeight={700} fontSize="1rem" lineHeight={1.3} color="#111827" noWrap>
+          {teacher.name}
+        </Typography>
+        {status && <PresenceDot status={status} />}
+      </Box>
       {teacher.positionLabel && (
         <Typography fontSize="0.75rem" fontWeight={600} lineHeight={1.35} sx={{ color: '#6366f1' }} noWrap>
           {teacher.positionLabel}
@@ -358,7 +394,7 @@ function DeskCardText({ teacher }) {
 }
 
 // ── 실제 사무실 배치대로 카드 표시 ────────────────────────────
-function SeatMap({ teachers, selected, onSelect }) {
+function SeatMap({ teachers, presence, selected, onSelect }) {
   const placed = teachers.filter(t => t.seat)
   const unplaced = teachers.filter(t => !t.seat)
 
@@ -384,7 +420,7 @@ function SeatMap({ teachers, selected, onSelect }) {
             }}
           >
             <DeskIcon size={38} active={selected?.uid === t.uid} />
-            <DeskCardText teacher={t} />
+            <DeskCardText teacher={t} status={presence?.[t.uid]} />
           </Box>
         ))}
       </Box>
@@ -404,7 +440,7 @@ function SeatMap({ teachers, selected, onSelect }) {
 }
 
 // ── 배치 정보가 없을 때의 기본 격자 ───────────────────────────
-function TeacherGrid({ teachers, selected, onSelect }) {
+function TeacherGrid({ teachers, presence, selected, onSelect }) {
   return (
     <Box sx={{
       flex: 1, overflowY: 'auto', display: 'grid',
@@ -418,7 +454,7 @@ function TeacherGrid({ teachers, selected, onSelect }) {
           sx={{ ...deskCardSx(selected?.uid === t.uid), minHeight: 76 }}
         >
           <DeskIcon size={38} active={selected?.uid === t.uid} />
-          <DeskCardText teacher={t} />
+          <DeskCardText teacher={t} status={presence?.[t.uid]} />
         </Box>
       ))}
     </Box>

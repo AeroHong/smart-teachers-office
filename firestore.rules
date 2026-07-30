@@ -176,6 +176,14 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
+      // 교사 재실 상태 — 본인만 쓰고, 소속 교사와 키오스크(자리 표시용)가 읽는다.
+      // 추후 Electron 데스크톱 클라이언트도 본인 문서를 자동 갱신한다.
+      match /presence/{uid} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId) || isKioskDevice(schoolId);
+        allow write: if isSuperAdmin() ||
+          (isTeacher(schoolId) && request.auth.uid == uid);
+      }
+
       // 사무실 자리 배치 (교사 카드 좌표) — 조회는 소속 교사, 편집은 관리자만.
       // 키오스크는 getKioskTeachers 콜러블을 통해 받으므로 직접 읽기 권한은 주지 않는다.
       match /officeLayouts/{layoutId} {
