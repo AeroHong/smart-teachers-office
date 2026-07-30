@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { collection, getDocs, updateDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { loadSubjects, readElectives, electiveLabel } from '@shared/lib/subjectData'
+import { entryYearFor, currentSchoolYear } from '@shared/lib/schema'
+import Autocomplete from '@mui/material/Autocomplete'
+import { RowActions, EditAction, DeleteAction, table } from './adminUi'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
@@ -17,11 +21,8 @@ import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import Chip from '@mui/material/Chip'
-import IconButton from '@mui/material/IconButton'
 import UploadIcon from '@mui/icons-material/Upload'
 import DownloadIcon from '@mui/icons-material/Download'
-import DeleteIcon from '@mui/icons-material/Delete'
-import EditIcon from '@mui/icons-material/Edit'
 
 export default function AdminStudents() {
   const { schoolId } = useAuth()
@@ -46,9 +47,26 @@ export default function AdminStudents() {
   const [editForm, setEditForm] = useState({ electiveSubjects: [] })
   const [editSaving, setEditSaving] = useState(false)
 
+  // 교육과정 과목 카탈로그 — 선택과목 편집에서 참조한다
+  const [catalog, setCatalog] = useState([])
+
+  // 편집 중인 학생의 학년에 해당하는 선택 가능 과목.
+  // 학년 하나만 해도 과목이 수십 개라 학년으로 먼저 좁힌다.
+  const electiveOptionsFor = useMemo(() => {
+    const grade = Number(editingStudent?.grade) || null
+    if (!grade) return () => []
+    const entryYear = entryYearFor(currentSchoolYear(), grade)
+    const base = catalog
+      .filter(c => c.grade === grade && c.entryYear === entryYear && c.category === '학생선택')
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
+    // 1·2학기 편성이 다르므로 학기에 맞는 과목만 준다 (양학기 과목은 두 학기 모두)
+    return (semester) => base.filter(c => c.semester === 'both' || Number(c.semester) === semester)
+  }, [catalog, editingStudent])
+
   useEffect(() => {
     if (!schoolId) return
     fetchStudents()
+    loadSubjects(schoolId).then(setCatalog).catch(err => console.error('과목 카탈로그 로드 실패:', err))
   }, [schoolId])
 
   const fetchStudents = async () => {
@@ -89,10 +107,14 @@ export default function AdminStudents() {
     }
 
     // 선택과목 열 찾기 (선택과목1, 선택과목2, ... or elective1, elective2, ...)
+    // 선택과목N 열과 짝이 되는 분반N 열을 함께 찾는다 (분반 열은 없어도 된다)
     const electiveIndices = []
     header.forEach((h, idx) => {
       if (h.startsWith('선택과목') || h.toLowerCase().startsWith('elective')) {
-        electiveIndices.push(idx)
+        const n = h.replace(/[^0-9]/g, '')
+        const classIdx = header.findIndex(x => x === `분반${n}` || x.toLowerCase() === `division${n}`)
+        const semIdx = header.findIndex(x => x === `학기${n}` || x.toLowerCase() === `semester${n}`)
+        electiveIndices.push({ idx, classIdx, semIdx })
       }
     })
 
@@ -109,7 +131,15 @@ export default function AdminStudents() {
       if (!studentId) continue
 
       const name = nameIdx !== -1 ? cells[nameIdx] : ''
-      const electives = electiveIndices.map(idx => cells[idx] || '').filter(Boolean)
+      const electives = electiveIndices
+        .map(({ idx, classIdx, semIdx }) => ({
+          subjectId: '',
+          subjectName: (cells[idx] || '').trim(),
+          classNo: classIdx !== -1 ? (cells[classIdx] || '').trim() : '',
+          // 학기 열이 없는 기존 파일은 1학기로 본다
+          semester: semIdx !== -1 && Number(cells[semIdx]) === 2 ? 2 : 1,
+        }))
+        .filter(e => e.subjectName)
 
       rows.push({ studentId, name, electives })
     }
@@ -151,6 +181,7 @@ export default function AdminStudents() {
     try {
       const batch = writeBatch(db)
       let updated = 0
+      const unmatchedNames = new Set()
 
       uploadParsedRows.forEach(row => {
         // 학번으로 학생 찾기 (마지막 5자리)
@@ -160,9 +191,24 @@ export default function AdminStudents() {
         )
 
         if (student) {
+          // 업로드된 과목명을 학생 학년의 교육과정 과목과 맞춰 subjectId를 붙인다.
+          // 못 찾으면 이름만 저장되고 목록에서 주황색으로 표시된다.
+          const grade = Number(student.grade) || null
+          const entryYear = grade ? entryYearFor(currentSchoolYear(), grade) : null
+          const withRefs = row.electives.map(e => {
+            const hit = catalog.find(c =>
+              (c.name || '').trim() === e.subjectName &&
+              (!grade || c.grade === grade) &&
+              (!entryYear || c.entryYear === entryYear) &&
+              (c.semester === 'both' || Number(c.semester) === e.semester)
+            )
+            if (!hit) unmatchedNames.add(e.subjectName)
+            return { ...e, subjectId: hit?.id || '', subjectName: hit?.name || e.subjectName }
+          })
+
           const studentRef = doc(db, 'schools', schoolId, 'students', student.id)
           batch.update(studentRef, {
-            electiveSubjects: row.electives,
+            electiveSubjects: withRefs,
             electiveSubjectsUpdatedAt: new Date()
           })
           updated++
@@ -171,7 +217,12 @@ export default function AdminStudents() {
 
       await batch.commit()
       await fetchStudents() // 새로고침
-      setUploadMsg(`${updated}명의 선택과목 정보를 업데이트했습니다.`)
+      setUploadMsg(
+        `${updated}명의 선택과목 정보를 업데이트했습니다.` +
+        (unmatchedNames.size > 0
+          ? ` ⚠️ 교육과정 과목 목록에서 찾지 못한 과목 ${unmatchedNames.size}건: ${[...unmatchedNames].join(', ')}`
+          : '')
+      )
       setUploadParsedRows([])
     } catch (err) {
       setUploadMsg(`업로드 실패: ${err.message}`)
@@ -188,14 +239,17 @@ export default function AdminStudents() {
     }
 
     // CSV 헤더 생성
-    const maxElectives = Math.max(...studentList.map(s => (s.electiveSubjects || []).length), 0)
-    const electiveHeaders = Array.from({ length: maxElectives }, (_, i) => `선택과목${i + 1}`)
+    // 선택과목은 과목마다 분반이 다르므로 과목명과 분반을 짝으로 내보낸다
+    const maxElectives = Math.max(...studentList.map(s => readElectives(s).length), 0)
+    const electiveHeaders = Array.from({ length: maxElectives },
+      (_, i) => [`학기${i + 1}`, `선택과목${i + 1}`, `분반${i + 1}`]).flat()
     const header = ['학년', '반', '번호', '이름', '학번', '이메일', ...electiveHeaders]
 
     // CSV 데이터 생성
     const rows = studentList.map(s => {
-      const electives = s.electiveSubjects || []
-      const electiveValues = Array.from({ length: maxElectives }, (_, i) => electives[i] || '')
+      const electives = readElectives(s)
+      const electiveValues = Array.from({ length: maxElectives }, (_, i) =>
+        [electives[i]?.semester || '', electives[i]?.subjectName || '', electives[i]?.classNo || '']).flat()
       return [
         s.grade ?? '',
         s.class ?? '',
@@ -237,7 +291,7 @@ export default function AdminStudents() {
   const openEditStudent = (student) => {
     setEditingStudent(student)
     setEditForm({
-      electiveSubjects: student.electiveSubjects || []
+      electiveSubjects: readElectives(student)
     })
     setEditDialogOpen(true)
   }
@@ -249,7 +303,15 @@ export default function AdminStudents() {
     try {
       const studentRef = doc(db, 'schools', schoolId, 'students', editingStudent.id)
       await updateDoc(studentRef, {
-        electiveSubjects: editForm.electiveSubjects.filter(s => s.trim()),
+        // 과목명이 빈 행은 버리고, 분반은 숫자로 정규화해 저장한다
+        electiveSubjects: editForm.electiveSubjects
+          .filter(e => e.subjectName.trim())
+          .map(e => ({
+            subjectId: e.subjectId || '',
+            subjectName: e.subjectName.trim(),
+            classNo: e.classNo === '' ? '' : String(e.classNo).trim(),
+            semester: Number(e.semester) === 2 ? 2 : 1,
+          })),
         electiveSubjectsUpdatedAt: new Date()
       })
       await fetchStudents()
@@ -263,19 +325,27 @@ export default function AdminStudents() {
   }
 
   // 선택과목 추가
-  const addElectiveSubject = () => {
+  const addElectiveSubject = (semester) => {
     setEditForm(prev => ({
       ...prev,
-      electiveSubjects: [...prev.electiveSubjects, '']
+      electiveSubjects: [...prev.electiveSubjects, { subjectId: '', subjectName: '', classNo: '', semester }]
     }))
   }
 
-  // 선택과목 수정
-  const updateElectiveSubject = (index, value) => {
+  // 선택과목 한 칸의 필드 수정
+  const updateElectiveField = (index, patch) => {
     setEditForm(prev => ({
       ...prev,
-      electiveSubjects: prev.electiveSubjects.map((s, i) => i === index ? value : s)
+      electiveSubjects: prev.electiveSubjects.map((s, i) => i === index ? { ...s, ...patch } : s)
     }))
+  }
+
+  // 과목명 칸에서 카탈로그 과목을 고르거나 직접 입력했을 때.
+  // 카탈로그에서 고르면 subjectId가 붙어 과목명이 바뀌어도 연결이 유지된다.
+  const selectElectiveSubject = (index, value) => {
+    updateElectiveField(index, typeof value === 'string' || value == null
+      ? { subjectId: '', subjectName: value || '' }
+      : { subjectId: value.id, subjectName: value.name || '' })
   }
 
   // 선택과목 삭제
@@ -396,67 +466,65 @@ export default function AdminStudents() {
         <Typography color="text.secondary">검색 결과가 없습니다.</Typography>
       ) : (
         <>
-          <table style={styles.table}>
-            <thead>
+          <table style={table.table}>
+            <thead style={table.thead}>
               <tr>
-                <th style={styles.th}>학년</th>
-                <th style={styles.th}>반</th>
-                <th style={styles.th}>번호</th>
-                <th style={styles.th}>이름</th>
-                <th style={styles.th}>학번</th>
-                <th style={styles.th}>이메일</th>
-                <th style={styles.th}>선택과목</th>
-                <th style={styles.th}>작업</th>
+                <th style={table.th}>학년</th>
+                <th style={table.th}>반</th>
+                <th style={table.th}>번호</th>
+                <th style={table.th}>이름</th>
+                <th style={table.th}>학번</th>
+                <th style={table.th}>이메일</th>
+                <th style={table.th}>선택과목</th>
+                <th style={table.th}>작업</th>
               </tr>
             </thead>
             <tbody>
               {filteredStudents.map(s => (
-                <tr key={s.id}>
-                  <td style={styles.td}>{s.grade ?? '—'}</td>
-                  <td style={styles.td}>{s.class ?? '—'}</td>
-                  <td style={styles.td}>{s.number ?? '—'}</td>
-                  <td style={styles.td}>
+                <tr key={s.id} style={table.tr}>
+                  <td style={table.td}>{s.grade ?? '—'}</td>
+                  <td style={table.td}>{s.class ?? '—'}</td>
+                  <td style={table.td}>{s.number ?? '—'}</td>
+                  <td style={table.td}>
                     {s.name || '—'}
                   </td>
-                  <td style={styles.td}>{s.studentId}</td>
-                  <td style={styles.td}>{s.email || '—'}</td>
-                  <td style={styles.td}>
+                  <td style={table.td}>{s.studentId}</td>
+                  <td style={table.td}>{s.email || '—'}</td>
+                  <td style={table.td}>
                     {s.electiveSubjects && s.electiveSubjects.length > 0 ? (
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                        {s.electiveSubjects.map((subj, idx) => (
-                          <Chip key={idx} label={subj} size="small" variant="outlined" />
-                        ))}
-                        <IconButton
-                          size="small"
-                          onClick={() => openEditStudent(s)}
-                          title="선택과목 편집"
-                          sx={{ ml: 0.5 }}
-                        >
-                          <EditIcon sx={{ fontSize: '1rem' }} />
-                        </IconButton>
+                        {[1, 2].map(sem => {
+                          const list = readElectives(s).filter(e => e.semester === sem)
+                          if (!list.length) return null
+                          return (
+                            <Box key={sem} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', width: '100%' }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 28 }}>{sem}학기</Typography>
+                              {list.map((e, idx) => (
+                                <Chip
+                                  key={idx}
+                                  label={electiveLabel(e)}
+                                  size="small"
+                                  variant="outlined"
+                                  color={e.subjectId ? 'default' : 'warning'}
+                                  title={e.subjectId ? '' : '교육과정 과목 목록에 없는 과목'}
+                                />
+                              ))}
+                            </Box>
+                          )
+                        })}
+                        <EditAction onClick={() => openEditStudent(s)} title="선택과목 편집" />
                       </Box>
                     ) : (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <span style={{ color: '#999' }}>—</span>
-                        <IconButton
-                          size="small"
-                          onClick={() => openEditStudent(s)}
-                          title="선택과목 추가"
-                        >
-                          <EditIcon sx={{ fontSize: '1rem' }} />
-                        </IconButton>
+                        <EditAction onClick={() => openEditStudent(s)} title="선택과목 추가" />
                       </Box>
                     )}
                   </td>
-                  <td style={styles.td}>
-                    <IconButton
-                      size="small"
-                      onClick={() => deleteStudent(s.id, s.name || s.studentId)}
-                      title="삭제"
-                      color="error"
-                    >
-                      <DeleteIcon sx={{ fontSize: '1.1rem' }} />
-                    </IconButton>
+                  <td style={table.td}>
+                    <RowActions>
+                      <DeleteAction onClick={() => deleteStudent(s.id, s.name || s.studentId)} />
+                    </RowActions>
                   </td>
                 </tr>
               ))}
@@ -546,40 +614,75 @@ export default function AdminStudents() {
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            학생의 선택과목을 개별적으로 추가하거나 삭제할 수 있습니다.
+            과목명은 <strong>과목 관리</strong>에 등록된 목록에서 고르세요. 목록에서 고르면 과목명이 바뀌어도 연결이 유지됩니다.
+            선택과목은 과목마다 분반 편성이 다르므로 <strong>분반</strong>을 함께 입력합니다.
           </Typography>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {editForm.electiveSubjects.map((subject, index) => (
-              <Box key={index} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  value={subject}
-                  onChange={(e) => updateElectiveSubject(index, e.target.value)}
-                  placeholder={`선택과목 ${index + 1}`}
-                  disabled={editSaving}
-                />
-                <IconButton
-                  size="small"
-                  onClick={() => removeElectiveSubject(index)}
-                  disabled={editSaving}
-                  color="error"
-                  title="삭제"
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-            ))}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {[1, 2].map(semester => {
+              const options = electiveOptionsFor(semester)
+              return (
+                <Box key={semester}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                    <Typography variant="subtitle1" fontWeight={700}>{semester}학기 선택과목</Typography>
+                    <Button size="small" onClick={() => addElectiveSubject(semester)} disabled={editSaving}>
+                      + 과목 추가
+                    </Button>
+                  </Box>
 
-            <Button
-              variant="outlined"
-              onClick={addElectiveSubject}
-              disabled={editSaving}
-              sx={{ mt: 1 }}
-            >
-              + 선택과목 추가
-            </Button>
+                  {options.length === 0 && (
+                    <Alert severity="info" sx={{ mb: 1 }}>
+                      {editingStudent?.grade}학년 {semester}학기에 등록된 학생선택 과목이 없습니다. 과목 관리에서 먼저 등록하세요.
+                    </Alert>
+                  )}
+
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {editForm.electiveSubjects.map((elective, index) => {
+                      if (Number(elective.semester) !== semester) return null
+                      const matched = options.find(o => o.id === elective.subjectId) || null
+                      return (
+                        <Box key={index} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <Autocomplete
+                            freeSolo
+                            fullWidth
+                            options={options}
+                            value={matched || elective.subjectName || ''}
+                            getOptionLabel={(o) => (typeof o === 'string' ? o : o?.name || '')}
+                            isOptionEqualToValue={(opt, val) => opt.id === val?.id}
+                            disabled={editSaving}
+                            onChange={(_, val) => selectElectiveSubject(index, val)}
+                            onInputChange={(_, val, reason) => {
+                              if (reason === 'input') selectElectiveSubject(index, val)
+                            }}
+                            renderOption={(props, option) => (
+                              <li {...props} key={option.id}>
+                                {option.name}
+                                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                  {option.courseType} · {option.credits}학점
+                                </Typography>
+                              </li>
+                            )}
+                            renderInput={(params) => (
+                              <TextField {...params} size="small" placeholder="과목명" />
+                            )}
+                          />
+                          <TextField
+                            label="분반"
+                            size="small"
+                            type="number"
+                            value={elective.classNo}
+                            onChange={(e) => updateElectiveField(index, { classNo: e.target.value })}
+                            disabled={editSaving}
+                            sx={{ width: 90 }}
+                          />
+                          <DeleteAction onClick={() => removeElectiveSubject(index)} disabled={editSaving} />
+                        </Box>
+                      )
+                    })}
+                  </Box>
+                </Box>
+              )
+            })}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -597,21 +700,4 @@ export default function AdminStudents() {
       </Dialog>
     </Box>
   )
-}
-
-const styles = {
-  table: { width: '100%', borderCollapse: 'collapse' },
-  th: {
-    textAlign: 'left',
-    padding: '0.6rem 0.8rem',
-    backgroundColor: '#f0f0f0',
-    fontSize: '0.85rem',
-    fontWeight: 600
-  },
-  td: {
-    padding: '0.6rem 0.8rem',
-    borderBottom: '1px solid #eee',
-    fontSize: '0.9rem',
-    verticalAlign: 'middle'
-  },
 }

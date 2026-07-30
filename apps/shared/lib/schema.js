@@ -182,6 +182,16 @@ export function currentYearSemester() {
   }
 }
 
+/**
+ * 오늘 기준 학년도. currentYearSemester().year 와 같다.
+ * 학기가 필요 없는 화면에서 쓴다.
+ *
+ * @returns {number}
+ */
+export function currentSchoolYear() {
+  return currentYearSemester().year
+}
+
 // ── year ↔ entryYear 변환 ─────────────────────────────────────
 
 /**

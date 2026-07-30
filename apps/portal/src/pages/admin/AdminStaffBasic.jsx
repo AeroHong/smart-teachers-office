@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, getDocs, setDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
-import { COL, USERS, schoolPath, teacherAssignmentId } from '@shared/lib/schema'
+import { COL, USERS, schoolPath, teacherAssignmentId, currentSchoolYear } from '@shared/lib/schema'
+import { RowActions, EditAction, table } from './adminUi'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -25,6 +26,8 @@ import FormControlLabel from '@mui/material/FormControlLabel'
  * @param {number} assignmentYear 학년도(year). 입학년도(entryYear)가 아니다 — schema.js 참고.
  */
 export default function AdminStaffBasic({ schoolId, assignmentYear }) {
+  // 지난 학년도는 기록 조회용 — 목록 구성과 편집 가능 여부가 달라진다
+  const isPastYear = assignmentYear < currentSchoolYear()
   const [loading, setLoading] = useState(true)
   const [assignmentRows, setAssignmentRows] = useState([])
   const [editingAssignment, setEditingAssignment] = useState(null)
@@ -64,15 +67,38 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
     const assignByUid = {}
     assignSnap.docs.forEach(d => { assignByUid[d.data().uid] = { id: d.id, ...d.data() } })
 
-      const rows = usersSnap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .map(u => ({ uid: u.id, name: u.name, email: u.email, staffType: u.staffType, assignment: assignByUid[u.id] || null }))
-        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
+      const usersByUid = {}
+      usersSnap.docs.forEach(d => { usersByUid[d.id] = { id: d.id, ...d.data() } })
 
-      setAssignmentRows(rows)
+      // 과거 학년도는 그 해 배정 기록만 보여준다.
+      // users는 "지금 재직 중인" 명단이라, 과거 연도에 그대로 쓰면 그 해 없던 교사가
+      // 나오고 정작 그 해 근무하다 퇴직·전출한 교사는 빠진다.
+      // 현재·다음 학년도는 배정할 대상을 골라야 하므로 전체 명단 + 미배정 행을 보여준다.
+      const rows = isPastYear
+        ? assignSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .map(a => {
+              const u = usersByUid[a.uid]
+              return {
+                uid: a.uid,
+                // 퇴직·전출로 users에서 사라진 교사는 이름을 복원할 수 없다
+                name: u?.name || a.name || '(퇴직·전출)',
+                email: u?.email || '',
+                staffType: u?.staffType,
+                assignment: a,
+                departed: !u,
+              }
+            })
+        : usersSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .map(u => ({ uid: u.id, name: u.name, email: u.email, staffType: u.staffType, assignment: assignByUid[u.id] || null, departed: false }))
 
-      // 자동으로 "전체 교직원" 연수 프리셋 생성/업데이트
-      if (rows.length > 0) {
+      setAssignmentRows(rows.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko')))
+
+      // 자동으로 "전체 교직원" 연수 프리셋 생성/업데이트.
+      // 지난 학년도는 조회 전용이므로 만들지 않는다 — 과거 연도를 열어보기만 해도
+      // 그 해 프리셋이 생기거나 덮어써지면 안 된다.
+      if (rows.length > 0 && !isPastYear) {
         const allMembers = rows.map(row => ({
           uid: row.uid,
           name: row.name,
@@ -319,8 +345,15 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
 
   return (
     <Box>
+      {isPastYear && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <strong>{assignmentYear}학년도 기록을 보고 있습니다.</strong> 그해 배정된 교직원만 표시되며 수정할 수 없습니다.
+          퇴직·전출한 교직원은 이름이 남아 있지 않을 수 있습니다.
+        </Alert>
+      )}
+
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        {selectedUids.size > 0 && (
+        {selectedUids.size > 0 && !isPastYear && (
           <Button variant="contained" color="secondary" onClick={openBulkEdit}>
             선택 {selectedUids.size}명 일괄 수정
           </Button>
@@ -332,48 +365,72 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
           <CircularProgress />
         </Box>
       ) : assignmentRows.length === 0 ? (
-        <Typography color="text.secondary">소속 교직원이 없습니다.</Typography>
+        <Typography color="text.secondary">
+          {isPastYear
+            ? `${assignmentYear}학년도에 배정된 교직원 기록이 없습니다.`
+            : '소속 교직원이 없습니다.'}
+        </Typography>
       ) : (
         <Box sx={{ overflowX: 'auto' }}>
-          <table style={styles.table}>
-            <thead>
+          <table style={table.table}>
+            <thead style={table.thead}>
               <tr>
-                <th style={styles.th}>
-                  <input
-                    type="checkbox"
-                    checked={selectedUids.size === assignmentRows.length}
+                <th style={table.th}>
+                  <Checkbox
+                    size="small"
+                    sx={{ p: 0.25 }}
+                    checked={assignmentRows.length > 0 && selectedUids.size === assignmentRows.length}
+                    indeterminate={selectedUids.size > 0 && selectedUids.size < assignmentRows.length}
                     onChange={toggleSelectAllAssignments}
+                    disabled={isPastYear}
+                    inputProps={{ 'aria-label': '전체 선택' }}
                   />
                 </th>
-                <th style={styles.th}>이름</th>
-                <th style={styles.th}>직함</th>
-                <th style={styles.th}>부서</th>
-                <th style={styles.th}>담당 교과</th>
-                <th style={styles.th}>담임</th>
-                <th style={styles.th}>사무실</th>
-                <th style={styles.th}>수정</th>
+                <th style={table.th}>이름</th>
+                <th style={table.th}>직함</th>
+                <th style={table.th}>부서</th>
+                <th style={table.th}>담당 교과</th>
+                <th style={table.th}>담임</th>
+                <th style={table.th}>사무실</th>
+                <th style={table.th}>수정</th>
               </tr>
             </thead>
             <tbody>
               {assignmentRows.map(row => {
                 const a = row.assignment
                 return (
-                  <tr key={row.uid}>
-                    <td style={styles.td}>
-                      <input
-                        type="checkbox"
+                  <tr key={row.uid} style={table.tr}>
+                    <td style={table.td}>
+                      <Checkbox
+                        size="small"
+                        sx={{ p: 0.25 }}
                         checked={selectedUids.has(row.uid)}
                         onChange={() => toggleSelectUid(row.uid)}
+                        disabled={isPastYear}
+                        inputProps={{ 'aria-label': `${row.name} 선택` }}
                       />
                     </td>
-                    <td style={styles.td}>{row.name || '—'}</td>
-                    <td style={styles.td}>{a?.positionLabel || '—'}</td>
-                    <td style={styles.td}>{a?.department || '—'}</td>
-                    <td style={styles.td}>{a?.subject || '—'}</td>
-                    <td style={styles.td}>{a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}</td>
-                    <td style={styles.td}>{a?.office || '—'}</td>
-                    <td style={styles.td}>
-                      <button onClick={() => openAssignmentModal(row)} style={styles.approveBtn}>배정 수정</button>
+                    <td style={table.td}>
+                      {row.name || '—'}
+                      {row.departed && (
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                          (현재 명단에 없음)
+                        </Typography>
+                      )}
+                    </td>
+                    <td style={table.td}>{a?.positionLabel || '—'}</td>
+                    <td style={table.td}>{a?.department || '—'}</td>
+                    <td style={table.td}>{a?.subject || '—'}</td>
+                    <td style={table.td}>{a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}</td>
+                    <td style={table.td}>{a?.office || '—'}</td>
+                    <td style={table.td}>
+                      <RowActions>
+                        <EditAction
+                          onClick={() => openAssignmentModal(row)}
+                          title={isPastYear ? '지난 학년도는 수정할 수 없습니다' : '배정 수정'}
+                          disabled={isPastYear}
+                        />
+                      </RowActions>
                     </td>
                   </tr>
                 )
@@ -396,9 +453,9 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
           <Button variant="outlined" onClick={downloadAssignmentCsv}>
             현재 명단 CSV 다운로드 ({assignmentYear})
           </Button>
-          <Button variant="outlined" component="label">
+          <Button variant="outlined" component="label" disabled={isPastYear}>
             채운 CSV 업로드
-            <input type="file" accept=".csv" hidden onChange={handleAssignCsvUpload} />
+            <input type="file" accept=".csv" hidden onChange={handleAssignCsvUpload} disabled={isPastYear} />
           </Button>
         </Box>
 
@@ -408,26 +465,26 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
               {assignParsedRows.length}건 확인됨 — 저장하면 즉시 반영됩니다.
             </Typography>
             <Box sx={{ overflowX: 'auto', maxHeight: 300, overflow: 'auto' }}>
-              <table style={styles.table}>
-                <thead>
+              <table style={table.table}>
+                <thead style={table.thead}>
                   <tr>
-                    <th style={styles.th}>이메일</th>
-                    <th style={styles.th}>직함</th>
-                    <th style={styles.th}>부서</th>
-                    <th style={styles.th}>담당교과</th>
-                    <th style={styles.th}>담임</th>
-                    <th style={styles.th}>사무실</th>
+                    <th style={table.th}>이메일</th>
+                    <th style={table.th}>직함</th>
+                    <th style={table.th}>부서</th>
+                    <th style={table.th}>담당교과</th>
+                    <th style={table.th}>담임</th>
+                    <th style={table.th}>사무실</th>
                   </tr>
                 </thead>
                 <tbody>
                   {assignParsedRows.map((r, i) => (
-                    <tr key={i}>
-                      <td style={styles.td}>{r.email}</td>
-                      <td style={styles.td}>{r.positionLabel || '—'}</td>
-                      <td style={styles.td}>{r.department || '—'}</td>
-                      <td style={styles.td}>{r.subject || '—'}</td>
-                      <td style={styles.td}>{r.isHomeroom ? `${r.homeroomGrade}학년 ${r.homeroomClassNo}반` : '—'}</td>
-                      <td style={styles.td}>{r.office || '—'}</td>
+                    <tr key={i} style={table.tr}>
+                      <td style={table.td}>{r.email}</td>
+                      <td style={table.td}>{r.positionLabel || '—'}</td>
+                      <td style={table.td}>{r.department || '—'}</td>
+                      <td style={table.td}>{r.subject || '—'}</td>
+                      <td style={table.td}>{r.isHomeroom ? `${r.homeroomGrade}학년 ${r.homeroomClassNo}반` : '—'}</td>
+                      <td style={table.td}>{r.office || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -625,11 +682,4 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
 
     </Box>
   )
-}
-
-const styles = {
-  table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '0.6rem 0.8rem', backgroundColor: '#f0f0f0', fontSize: '0.85rem', fontWeight: 600 },
-  td: { padding: '0.6rem 0.8rem', borderBottom: '1px solid #eee', fontSize: '0.9rem', verticalAlign: 'middle' },
-  approveBtn: { padding: '0.3rem 0.75rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
 }

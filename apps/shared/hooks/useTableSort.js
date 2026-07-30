@@ -37,7 +37,7 @@ export function useTableSort(defaultKey = null, defaultDir = 'asc') {
       style: {
         fontSize: '0.68rem',
         marginLeft: '3px',
-        color: active ? '#4f46e5' : '#d1d5db',
+        color: active ? '#1976d2' : '#d1d5db',
         fontWeight: 'normal',
       },
     }, active ? (sort.dir === 'asc' ? '↑' : '↓') : '↕')

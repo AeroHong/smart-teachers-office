@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { currentSchoolYear } from '@shared/lib/schema'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Tabs from '@mui/material/Tabs'
@@ -10,12 +11,6 @@ import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import AdminStaffBasic from './AdminStaffBasic'
 import AdminStaffSubjects from './AdminStaffSubjects'
-
-const currentSchoolYear = () => {
-  const now = new Date()
-  const month = now.getMonth() + 1
-  return month <= 2 ? now.getFullYear() - 1 : now.getFullYear()
-}
 
 export default function AdminStaff() {
   const { schoolId } = useAuth()

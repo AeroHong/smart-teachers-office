@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { loadSubjects, saveSubject, deleteSubject, bulkSaveSubjectsByYear, loadStudents } from '@shared/lib/subjectData'
 import { useTableSort } from '@shared/hooks/useTableSort'
+import { entryYearFor, currentSchoolYear } from '@shared/lib/schema'
+import { RowActions, EditAction, DeleteAction, filters, table } from './adminUi'
 import * as XLSX from 'xlsx'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
@@ -18,9 +20,6 @@ import MenuItem from '@mui/material/MenuItem'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Chip from '@mui/material/Chip'
-import IconButton from '@mui/material/IconButton'
-import DeleteIcon from '@mui/icons-material/Delete'
-import EditIcon from '@mui/icons-material/Edit'
 import AddIcon from '@mui/icons-material/Add'
 import UploadIcon from '@mui/icons-material/Upload'
 import DownloadIcon from '@mui/icons-material/Download'
@@ -40,36 +39,16 @@ const GRADE_TABS = [
   { key: 3, label: '3학년' },
 ]
 
-const CUR_YEAR = new Date().getFullYear()
-const YEAR_OPTS = [CUR_YEAR - 2, CUR_YEAR - 1, CUR_YEAR, CUR_YEAR + 1]
+// 학번 선택지. 다음 학년도 1학년(= 학년도 + 1 학번)을 미리 넣을 수 있어야 하므로 +1까지 연다.
+// 달력 연도가 아니라 학년도 기준이라 1~2월에도 어긋나지 않는다.
+const YEAR_OPTS = [-2, -1, 0, 1].map(d => currentSchoolYear() + d)
 
 // Excel 파서 상수
 const _BLOCK_PAT = /[\[\(]택\s*(\d+)\s*[\]\)]/
 const _VALID_CT = new Set(['공통', '일반', '융합', '진로'])
 const _GS_COLS = [[1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2]]
 
-// 스타일
-const styles = {
-  filterRow: { display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', alignItems: 'center' },
-  tab: { padding: '0.3rem 0.75rem', border: '1px solid #e5e7eb', borderRadius: '999px', cursor: 'pointer', fontSize: '0.82rem', backgroundColor: '#fff', color: '#6b7280' },
-  tabActive: { padding: '0.3rem 0.75rem', border: '1px solid #4f46e5', borderRadius: '999px', cursor: 'pointer', fontSize: '0.82rem', backgroundColor: '#eef2ff', color: '#4f46e5', fontWeight: 700 },
-  badge: { display: 'inline-block', fontSize: '0.72rem', fontWeight: 600, backgroundColor: '#e5e7eb', color: '#374151', borderRadius: '999px', padding: '0.05rem 0.45rem', marginLeft: '0.3rem' },
-  badgeActive: { display: 'inline-block', fontSize: '0.72rem', fontWeight: 600, backgroundColor: '#c7d2fe', color: '#3730a3', borderRadius: '999px', padding: '0.05rem 0.45rem', marginLeft: '0.3rem' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' },
-  thead: { backgroundColor: '#f9fafb' },
-  th: { padding: '0.5rem 0.75rem', fontWeight: 700, color: '#374151', textAlign: 'left', borderBottom: '2px solid #e5e7eb', fontSize: '0.8rem', whiteSpace: 'nowrap' },
-  tr: { borderBottom: '1px solid #f3f4f6' },
-  td: { padding: '0.4rem 0.75rem', color: '#111827', verticalAlign: 'middle' },
-  tdMuted: { padding: '0.4rem 0.75rem', color: '#6b7280', fontSize: '0.82rem', verticalAlign: 'middle' },
-}
-
 // 유틸 함수
-// 3월 이전(1~2월)은 아직 이전 학년도이므로 학년도는 연도 - 1
-function currentSchoolYear() {
-  const now = new Date()
-  return now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1
-}
-
 function calcCurrentGrade(entryYear) {
   const g = currentSchoolYear() - entryYear + 1
   return g >= 1 && g <= 3 ? g : null
@@ -313,6 +292,8 @@ function parseSimpleSubjectExcel(arrayBuffer) {
       } : null
 
       const course = {
+        // 다운로드한 파일을 고쳐 올린 경우 — 기존 문서를 갱신하기 위해 id를 넘긴다
+        id: (row['과목ID'] || '').toString().trim() || undefined,
         name,
         subjectCode: (row['과목코드'] || '').toString().trim(),
         subjectGroup: (row['교과군'] || '').toString().trim(),
@@ -349,8 +330,8 @@ function parseSimpleSubjectExcel(arrayBuffer) {
 function ImportModal({ schoolId, onClose, onDone }) {
   const fileRef = useRef(null)
   const [file, setFile] = useState(null)
-  const [entryYear, setEntryYear] = useState(CUR_YEAR - 1)
-  const [targetGrade, setTargetGrade] = useState(() => calcCurrentGrade(CUR_YEAR - 1))
+  const [entryYear, setEntryYear] = useState(currentSchoolYear())
+  const [targetGrade, setTargetGrade] = useState(() => calcCurrentGrade(currentSchoolYear()))
   const [parsed, setParsed] = useState(null)
   const [step, setStep] = useState('select') // select | preview | saving
   const [err, setErr] = useState('')
@@ -414,17 +395,20 @@ function ImportModal({ schoolId, onClose, onDone }) {
     if (!parsed?.courses?.length) return
     setStep('saving')
     try {
+      const total = { updated: 0, created: 0, deleted: 0 }
+      const add = (s) => { total.updated += s.updated; total.created += s.created; total.deleted += s.deleted }
+
       if (uploadMode === 'simple') {
         const years = [...new Set(parsed.courses.map(c => c.entryYear).filter(Boolean))]
         for (const year of years) {
           const yearCourses = parsed.courses.filter(c => c.entryYear === year)
-          await bulkSaveSubjectsByYear(schoolId, yearCourses, year)
+          add(await bulkSaveSubjectsByYear(schoolId, yearCourses, year))
         }
-        onDone(parsed.courses.length, years.length > 1 ? '여러 년도' : years[0])
+        onDone(parsed.courses.length, years.length > 1 ? '여러 년도' : years[0], total)
       } else {
         const withYear = parsed.courses.map(c => ({ ...c, entryYear }))
-        await bulkSaveSubjectsByYear(schoolId, withYear, entryYear)
-        onDone(parsed.courses.length, entryYear)
+        add(await bulkSaveSubjectsByYear(schoolId, withYear, entryYear))
+        onDone(parsed.courses.length, entryYear, total)
       }
     } catch (e) {
       setErr('저장 실패: ' + e.message)
@@ -516,9 +500,14 @@ function ImportModal({ schoolId, onClose, onDone }) {
           </Box>
         )}
 
-        {currentGrade != null && uploadMode === 'education' && (
+        {uploadMode === 'education' && (
           <Alert severity="info" sx={{ mb: 2 }}>
-            {entryYear}년 신입생 → {CUR_YEAR}년 현재 <strong>{currentGrade}학년</strong>
+            {currentGrade != null && (
+              <>{entryYear}학번 → {currentSchoolYear()}학년도 현재 <strong>{currentGrade}학년</strong><br /></>
+            )}
+            다음 학년도({currentSchoolYear() + 1}) 과목을 미리 채우려면 학년별로 학번이 다릅니다 —{' '}
+            {[1, 2, 3].map(g => `${g}학년 ${entryYearFor(currentSchoolYear() + 1, g)}학번`).join(' · ')}.
+            학번마다 해당 배당표를 각각 올리세요.
           </Alert>
         )}
 
@@ -593,6 +582,8 @@ export default function AdminSubjects() {
   const [subjects, setSubjects] = useState([])
   const [gradeFilter, setGradeFilter] = useState('all')
   const [catFilter, setCatFilter] = useState('전체')
+  // 'all' = 학번 그대로 보기, 숫자 = 그 학년도 기준으로 보기
+  const [yearView, setYearView] = useState(currentSchoolYear())
   const [notice, setNotice] = useState(null)
   const { toggle: sortToggle, sortData, Ind, thSort } = useTableSort()
 
@@ -712,6 +703,9 @@ export default function AdminSubjects() {
     }
 
     const data = subjects.map(s => ({
+      // 이 열을 지우지 않고 그대로 다시 올리면 같은 문서가 갱신된다.
+      // (지우면 새 과목으로 등록되어 교직원 과목 배정의 연결이 끊긴다)
+      '과목ID': s.id || '',
       '구분': s.category || '',
       '교과군': s.subjectGroup || '',
       '과목구분': s.courseType || '',
@@ -742,9 +736,15 @@ export default function AdminSubjects() {
     setNotice({ type: 'success', msg: `${subjects.length}개 과목을 다운로드했습니다.` })
   }
 
+  // 학년도 기준 보기 — 그 학년도에 각 학년이 배우는 과목만 남긴다.
+  // 2027학년도 1학년은 2027학번, 3학년은 2025학번 과목이라 학번으로만 보면 헷갈린다.
+  const inSchoolYear = (s) =>
+    yearView === 'all' || s.entryYear === entryYearFor(yearView, s.grade)
+
   // 필터링
   const filtered = sortData(
     subjects.filter(s => {
+      if (!inSchoolYear(s)) return false
       if (gradeFilter !== 'all' && s.grade !== gradeFilter) return false
       if (catFilter !== '전체' && s.category !== catFilter) return false
       return true
@@ -760,11 +760,12 @@ export default function AdminSubjects() {
     }
   )
 
+  const inView = subjects.filter(inSchoolYear)
   const countByGrade = {
-    all: subjects.length,
-    1: subjects.filter(s => s.grade === 1).length,
-    2: subjects.filter(s => s.grade === 2).length,
-    3: subjects.filter(s => s.grade === 3).length,
+    all: inView.length,
+    1: inView.filter(s => s.grade === 1).length,
+    2: inView.filter(s => s.grade === 2).length,
+    3: inView.filter(s => s.grade === 3).length,
   }
 
   const entryYears = [...new Set(subjects.map(s => s.entryYear).filter(Boolean))].sort()
@@ -817,15 +818,15 @@ export default function AdminSubjects() {
       )}
 
       {/* 필터 */}
-      <div style={styles.filterRow}>
+      <div style={filters.row}>
         {GRADE_TABS.map(tab => (
           <button
             key={tab.key}
-            style={gradeFilter === tab.key ? styles.tabActive : styles.tab}
+            style={gradeFilter === tab.key ? filters.tabActive : filters.tab}
             onClick={() => setGradeFilter(tab.key)}
           >
             {tab.label}
-            <span style={gradeFilter === tab.key ? styles.badgeActive : styles.badge}>
+            <span style={gradeFilter === tab.key ? filters.badgeActive : filters.badge}>
               {countByGrade[tab.key]}
             </span>
           </button>
@@ -834,13 +835,36 @@ export default function AdminSubjects() {
         {['전체', '학교지정', '학생선택'].map(cat => (
           <button
             key={cat}
-            style={catFilter === cat ? styles.tabActive : styles.tab}
+            style={catFilter === cat ? filters.tabActive : filters.tab}
             onClick={() => setCatFilter(cat)}
           >
             {cat}
           </button>
         ))}
+
+        <Box sx={{ flex: 1 }} />
+
+        {/* 학년도 기준 보기 — 그 해 1·2·3학년이 배우는 과목을 한눈에 확인한다.
+            다음 학년도를 고르면 미리 채워야 할 학년이 0으로 드러난다. */}
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>보기 기준</InputLabel>
+          <Select value={yearView} label="보기 기준" onChange={e => setYearView(e.target.value)}>
+            {[currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1].map(y => (
+              <MenuItem key={y} value={y}>{y}학년도 기준</MenuItem>
+            ))}
+            <MenuItem value="all">전체 (학번별)</MenuItem>
+          </Select>
+        </FormControl>
       </div>
+
+      {yearView !== 'all' && (
+        <Alert severity={countByGrade.all === 0 ? 'warning' : 'info'} sx={{ mb: 2 }}>
+          <strong>{yearView}학년도 기준</strong> — {[1, 2, 3].map(g =>
+            `${g}학년 ${entryYearFor(yearView, g)}학번 ${countByGrade[g]}과목`
+          ).join(' · ')}
+          {countByGrade.all === 0 && ' — 등록된 과목이 없습니다. 해당 학번의 교육청 배당표를 올리세요.'}
+        </Alert>
+      )}
 
       {loading ? (
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
@@ -852,24 +876,24 @@ export default function AdminSubjects() {
         <Typography color="text.secondary">조건에 맞는 과목이 없습니다.</Typography>
       ) : (
         <>
-          <table style={styles.table}>
-            <thead style={styles.thead}>
+          <table style={table.table}>
+            <thead style={table.thead}>
               <tr>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('category')}>구분{Ind('category')}</th>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('subjectGroup')}>교과군{Ind('subjectGroup')}</th>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('courseType')}>과목구분{Ind('courseType')}</th>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('name')}>과목명{Ind('name')}</th>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('grade')}>학년{Ind('grade')}</th>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('semester')}>학기{Ind('semester')}</th>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('credits')}>학점{Ind('credits')}</th>
-                <th style={{ ...styles.th, ...thSort }} onClick={() => sortToggle('entryYear')}>입학년도{Ind('entryYear')}</th>
-                <th style={styles.th}>작업</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('category')}>구분{Ind('category')}</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('subjectGroup')}>교과군{Ind('subjectGroup')}</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('courseType')}>과목구분{Ind('courseType')}</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('name')}>과목명{Ind('name')}</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('grade')}>학년{Ind('grade')}</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('semester')}>학기{Ind('semester')}</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('credits')}>학점{Ind('credits')}</th>
+                <th style={{ ...table.th, ...thSort }} onClick={() => sortToggle('entryYear')}>입학년도{Ind('entryYear')}</th>
+                <th style={table.th}>작업</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(subject => (
-                <tr key={subject.id} style={styles.tr}>
-                  <td style={styles.td}>
+                <tr key={subject.id} style={table.tr}>
+                  <td style={table.td}>
                     <Chip
                       label={subject.category === '학교지정' ? '지정' : '선택'}
                       size="small"
@@ -877,20 +901,18 @@ export default function AdminSubjects() {
                       variant="outlined"
                     />
                   </td>
-                  <td style={styles.tdMuted}>{subject.subjectGroup || '—'}</td>
-                  <td style={styles.tdMuted}>{subject.courseType || '—'}</td>
-                  <td style={{ ...styles.td, fontWeight: 600 }}>{subject.name}</td>
-                  <td style={styles.tdMuted}>{subject.grade}학년</td>
-                  <td style={styles.tdMuted}>{semesterLabel(subject.semester)}</td>
-                  <td style={styles.tdMuted}>{subject.credits}</td>
-                  <td style={styles.tdMuted}>{subject.entryYear || '—'}</td>
-                  <td style={styles.td}>
-                    <IconButton size="small" onClick={() => openEditModal(subject)} title="수정">
-                      <EditIcon sx={{ fontSize: '1rem' }} />
-                    </IconButton>
-                    <IconButton size="small" onClick={() => handleDelete(subject)} title="삭제" color="error">
-                      <DeleteIcon sx={{ fontSize: '1rem' }} />
-                    </IconButton>
+                  <td style={table.tdMuted}>{subject.subjectGroup || '—'}</td>
+                  <td style={table.tdMuted}>{subject.courseType || '—'}</td>
+                  <td style={{ ...table.td, fontWeight: 600 }}>{subject.name}</td>
+                  <td style={table.tdMuted}>{subject.grade}학년</td>
+                  <td style={table.tdMuted}>{semesterLabel(subject.semester)}</td>
+                  <td style={table.tdMuted}>{subject.credits}</td>
+                  <td style={table.tdMuted}>{subject.entryYear || '—'}</td>
+                  <td style={table.td}>
+                    <RowActions>
+                      <EditAction onClick={() => openEditModal(subject)} />
+                      <DeleteAction onClick={() => handleDelete(subject)} />
+                    </RowActions>
                   </td>
                 </tr>
               ))}
@@ -1035,9 +1057,12 @@ export default function AdminSubjects() {
         <ImportModal
           schoolId={schoolId}
           onClose={() => setImportOpen(false)}
-          onDone={(count, year) => {
+          onDone={(count, year, stats) => {
             setImportOpen(false)
-            setNotice({ type: 'success', msg: `${year}년 입학 과목 ${count}개 저장 완료` })
+            const detail = stats
+              ? ` (기존 갱신 ${stats.updated} · 신규 ${stats.created} · 삭제 ${stats.deleted})`
+              : ''
+            setNotice({ type: 'success', msg: `${year}년 입학 과목 ${count}개 저장 완료${detail}` })
             fetchSubjects()
           }}
         />

@@ -3,7 +3,8 @@ import { collection, query, where, getDocs, setDoc, doc, deleteDoc, serverTimest
 import { db } from '@shared/lib/firebase'
 import { loadSubjects } from '@shared/lib/subjectData'
 import { buildEmailToTeacher, subjectTeacherUids } from '@shared/lib/asaTeacherRefs'
-import { entryYearFor, teacherSubjectId } from '@shared/lib/schema'
+import { entryYearFor, teacherSubjectId, currentSchoolYear } from '@shared/lib/schema'
+import { RowActions, EditAction, DeleteAction, table } from './adminUi'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -71,11 +72,14 @@ function matchCatalogSubject(index, subject) {
 }
 
 // 해당 학기에 배정 가능한 카탈로그 과목 (양학기 과목은 두 학기 모두 노출).
+// 학년을 먼저 고르면 그 학년 과목만 남긴다 — 1·2·3학년을 다 보여주면 목록이 너무 길다.
 // 이번 학년도에 실제로 편성된 과목을 앞에 놓되, 나머지도 고를 수 있게 남겨둔다.
-function catalogOptionsFor(catalog, semester, assignmentYear) {
+function catalogOptionsFor(catalog, semester, assignmentYear, grade) {
   const offThisYear = (c) => (isOfferedIn(c, assignmentYear) ? 0 : 1)
+  const g = Number(grade) || null
   return catalog
     .filter(c => c.semester === 'both' || Number(c.semester) === semester)
+    .filter(c => !g || c.grade === g)
     .sort((a, b) =>
       offThisYear(a) - offThisYear(b) ||
       (a.grade || 0) - (b.grade || 0) ||
@@ -109,6 +113,8 @@ function SubjectChip({ subject, catalogIndex }) {
 }
 
 export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
+  // 지난 학년도는 기록 조회용 — 목록 구성과 편집 가능 여부가 달라진다
+  const isPastYear = assignmentYear < currentSchoolYear()
   const [loading, setLoading] = useState(true)
   const [teachers, setTeachers] = useState([]) // 전체 교사 목록
   const [subjectAssignments, setSubjectAssignments] = useState([]) // 과목 배정 목록
@@ -165,24 +171,24 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         assignmentsMap.set(d.data().teacherUid, { id: d.id, ...d.data() })
       })
 
-      // 4. 모든 교사에 대해 과목 배정 데이터 생성 (없으면 빈 데이터)
-      const assignments = teacherList.map(teacher => {
-        const existing = assignmentsMap.get(teacher.uid)
-        if (existing) {
-          return existing
-        } else {
-          return {
+      // 4. 목록 구성
+      // 과거 학년도는 그 해 배정 기록만 보여준다. users는 "지금 재직 중인" 명단이라
+      // 과거 연도에 그대로 쓰면 그 해 없던 교사가 나오고, 그 해 근무하다 퇴직한 교사는 빠진다.
+      // (teacherSubjects는 teacherName을 저장해 두므로 퇴직자 이름도 남아 있다)
+      const assignments = isPastYear
+        ? [...assignmentsMap.values()]
+        : teacherList.map(teacher => assignmentsMap.get(teacher.uid) || {
             id: teacherSubjectId(assignmentYear, teacher.uid),
             year: assignmentYear,
             teacherUid: teacher.uid,
             teacherName: teacher.name,
             semester1Subjects: [],
             semester2Subjects: []
-          }
-        }
-      })
+          })
 
-      setSubjectAssignments(assignments)
+      setSubjectAssignments(
+        assignments.sort((a, b) => (a.teacherName || '').localeCompare(b.teacherName || '', 'ko'))
+      )
     } catch (err) {
       console.error('데이터 로딩 실패:', err)
     } finally {
@@ -571,15 +577,21 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
           CSV 다운로드
         </Button>
 
-        <Button variant="outlined" component="label">
+        <Button variant="outlined" component="label" disabled={isPastYear}>
           CSV 업로드
-          <input type="file" accept=".csv" hidden onChange={handleCsvUpload} />
+          <input type="file" accept=".csv" hidden onChange={handleCsvUpload} disabled={isPastYear} />
         </Button>
 
-        <Button variant="outlined" onClick={() => setAsaDialogOpen(true)}>
+        <Button variant="outlined" onClick={() => setAsaDialogOpen(true)} disabled={isPastYear}>
           성취평가제에서 가져오기
         </Button>
       </Box>
+
+      {isPastYear && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <strong>{assignmentYear}학년도 기록을 보고 있습니다.</strong> 그해 과목이 배정된 교직원만 표시되며 수정할 수 없습니다.
+        </Alert>
+      )}
 
       {uploadMsg && (
         <Alert severity={uploadMsg.includes('✅') ? 'success' : 'error'} sx={{ mb: 2 }}>
@@ -604,13 +616,13 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         </Box>
       ) : (
         <Box sx={{ overflowX: 'auto' }}>
-          <table style={styles.table}>
-            <thead>
+          <table style={table.table}>
+            <thead style={table.thead}>
               <tr>
-                <th style={styles.th}>교사명</th>
-                <th style={styles.th}>1학기 과목</th>
-                <th style={styles.th}>2학기 과목</th>
-                <th style={styles.th}>작업</th>
+                <th style={table.th}>교사명</th>
+                <th style={table.th}>1학기 과목</th>
+                <th style={table.th}>2학기 과목</th>
+                <th style={table.th}>작업</th>
               </tr>
             </thead>
             <tbody>
@@ -619,9 +631,9 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                 const sem2Total = (assignment.semester2Subjects || []).reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0)
 
                 return (
-                  <tr key={assignment.id}>
-                    <td style={styles.td}>{assignment.teacherName}</td>
-                    <td style={styles.td}>
+                  <tr key={assignment.id} style={table.tr}>
+                    <td style={table.td}>{assignment.teacherName}</td>
+                    <td style={table.td}>
                       {(assignment.semester1Subjects || []).length > 0 ? (
                         <Box>
                           {assignment.semester1Subjects.map((subject, idx) => (
@@ -635,7 +647,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                         <Typography variant="body2" color="text.secondary">—</Typography>
                       )}
                     </td>
-                    <td style={styles.td}>
+                    <td style={table.td}>
                       {(assignment.semester2Subjects || []).length > 0 ? (
                         <Box>
                           {assignment.semester2Subjects.map((subject, idx) => (
@@ -649,15 +661,19 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                         <Typography variant="body2" color="text.secondary">—</Typography>
                       )}
                     </td>
-                    <td style={styles.td}>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <button style={styles.editBtn} onClick={() => openEditDialog(assignment)}>
-                          수정
-                        </button>
-                        <button style={{...styles.editBtn, backgroundColor: '#d32f2f'}} onClick={() => deleteAssignment(assignment)}>
-                          삭제
-                        </button>
-                      </Box>
+                    <td style={table.td}>
+                      <RowActions>
+                        <EditAction
+                          onClick={() => openEditDialog(assignment)}
+                          title={isPastYear ? '지난 학년도는 수정할 수 없습니다' : '수정'}
+                          disabled={isPastYear}
+                        />
+                        <DeleteAction
+                          onClick={() => deleteAssignment(assignment)}
+                          title={isPastYear ? '지난 학년도는 삭제할 수 없습니다' : '삭제'}
+                          disabled={isPastYear}
+                        />
+                      </RowActions>
                     </td>
                   </tr>
                 )
@@ -684,7 +700,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
 
             {[1, 2].map(semester => {
               const field = semester === 1 ? 'semester1Subjects' : 'semester2Subjects'
-              const options = catalogOptionsFor(catalog, semester, assignmentYear)
               return (
                 <Box key={semester} sx={{ mb: semester === 1 ? 3 : 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
@@ -698,6 +713,20 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                     const matched = matchCatalogSubject(catalogIndex, subject)
                     return (
                       <Box key={idx} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+                        {/* 학년을 먼저 고르면 과목명 목록이 그 학년만 남는다 */}
+                        <TextField
+                          label="학년"
+                          select
+                          value={subject.grade || ''}
+                          onChange={e => updateSubjectRow(semester, idx, 'grade', e.target.value)}
+                          size="small"
+                          sx={{ width: 90 }}
+                        >
+                          <MenuItem value="">전체</MenuItem>
+                          <MenuItem value={1}>1학년</MenuItem>
+                          <MenuItem value={2}>2학년</MenuItem>
+                          <MenuItem value={3}>3학년</MenuItem>
+                        </TextField>
                         <TextField
                           label="과목코드"
                           value={subject.subjectCode || ''}
@@ -707,7 +736,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                         />
                         <Autocomplete
                           freeSolo
-                          options={options}
+                          options={catalogOptionsFor(catalog, semester, assignmentYear, subject.grade)}
                           value={matched || subject.subjectName || ''}
                           getOptionLabel={catalogOptionLabel}
                           isOptionEqualToValue={(opt, val) => opt.id === val?.id}
@@ -748,14 +777,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                             />
                           )}
                           sx={{ flex: 1 }}
-                        />
-                        <TextField
-                          label="학년"
-                          type="number"
-                          value={subject.grade || ''}
-                          onChange={e => updateSubjectRow(semester, idx, 'grade', e.target.value)}
-                          size="small"
-                          sx={{ width: 80 }}
                         />
                         <TextField
                           label="반(쉼표)"
@@ -834,11 +855,4 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
       </Dialog>
     </Box>
   )
-}
-
-const styles = {
-  table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '0.6rem 0.8rem', backgroundColor: '#f0f0f0', fontSize: '0.85rem', fontWeight: 600 },
-  td: { padding: '0.6rem 0.8rem', borderBottom: '1px solid #eee', fontSize: '0.9rem', verticalAlign: 'middle' },
-  editBtn: { padding: '0.3rem 0.75rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
 }

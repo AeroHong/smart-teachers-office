@@ -3,7 +3,7 @@ import { collection, query, where, getDocs, orderBy, limit } from 'firebase/fire
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath, officeLayoutId } from '@shared/lib/schema'
+import { COL, schoolPath, officeLayoutId, currentSchoolYear } from '@shared/lib/schema'
 import OfficeLayoutEditor from '../attendance/OfficeLayoutEditor'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
@@ -24,12 +24,6 @@ const CALL_STATUS_STYLE = {
   acknowledged: { label: '확인함',  bg: '#e8f5e9', color: '#2e7d32' },
   done:         { label: '완료',    bg: '#f1f3f4', color: '#5f6368' },
   expired:      { label: '만료',    bg: '#f1f3f4', color: '#9aa0a6' },
-}
-
-const currentSchoolYear = () => {
-  const now = new Date()
-  const month = now.getMonth() + 1
-  return month <= 2 ? now.getFullYear() - 1 : now.getFullYear()
 }
 
 export default function AdminSpaces() {

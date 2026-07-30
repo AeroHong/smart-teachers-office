@@ -4,6 +4,7 @@ import {
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '@shared/lib/firebase'
+import { RowActions, EditAction, DeleteAction, TextAction } from './adminUi'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { emailToDocId } from '@shared/lib/emailToDocId'
 import Typography from '@mui/material/Typography'
@@ -355,10 +356,12 @@ export default function AdminAccounts() {
                   <td style={styles.td}>{u.email}</td>
                   <td style={styles.td}>{u.createdAt?.toDate().toLocaleDateString('ko-KR') || '—'}</td>
                   <td style={styles.td}>
-                    <button onClick={() => approve(u.id, 'teacher', '교사')} style={styles.approveBtn}>교사 승인</button>
-                    <button onClick={() => approve(u.id, 'teacher', '교직원')} style={styles.staffBtn}>교직원 승인</button>
-                    <button onClick={() => approve(u.id, 'school_admin', '교사')} style={styles.schoolAdminBtn}>관리자 승인</button>
-                    <button onClick={() => reject(u.id)} style={styles.rejectBtn}>거절</button>
+                    <RowActions>
+                      <TextAction onClick={() => approve(u.id, 'teacher', '교사')}>교사 승인</TextAction>
+                      <TextAction onClick={() => approve(u.id, 'teacher', '교직원')}>교직원 승인</TextAction>
+                      <TextAction onClick={() => approve(u.id, 'school_admin', '교사')}>관리자 승인</TextAction>
+                      <TextAction onClick={() => reject(u.id)} danger>거절</TextAction>
+                    </RowActions>
                   </td>
                 </tr>
               ))}
@@ -390,7 +393,7 @@ export default function AdminAccounts() {
                     <td style={styles.td}>
                       {u.name || '—'}
                       {!isPreOnly && (
-                        <button onClick={() => editName(u.id, u.name || '')} style={styles.editNameBtn} title="이름 수정">✏️</button>
+                        <EditAction onClick={() => editName(u.id, u.name || '')} title="이름 수정" />
                       )}
                     </td>
                     <td style={styles.td}>{u.email}</td>
@@ -437,21 +440,21 @@ export default function AdminAccounts() {
                       {isPreOnly ? (
                         <span style={styles.muted}>로그인 후 활성화</span>
                       ) : (
-                        <>
+                        <RowActions>
                           {u.role !== 'teacher' && (
-                            <button onClick={() => changeRole(u.id, 'teacher')} style={styles.changeBtn}>교사로</button>
+                            <TextAction onClick={() => changeRole(u.id, 'teacher')}>교사로</TextAction>
                           )}
                           {u.role !== 'principal' && (
-                            <button onClick={() => changeRole(u.id, 'principal')} style={styles.principalBtn}>교감으로</button>
+                            <TextAction onClick={() => changeRole(u.id, 'principal')}>교감으로</TextAction>
                           )}
                           {u.role !== 'school_admin' && (
-                            <button onClick={() => changeRole(u.id, 'school_admin')} style={styles.schoolAdminBtn}>관리자로</button>
+                            <TextAction onClick={() => changeRole(u.id, 'school_admin')}>관리자로</TextAction>
                           )}
-                        </>
+                        </RowActions>
                       )}
                     </td>
                     <td style={styles.td}>
-                      <button onClick={() => removeMember(u)} style={styles.rejectBtn}>제거</button>
+                      <DeleteAction onClick={() => removeMember(u)} title="구성원 제거" />
                     </td>
                   </tr>
                 )
@@ -539,9 +542,7 @@ export default function AdminAccounts() {
                     <td style={styles.td}>{p.email}</td>
                     <td style={styles.td}>{p.staffType}</td>
                     <td style={styles.td}>
-                      <button onClick={() => handleDeletePreApproved(p.id, p.name)} style={styles.rejectBtn}>
-                        삭제
-                      </button>
+                      <DeleteAction onClick={() => handleDeletePreApproved(p.id, p.name)} />
                     </td>
                   </tr>
                 ))}
@@ -630,14 +631,7 @@ const styles = {
   td: { padding: '0.6rem 0.8rem', borderBottom: '1px solid #eee', fontSize: '0.9rem', verticalAlign: 'middle' },
   roleBadge: { display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600 },
   select: { padding: '0.25rem 0.5rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.84rem', cursor: 'pointer', outline: 'none' },
-  approveBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
-  staffBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#15803d', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
-  principalBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#0f766e', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
-  schoolAdminBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#7b1fa2', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
-  rejectBtn: { padding: '0.3rem 0.75rem', backgroundColor: '#fff', color: '#d32f2f', border: '1px solid #d32f2f', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
-  changeBtn: { marginRight: '0.4rem', padding: '0.3rem 0.75rem', backgroundColor: '#fff', color: '#1a73e8', border: '1px solid #1a73e8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem' },
   muted: { color: '#aaa', fontSize: '0.82rem' },
-  editNameBtn: { marginLeft: '0.35rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78rem', padding: '0 2px', opacity: 0.45, verticalAlign: 'middle' },
   textarea: { width: '100%', padding: '0.6rem 0.8rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' },
   input: { padding: '0.4rem 0.65rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', boxSizing: 'border-box', width: '100%' },
   modalLabel: { display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.82rem', color: '#475569', fontWeight: 600 },
