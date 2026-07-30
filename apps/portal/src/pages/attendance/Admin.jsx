@@ -4,10 +4,11 @@ import {
   updateDoc, doc, setDoc, deleteDoc, getDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
-import { db, storage } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { httpsCallable } from 'firebase/functions'
+import { db, storage, functions } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
-import { emailToDocId } from '../../lib/emailToDocId'
+import { emailToDocId } from '@shared/lib/emailToDocId'
 
 const ROLE_LABELS = {
   teacher: '교직원',
@@ -65,11 +66,13 @@ function downloadCsvTemplate() {
 
 export default function Admin() {
   const { schoolId } = useAuth()
-  const [tab, setTab] = useState('pending')   // 'pending' | 'teachers' | 'preapprove' | 'settings'
+  const [tab, setTab] = useState('pending')   // 'pending' | 'teachers' | 'preapprove' | 'students' | 'assignments' | 'settings'
 
   const [pendingList, setPendingList]   = useState([])
   const [teacherList, setTeacherList]   = useState([])
   const [preApproved, setPreApproved]   = useState([])  // 사전 등록 목록
+  const [studentList, setStudentList]   = useState([])
+  const [studentSearch, setStudentSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
   // ── 데이터 불러오기 ────────────────────────────────────────
@@ -96,7 +99,7 @@ export default function Admin() {
 
     const realUsers = usersSnap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => ['teacher', 'school_admin', 'admin'].includes(u.role))
+      .filter(u => ['teacher', 'school_admin', 'admin', 'principal'].includes(u.role))
 
     const realEmails = new Set(realUsers.map(u => u.email?.toLowerCase()))
 
@@ -124,10 +127,23 @@ export default function Admin() {
     setLoading(false)
   }
 
+  const fetchStudents = async () => {
+    if (!schoolId) return
+    setLoading(true)
+    const snap = await getDocs(collection(db, 'schools', schoolId, 'students'))
+    setStudentList(
+      snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.studentId || '').localeCompare(b.studentId || ''))
+    )
+    setLoading(false)
+  }
+
   useEffect(() => {
     if (tab === 'pending')          fetchPending()
     else if (tab === 'teachers')    fetchTeachers()
     else if (tab === 'preapprove')  fetchPreApproved()
+    else if (tab === 'students')    fetchStudents()
     else if (tab === 'settings')    setLoading(false)
   }, [tab, schoolId])
 
@@ -177,12 +193,359 @@ export default function Admin() {
     setTeacherList(prev => prev.map(u => u.id === uid ? { ...u, name: trimmed } : u))
   }
 
+  // ── 학생 명단 탭 액션 ──────────────────────────────────────
+  const editStudentName = async (studentId, currentName) => {
+    const newName = window.prompt('이름을 수정하세요:', currentName || '')
+    if (newName === null) return
+    const trimmed = newName.trim()
+    if (!trimmed || trimmed === currentName) return
+    // nameEditedManually: true — 다음 Workspace 동기화가 이 이름을 되돌리지 않도록 표시
+    await updateDoc(doc(db, 'schools', schoolId, 'students', studentId), { name: trimmed, nameEditedManually: true })
+    setStudentList(prev => prev.map(s => s.id === studentId ? { ...s, name: trimmed, nameEditedManually: true } : s))
+  }
+
+  const deleteStudent = async (studentId, name) => {
+    if (!window.confirm(`${name}님을 학생 명단에서 삭제하시겠습니까?\n\nWorkspace 동기화가 켜져 있으면 다음 동기화 때 다시 추가될 수 있습니다.`)) return
+    await deleteDoc(doc(db, 'schools', schoolId, 'students', studentId))
+    setStudentList(prev => prev.filter(s => s.id !== studentId))
+  }
+
+  const filteredStudents = studentList.filter(s => {
+    if (!studentSearch.trim()) return true
+    const q = studentSearch.trim().toLowerCase()
+    return (s.name || '').toLowerCase().includes(q) ||
+      (s.studentId || '').includes(q) ||
+      (s.email || '').toLowerCase().includes(q)
+  })
+
+  // ── 교원 배정 탭 ──────────────────────────────────────────
+  const currentSchoolYear = () => {
+    const now = new Date()
+    const month = now.getMonth() + 1
+    return month <= 2 ? now.getFullYear() - 1 : now.getFullYear()
+  }
+  const [assignmentYear, setAssignmentYear] = useState(currentSchoolYear())
+  const [assignmentRows, setAssignmentRows] = useState([])  // [{ uid, name, email, staffType, assignment }]
+  const [editingAssignment, setEditingAssignment] = useState(null)  // { uid, name, ...form }
+  const [savingAssignment, setSavingAssignment] = useState(false)
+
+  const fetchAssignments = async () => {
+    if (!schoolId) return
+    setLoading(true)
+    const [usersSnap, assignSnap] = await Promise.all([
+      getDocs(query(
+        collection(db, 'users'),
+        where('schoolId', '==', schoolId),
+        where('role', 'in', ['teacher', 'admin', 'school_admin', 'principal']),
+      )),
+      getDocs(query(
+        collection(db, 'schools', schoolId, 'teacherAssignments'),
+        where('year', '==', assignmentYear),
+      )),
+    ])
+    const assignByUid = {}
+    assignSnap.docs.forEach(d => { assignByUid[d.data().uid] = { id: d.id, ...d.data() } })
+
+    setAssignmentRows(
+      usersSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .map(u => ({ uid: u.id, name: u.name, email: u.email, staffType: u.staffType, assignment: assignByUid[u.id] || null }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
+    )
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'assignments') fetchAssignments()
+  }, [tab, schoolId, assignmentYear])
+
+  const openAssignmentModal = (row) => {
+    const a = row.assignment || {}
+    setEditingAssignment({
+      uid: row.uid,
+      name: row.name,
+      department: a.department || '',
+      subject: a.subject || '',
+      isHomeroom: a.isHomeroom || false,
+      homeroomGrade: a.homeroomGrade || '',
+      homeroomClassNo: a.homeroomClassNo || '',
+      office: a.office || '',
+      positionLabel: a.positionLabel || '',
+    })
+  }
+
+  const saveAssignment = async () => {
+    if (!editingAssignment) return
+    setSavingAssignment(true)
+    try {
+      const { uid, name, homeroomGrade, homeroomClassNo, ...form } = editingAssignment
+      const docId = `${assignmentYear}_${uid}`
+      await setDoc(doc(db, 'schools', schoolId, 'teacherAssignments', docId), {
+        uid,
+        year: assignmentYear,
+        ...form,
+        homeroomGrade: form.isHomeroom && homeroomGrade ? Number(homeroomGrade) : null,
+        homeroomClassNo: form.isHomeroom && homeroomClassNo ? Number(homeroomClassNo) : null,
+        updatedAt: serverTimestamp(),
+      }, { merge: true })
+      setEditingAssignment(null)
+      await fetchAssignments()
+    } catch (err) {
+      alert('저장 실패: ' + err.message)
+    } finally {
+      setSavingAssignment(false)
+    }
+  }
+
+  // ── 교원 배정 일괄 수정(다중 선택) ────────────────────────
+  const [selectedUids, setSelectedUids] = useState(new Set())
+  const [bulkEditOpen, setBulkEditOpen] = useState(false)
+  const [bulkFields, setBulkFields] = useState(null)
+  const [savingBulk, setSavingBulk] = useState(false)
+
+  const toggleSelectUid = (uid) => {
+    setSelectedUids(prev => {
+      const next = new Set(prev)
+      next.has(uid) ? next.delete(uid) : next.add(uid)
+      return next
+    })
+  }
+
+  const toggleSelectAllAssignments = () => {
+    setSelectedUids(prev =>
+      prev.size === assignmentRows.length ? new Set() : new Set(assignmentRows.map(r => r.uid))
+    )
+  }
+
+  const openBulkEdit = () => {
+    setBulkFields({
+      positionLabel: { on: false, value: '' },
+      department: { on: false, value: '' },
+      subject: { on: false, value: '' },
+      office: { on: false, value: '' },
+      homeroom: { on: false, isHomeroom: false, grade: '', classNo: '' },
+    })
+    setBulkEditOpen(true)
+  }
+
+  const saveBulkEdit = async () => {
+    if (!bulkFields) return
+    setSavingBulk(true)
+    try {
+      const payload = { updatedAt: serverTimestamp() }
+      if (bulkFields.positionLabel.on) payload.positionLabel = bulkFields.positionLabel.value
+      if (bulkFields.department.on) payload.department = bulkFields.department.value
+      if (bulkFields.subject.on) payload.subject = bulkFields.subject.value
+      if (bulkFields.office.on) payload.office = bulkFields.office.value
+      if (bulkFields.homeroom.on) {
+        payload.isHomeroom = bulkFields.homeroom.isHomeroom
+        payload.homeroomGrade = bulkFields.homeroom.isHomeroom && bulkFields.homeroom.grade ? Number(bulkFields.homeroom.grade) : null
+        payload.homeroomClassNo = bulkFields.homeroom.isHomeroom && bulkFields.homeroom.classNo ? Number(bulkFields.homeroom.classNo) : null
+      }
+      await Promise.all([...selectedUids].map(uid =>
+        setDoc(doc(db, 'schools', schoolId, 'teacherAssignments', `${assignmentYear}_${uid}`), {
+          uid, year: assignmentYear, ...payload,
+        }, { merge: true })
+      ))
+      setBulkEditOpen(false)
+      setSelectedUids(new Set())
+      await fetchAssignments()
+    } catch (err) {
+      alert('일괄 저장 실패: ' + err.message)
+    } finally {
+      setSavingBulk(false)
+    }
+  }
+
+  // ── 교원 배정 CSV 일괄 업로드 ───────────────────────────────
+  const [assignParsedRows, setAssignParsedRows] = useState([])
+  const [assignUploadMsg, setAssignUploadMsg] = useState('')
+  const [savingAssignUpload, setSavingAssignUpload] = useState(false)
+
+  const parseAssignmentRows = (text) => {
+    const lines = text.trim().split(/\r?\n/)
+    if (lines.length < 2) return null
+    const delim = lines[0].includes('\t') ? '\t' : ','
+    const headers = lines[0].split(delim).map(h => h.trim().toLowerCase())
+    const findIdx = (names) => headers.findIndex(h => names.includes(h))
+    const emailIdx = findIdx(['이메일', 'email'])
+    if (emailIdx === -1) return null
+    const positionIdx = findIdx(['직함', 'position'])
+    const deptIdx = findIdx(['부서', 'department'])
+    const subjectIdx = findIdx(['담당교과', '과목', 'subject'])
+    const gradeIdx = findIdx(['담임학년', '학년'])
+    const classIdx = findIdx(['담임반', '반'])
+    const officeIdx = findIdx(['사무실', 'office'])
+
+    return lines.slice(1).map(line => {
+      const cols = line.split(delim).map(v => v.trim())
+      const grade = gradeIdx !== -1 ? cols[gradeIdx] : ''
+      const classNo = classIdx !== -1 ? cols[classIdx] : ''
+      return {
+        email: (cols[emailIdx] || '').toLowerCase(),
+        positionLabel: positionIdx !== -1 ? cols[positionIdx] || '' : '',
+        department: deptIdx !== -1 ? cols[deptIdx] || '' : '',
+        subject: subjectIdx !== -1 ? cols[subjectIdx] || '' : '',
+        isHomeroom: !!(grade && classNo),
+        homeroomGrade: grade ? Number(grade) : null,
+        homeroomClassNo: classNo ? Number(classNo) : null,
+        office: officeIdx !== -1 ? cols[officeIdx] || '' : '',
+      }
+    }).filter(r => r.email && r.email.includes('@'))
+  }
+
+  // 현재 학년도 교원 명단 + 기존 배정값을 CSV로 다운로드 (엑셀에서 채워서 재업로드하는 용도)
+  const csvCell = (v) => {
+    const s = (v ?? '').toString()
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+
+  const downloadAssignmentCsv = () => {
+    const header = ['이메일', '이름', '직함', '부서', '담당교과', '담임학년', '담임반', '사무실']
+    const rows = assignmentRows.map(row => {
+      const a = row.assignment || {}
+      return [
+        row.email || '',
+        row.name || '',
+        a.positionLabel || '',
+        a.department || '',
+        a.subject || '',
+        a.isHomeroom && a.homeroomGrade ? a.homeroomGrade : '',
+        a.isHomeroom && a.homeroomClassNo ? a.homeroomClassNo : '',
+        a.office || '',
+      ].map(csvCell).join(',')
+    })
+    const csv = [header.join(','), ...rows].join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `교원배정_${assignmentYear}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleAssignCsvUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    try {
+      const text = await file.text()
+      const rows = parseAssignmentRows(text)
+      if (!rows) { setAssignUploadMsg('CSV 헤더에 "이메일" 열이 필요합니다.'); return }
+      if (rows.length === 0) { setAssignUploadMsg('유효한 데이터가 없습니다.'); return }
+      setAssignParsedRows(rows)
+      setAssignUploadMsg('')
+    } catch (err) {
+      setAssignUploadMsg('파일 읽기 실패: ' + err.message)
+    }
+  }
+
+  const handleSaveAssignUpload = async () => {
+    if (assignParsedRows.length === 0) return
+    setSavingAssignUpload(true)
+    setAssignUploadMsg('')
+    try {
+      const emailToUid = {}
+      assignmentRows.forEach(r => { if (r.email) emailToUid[r.email.toLowerCase()] = r.uid })
+
+      let matched = 0
+      let unmatched = 0
+      await Promise.all(assignParsedRows.map(async (row) => {
+        const uid = emailToUid[row.email]
+        if (!uid) { unmatched++; return }
+        matched++
+        const { email, ...form } = row
+        await setDoc(doc(db, 'schools', schoolId, 'teacherAssignments', `${assignmentYear}_${uid}`), {
+          uid, year: assignmentYear, ...form, updatedAt: serverTimestamp(),
+        }, { merge: true })
+      }))
+
+      setAssignUploadMsg(`✅ ${matched}명 반영 완료${unmatched > 0 ? ` · 매칭 안 된 이메일 ${unmatched}건 (구성원 목록에 없는 이메일)` : ''}`)
+      setAssignParsedRows([])
+      await fetchAssignments()
+    } catch (err) {
+      setAssignUploadMsg('저장 실패: ' + err.message)
+    } finally {
+      setSavingAssignUpload(false)
+    }
+  }
+
+  // ── 성취평가제 과목 배정에서 담당 교과 가져오기 ─────────────
+  // asaSubjects.teacherEmails 기준으로 교사별 담당 과목을 모아 teacherAssignments.subject만 갱신
+  // (다른 필드는 건드리지 않음). asaSubjects는 연도 필드가 없어 항상 "현재" 값 기준.
+  const [asaImportPreview, setAsaImportPreview] = useState(null)
+  const [asaImportLoading, setAsaImportLoading] = useState(false)
+  const [savingAsaImport, setSavingAsaImport] = useState(false)
+
+  const previewAsaSubjectImport = async () => {
+    setAsaImportLoading(true)
+    try {
+      const snap = await getDocs(collection(db, 'schools', schoolId, 'asaSubjects'))
+      const subjectsByEmail = {}
+      snap.docs.forEach(d => {
+        const data = d.data()
+        ;(data.teacherEmails || []).forEach(email => {
+          const key = email.toLowerCase()
+          if (!subjectsByEmail[key]) subjectsByEmail[key] = new Set()
+          if (data.name) subjectsByEmail[key].add(data.name)
+        })
+      })
+
+      const emailToRow = {}
+      assignmentRows.forEach(r => { if (r.email) emailToRow[r.email.toLowerCase()] = r })
+
+      const preview = Object.entries(subjectsByEmail)
+        .map(([email, subjectSet]) => {
+          const row = emailToRow[email]
+          if (!row) return null
+          const newSubject = [...subjectSet].sort().join(', ')
+          return { uid: row.uid, name: row.name, email, currentSubject: row.assignment?.subject || '', newSubject }
+        })
+        .filter(row => row && row.newSubject !== row.currentSubject)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
+
+      setAsaImportPreview(preview)
+    } catch (err) {
+      alert('불러오기 실패: ' + err.message)
+    } finally {
+      setAsaImportLoading(false)
+    }
+  }
+
+  const applyAsaSubjectImport = async () => {
+    if (!asaImportPreview || asaImportPreview.length === 0) return
+    setSavingAsaImport(true)
+    try {
+      await Promise.all(asaImportPreview.map(row =>
+        setDoc(doc(db, 'schools', schoolId, 'teacherAssignments', `${assignmentYear}_${row.uid}`), {
+          uid: row.uid, year: assignmentYear, subject: row.newSubject, updatedAt: serverTimestamp(),
+        }, { merge: true })
+      ))
+      setAsaImportPreview(null)
+      await fetchAssignments()
+    } catch (err) {
+      alert('반영 실패: ' + err.message)
+    } finally {
+      setSavingAsaImport(false)
+    }
+  }
+
   // ── 학교 설정 탭 ──────────────────────────────────────────
   const [logoUrl, setLogoUrl] = useState(null)
   const [logoUploading, setLogoUploading] = useState(false)
   const [studentDomain, setStudentDomain] = useState('')
   const [studentDomainInput, setStudentDomainInput] = useState('')
   const [savingDomain, setSavingDomain] = useState(false)
+
+  // Workspace 자동 동기화 설정
+  const [wsEnabled, setWsEnabled] = useState(false)
+  const [wsAdminEmail, setWsAdminEmail] = useState('')
+  const [wsStaffOu, setWsStaffOu] = useState('')
+  const [wsStudentOu, setWsStudentOu] = useState('')
+  const [savingWs, setSavingWs] = useState(false)
+  const [syncingNow, setSyncingNow] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
 
   useEffect(() => {
     if (tab !== 'settings' || !schoolId) return
@@ -192,9 +555,51 @@ export default function Admin() {
         setLogoUrl(data.logoUrl || null)
         setStudentDomain(data.studentDomain || '')
         setStudentDomainInput(data.studentDomain || '')
+        const ws = data.workspaceSync || {}
+        setWsEnabled(!!ws.enabled)
+        setWsAdminEmail(ws.adminEmail || '')
+        setWsStaffOu(ws.staffOuPath || '')
+        setWsStudentOu(ws.studentOuPath || '')
       })
       .catch(() => {})
   }, [tab, schoolId])
+
+  const handleSaveWorkspaceSync = async () => {
+    setSavingWs(true)
+    setSyncMsg('')
+    try {
+      await updateDoc(doc(db, 'schools', schoolId), {
+        workspaceSync: {
+          enabled: wsEnabled,
+          adminEmail: wsAdminEmail.trim(),
+          staffOuPath: wsStaffOu.trim(),
+          studentOuPath: wsStudentOu.trim(),
+        },
+      })
+    } catch (err) {
+      alert('저장 실패: ' + err.message)
+    } finally {
+      setSavingWs(false)
+    }
+  }
+
+  const handleSyncNow = async () => {
+    setSyncingNow(true)
+    setSyncMsg('')
+    try {
+      const run = httpsCallable(functions, 'runWorkspaceSyncNow')
+      const { data } = await run({ schoolId })
+      const { staff, students } = data.result || {}
+      const parts = []
+      if (staff) parts.push(`교직원 사전등록 신규 ${staff.created}·갱신 ${staff.updated}·정리 ${staff.removed} (전체 ${staff.total}명)`)
+      if (students) parts.push(`학생 신규 ${students.created}·갱신 ${students.updated} (전체 ${students.total}명, 형식 불일치 ${students.skipped}건)`)
+      setSyncMsg('✅ 동기화 완료 — ' + parts.join(' / '))
+    } catch (err) {
+      setSyncMsg('❌ 동기화 실패: ' + err.message)
+    } finally {
+      setSyncingNow(false)
+    }
+  }
 
   const handleSaveStudentDomain = async () => {
     setSavingDomain(true)
@@ -324,6 +729,14 @@ export default function Admin() {
         <button onClick={() => setTab('preapprove')}
           style={{ ...styles.tab, ...(tab === 'preapprove' ? styles.tabActive : {}) }}>
           사전 등록
+        </button>
+        <button onClick={() => setTab('students')}
+          style={{ ...styles.tab, ...(tab === 'students' ? styles.tabActive : {}) }}>
+          학생 명단
+        </button>
+        <button onClick={() => setTab('assignments')}
+          style={{ ...styles.tab, ...(tab === 'assignments' ? styles.tabActive : {}) }}>
+          교원 배정
         </button>
         <button onClick={() => setTab('settings')}
           style={{ ...styles.tab, ...(tab === 'settings' ? styles.tabActive : {}) }}>
@@ -462,6 +875,226 @@ export default function Admin() {
           </table>
         )
 
+      ) : tab === 'students' ? (
+
+        /* ── 학생 명단 탭 ── */
+        <div>
+          <input
+            value={studentSearch}
+            onChange={e => setStudentSearch(e.target.value)}
+            placeholder="이름·학번·이메일 검색"
+            style={{ ...styles.input, maxWidth: '260px', marginBottom: '1rem' }}
+          />
+          {studentList.length === 0 ? (
+            <p style={styles.empty}>등록된 학생이 없습니다. Workspace 동기화를 사용 중이면 학교 설정 탭에서 실행해보세요.</p>
+          ) : filteredStudents.length === 0 ? (
+            <p style={styles.empty}>검색 결과가 없습니다.</p>
+          ) : (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>학년</th>
+                  <th style={styles.th}>반</th>
+                  <th style={styles.th}>번호</th>
+                  <th style={styles.th}>이름</th>
+                  <th style={styles.th}>학번</th>
+                  <th style={styles.th}>이메일</th>
+                  <th style={styles.th}>삭제</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStudents.map(s => (
+                  <tr key={s.id}>
+                    <td style={styles.td}>{s.grade ?? '—'}</td>
+                    <td style={styles.td}>{s.class ?? '—'}</td>
+                    <td style={styles.td}>{s.number ?? '—'}</td>
+                    <td style={styles.td}>
+                      {s.name || '—'}
+                      <button onClick={() => editStudentName(s.id, s.name || '')} style={styles.editNameBtn} title="이름 수정">✏️</button>
+                    </td>
+                    <td style={styles.td}>{s.studentId}</td>
+                    <td style={styles.td}>{s.email || '—'}</td>
+                    <td style={styles.td}>
+                      <button onClick={() => deleteStudent(s.id, s.name || s.studentId)} style={styles.rejectBtn}>삭제</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.75rem' }}>
+            총 {studentList.length}명{studentSearch.trim() && ` · 검색결과 ${filteredStudents.length}명`}
+          </p>
+        </div>
+
+      ) : tab === 'assignments' ? (
+
+        /* ── 교원 배정 탭 ── */
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <label style={{ fontSize: '0.85rem', color: '#64748b' }}>학년도</label>
+            <select
+              value={assignmentYear}
+              onChange={e => setAssignmentYear(Number(e.target.value))}
+              style={styles.select}
+            >
+              {Array.from({ length: 5 }, (_, i) => currentSchoolYear() - 2 + i).map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            {selectedUids.size > 0 && (
+              <button onClick={openBulkEdit} style={styles.schoolAdminBtn}>
+                선택 {selectedUids.size}명 일괄 수정
+              </button>
+            )}
+          </div>
+
+          {assignmentRows.length === 0 ? (
+            <p style={styles.empty}>소속 교직원이 없습니다.</p>
+          ) : (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>
+                    <input
+                      type="checkbox"
+                      checked={selectedUids.size === assignmentRows.length}
+                      onChange={toggleSelectAllAssignments}
+                    />
+                  </th>
+                  <th style={styles.th}>이름</th>
+                  <th style={styles.th}>직함</th>
+                  <th style={styles.th}>부서</th>
+                  <th style={styles.th}>담당 교과</th>
+                  <th style={styles.th}>담임</th>
+                  <th style={styles.th}>사무실</th>
+                  <th style={styles.th}>수정</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assignmentRows.map(row => {
+                  const a = row.assignment
+                  return (
+                    <tr key={row.uid}>
+                      <td style={styles.td}>
+                        <input
+                          type="checkbox"
+                          checked={selectedUids.has(row.uid)}
+                          onChange={() => toggleSelectUid(row.uid)}
+                        />
+                      </td>
+                      <td style={styles.td}>{row.name || '—'}</td>
+                      <td style={styles.td}>{a?.positionLabel || '—'}</td>
+                      <td style={styles.td}>{a?.department || '—'}</td>
+                      <td style={styles.td}>{a?.subject || '—'}</td>
+                      <td style={styles.td}>{a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}</td>
+                      <td style={styles.td}>{a?.office || '—'}</td>
+                      <td style={styles.td}>
+                        <button onClick={() => openAssignmentModal(row)} style={styles.approveBtn}>배정 수정</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+
+          <div style={{ marginTop: '1.75rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
+            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.35rem' }}>일괄 업로드</p>
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
+              1) 현재 명단을 CSV로 받아서 엑셀로 채운 뒤 2) 다시 올리면 반영됩니다. <strong>이메일</strong> 열로 구성원 목록과 매칭합니다.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button onClick={downloadAssignmentCsv} style={styles.changeBtn}>
+                현재 명단 CSV 다운로드 ({assignmentYear})
+              </button>
+              <label style={{ ...styles.changeBtn, display: 'inline-block' }}>
+                채운 CSV 업로드
+                <input type="file" accept=".csv" hidden onChange={handleAssignCsvUpload} />
+              </label>
+            </div>
+
+            {assignParsedRows.length > 0 && (
+              <div style={{ marginTop: '0.9rem' }}>
+                <p style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{assignParsedRows.length}건 확인됨 — 저장하면 즉시 반영됩니다.</p>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>이메일</th>
+                      <th style={styles.th}>직함</th>
+                      <th style={styles.th}>부서</th>
+                      <th style={styles.th}>담당교과</th>
+                      <th style={styles.th}>담임</th>
+                      <th style={styles.th}>사무실</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assignParsedRows.map((r, i) => (
+                      <tr key={i}>
+                        <td style={styles.td}>{r.email}</td>
+                        <td style={styles.td}>{r.positionLabel || '—'}</td>
+                        <td style={styles.td}>{r.department || '—'}</td>
+                        <td style={styles.td}>{r.subject || '—'}</td>
+                        <td style={styles.td}>{r.isHomeroom ? `${r.homeroomGrade}학년 ${r.homeroomClassNo}반` : '—'}</td>
+                        <td style={styles.td}>{r.office || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button onClick={handleSaveAssignUpload} disabled={savingAssignUpload} style={{ ...styles.approveBtn, marginTop: '0.75rem' }}>
+                  {savingAssignUpload ? '저장 중...' : `${assignParsedRows.length}건 저장`}
+                </button>
+              </div>
+            )}
+            {assignUploadMsg && (
+              <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.6rem' }}>{assignUploadMsg}</p>
+            )}
+          </div>
+
+          <div style={{ marginTop: '1.75rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
+            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.35rem' }}>
+              성취평가제 과목 배정에서 담당 교과 가져오기
+            </p>
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
+              도구모음 &gt; 성취평가제 체크리스트의 과목 관리에서 지정한 담당 교사를 기준으로 담당 교과만 채웁니다
+              (직함·부서·담임·사무실은 안 건드림). 성취평가제 과목은 학년도 구분이 없어 항상 현재 등록된 값 기준입니다.
+            </p>
+            <button onClick={previewAsaSubjectImport} disabled={asaImportLoading} style={styles.changeBtn}>
+              {asaImportLoading ? '불러오는 중...' : '변경사항 미리보기'}
+            </button>
+
+            {asaImportPreview && (
+              asaImportPreview.length === 0 ? (
+                <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.75rem' }}>변경할 내용이 없습니다 — 이미 최신 상태입니다.</p>
+              ) : (
+                <div style={{ marginTop: '0.9rem' }}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={styles.th}>이름</th>
+                        <th style={styles.th}>기존 담당 교과</th>
+                        <th style={styles.th}>변경 후</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {asaImportPreview.map(row => (
+                        <tr key={row.uid}>
+                          <td style={styles.td}>{row.name || row.email}</td>
+                          <td style={styles.td}>{row.currentSubject || '—'}</td>
+                          <td style={styles.td}><strong>{row.newSubject}</strong></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <button onClick={applyAsaSubjectImport} disabled={savingAsaImport} style={{ ...styles.approveBtn, marginTop: '0.75rem' }}>
+                    {savingAsaImport ? '반영 중...' : `${asaImportPreview.length}명 반영`}
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+
       ) : tab === 'settings' ? (
 
         /* ── 학교 설정 탭 ── */
@@ -527,6 +1160,106 @@ export default function Admin() {
               <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.4rem' }}>
                 현재 설정: @{studentDomain}
               </p>
+            )}
+          </div>
+
+          <div style={{ marginTop: '1.75rem', paddingTop: '1.5rem', borderTop: '1px solid #f0f0f0' }}>
+            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: '0.35rem' }}>
+              Google Workspace 자동 동기화
+            </p>
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
+              매일 새벽 3시, Workspace 조직단위(OU) 기준으로 교직원 사전등록·학생 명단을 자동 갱신합니다.
+            </p>
+
+            <div style={{
+              backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+              padding: '0.9rem 1rem', marginBottom: '1.1rem', fontSize: '0.78rem', color: '#475569',
+            }}>
+              <p style={{ fontWeight: 700, marginBottom: '0.4rem', color: '#334155' }}>
+                처음 설정하는 학교라면 먼저 필요한 것
+              </p>
+              <p style={{ marginBottom: '0.5rem', lineHeight: 1.6 }}>
+                서비스계정은 학교마다 새로 만들지 않고 공용으로 씁니다. 대신 <strong>우리 학교 Workspace 최고관리자가
+                자기 학교 admin.google.com</strong>에서 아래 클라이언트 ID를 도메인 전체 위임으로 직접 승인해야 합니다
+                (다른 학교 관리자가 대신 해줄 수 없음).
+              </p>
+              <p style={{ margin: '0.3rem 0 0.15rem' }}>
+                경로: 보안 → API 제어 → 도메인 전체 위임 관리 → 새로 추가
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.3rem 0' }}>
+                <code style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 4, padding: '0.15rem 0.5rem' }}>
+                  클라이언트 ID: 109872053946219411555
+                </code>
+                <button
+                  onClick={() => navigator.clipboard.writeText('109872053946219411555')}
+                  style={{ ...styles.editNameBtn, opacity: 1, fontSize: '0.72rem' }}
+                >복사</button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', margin: '0.3rem 0' }}>
+                <code style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 4, padding: '0.15rem 0.5rem', wordBreak: 'break-all' }}>
+                  범위(OAuth Scopes): https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly
+                </code>
+                <button
+                  onClick={() => navigator.clipboard.writeText('https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly')}
+                  style={{ ...styles.editNameBtn, opacity: 1, fontSize: '0.72rem', flexShrink: 0 }}
+                >복사</button>
+              </div>
+              <p style={{ marginTop: '0.5rem' }}>
+                승인이 끝난 뒤에 아래 항목(관리자 이메일·OU 경로)을 채우고 저장하면 됩니다.
+              </p>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+              <input type="checkbox" checked={wsEnabled} onChange={e => setWsEnabled(e.target.checked)} />
+              동기화 사용
+            </label>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxWidth: '360px' }}>
+              <div>
+                <label style={{ fontSize: '0.78rem', color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>
+                  대리 인증(impersonate)할 Workspace 관리자 이메일
+                </label>
+                <input
+                  value={wsAdminEmail}
+                  onChange={e => setWsAdminEmail(e.target.value)}
+                  placeholder="예: seonyoo@seonyoo.hs.kr"
+                  style={styles.input}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.78rem', color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>
+                  교직원 OU 경로
+                </label>
+                <input
+                  value={wsStaffOu}
+                  onChange={e => setWsStaffOu(e.target.value)}
+                  placeholder="예: /교원 (관리 콘솔 > 디렉토리 > 조직단위의 실제 경로, 최상위 조직명은 포함하지 않음)"
+                  style={styles.input}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.78rem', color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>
+                  학생 OU 경로 (학년도가 바뀌면 매년 갱신 필요)
+                </label>
+                <input
+                  value={wsStudentOu}
+                  onChange={e => setWsStudentOu(e.target.value)}
+                  placeholder="예: /학생 2026 (하위 학년 OU가 있어도 자동 포함됨)"
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.9rem', flexWrap: 'wrap' }}>
+              <button onClick={handleSaveWorkspaceSync} disabled={savingWs} style={styles.approveBtn}>
+                {savingWs ? '저장 중...' : '설정 저장'}
+              </button>
+              <button onClick={handleSyncNow} disabled={syncingNow || !wsEnabled} style={styles.schoolAdminBtn}>
+                {syncingNow ? '동기화 중...' : '지금 동기화'}
+              </button>
+            </div>
+            {syncMsg && (
+              <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.6rem' }}>{syncMsg}</p>
             )}
           </div>
         </div>
@@ -653,6 +1386,184 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      {editingAssignment && (
+        <div style={styles.modalOverlay} onClick={() => setEditingAssignment(null)}>
+          <div style={styles.modalBox} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>{editingAssignment.name} — 배정 정보 ({assignmentYear})</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <label style={styles.modalLabel}>
+                직함
+                <input
+                  value={editingAssignment.positionLabel}
+                  onChange={e => setEditingAssignment(prev => ({ ...prev, positionLabel: e.target.value }))}
+                  placeholder="예: 교무부장"
+                  style={styles.input}
+                />
+              </label>
+              <label style={styles.modalLabel}>
+                부서
+                <input
+                  value={editingAssignment.department}
+                  onChange={e => setEditingAssignment(prev => ({ ...prev, department: e.target.value }))}
+                  placeholder="예: 교무부"
+                  style={styles.input}
+                />
+              </label>
+              <label style={styles.modalLabel}>
+                담당 교과
+                <input
+                  value={editingAssignment.subject}
+                  onChange={e => setEditingAssignment(prev => ({ ...prev, subject: e.target.value }))}
+                  placeholder="예: 수학"
+                  style={styles.input}
+                />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                <input
+                  type="checkbox"
+                  checked={editingAssignment.isHomeroom}
+                  onChange={e => setEditingAssignment(prev => ({ ...prev, isHomeroom: e.target.checked }))}
+                />
+                담임
+              </label>
+              {editingAssignment.isHomeroom && (
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <label style={{ ...styles.modalLabel, flex: 1 }}>
+                    담임 학년
+                    <select
+                      value={editingAssignment.homeroomGrade}
+                      onChange={e => setEditingAssignment(prev => ({ ...prev, homeroomGrade: e.target.value }))}
+                      style={styles.select}
+                    >
+                      <option value="">선택</option>
+                      <option value="1">1학년</option>
+                      <option value="2">2학년</option>
+                      <option value="3">3학년</option>
+                    </select>
+                  </label>
+                  <label style={{ ...styles.modalLabel, flex: 1 }}>
+                    담임 반
+                    <input
+                      value={editingAssignment.homeroomClassNo}
+                      onChange={e => setEditingAssignment(prev => ({ ...prev, homeroomClassNo: e.target.value }))}
+                      placeholder="예: 3"
+                      style={styles.input}
+                    />
+                  </label>
+                </div>
+              )}
+              <label style={styles.modalLabel}>
+                사무실
+                <input
+                  value={editingAssignment.office}
+                  onChange={e => setEditingAssignment(prev => ({ ...prev, office: e.target.value }))}
+                  placeholder="예: 교무실"
+                  style={styles.input}
+                />
+                <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 400 }}>
+                  실제 자리 배치(좌석 위치)는 호출 대시보드 앱에서 별도로 관리 예정
+                </span>
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setEditingAssignment(null)} style={styles.rejectBtn}>취소</button>
+              <button onClick={saveAssignment} disabled={savingAssignment} style={styles.approveBtn}>
+                {savingAssignment ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkEditOpen && bulkFields && (
+        <div style={styles.modalOverlay} onClick={() => setBulkEditOpen(false)}>
+          <div style={styles.modalBox} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0, marginBottom: '0.5rem' }}>{selectedUids.size}명 일괄 수정 ({assignmentYear})</h3>
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '1rem' }}>
+              체크한 항목만 선택된 교원 전체에 적용됩니다. 체크 안 한 항목은 각자 기존 값 유지.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {[
+                { key: 'positionLabel', label: '직함', placeholder: '예: 교무부장' },
+                { key: 'department', label: '부서', placeholder: '예: 교무부' },
+                { key: 'subject', label: '담당 교과', placeholder: '예: 수학' },
+                { key: 'office', label: '사무실', placeholder: '예: 교무실' },
+              ].map(f => (
+                <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={bulkFields[f.key].on}
+                    onChange={e => setBulkFields(prev => ({ ...prev, [f.key]: { ...prev[f.key], on: e.target.checked } }))}
+                  />
+                  <label style={{ ...styles.modalLabel, flex: 1 }}>
+                    {f.label}
+                    <input
+                      value={bulkFields[f.key].value}
+                      onChange={e => setBulkFields(prev => ({ ...prev, [f.key]: { ...prev[f.key], value: e.target.value } }))}
+                      placeholder={f.placeholder}
+                      disabled={!bulkFields[f.key].on}
+                      style={styles.input}
+                    />
+                  </label>
+                </div>
+              ))}
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <input
+                  type="checkbox"
+                  checked={bulkFields.homeroom.on}
+                  onChange={e => setBulkFields(prev => ({ ...prev, homeroom: { ...prev.homeroom, on: e.target.checked } }))}
+                  style={{ marginTop: '0.3rem' }}
+                />
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', marginBottom: '0.4rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkFields.homeroom.isHomeroom}
+                      disabled={!bulkFields.homeroom.on}
+                      onChange={e => setBulkFields(prev => ({ ...prev, homeroom: { ...prev.homeroom, isHomeroom: e.target.checked } }))}
+                    />
+                    담임
+                  </label>
+                  {bulkFields.homeroom.isHomeroom && (
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <select
+                        value={bulkFields.homeroom.grade}
+                        disabled={!bulkFields.homeroom.on}
+                        onChange={e => setBulkFields(prev => ({ ...prev, homeroom: { ...prev.homeroom, grade: e.target.value } }))}
+                        style={styles.select}
+                      >
+                        <option value="">학년</option>
+                        <option value="1">1학년</option>
+                        <option value="2">2학년</option>
+                        <option value="3">3학년</option>
+                      </select>
+                      <input
+                        value={bulkFields.homeroom.classNo}
+                        disabled={!bulkFields.homeroom.on}
+                        onChange={e => setBulkFields(prev => ({ ...prev, homeroom: { ...prev.homeroom, classNo: e.target.value } }))}
+                        placeholder="반"
+                        style={{ ...styles.input, width: '80px' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setBulkEditOpen(false)} style={styles.rejectBtn}>취소</button>
+              <button onClick={saveBulkEdit} disabled={savingBulk} style={styles.approveBtn}>
+                {savingBulk ? '저장 중...' : `${selectedUids.size}명 저장`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }
@@ -679,4 +1590,8 @@ const styles = {
   editNameBtn: { marginLeft: '0.35rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78rem', padding: '0 2px', opacity: 0.45, verticalAlign: 'middle' },
   textarea: { width: '100%', padding: '0.6rem 0.8rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', marginBottom: '0.75rem' },
   infoBox: { backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.75rem 1rem', fontSize: '0.88rem', color: '#1e40af', marginBottom: '1.25rem', lineHeight: 1.6 },
+  input: { padding: '0.4rem 0.65rem', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', fontFamily: 'inherit', boxSizing: 'border-box', width: '100%' },
+  modalOverlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  modalBox: { backgroundColor: '#fff', borderRadius: '12px', padding: '1.5rem', width: '420px', maxWidth: '90vw', maxHeight: '85vh', overflowY: 'auto' },
+  modalLabel: { display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.82rem', color: '#475569', fontWeight: 600 },
 }
