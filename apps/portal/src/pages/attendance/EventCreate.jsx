@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy } from 'firebase/firestore'
 import { useLocation } from 'react-router-dom'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
 

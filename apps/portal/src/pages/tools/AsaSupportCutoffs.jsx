@@ -20,8 +20,8 @@ import Divider from '@mui/material/Divider'
 import {
   collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, writeBatch, serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { parseCutoffFile, FIXED_CATEGORIES, getFixedCategory } from './asaUtils'
 

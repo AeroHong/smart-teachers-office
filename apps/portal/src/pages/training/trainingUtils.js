@@ -1,5 +1,5 @@
 import { collection, getDocs, query, where } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
+import { db } from '@shared/lib/firebase'
 
 export const APPROVED_ROLES = ['teacher', 'school_admin', 'admin']
 export const STAFF_TYPES = ['교사', '교직원']

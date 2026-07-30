@@ -8,8 +8,8 @@ import {
   doc, getDoc, collection, onSnapshot, setDoc, serverTimestamp,
   getDocs, updateDoc,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 
 export default function TrainingSign() {
   const { id } = useParams()

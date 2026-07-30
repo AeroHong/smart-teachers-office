@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { doc, getDoc } from 'firebase/firestore'
-import { db } from '../lib/firebase'
-import { useAuth } from '../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import { useStudentHistory } from '../hooks/useStudentHistory'
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']

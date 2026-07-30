@@ -1,4 +1,4 @@
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '@shared/contexts/AuthContext'
 
 /**
  * 로그인한 학교의 보강 시스템 Apps Script URL을 AuthContext에서 조회

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useAuth } from '../../contexts/AuthContext'
+import { useAuth } from '@shared/contexts/AuthContext'
 import { useStatsData, computeStats } from '../../hooks/useStatsData'
 import Layout from '../../components/Layout'
 import StudentHistoryModal from '../../components/StudentHistoryModal'

@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore'
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
-import { auth, db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { auth, db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 
 const STATE = {
   LOADING: 'loading',

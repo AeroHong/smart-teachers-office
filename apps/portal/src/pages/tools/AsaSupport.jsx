@@ -18,8 +18,8 @@ import Divider from '@mui/material/Divider'
 import {
   collection, query, where, orderBy, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { parseGradeSummaryFile, computeAggregate, groupBlocksBySubject } from './asaUtils'
 import GradeSummaryUploadGuide from './GradeSummaryUploadGuide'

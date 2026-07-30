@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'
-import { db, auth } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db, auth } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import { signOut } from 'firebase/auth'
 
 export default function StudentPortal() {

@@ -4,7 +4,7 @@ import Avatar from '@mui/material/Avatar'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '@shared/contexts/AuthContext'
 
 const NAV_ITEMS = [
   { label: '학교 도메인 관리', path: '/super-admin', icon: '🏫' },

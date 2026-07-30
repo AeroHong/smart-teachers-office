@@ -9,8 +9,8 @@ import MenuItem from '@mui/material/MenuItem'
 import Tooltip from '@mui/material/Tooltip'
 import { Link, useLocation, useNavigate, Link as RouterLink } from 'react-router-dom'
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
-import { useAuth } from '../contexts/AuthContext'
-import { db } from '../lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
 
 // ── 사이드바 네비 구조 ─────────────────────────────────
 const NAV_SECTIONS = [

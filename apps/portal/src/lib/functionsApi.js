@@ -1,4 +1,4 @@
-import { auth } from './firebase'
+import { auth } from '@shared/lib/firebase'
 
 // Python Cloud Functions(functions-python, codebase: python-tools)는 파일 업로드/다운로드가
 // 있어 onCall(JSON 직렬화) 대신 순수 HTTP + multipart/form-data로 직접 호출한다.

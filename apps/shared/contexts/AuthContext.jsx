@@ -3,8 +3,8 @@ import {
   onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
-import { auth, db } from '../lib/firebase'
-import { emailToDocId } from '../lib/emailToDocId'
+import { auth, db } from '@shared/lib/firebase'
+import { emailToDocId } from '@shared/lib/emailToDocId'
 
 const SUPER_ADMIN_EMAIL = 'hckgood@gmail.com'
 

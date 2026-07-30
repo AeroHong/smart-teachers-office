@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { collection, query, orderBy, where, onSnapshot, updateDoc, deleteDoc, getDocs, doc } from 'firebase/firestore'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']

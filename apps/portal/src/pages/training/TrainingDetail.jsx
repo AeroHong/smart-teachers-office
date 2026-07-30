@@ -19,8 +19,8 @@ import {
   doc, getDoc, collection, onSnapshot, setDoc, serverTimestamp,
   updateDoc, deleteDoc, getDocs, query, orderBy,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { loadMembers, filterBySearch } from './trainingUtils'
 

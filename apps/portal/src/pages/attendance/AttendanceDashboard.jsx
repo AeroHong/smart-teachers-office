@@ -5,8 +5,8 @@ import {
   doc, getDoc, getDocs, collection,
   onSnapshot, setDoc, deleteDoc, updateDoc, serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
 

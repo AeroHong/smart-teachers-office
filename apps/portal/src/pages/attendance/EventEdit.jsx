@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { doc, getDoc, updateDoc, getDocs, addDoc, collection, query, where, orderBy, serverTimestamp } from 'firebase/firestore'
 import { useParams, useNavigate } from 'react-router-dom'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 
 const EVENT_TYPES = ['조회', '수업', '방과후', '행사', '기타']

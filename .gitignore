@@ -9,6 +9,7 @@ dist/
 # portal/manual/ — manual/ 소스에서 빌드 시 자동 복사
 portal/assets/
 portal/manual/
+dashboard/assets/
 
 # Claude Code
 .claude/

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import {
   collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 
 import Box from '@mui/material/Box'

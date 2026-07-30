@@ -37,6 +37,11 @@ export default defineConfig({
   root: resolve(__dirname),
   base: '/',
   envDir: resolve(__dirname, '../../'),  // 프로젝트 루트의 .env 읽기
+  resolve: {
+    alias: {
+      '@shared': resolve(__dirname, '../shared'),
+    },
+  },
   build: {
     outDir: resolve(__dirname, '../../portal'),
     emptyOutDir: true,

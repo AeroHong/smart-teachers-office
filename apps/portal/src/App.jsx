@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
-import ProtectedRoute from './components/ProtectedRoute'
+import ProtectedRoute from '@shared/components/ProtectedRoute'
 
 // 즉시 로드 (공통)
 import Login from './pages/Login'

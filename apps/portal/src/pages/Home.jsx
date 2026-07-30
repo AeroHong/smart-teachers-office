@@ -8,7 +8,7 @@ import CardActionArea from '@mui/material/CardActionArea'
 import Chip from '@mui/material/Chip'
 import Grid from '@mui/material/Grid'
 import Alert from '@mui/material/Alert'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../components/Layout'
 
 const SERVICES = [

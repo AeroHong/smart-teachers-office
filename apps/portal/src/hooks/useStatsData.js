@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { collection, getDocs, query, where } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { db } from '@shared/lib/firebase'
 
 export function useStatsData(schoolId, role, userId) {
   const [rawLogs, setRawLogs] = useState([])

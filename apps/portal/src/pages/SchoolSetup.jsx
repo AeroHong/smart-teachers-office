@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import {
   collection, getDocs, doc, getDoc, setDoc, addDoc, serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '../lib/firebase'
-import { useAuth } from '../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'

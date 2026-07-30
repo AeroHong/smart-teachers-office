@@ -34,11 +34,11 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import {
   collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy, query, where, getDocs, arrayUnion, limit,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
+import { db } from '@shared/lib/firebase'
 import { openProcessChecklistPrint, openResultChecklistPrint } from './asaChecklistPrint'
 import { cleanTeacherName } from '../../utils/nameUtils'
 import { getFixedCategory, parseNeisTeacherSubjectFile } from './asaUtils'
-import { useAuth } from '../../contexts/AuthContext'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 
 // 분할점수 경계 개수로 성취도 단계 추정 (A~C=3단계는 경계 2~3개, A~E=5단계는 경계 4~5개)

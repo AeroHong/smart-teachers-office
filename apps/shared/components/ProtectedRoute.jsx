@@ -1,8 +1,8 @@
 import { Navigate } from 'react-router-dom'
 import CircularProgress from '@mui/material/CircularProgress'
 import Box from '@mui/material/Box'
-import { useAuth } from '../contexts/AuthContext'
-import PendingApproval from '../pages/PendingApproval'
+import { useAuth } from '@shared/contexts/AuthContext'
+import PendingApproval from '@shared/pages/PendingApproval'
 
 export default function ProtectedRoute({
   children,

@@ -29,8 +29,8 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import {
   collection, doc, setDoc, updateDoc, query, orderBy, onSnapshot, getDoc, serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { useAuth } from '../../contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { parseGradeSummaryFile, groupBlocksBySubject } from './asaUtils'
 
