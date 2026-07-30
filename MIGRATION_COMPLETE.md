@@ -413,9 +413,61 @@ if (data.migratedAt) {
 - [x] Secret Manager 타임아웃 해결
 - [x] 마이그레이션 스크립트 작성 (run-migration.cjs, run-group-migration.cjs)
 - [x] 완료 보고서 작성
+- [x] AdminLayout 중복 사이드바 문제 수정
 
 ---
 
-**총 작업 시간**: 약 3-4시간 (자동화 포함)
+## 배포 후 수정 사항
+
+### UI/UX 개선: 관리자 페이지 레이아웃 (2026-07-30)
+
+#### 문제점
+- 기존 사이드바(220px)와 AdminLayout의 Drawer 사이드바(240px)가 중복
+- 총 460px의 사이드바로 인해 작업 영역이 과도하게 좁아짐
+- 사용자 경험 저하
+
+#### 해결 방법
+1. **AdminLayout의 Drawer 사이드바 완전 제거**
+2. **상단 탭 네비게이션으로 전환**
+   - Material-UI Tabs 컴포넌트 사용
+   - 5개 탭: 홈, 계정 관리, 교직원 관리, 학생 관리, 공간 관리
+   - 승인 대기 인원 Badge 유지
+
+3. **Layout `wide` 모드 적용**
+   - `maxWidth` 제한 해제
+   - 전체 화면 폭 활용
+
+#### 코드 변경
+```javascript
+// Before: Drawer 사이드바
+<Layout>
+  <Drawer variant="permanent" width={240}>
+    <List>...</List>
+  </Drawer>
+  <Box component="main">...</Box>
+</Layout>
+
+// After: 탭 네비게이션
+<Layout wide>
+  <Tabs value={currentTab} onChange={handleTabChange}>
+    {MENU_ITEMS.map(item => <Tab label={...} />)}
+  </Tabs>
+  <Outlet />
+</Layout>
+```
+
+#### 결과
+- ✅ 중복 사이드바 제거
+- ✅ 작업 영역 460px → 전체 화면으로 확대
+- ✅ 깔끔한 탭 기반 네비게이션
+- ✅ 모바일 반응형 지원 (scrollable tabs)
+
+#### 배포
+- 빌드 시간: 7.39s
+- 배포 완료: https://seonyoo-system.web.app/admin
+
+---
+
+**총 작업 시간**: 약 4-5시간 (자동화 + UI 수정 포함)
 **마이그레이션 성공률**: 98.5% (620명 중 598명)
 **시스템 다운타임**: 0분 (백그라운드 마이그레이션)
