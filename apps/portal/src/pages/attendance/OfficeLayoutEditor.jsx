@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { collection, query, where, getDocs, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import DeskIcon from '@shared/components/DeskIcon'
+import { officeLayoutId } from '@shared/lib/officeLayout'
 
 /**
  * 사무실 자리 배치 편집기
@@ -11,7 +12,7 @@ import DeskIcon from '@shared/components/DeskIcon'
  * 달라도(관리자 PC ↔ 키오스크 크롬북) 같은 배치로 보인다.
  *
  * 저장 위치: schools/{schoolId}/officeLayouts/{year}__{office}
- * 문서 ID 규칙은 functions/callSystem.js의 officeLayoutId()와 반드시 일치해야 한다.
+ * 문서 ID 규칙은 @shared/lib/officeLayout.js의 officeLayoutId()를 쓴다.
  */
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
@@ -35,10 +36,6 @@ function snapAxis(value, candidates, threshold) {
     if (d < bestDist) { bestDist = d; best = c }
   }
   return best
-}
-
-export function officeLayoutId(year, office) {
-  return `${year}__${office.replace(/\//g, '_')}`
 }
 
 export default function OfficeLayoutEditor({ schoolId, year, office }) {

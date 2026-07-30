@@ -176,6 +176,12 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
+      // 교육과정 과목 정보 (입학년도-학년-학기별) — 조회는 소속 교사 전체, 쓰기는 관리자만
+      match /subjects/{subjectId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
       // 교사 과목 배정 (학기별 담당 과목) — 조회는 소속 교사 전체, 쓰기는 관리자만
       match /teacherSubjects/{subjectAssignmentId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { officeLayoutId } from '@shared/lib/officeLayout'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
@@ -78,16 +79,12 @@ export default function AdminHome() {
 
       // 4. 자리배치 미완료 사무실 (confirmed: true가 아닌 경우)
       const offices = [...new Set(assignmentsSnap.docs.map(d => d.data().office).filter(Boolean))]
-      const officesNoLayout = []
-      for (const office of offices) {
-        const docId = `${year}__${office.replace(/\//g, '_')}`
-        const layoutDoc = await getDoc(
-          doc(db, 'schools', schoolId, 'officeLayouts', docId)
-        )
-        if (!layoutDoc.exists() || !layoutDoc.data()?.confirmed) {
-          officesNoLayout.push(office)
-        }
-      }
+      const layoutDocs = await Promise.all(offices.map(office =>
+        getDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, office)))
+      ))
+      const officesNoLayout = offices.filter((_, i) =>
+        !layoutDocs[i].exists() || !layoutDocs[i].data()?.confirmed
+      )
 
       // 5. 학생 OU 갱신 필요 여부
       const schoolDoc = await getDoc(doc(db, 'schools', schoolId))

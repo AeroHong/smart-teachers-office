@@ -64,11 +64,21 @@ const styles = {
 }
 
 // 유틸 함수
-function calcCurrentGrade(entryYear) {
+// 3월 이전(1~2월)은 아직 이전 학년도이므로 학년도는 연도 - 1
+function currentSchoolYear() {
   const now = new Date()
-  const schoolYear = now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1
-  const g = schoolYear - entryYear + 1
+  return now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1
+}
+
+function calcCurrentGrade(entryYear) {
+  const g = currentSchoolYear() - entryYear + 1
   return g >= 1 && g <= 3 ? g : null
+}
+
+// 1·2학기에 모두 배당된 과목은 semester === 'both' 로 저장된다
+function semesterLabel(semester) {
+  if (semester === 'both') return '양학기'
+  return semester ? `${semester}학기` : '—'
 }
 
 function extractEntryYear(filename) {
@@ -186,18 +196,20 @@ function parseEducationExcel(arrayBuffer, targetGrade) {
     if (/^-*[\d.]+$/.test(name)) continue
     if (!_VALID_CT.has(ct) || !curCat || !curSg) continue
 
-    let bc = 0, cr = 0
-    try {
-      const rb = g(c, bcCol), rc = g(c, crCol)
-      bc = rb ? Math.round(parseFloat(rb)) : 0
-      cr = rc ? Math.round(parseFloat(rc)) : 0
-    } catch {
-      errors.push(`행 ${i + 1} (${name}): 학점 값 오류`)
+    // parseFloat는 예외를 던지지 않고 NaN을 반환하므로 직접 검사한다
+    const rb = g(c, bcCol), rc = g(c, crCol)
+    const bc = rb ? Math.round(parseFloat(rb)) : 0
+    const cr = rc ? Math.round(parseFloat(rc)) : 0
+    if (Number.isNaN(bc) || Number.isNaN(cr)) {
+      errors.push(`행 ${i + 1} (${name}): 학점 값을 숫자로 읽을 수 없습니다 (기본 "${rb}", 운영 "${rc}")`)
       continue
     }
     if (!bc || !cr) continue
 
-    let schedule = null, selBlock = null
+    // 학교지정 과목은 학년-학기 칸에 적힌 배당을 모두 수집한다.
+    // 첫 칸에서 멈추면 1·2학기에 걸친 과목의 2학기 배당이 유실된다.
+    const schedules = []
+    let selBlock = null
     const desc = g(c, descCol)
 
     for (let off = 0; off < _GS_COLS.length; off++) {
@@ -214,32 +226,49 @@ function parseEducationExcel(arrayBuffer, targetGrade) {
         break
       }
       if (curCat === '학교지정' && /^[\d.]+$/.test(val)) {
-        schedule = { targetGrade: grade, semester: sem }
-        break
+        schedules.push({ targetGrade: grade, semester: sem })
       }
     }
 
-    if (curCat === '학교지정') {
-      if (!schedule) continue
-      if (targetGrade != null && schedule.targetGrade !== targetGrade) continue
-    }
-    if (curCat === '학생선택') {
-      selBlock = curSb
-      if (!selBlock) continue
-      if (targetGrade != null && selBlock.grade !== targetGrade) continue
-    }
-
-    courses.push({
+    const base = {
       name,
       subjectGroup: curSg,
       courseType: ct,
       category: curCat,
-      grade: curCat === '학교지정' ? schedule.targetGrade : selBlock.grade,
-      semester: curCat === '학교지정' ? schedule.semester : selBlock.semester,
       credits: cr,
       baseCredits: bc,
-      selectionBlock: curCat === '학생선택' ? selBlock : null,
       description: desc,
+    }
+
+    if (curCat === '학교지정') {
+      if (!schedules.length) continue
+      // 같은 학년의 1·2학기 배당은 하나의 '양학기' 과목으로 합친다
+      const semsByGrade = new Map()
+      for (const s of schedules) {
+        semsByGrade.set(s.targetGrade, [...(semsByGrade.get(s.targetGrade) || []), s.semester])
+      }
+      for (const [grade, sems] of semsByGrade) {
+        if (targetGrade != null && grade !== targetGrade) continue
+        courses.push({
+          ...base,
+          grade,
+          semester: sems.length > 1 ? 'both' : sems[0],
+          selectionBlock: null,
+        })
+      }
+      continue
+    }
+
+    // 학생선택 — 직전에 만난 선택 블록에 속한다
+    selBlock = curSb
+    if (!selBlock) continue
+    if (targetGrade != null && selBlock.grade !== targetGrade) continue
+
+    courses.push({
+      ...base,
+      grade: selBlock.grade,
+      semester: selBlock.semester,
+      selectionBlock: selBlock,
     })
   }
 
@@ -294,7 +323,7 @@ function parseSimpleSubjectExcel(arrayBuffer) {
         semesterClassMap,
         credits: parseInt(row['운영학점']) || 3,
         baseCredits: parseInt(row['기본학점']) || 4,
-        entryYear: parseInt(row['입학년도']) || new Date().getFullYear(),
+        entryYear: parseInt(row['입학년도']) || currentSchoolYear(),
         description: (row['비고'] || '').toString().trim(),
       }
 
@@ -604,8 +633,6 @@ export default function AdminSubjects() {
 
   const openAddModal = () => {
     setEditTarget(null)
-    const now = new Date()
-    const schoolYear = now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1
     setForm({
       name: '',
       subjectCode: '',
@@ -616,7 +643,7 @@ export default function AdminSubjects() {
       semester: 1,
       credits: 3,
       baseCredits: 4,
-      entryYear: schoolYear,
+      entryYear: currentSchoolYear(),
       description: '',
     })
     setError('')
@@ -635,7 +662,7 @@ export default function AdminSubjects() {
       semester: subject.semester || 1,
       credits: subject.credits || 3,
       baseCredits: subject.baseCredits || 4,
-      entryYear: subject.entryYear || new Date().getFullYear(),
+      entryYear: subject.entryYear || currentSchoolYear(),
       description: subject.description || '',
     })
     setError('')
@@ -654,7 +681,7 @@ export default function AdminSubjects() {
         ...form,
         name: form.name.trim(),
         grade: Number(form.grade),
-        semester: Number(form.semester),
+        semester: form.semester === 'both' ? 'both' : Number(form.semester),
         credits: Number(form.credits),
         baseCredits: Number(form.baseCredits),
         entryYear: Number(form.entryYear),
@@ -727,6 +754,7 @@ export default function AdminSubjects() {
       subjectGroup: (s) => s.subjectGroup || '',
       courseType: (s) => s.courseType || '',
       name: (s) => s.name || '',
+      semester: (s) => (s.semester === 'both' ? 3 : Number(s.semester) || 0),
       credits: (s) => Number(s.credits) || 0,
       entryYear: (s) => s.entryYear || '',
     }
@@ -853,7 +881,7 @@ export default function AdminSubjects() {
                   <td style={styles.tdMuted}>{subject.courseType || '—'}</td>
                   <td style={{ ...styles.td, fontWeight: 600 }}>{subject.name}</td>
                   <td style={styles.tdMuted}>{subject.grade}학년</td>
-                  <td style={styles.tdMuted}>{subject.semester}학기</td>
+                  <td style={styles.tdMuted}>{semesterLabel(subject.semester)}</td>
                   <td style={styles.tdMuted}>{subject.credits}</td>
                   <td style={styles.tdMuted}>{subject.entryYear || '—'}</td>
                   <td style={styles.td}>
@@ -953,6 +981,7 @@ export default function AdminSubjects() {
                 >
                   <MenuItem value={1}>1학기</MenuItem>
                   <MenuItem value={2}>2학기</MenuItem>
+                  <MenuItem value="both">양학기</MenuItem>
                 </Select>
               </FormControl>
             </Box>
@@ -961,7 +990,7 @@ export default function AdminSubjects() {
               <TextField
                 label="입학년도"
                 type="number"
-                value={form.entryYear || new Date().getFullYear()}
+                value={form.entryYear || currentSchoolYear()}
                 onChange={(e) => setForm(prev => ({ ...prev, entryYear: e.target.value }))}
               />
               <TextField
