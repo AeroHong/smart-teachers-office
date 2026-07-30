@@ -46,8 +46,8 @@ export default function CallDisplay() {
         px: 4, py: 2.5, display: 'flex', alignItems: 'center', gap: 2,
         borderBottom: '1px solid rgba(255,255,255,0.1)',
       }}>
-        <Typography fontSize="1.5rem" fontWeight={800}>🔔 학생 호출 현황</Typography>
-        <Typography fontSize="1.1rem" sx={{ color: 'rgba(255,255,255,0.55)' }}>{device.office}</Typography>
+        <Typography fontSize="2.1rem" fontWeight={800} lineHeight={1.2}>{device.office}</Typography>
+        <Typography fontSize="1.15rem" sx={{ color: 'rgba(255,255,255,0.55)' }}>학생 호출 현황</Typography>
         <Box sx={{ ml: 'auto', textAlign: 'right' }}>
           <Typography fontSize="1.6rem" fontWeight={700} sx={{ lineHeight: 1 }}>
             {new Date(now).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}

@@ -144,10 +144,14 @@ export default function CallInput() {
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: '#f8fafc', overflow: 'hidden' }}>
       <Box sx={{
         px: 3, py: 1.5, bgcolor: '#fff', borderBottom: '1px solid #e8eaed',
-        display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0,
+        display: 'flex', alignItems: 'baseline', gap: 1.5, flexShrink: 0,
       }}>
-        <Typography fontWeight={800} fontSize="1.1rem">🔔 선생님 호출</Typography>
-        <Typography color="text.secondary" fontSize="0.9rem">{device.office}</Typography>
+        <Typography fontWeight={800} fontSize="2rem" lineHeight={1.2} color="#111827">
+          {device.office}
+        </Typography>
+        <Typography fontWeight={700} fontSize="1rem" sx={{ color: '#6366f1' }}>
+          선생님 호출
+        </Typography>
       </Box>
 
       <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>

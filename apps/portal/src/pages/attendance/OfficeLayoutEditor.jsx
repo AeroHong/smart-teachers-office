@@ -21,6 +21,22 @@ const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
 const CARD_W_PCT = 0.19   // 캔버스 가로 대비
 const CARD_H_PCT = 0.18   // 캔버스 세로 대비
 
+// 자석 스냅 — 다른 카드나 캔버스 가장자리에 가까워지면 달라붙되, 딱 붙이지 않고 간격을 남긴다
+const SNAP_THRESHOLD = 0.028   // 이 거리 안으로 들어오면 흡착
+const SNAP_GAP_X = 0.014       // 좌우로 이웃할 때 남길 간격
+const SNAP_GAP_Y = 0.024       // 위아래로 이웃할 때 남길 간격
+
+// 후보값 중 기준값에 가장 가까운 것을 찾되, 임계값 밖이면 null
+function snapAxis(value, candidates, threshold) {
+  let best = null
+  let bestDist = threshold
+  for (const c of candidates) {
+    const d = Math.abs(value - c)
+    if (d < bestDist) { bestDist = d; best = c }
+  }
+  return best
+}
+
 export function officeLayoutId(year, office) {
   return `${year}__${office.replace(/\//g, '_')}`
 }
@@ -35,6 +51,10 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
 
   const canvasRef = useRef(null)
   const dragRef = useRef(null)   // { uid, dx, dy }
+  const seatsRef = useRef(seats) // 드래그 중 최신 좌표를 읽기 위한 참조 (stale closure 방지)
+  const [guides, setGuides] = useState({ x: null, y: null })  // 스냅 시 보여줄 정렬선
+
+  useEffect(() => { seatsRef.current = seats }, [seats])
 
   // ── 데이터 로드 ────────────────────────────────────────────
   useEffect(() => {
@@ -93,8 +113,26 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
     const c = canvasRef.current.getBoundingClientRect()
     const maxX = 1 - CARD_W_PCT
     const maxY = 1 - CARD_H_PCT
-    const x = Math.min(Math.max((e.clientX - d.dx - c.left) / c.width, 0), maxX)
-    const y = Math.min(Math.max((e.clientY - d.dy - c.top) / c.height, 0), maxY)
+    const clamp = (v, max) => Math.min(Math.max(v, 0), max)
+
+    const rawX = clamp((e.clientX - d.dx - c.left) / c.width, maxX)
+    const rawY = clamp((e.clientY - d.dy - c.top) / c.height, maxY)
+
+    // 캔버스 가장자리 + 다른 카드와의 정렬/이웃 위치를 스냅 후보로
+    const xCandidates = [0, maxX]
+    const yCandidates = [0, maxY]
+    Object.entries(seatsRef.current).forEach(([uid, s]) => {
+      if (uid === d.uid) return
+      xCandidates.push(s.x, s.x + CARD_W_PCT + SNAP_GAP_X, s.x - CARD_W_PCT - SNAP_GAP_X)
+      yCandidates.push(s.y, s.y + CARD_H_PCT + SNAP_GAP_Y, s.y - CARD_H_PCT - SNAP_GAP_Y)
+    })
+
+    const snappedX = snapAxis(rawX, xCandidates, SNAP_THRESHOLD)
+    const snappedY = snapAxis(rawY, yCandidates, SNAP_THRESHOLD)
+    const x = clamp(snappedX ?? rawX, maxX)
+    const y = clamp(snappedY ?? rawY, maxY)
+
+    setGuides({ x: snappedX === null ? null : x, y: snappedY === null ? null : y })
     setSeats(prev => ({ ...prev, [d.uid]: { x, y } }))
     setDirty(true)
   }
@@ -102,6 +140,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
   const handlePointerUp = (e) => {
     if (!dragRef.current) return
     dragRef.current = null
+    setGuides({ x: null, y: null })
     e.currentTarget.releasePointerCapture(e.pointerId)
   }
 
@@ -110,8 +149,8 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
     setSeats(prev => {
       // 이미 놓인 카드와 겹치지 않게 빈 격자 칸을 찾아 배치
       const taken = Object.values(prev)
-      const gapX = CARD_W_PCT + 0.012
-      const gapY = CARD_H_PCT + 0.02
+      const gapX = CARD_W_PCT + SNAP_GAP_X
+      const gapY = CARD_H_PCT + SNAP_GAP_Y
       const cols = Math.floor((1 - 0.02) / gapX)
       const rows = Math.floor((1 - 0.02) / gapY)
       for (let row = 0; row < rows; row++) {
@@ -213,6 +252,20 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
         }}>
           {office} — 출입문 방향을 기준으로 배치하면 학생이 찾기 쉽습니다
         </span>
+
+        {/* 스냅 정렬선 */}
+        {guides.x !== null && (
+          <div style={{
+            position: 'absolute', left: `${guides.x * 100}%`, top: 0, bottom: 0,
+            width: 1, backgroundColor: '#6366f1', opacity: 0.7, pointerEvents: 'none', zIndex: 10,
+          }} />
+        )}
+        {guides.y !== null && (
+          <div style={{
+            position: 'absolute', top: `${guides.y * 100}%`, left: 0, right: 0,
+            height: 1, backgroundColor: '#6366f1', opacity: 0.7, pointerEvents: 'none', zIndex: 10,
+          }} />
+        )}
 
         {placed.map(t => {
           const s = seats[t.uid]
