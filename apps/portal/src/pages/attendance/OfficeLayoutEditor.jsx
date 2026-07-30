@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { collection, query, where, getDocs, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
+import DeskIcon from '@shared/components/DeskIcon'
 
 /**
  * 사무실 자리 배치 편집기
@@ -175,6 +176,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
 
   return (
     <div>
+      <style>{SEAT_CARD_CSS}</style>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
         <button onClick={save} disabled={saving || !dirty} style={btn.primary}>
           {saving ? '저장 중...' : dirty ? '배치 저장' : '저장됨'}
@@ -200,7 +202,8 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
           backgroundSize: '24px 24px',
           border: '1px solid #e2e8f0',
           borderRadius: 12,
-          overflow: 'hidden',
+          // 카드가 hover로 떠오를 때 그림자가 잘리지 않도록 visible (좌표는 이미 캔버스 안으로 clamp됨)
+          overflow: 'visible',
           touchAction: 'none',
         }}
       >
@@ -216,6 +219,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
           return (
             <div
               key={t.uid}
+              className="seat-card"
               onPointerDown={e => handlePointerDown(e, t.uid)}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
@@ -226,34 +230,19 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
                 top: `${s.y * 100}%`,
                 width: `${CARD_W_PCT * 100}%`,
                 height: `${CARD_H_PCT * 100}%`,
-                boxSizing: 'border-box',
-                padding: '0.5rem 0.7rem',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                gap: 2,
-                backgroundColor: '#fff',
-                border: '1px solid #c7d2fe',
-                borderLeft: '5px solid #4f46e5',
-                borderRadius: 10,
-                boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-                cursor: 'grab',
-                userSelect: 'none',
-                touchAction: 'none',
-                overflow: 'hidden',
               }}
             >
-              <div style={cardText.name}>{t.name}</div>
-              {t.positionLabel && <div style={cardText.position}>{t.positionLabel}</div>}
-              {t.subject && <div style={cardText.subject}>{t.subject}</div>}
+              <DeskIcon size={38} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={cardText.name}>{t.name}</div>
+                {t.positionLabel && <div style={cardText.position}>{t.positionLabel}</div>}
+                {t.subject && <div style={cardText.subject}>{t.subject}</div>}
+              </div>
               <button
+                className="seat-card__remove"
                 onClick={() => removeTeacher(t.uid)}
                 onPointerDown={e => e.stopPropagation()}
                 title="배치에서 빼기"
-                style={{
-                  position: 'absolute', top: 3, right: 6, border: 'none', background: 'none',
-                  cursor: 'pointer', color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1, padding: 2,
-                }}
               >
                 ×
               </button>
@@ -284,12 +273,47 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
   )
 }
 
+/* 카드는 평소엔 배경에 담백하게 놓여 있다가, 마우스를 올리면 살짝 떠오른다.
+   드래그로 옮기는 UI라 :hover를 JS 상태로 흉내내면 끊겨 보여서 실제 CSS로 처리. */
+const SEAT_CARD_CSS = `
+.seat-card {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #ececf1;
+  border-radius: 14px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  overflow: hidden;
+  transition: transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s ease, border-color .18s ease;
+}
+.seat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 26px rgba(15,23,42,.13);
+  border-color: transparent;
+  z-index: 5;
+}
+.seat-card:active { cursor: grabbing; transform: translateY(-1px); }
+.seat-card__remove {
+  position: absolute; top: 6px; right: 8px;
+  border: none; background: none; padding: 2px; line-height: 1;
+  font-size: 1.05rem; color: #cbd5e1; cursor: pointer;
+  opacity: 0; transition: opacity .15s ease;
+}
+.seat-card:hover .seat-card__remove { opacity: 1; }
+.seat-card__remove:hover { color: #ef4444; }
+`
+
 // 카드 안 텍스트 — 한 줄씩, 넘치면 말줄임
 const ellipsis = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
 const cardText = {
-  name:     { ...ellipsis, fontSize: '1.05rem', fontWeight: 700, lineHeight: 1.25 },
-  position: { ...ellipsis, fontSize: '0.78rem', fontWeight: 600, color: '#7c3aed', lineHeight: 1.2 },
-  subject:  { ...ellipsis, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.2 },
+  name:     { ...ellipsis, fontSize: '1rem', fontWeight: 700, lineHeight: 1.3, color: '#111827' },
+  position: { ...ellipsis, fontSize: '0.75rem', fontWeight: 600, color: '#6366f1', lineHeight: 1.35 },
+  subject:  { ...ellipsis, fontSize: '0.75rem', color: '#8a94a6', lineHeight: 1.35 },
 }
 
 const btn = {

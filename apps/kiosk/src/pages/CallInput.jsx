@@ -8,6 +8,7 @@ import Alert from '@mui/material/Alert'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '@shared/lib/firebase'
+import DeskIcon from '@shared/components/DeskIcon'
 import { useKiosk } from '../contexts/KioskContext'
 
 const STUDENT_ID_LENGTH = 5   // 학년1 + 반2 + 번호2
@@ -306,6 +307,52 @@ function CallStatusStrip({ call }) {
   )
 }
 
+// 책상 카드 — 평소엔 담백하게 놓여 있다가 손을 대면 살짝 떠오른다
+const deskCardSx = (active) => ({
+  boxSizing: 'border-box',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 1.2,
+  px: 1.4,
+  py: 1,
+  cursor: 'pointer',
+  borderRadius: '14px',
+  overflow: 'hidden',
+  bgcolor: active ? '#f5f4ff' : '#fff',
+  border: '1px solid',
+  borderColor: active ? '#c7d2fe' : '#ececf1',
+  boxShadow: active ? '0 8px 20px rgba(79,70,229,.18)' : 'none',
+  transform: active ? 'translateY(-2px)' : 'none',
+  transition: 'transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s ease, border-color .18s ease, background-color .18s ease',
+  '&:hover': {
+    transform: 'translateY(-4px)',
+    boxShadow: active ? '0 12px 26px rgba(79,70,229,.22)' : '0 12px 26px rgba(15,23,42,.13)',
+    borderColor: active ? '#a5b4fc' : 'transparent',
+    zIndex: 5,
+  },
+  '&:active': { transform: 'translateY(-1px)' },
+})
+
+function DeskCardText({ teacher }) {
+  return (
+    <Box sx={{ minWidth: 0, flex: 1 }}>
+      <Typography fontWeight={700} fontSize="1rem" lineHeight={1.3} color="#111827" noWrap>
+        {teacher.name}
+      </Typography>
+      {teacher.positionLabel && (
+        <Typography fontSize="0.75rem" fontWeight={600} lineHeight={1.35} sx={{ color: '#6366f1' }} noWrap>
+          {teacher.positionLabel}
+        </Typography>
+      )}
+      {teacher.subject && (
+        <Typography fontSize="0.75rem" lineHeight={1.35} sx={{ color: '#8a94a6' }} noWrap>
+          {teacher.subject}
+        </Typography>
+      )}
+    </Box>
+  )
+}
+
 // ── 실제 사무실 배치대로 카드 표시 ────────────────────────────
 function SeatMap({ teachers, selected, onSelect }) {
   const placed = teachers.filter(t => t.seat)
@@ -324,31 +371,16 @@ function SeatMap({ teachers, selected, onSelect }) {
             key={t.uid}
             onClick={() => onSelect(t)}
             sx={{
+              ...deskCardSx(selected?.uid === t.uid),
               position: 'absolute',
               left: `${t.seat.x * 100}%`,
               top: `${t.seat.y * 100}%`,
               width: `${CARD_W_PCT}%`,
               height: `${CARD_H_PCT}%`,
-              px: 1.2, py: 0.8, cursor: 'pointer', borderRadius: 2, overflow: 'hidden',
-              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px',
-              border: '2px solid',
-              borderColor: selected?.uid === t.uid ? '#4f46e5' : '#e2e8f0',
-              bgcolor: selected?.uid === t.uid ? '#eef2ff' : '#fff',
-              boxShadow: selected?.uid === t.uid ? '0 0 0 3px rgba(79,70,229,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
-              transition: 'background-color .12s, border-color .12s',
             }}
           >
-            <Typography fontWeight={700} fontSize="1.05rem" lineHeight={1.25} noWrap>{t.name}</Typography>
-            {t.positionLabel && (
-              <Typography fontSize="0.78rem" fontWeight={600} color="primary.main" lineHeight={1.2} noWrap>
-                {t.positionLabel}
-              </Typography>
-            )}
-            {t.subject && (
-              <Typography fontSize="0.78rem" color="text.secondary" lineHeight={1.2} noWrap>
-                {t.subject}
-              </Typography>
-            )}
+            <DeskIcon size={38} active={selected?.uid === t.uid} />
+            <DeskCardText teacher={t} />
           </Box>
         ))}
       </Box>
@@ -379,20 +411,10 @@ function TeacherGrid({ teachers, selected, onSelect }) {
         <Box
           key={t.uid}
           onClick={() => onSelect(t)}
-          sx={{
-            px: 1.5, py: 1.4, cursor: 'pointer', borderRadius: 2,
-            border: '2px solid',
-            borderColor: selected?.uid === t.uid ? '#4f46e5' : '#e2e8f0',
-            bgcolor: selected?.uid === t.uid ? '#eef2ff' : '#fff',
-          }}
+          sx={{ ...deskCardSx(selected?.uid === t.uid), minHeight: 76 }}
         >
-          <Typography fontWeight={700} fontSize="1.1rem" noWrap>{t.name}</Typography>
-          {t.positionLabel && (
-            <Typography fontSize="0.78rem" color="primary.main" noWrap>{t.positionLabel}</Typography>
-          )}
-          {t.subject && (
-            <Typography fontSize="0.78rem" color="text.secondary" noWrap>{t.subject}</Typography>
-          )}
+          <DeskIcon size={38} active={selected?.uid === t.uid} />
+          <DeskCardText teacher={t} />
         </Box>
       ))}
     </Box>
