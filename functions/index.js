@@ -23,6 +23,14 @@ exports.lookupStudentName = callSystem.lookupStudentName
 exports.submitCallRequest = callSystem.submitCallRequest
 exports.expireCallRequests = callSystem.expireCallRequests
 
+// 마이그레이션 함수
+const migrations = require('./migrations/migrateStudentsToWorkspaceId')
+exports.migrateStudentsToWorkspaceId = migrations.migrateStudentsToWorkspaceId
+exports.rollbackStudentsMigration = migrations.rollbackStudentsMigration
+
+const groupMigrations = require('./migrations/migrateStudentGroups')
+exports.migrateStudentGroups = groupMigrations.migrateStudentGroups
+
 /**
  * superAdmin Custom Claims 초기 부여 (1회 실행용)
  *
@@ -114,8 +122,10 @@ exports.autoCloseAttendance = onSchedule(
           .collection('studentGroups').doc(ev.studentGroupId).get()
         if (!groupDoc.exists) continue
 
-        const { studentIds } = groupDoc.data()
-        if (!studentIds?.length) continue
+        const groupData = groupDoc.data()
+        // 새 구조(workspaceUserIds) 우선, 구 구조(studentIds) 하위 호환
+        const workspaceUserIds = groupData.workspaceUserIds || groupData.studentIds || []
+        if (!workspaceUserIds.length) continue
 
         // ── 기존 출결 로그 조회 ────────────────────────────────
         const logsSnap = await db
@@ -124,20 +134,26 @@ exports.autoCloseAttendance = onSchedule(
           .collection('attendanceLogs').get()
         const existingIds = new Set(logsSnap.docs.map(d => d.id))
 
-        // ── 학생 정보 맵 ───────────────────────────────────────
+        // ── 학생 정보 맵 (workspaceUserId → student data) ──────
         const studentsSnap = await db
           .collection('schools').doc(schoolId)
           .collection('students').get()
         const studentsMap = {}
         studentsSnap.docs.forEach(d => {
-          studentsMap[d.data().studentId] = d.data()
+          // 문서 ID = workspaceUserId (새 구조) 또는 studentId (구 구조)
+          studentsMap[d.id] = d.data()
         })
 
         // ── 미출석자 일괄 결석 처리 ────────────────────────────
         const batch = db.batch()
         let count = 0
 
-        for (const studentId of studentIds) {
+        for (const wId of workspaceUserIds) {
+          const student = studentsMap[wId]
+          if (!student) continue
+
+          // 로그 ID는 studentId 사용 (UI 호환성)
+          const studentId = student.studentId
           const attendLogId = logDatePrefix
             ? `${logDatePrefix}-${studentId}`
             : studentId
@@ -147,9 +163,6 @@ exports.autoCloseAttendance = onSchedule(
 
           // 이미 출석 or 결석 로그가 있으면 skip
           if (existingIds.has(attendLogId) || existingIds.has(absentLogId)) continue
-
-          const student = studentsMap[studentId]
-          if (!student) continue
 
           const ref = db
             .collection('schools').doc(schoolId)
@@ -256,8 +269,9 @@ async function processLateCutoff(db, schoolId, eventId, ev) {
     .collection('studentGroups').doc(ev.studentGroupId).get()
   if (!groupDoc.exists) return
 
-  const { studentIds } = groupDoc.data()
-  if (!studentIds?.length) return
+  const groupData = groupDoc.data()
+  const workspaceUserIds = groupData.workspaceUserIds || groupData.studentIds || []
+  if (!workspaceUserIds.length) return
 
   // 현재 출결 로그 조회
   const logsSnap = await db.collection('schools').doc(schoolId)
@@ -271,12 +285,12 @@ async function processLateCutoff(db, schoolId, eventId, ev) {
       .map(d => d.data().studentId)
   )
 
-  // 학생 정보 맵
+  // 학생 정보 맵 (workspaceUserId → student data)
   const studentsSnap = await db.collection('schools').doc(schoolId)
     .collection('students').get()
   const studentsMap = {}
   studentsSnap.docs.forEach(d => {
-    studentsMap[d.data().studentId] = d.data()
+    studentsMap[d.id] = d.data()
   })
 
   // 반복 이벤트는 오늘 날짜 prefix 사용
@@ -286,16 +300,17 @@ async function processLateCutoff(db, schoolId, eventId, ev) {
   const batch = db.batch()
   let count = 0
 
-  for (const studentId of studentIds) {
+  for (const wId of workspaceUserIds) {
+    const student = studentsMap[wId]
+    if (!student) continue
+
+    const studentId = student.studentId
     if (checkedStudentIds.has(studentId)) continue
 
     const attendLogId = isRecurring ? `${todayStr}-${studentId}` : studentId
     const absentLogId = isRecurring ? `${todayStr}-${studentId}-absent` : `${studentId}-absent`
 
     if (existingIds.has(attendLogId) || existingIds.has(absentLogId)) continue
-
-    const student = studentsMap[studentId]
-    if (!student) continue
 
     const ref = db.collection('schools').doc(schoolId)
       .collection('events').doc(eventId)

@@ -20,10 +20,13 @@
   "dependencies": {
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
+    "@google-cloud/secret-manager": "^6.3.0",
     "@mui/icons-material": "^5.16.0",
     "@mui/material": "^5.16.0",
     "exceljs": "^4.4.0",
     "firebase": "^10.7.1",
+    "firebase-admin": "^14.2.0",
+    "googleapis": "^173.0.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "qrcode.react": "^3.1.0",

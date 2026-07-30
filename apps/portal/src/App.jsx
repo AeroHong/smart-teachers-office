@@ -23,7 +23,6 @@ const EventEdit           = lazy(() => import('./pages/attendance/EventEdit'))
 const AttendanceDashboard = lazy(() => import('./pages/attendance/AttendanceDashboard'))
 const StatsDashboard      = lazy(() => import('./pages/attendance/StatsDashboard'))
 const StudentCheckin      = lazy(() => import('./pages/attendance/StudentCheckin'))
-const Admin               = lazy(() => import('./pages/attendance/Admin'))
 
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
@@ -41,8 +40,13 @@ const SuperAdmin            = lazy(() => import('./pages/SuperAdmin'))
 const SuperAdminGuests      = lazy(() => import('./pages/SuperAdminGuests'))
 const SuperAdminDomainSetup = lazy(() => import('./pages/SuperAdminDomainSetup'))
 
-// 관리자 허브
-const AdminHub = lazy(() => import('./pages/AdminHub'))
+// 관리자
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
+const AdminHome = lazy(() => import('./pages/admin/AdminHome'))
+const AdminAccounts = lazy(() => import('./pages/admin/AdminAccounts'))
+const AdminStaff = lazy(() => import('./pages/admin/AdminStaff'))
+const AdminStudents = lazy(() => import('./pages/admin/AdminStudents'))
+const AdminSpaces = lazy(() => import('./pages/admin/AdminSpaces'))
 
 // 도구모음 - lazy load
 const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
@@ -100,13 +104,21 @@ export default function App() {
           <Route path="/student" element={<ProtectedRoute anyUser studentAllowed><StudentPortal /></ProtectedRoute>} />
 
           {/* ── 관리자 전용 ── */}
-          <Route path="/admin"                      element={<ProtectedRoute adminOnly><AdminHub /></ProtectedRoute>} />
-          <Route path="/admin/users"                element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
-          <Route path="/admin/asa-cutoffs"          element={<ProtectedRoute adminOnly><AsaSupportCutoffs /></ProtectedRoute>} />
-          <Route path="/admin/asa-checklist"        element={<ProtectedRoute adminOnly><AsaChecklistAdmin /></ProtectedRoute>} />
-          <Route path="/admin/training-presets"     element={<ProtectedRoute adminOnly><TrainingPresets /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute adminOnly><AdminLayout /></ProtectedRoute>}>
+            <Route index element={<AdminHome />} />
+            <Route path="accounts" element={<AdminAccounts />} />
+            <Route path="staff" element={<AdminStaff />} />
+            <Route path="students" element={<AdminStudents />} />
+            <Route path="spaces" element={<AdminSpaces />} />
+
+            {/* 기존 도구 페이지들 */}
+            <Route path="asa-cutoffs" element={<AsaSupportCutoffs />} />
+            <Route path="asa-checklist" element={<AsaChecklistAdmin />} />
+            <Route path="training-presets" element={<TrainingPresets />} />
+          </Route>
 
           {/* ── 구 관리자 경로 리다이렉트 ── */}
+          <Route path="/admin/users" element={<Navigate to="/admin/accounts" replace />} />
           <Route path="/tools/asa-support/cutoffs" element={<Navigate to="/admin/asa-cutoffs" replace />} />
           <Route path="/tools/asa-checklist/admin" element={<Navigate to="/admin/asa-checklist" replace />} />
           <Route path="/training/presets"          element={<Navigate to="/admin/training-presets" replace />} />

@@ -85,20 +85,27 @@ export default function StudentList() {
     if (groupStudentsMap[group.id]) return
 
     try {
-      const studentIds = group.studentIds || []
-      if (studentIds.length === 0) {
+      // workspaceUserIds 배열 (새 구조) 또는 studentIds 배열 (구 구조) 모두 지원
+      const workspaceUserIds = group.workspaceUserIds || group.studentIds || []
+      if (workspaceUserIds.length === 0) {
         setGroupStudentsMap(prev => ({ ...prev, [group.id]: [] }))
         return
       }
-      const snap = await getDocs(collection(db, 'schools', schoolId, 'students'))
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      const filtered = all
-        .filter(s => studentIds.includes(s.studentId))
+
+      // 문서 ID로 직접 조회 (workspaceUserId가 문서 ID)
+      const studentDocs = await Promise.all(
+        workspaceUserIds.map(wId => getDoc(doc(db, 'schools', schoolId, 'students', wId)))
+      )
+
+      const filtered = studentDocs
+        .filter(d => d.exists())
+        .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => {
           if (a.grade !== b.grade) return a.grade - b.grade
           if (a.class !== b.class) return a.class - b.class
           return a.number - b.number
         })
+
       setGroupStudentsMap(prev => ({ ...prev, [group.id]: filtered }))
     } catch (err) {
       console.error('그룹 학생 불러오기 오류:', err)
@@ -183,26 +190,44 @@ export default function StudentList() {
     setUploading(true)
     setUploadResult(null)
     try {
-      await Promise.all(preview.map(student => {
+      // 1. 먼저 기존 students 컬렉션에서 이메일로 workspaceUserId 찾기
+      const existingStudentsSnap = await getDocs(collection(db, 'schools', schoolId, 'students'))
+      const emailToWorkspaceId = {}
+      existingStudentsSnap.docs.forEach(d => {
+        const data = d.data()
+        if (data.email && data.workspaceUserId) {
+          emailToWorkspaceId[data.email.toLowerCase()] = data.workspaceUserId
+        }
+      })
+
+      // 2. 학생 저장 + workspaceUserId 수집
+      const workspaceUserIds = []
+      await Promise.all(preview.map(async student => {
+        // 이메일로 기존 workspaceUserId 찾기
+        const workspaceUserId = student.email ? emailToWorkspaceId[student.email.toLowerCase()] : null
+        const docId = workspaceUserId || student.studentId // workspaceUserId 우선, 없으면 studentId 사용
+
         const writes = [
-          setDoc(doc(db, 'schools', schoolId, 'students', student.studentId), student, { merge: true }),
+          setDoc(doc(db, 'schools', schoolId, 'students', docId), student, { merge: true }),
         ]
         if (student.email) {
           writes.push(setDoc(doc(db, 'studentRegistrations', student.email), {
             schoolId, studentId: student.studentId, name: student.name,
           }, { merge: true }))
         }
-        return Promise.all(writes)
+        await Promise.all(writes)
+        workspaceUserIds.push(docId)
       }))
 
-      const studentIds = preview.map(s => s.studentId)
       const isAdminShared = role === 'school_admin' && isShared
       const ownerUid = (!isAdminShared && role === 'school_admin' && assignedTeacher) ? assignedTeacher : user.uid
       const selectedTeacher = assignedTeacher ? teachers.find(t => t.id === assignedTeacher) : null
 
+      // 3. 그룹 생성 시 workspaceUserIds 사용
       await addDoc(collection(db, 'schools', schoolId, 'studentGroups'), {
         name: groupName.trim(),
-        studentIds,
+        workspaceUserIds, // 새 필드
+        studentIds: preview.map(s => s.studentId), // 하위 호환용 (구형 코드에서 사용)
         shared: isAdminShared,
         createdBy: ownerUid,
         ...(isAdminShared && selectedTeacher && { mainTeacherUid: selectedTeacher.id, mainTeacherName: selectedTeacher.name }),
@@ -246,14 +271,23 @@ export default function StudentList() {
     }
   }
 
-  const handleRemoveStudent = async (group, studentId) => {
-    const newStudentIds = (group.studentIds || []).filter(id => id !== studentId)
+  const handleRemoveStudent = async (group, workspaceUserId) => {
+    // workspaceUserIds (새 구조) 또는 studentIds (구 구조) 모두 지원
+    const currentIds = group.workspaceUserIds || group.studentIds || []
+    const newIds = currentIds.filter(id => id !== workspaceUserId)
     try {
-      await updateDoc(doc(db, 'schools', schoolId, 'studentGroups', group.id), { studentIds: newStudentIds })
-      setGroups(prev => prev.map(g => g.id === group.id ? { ...g, studentIds: newStudentIds } : g))
+      const updateData = { workspaceUserIds: newIds }
+      // 하위 호환: studentIds도 업데이트
+      const student = (groupStudentsMap[group.id] || []).find(s => s.id === workspaceUserId)
+      if (student && group.studentIds) {
+        updateData.studentIds = (group.studentIds || []).filter(id => id !== student.studentId)
+      }
+
+      await updateDoc(doc(db, 'schools', schoolId, 'studentGroups', group.id), updateData)
+      setGroups(prev => prev.map(g => g.id === group.id ? { ...g, ...updateData } : g))
       setGroupStudentsMap(prev => ({
         ...prev,
-        [group.id]: (prev[group.id] || []).filter(s => s.studentId !== studentId),
+        [group.id]: (prev[group.id] || []).filter(s => s.id !== workspaceUserId),
       }))
     } catch (err) {
       alert('학생 제거 오류: ' + err.message)
@@ -267,27 +301,61 @@ export default function StudentList() {
   })
 
   const addStudentsToGroup = async (group, students) => {
-    const existing = group.studentIds || []
-    const newOnes = students.filter(s => !existing.includes(s.studentId))
-    if (newOnes.length === 0) { alert('모두 이미 그룹에 포함된 학생입니다.'); return }
+    // 1. 먼저 기존 students 컬렉션에서 이메일로 workspaceUserId 찾기
+    const existingStudentsSnap = await getDocs(collection(db, 'schools', schoolId, 'students'))
+    const emailToWorkspaceId = {}
+    existingStudentsSnap.docs.forEach(d => {
+      const data = d.data()
+      if (data.email && data.workspaceUserId) {
+        emailToWorkspaceId[data.email.toLowerCase()] = data.workspaceUserId
+      }
+    })
 
-    await Promise.all(newOnes.map(s => {
+    // 2. 각 학생 저장 + workspaceUserId 수집
+    const existingIds = group.workspaceUserIds || group.studentIds || []
+    const workspaceUserIdsToAdd = []
+    const newOnes = []
+
+    for (const s of students) {
+      const workspaceUserId = s.email ? emailToWorkspaceId[s.email.toLowerCase()] : null
+      const docId = workspaceUserId || s.studentId
+
+      // 이미 그룹에 있으면 skip
+      if (existingIds.includes(docId)) continue
+
       const writes = [
-        setDoc(doc(db, 'schools', schoolId, 'students', s.studentId), s, { merge: true }),
+        setDoc(doc(db, 'schools', schoolId, 'students', docId), s, { merge: true }),
       ]
       if (s.email) {
         writes.push(setDoc(doc(db, 'studentRegistrations', s.email), {
           schoolId, studentId: s.studentId, name: s.name,
         }, { merge: true }))
       }
-      return Promise.all(writes)
-    }))
-    const newStudentIds = [...existing, ...newOnes.map(s => s.studentId)]
-    await updateDoc(doc(db, 'schools', schoolId, 'studentGroups', group.id), { studentIds: newStudentIds })
-    setGroups(prev => prev.map(g => g.id === group.id ? { ...g, studentIds: newStudentIds } : g))
+      await Promise.all(writes)
+
+      workspaceUserIdsToAdd.push(docId)
+      newOnes.push({ id: docId, ...s })
+    }
+
+    if (workspaceUserIdsToAdd.length === 0) {
+      alert('모두 이미 그룹에 포함된 학생입니다.')
+      return
+    }
+
+    // 3. 그룹 업데이트
+    const newWorkspaceUserIds = [...existingIds, ...workspaceUserIdsToAdd]
+    const updateData = { workspaceUserIds: newWorkspaceUserIds }
+
+    // 하위 호환: studentIds도 업데이트
+    if (group.studentIds) {
+      updateData.studentIds = [...(group.studentIds || []), ...students.map(s => s.studentId)]
+    }
+
+    await updateDoc(doc(db, 'schools', schoolId, 'studentGroups', group.id), updateData)
+    setGroups(prev => prev.map(g => g.id === group.id ? { ...g, ...updateData } : g))
     setGroupStudentsMap(prev => ({
       ...prev,
-      [group.id]: [...(prev[group.id] || []), ...newOnes.map(s => ({ id: s.studentId, ...s }))]
+      [group.id]: [...(prev[group.id] || []), ...newOnes]
         .sort((a, b) => a.grade - b.grade || a.class - b.class || a.number - b.number),
     }))
   }
@@ -559,7 +627,7 @@ function StudentTable({ students, onRemove, onHistory }) {
         </thead>
         <tbody>
           {students.map((s, i) => (
-            <tr key={s.studentId || i}>
+            <tr key={s.id || s.studentId || i}>
               <td style={styles.td}>{s.studentId}</td>
               <td style={styles.td}>{s.grade}학년</td>
               <td style={styles.td}>{s.class}반</td>
@@ -568,7 +636,7 @@ function StudentTable({ students, onRemove, onHistory }) {
               <td style={{ ...styles.td, fontSize: '0.8rem', color: '#555' }}>{s.email}</td>
               {onRemove && (
                 <td style={styles.td}>
-                  <button onClick={() => onRemove(s.studentId)} style={styles.removeStudentBtn}>제거</button>
+                  <button onClick={() => onRemove(s.id)} style={styles.removeStudentBtn}>제거</button>
                 </td>
               )}
               <td style={styles.td}>

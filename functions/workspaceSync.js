@@ -127,6 +127,10 @@ async function syncStudents(db, schoolId, directory, ouPath) {
   let created = 0
   let updated = 0
   let skipped = 0
+  let archived = 0
+
+  // Workspace에 있는 모든 학생의 workspaceUserId 집합
+  const activeWorkspaceIds = new Set(users.map(u => u.id))
 
   for (const u of users) {
     const email = u.primaryEmail.toLowerCase()
@@ -134,36 +138,109 @@ async function syncStudents(db, schoolId, directory, ouPath) {
     if (!parsed) { skipped++; continue }
 
     const { year, studentId } = parsed
+    const fullStudentId = `${year}${studentId}` // 9자리 (연도4+학번5)
     const grade = parseInt(studentId.slice(0, 1), 10)
     const classNo = parseInt(studentId.slice(1, 3), 10)
     const number = parseInt(studentId.slice(3, 5), 10)
     // 이 학교 Workspace는 familyName을 "교사"/학번 같은 라벨 용도로 쓰고 있어
     // fullName(=familyName+givenName)이 아니라 givenName만 실제 이름
     const name = u.name?.givenName || u.name?.fullName || email
+    const workspaceUserId = u.id // Google Workspace 영구 불변 ID
 
-    const ref = db.collection('schools').doc(schoolId).collection('students').doc(studentId)
+    // 문서 ID는 이제 workspaceUserId 사용 (학번이 아님!)
+    const ref = db.collection('schools').doc(schoolId).collection('students').doc(workspaceUserId)
     const snap = await ref.get()
-    const payload = { studentId, year, grade, class: classNo, number, name, email }
 
     if (!snap.exists) {
-      await ref.set(payload)
+      // 신규 학생 등록
+      await ref.set({
+        workspaceUserId,
+        studentId,
+        fullStudentId,
+        email,
+        name,
+        year,
+        grade,
+        class: classNo,
+        number,
+        admissionYear: year, // 첫 등록 시의 연도가 입학연도
+        emailHistory: [{ email, year }],
+        source: 'workspaceSync',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
       created++
     } else {
       const existing = snap.data()
+
+      // 이메일 이력 업데이트 (진급으로 이메일이 바뀐 경우)
+      let emailHistory = existing.emailHistory || [{ email: existing.email, year: existing.year }]
+      const lastHistory = emailHistory[emailHistory.length - 1]
+      if (lastHistory.email !== email) {
+        emailHistory.push({ email, year })
+      }
+
       // 이름은 관리자가 학생 명단 탭에서 수동으로 고칠 수 있음 — 그 경우 동기화가 되돌리지 않도록 제외
-      const syncedPayload = existing.nameEditedManually
-        ? { ...payload, name: existing.name }
-        : payload
-      const changed = ['year', 'grade', 'class', 'number', 'name', 'email']
-        .some(k => existing[k] !== syncedPayload[k])
+      const syncedName = existing.nameEditedManually ? existing.name : name
+
+      // admissionYear는 첫 등록 시 설정되고 이후 불변
+      const admissionYear = existing.admissionYear || existing.year || year
+
+      const newData = {
+        workspaceUserId,
+        studentId,
+        fullStudentId,
+        email,
+        name: syncedName,
+        year,
+        grade,
+        class: classNo,
+        number,
+        admissionYear,
+        emailHistory,
+        source: 'workspaceSync',
+        updatedAt: FieldValue.serverTimestamp(),
+      }
+
+      // 변경사항 체크
+      const changed = ['studentId', 'fullStudentId', 'email', 'year', 'grade', 'class', 'number']
+        .some(k => existing[k] !== newData[k]) ||
+        (!existing.nameEditedManually && existing.name !== syncedName) ||
+        JSON.stringify(existing.emailHistory) !== JSON.stringify(emailHistory)
+
       if (changed) {
-        await ref.set(syncedPayload, { merge: true })
+        await ref.set(newData, { merge: true })
         updated++
       }
     }
   }
 
-  return { total: users.length, created, updated, skipped }
+  // ── 퇴출/졸업생 자동 아카이브 ────────────────────────────────────────
+  // Workspace OU에 더 이상 없는 학생들을 찾아서 아카이브로 이동
+  const allStudentsSnap = await db.collection('schools').doc(schoolId).collection('students')
+    .where('source', '==', 'workspaceSync') // 동기화로 만들어진 학생만 대상
+    .get()
+
+  for (const doc of allStudentsSnap.docs) {
+    const data = doc.data()
+    const wId = data.workspaceUserId
+
+    // Workspace에 없으면 아카이브
+    if (wId && !activeWorkspaceIds.has(wId)) {
+      // archivedStudents 컬렉션으로 이동
+      await db.collection('schools').doc(schoolId).collection('archivedStudents').doc(wId).set({
+        ...data,
+        archivedAt: FieldValue.serverTimestamp(),
+        archivedReason: 'workspace_sync_removed', // 'graduated' or 'transferred' 구분은 향후 수동 관리
+      })
+
+      // 원본 삭제
+      await doc.ref.delete()
+      archived++
+    }
+  }
+
+  return { total: users.length, created, updated, skipped, archived }
 }
 
 async function syncSchool(db, schoolId, schoolData) {
