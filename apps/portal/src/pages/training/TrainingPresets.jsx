@@ -18,7 +18,6 @@ import {
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import Layout from '../../components/Layout'
 import { loadMembers, filterBySearch } from './trainingUtils'
 
 export default function TrainingPresets() {
@@ -52,7 +51,7 @@ export default function TrainingPresets() {
   }
 
   return (
-    <Layout>
+    <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Typography variant="h5" fontWeight={700}>연수 명단 관리</Typography>
         <Button variant="contained" onClick={() => setEditTarget({ name: '', members: [] })}>
@@ -115,7 +114,7 @@ export default function TrainingPresets() {
           onClose={() => setEditTarget(null)}
         />
       )}
-    </Layout>
+    </Box>
   )
 }
 

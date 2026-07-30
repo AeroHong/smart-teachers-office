@@ -12,23 +12,30 @@ import Badge from '@mui/material/Badge'
 const MENU_ITEMS = [
   { path: '/admin', label: '홈', icon: '🏠' },
   { path: '/admin/accounts', label: '계정 관리', icon: '👥', badge: 'pending' },
+  { path: '/admin/subjects', label: '과목 관리', icon: '📚' },
   { path: '/admin/staff', label: '교직원 관리', icon: '👨‍🏫' },
   { path: '/admin/students', label: '학생 관리', icon: '🎓' },
   { path: '/admin/spaces', label: '공간 관리', icon: '🏢' },
+  { path: '/admin/asa-cutoffs', label: '분할점수 기준', icon: '📊' },
+  { path: '/admin/asa-checklist', label: 'ASA 체크리스트', icon: '✅' },
+  { path: '/admin/training-presets', label: '연수 명단', icon: '📋' },
 ]
 
 export default function AdminLayout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { role } = useAuth()
+  const { role, schoolId } = useAuth()
   const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
     if (role !== 'admin' && role !== 'school_admin') return
-    const q = query(collection(db, 'users'), where('role', '==', 'pending'))
+    if (!schoolId) return
+    const q = query(collection(db, 'users'),
+      where('schoolId', '==', schoolId),
+      where('role', '==', 'pending'))
     const unsub = onSnapshot(q, (snap) => setPendingCount(snap.size))
     return unsub
-  }, [role])
+  }, [role, schoolId])
 
   const currentTab = MENU_ITEMS.findIndex(item => {
     if (item.path === '/admin') {

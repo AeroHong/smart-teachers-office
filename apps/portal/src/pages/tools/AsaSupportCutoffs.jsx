@@ -22,7 +22,6 @@ import {
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import Layout from '../../components/Layout'
 import { parseCutoffFile, FIXED_CATEGORIES, getFixedCategory } from './asaUtils'
 
 // 현재 학년도·학기 계산 (3~8월 = 1학기, 9~2월 = 2학기 / 1~2월은 전년도 2학기)
@@ -197,7 +196,7 @@ export default function AsaSupportCutoffs() {
   }
 
   return (
-    <Layout>
+    <Box>
       <Typography variant="h5" fontWeight={700} mb={0.5}>
         분할점수 기준 관리
       </Typography>
@@ -369,6 +368,6 @@ export default function AsaSupportCutoffs() {
       </Typography>
 
       <Snackbar open={!!snackbar} autoHideDuration={3000} onClose={() => setSnackbar('')} message={snackbar} />
-    </Layout>
+    </Box>
   )
 }

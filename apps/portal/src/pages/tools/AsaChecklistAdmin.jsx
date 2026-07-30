@@ -39,7 +39,6 @@ import { openProcessChecklistPrint, openResultChecklistPrint } from './asaCheckl
 import { cleanTeacherName } from '../../utils/nameUtils'
 import { getFixedCategory, parseNeisTeacherSubjectFile } from './asaUtils'
 import { useAuth } from '@shared/contexts/AuthContext'
-import Layout from '../../components/Layout'
 
 // 분할점수 경계 개수로 성취도 단계 추정 (A~C=3단계는 경계 2~3개, A~E=5단계는 경계 4~5개)
 function levelFromBoundaries(boundaries) {
@@ -674,14 +673,14 @@ export default function AsaChecklistAdmin() {
   // ── 접근 제한 ────────────────────────────────────────────
   if (!isAdmin && !isPrincipal && !isSuperAdmin) {
     return (
-      <Layout>
+      <Box>
         <Alert severity="error">관리자(admin/school_admin) 또는 교감 계정만 접근할 수 있습니다.</Alert>
-      </Layout>
+      </Box>
     )
   }
 
   return (
-    <Layout wide>
+    <Box>
       <Typography variant="h5" fontWeight={700} mb={0.5}>
         성취평가제 체크리스트 관리
       </Typography>
@@ -1490,6 +1489,6 @@ export default function AsaChecklistAdmin() {
         onClose={() => setSnackbar('')}
         message={snackbar}
       />
-    </Layout>
+    </Box>
   )
 }

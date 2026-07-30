@@ -46,6 +46,7 @@ const AdminHome = lazy(() => import('./pages/admin/AdminHome'))
 const AdminAccounts = lazy(() => import('./pages/admin/AdminAccounts'))
 const AdminStaff = lazy(() => import('./pages/admin/AdminStaff'))
 const AdminStudents = lazy(() => import('./pages/admin/AdminStudents'))
+const AdminSubjects = lazy(() => import('./pages/admin/AdminSubjects'))
 const AdminSpaces = lazy(() => import('./pages/admin/AdminSpaces'))
 
 // 도구모음 - lazy load
@@ -109,6 +110,7 @@ export default function App() {
             <Route path="accounts" element={<AdminAccounts />} />
             <Route path="staff" element={<AdminStaff />} />
             <Route path="students" element={<AdminStudents />} />
+            <Route path="subjects" element={<AdminSubjects />} />
             <Route path="spaces" element={<AdminSpaces />} />
 
             {/* 기존 도구 페이지들 */}

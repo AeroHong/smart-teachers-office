@@ -176,6 +176,12 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
+      // 교사 과목 배정 (학기별 담당 과목) — 조회는 소속 교사 전체, 쓰기는 관리자만
+      match /teacherSubjects/{subjectAssignmentId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
       // 교사 재실 상태 — 본인만 쓰고, 소속 교사와 키오스크(자리 표시용)가 읽는다.
       // 추후 Electron 데스크톱 클라이언트도 본인 문서를 자동 갱신한다.
       match /presence/{uid} {

@@ -51,12 +51,17 @@ export default function AdminHome() {
     try {
       // 1. 승인 대기 계정 수
       const pendingSnap = await getDocs(
-        query(collection(db, 'users'), where('role', '==', 'pending'))
+        query(collection(db, 'users'),
+          where('schoolId', '==', schoolId),
+          where('role', '==', 'pending'))
       )
 
       // 2. 교원 배정 데이터
       const assignmentsSnap = await getDocs(
-        collection(db, 'schools', schoolId, 'teacherAssignments', year.toString(), 'assignments')
+        query(
+          collection(db, 'schools', schoolId, 'teacherAssignments'),
+          where('year', '==', year)
+        )
       )
 
       const staffNoDept = assignmentsSnap.docs.filter(d => !d.data().department).length
@@ -71,14 +76,15 @@ export default function AdminHome() {
         })
       const missingHomerooms = ALL_CLASSES.filter(c => !assignedHomerooms.includes(c))
 
-      // 4. 자리배치 미완료 사무실
+      // 4. 자리배치 미완료 사무실 (confirmed: true가 아닌 경우)
       const offices = [...new Set(assignmentsSnap.docs.map(d => d.data().office).filter(Boolean))]
       const officesNoLayout = []
       for (const office of offices) {
+        const docId = `${year}__${office.replace(/\//g, '_')}`
         const layoutDoc = await getDoc(
-          doc(db, 'schools', schoolId, 'officeLayouts', `${year}_${office}`)
+          doc(db, 'schools', schoolId, 'officeLayouts', docId)
         )
-        if (!layoutDoc.exists() || !layoutDoc.data()?.desks || layoutDoc.data().desks.length === 0) {
+        if (!layoutDoc.exists() || !layoutDoc.data()?.confirmed) {
           officesNoLayout.push(office)
         }
       }

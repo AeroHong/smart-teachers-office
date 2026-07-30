@@ -48,6 +48,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
 
   const canvasRef = useRef(null)
   const dragRef = useRef(null)   // { uid, dx, dy }
@@ -91,6 +92,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
 
       setTeachers(list)
       setSeats(layoutSnap.exists() ? (layoutSnap.data().seats || {}) : {})
+      setConfirmed(layoutSnap.exists() ? (layoutSnap.data().confirmed || false) : false)
       setDirty(false)
       setLoading(false)
     })().catch(e => {
@@ -193,13 +195,34 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
         Object.entries(seats).filter(([uid]) => validUids.has(uid))
       )
       await setDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, office)), {
-        year, office, seats: cleaned, updatedAt: serverTimestamp(),
+        year, office, seats: cleaned, confirmed, updatedAt: serverTimestamp(),
       })
       setSeats(cleaned)
       setDirty(false)
       setMsg('✅ 저장되었습니다. 키오스크 화면에 바로 반영됩니다.')
     } catch (e) {
       setMsg('저장 실패: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleConfirm = async () => {
+    const newConfirmed = !confirmed
+    setSaving(true)
+    setMsg('')
+    try {
+      const validUids = new Set(teachers.map(t => t.uid))
+      const cleaned = Object.fromEntries(
+        Object.entries(seats).filter(([uid]) => validUids.has(uid))
+      )
+      await setDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, office)), {
+        year, office, seats: cleaned, confirmed: newConfirmed, updatedAt: serverTimestamp(),
+      })
+      setConfirmed(newConfirmed)
+      setMsg(newConfirmed ? '✅ 배치 완료로 확정되었습니다.' : '확정이 해제되었습니다.')
+    } catch (e) {
+      setMsg('확정 실패: ' + e.message)
     } finally {
       setSaving(false)
     }
@@ -220,6 +243,15 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
         <button onClick={save} disabled={saving || !dirty} style={btn.primary}>
           {saving ? '저장 중...' : dirty ? '배치 저장' : '저장됨'}
         </button>
+        {placed.length > 0 && (
+          <button
+            onClick={toggleConfirm}
+            disabled={saving || dirty}
+            style={confirmed ? btn.confirmed : btn.outline}
+          >
+            {confirmed ? '✓ 배치 완료 확정됨' : '배치 완료 확정'}
+          </button>
+        )}
         {unplaced.length > 0 && (
           <button onClick={placeAll} style={btn.outline}>미배치 {unplaced.length}명 모두 놓기</button>
         )}
@@ -372,6 +404,7 @@ const cardText = {
 const btn = {
   primary: { padding: '0.4rem 0.9rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 },
   outline: { padding: '0.4rem 0.9rem', backgroundColor: '#fff', color: '#1a73e8', border: '1px solid #1a73e8', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem' },
+  confirmed: { padding: '0.4rem 0.9rem', backgroundColor: '#edf7ed', color: '#2e7d32', border: '1px solid #2e7d32', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 },
   danger: { padding: '0.4rem 0.9rem', backgroundColor: '#fff', color: '#d32f2f', border: '1px solid #d32f2f', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem' },
   chip: { padding: '0.4rem 0.75rem', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, cursor: 'pointer', fontSize: '0.82rem' },
 }
