@@ -1,15 +1,25 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
+import Snackbar from '@mui/material/Snackbar'
+import Alert from '@mui/material/Alert'
+import { doc, onSnapshot } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@shared/lib/firebase'
+import { db, functions } from '@shared/lib/firebase'
 import { useKiosk } from '../contexts/KioskContext'
 
 const STUDENT_ID_LENGTH = 5   // 학년1 + 반2 + 번호2
-const SUCCESS_RESET_MS = 5000
-const IDLE_RESET_MS = 90000   // 학생이 중간에 자리를 뜬 경우 자동 초기화
+const IDLE_RESET_MS = 90000   // 학생이 중간에 자리를 뜬 경우 입력 초기화
+const CALL_STRIP_TTL_MS = 10 * 60 * 1000   // 신청 현황 표시는 10분 뒤 자동 삭제
+
+const CALL_STRIP_STYLE = {
+  pending:      { label: '신청 중…',        bg: '#fff7ed', border: '#fdba74', fg: '#c2410c' },
+  acknowledged: { label: '들어오세요!',      bg: '#ecfdf5', border: '#34d399', fg: '#047857' },
+  done:         { label: '완료되었습니다',    bg: '#f1f5f9', border: '#e2e8f0', fg: '#64748b' },
+  expired:      { label: '응답이 없습니다',   bg: '#f1f5f9', border: '#e2e8f0', fg: '#94a3b8' },
+}
 
 // 자리 배치 캔버스의 카드 크기 — 관리자 편집기(OfficeLayoutEditor)와 같은 16:9 기준
 const CARD_W_PCT = 15.5
@@ -26,7 +36,8 @@ export default function CallInput() {
   const [student, setStudent] = useState(null)
   const [checking, setChecking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState(null)
+  const [toast, setToast] = useState(null)      // { ok, message }
+  const [myCalls, setMyCalls] = useState([])    // 이 기기에서 신청한 호출의 진행 상황
 
   useEffect(() => {
     httpsCallable(functions, 'getKioskTeachers')()
@@ -37,15 +48,10 @@ export default function CallInput() {
       .catch(err => setLoadError(err.message || '교사 목록을 불러오지 못했습니다.'))
   }, [])
 
+  // 입력 상태만 초기화 — 신청 현황(myCalls)은 그대로 남는다
   const reset = useCallback(() => {
-    setTeacher(null); setStudentId(''); setStudent(null); setResult(null)
+    setTeacher(null); setStudentId(''); setStudent(null)
   }, [])
-
-  useEffect(() => {
-    if (!result) return
-    const t = setTimeout(reset, SUCCESS_RESET_MS)
-    return () => clearTimeout(t)
-  }, [result, reset])
 
   // 입력하다 만 상태로 방치되면 자동 초기화
   useEffect(() => {
@@ -53,6 +59,32 @@ export default function CallInput() {
     const t = setTimeout(reset, IDLE_RESET_MS)
     return () => clearTimeout(t)
   }, [teacher, studentId, reset])
+
+  // 신청한 호출의 상태를 실시간 추적 (교사가 확인하면 '들어오세요!'로 바뀜)
+  const trackedIds = useMemo(() => myCalls.map(c => c.id).join(','), [myCalls])
+  useEffect(() => {
+    if (!trackedIds) return
+    const unsubs = trackedIds.split(',').map(id =>
+      onSnapshot(
+        doc(db, 'schools', device.schoolId, 'callRequests', id),
+        snap => {
+          const status = snap.data()?.status
+          if (!status) return
+          setMyCalls(prev => prev.map(c => (c.id === id ? { ...c, status } : c)))
+        },
+        () => {},
+      )
+    )
+    return () => unsubs.forEach(u => u())
+  }, [trackedIds, device.schoolId])
+
+  // 10분 지난 신청 현황은 자동으로 지운다
+  useEffect(() => {
+    const t = setInterval(() => {
+      setMyCalls(prev => prev.filter(c => Date.now() - c.submittedAt < CALL_STRIP_TTL_MS))
+    }, 5000)
+    return () => clearInterval(t)
+  }, [])
 
   // 학번을 다 입력하면 이름 조회 (본인 확인용)
   useEffect(() => {
@@ -68,14 +100,13 @@ export default function CallInput() {
 
   // 물리 키보드 입력도 지원
   useEffect(() => {
-    if (result) return
     const onKey = (e) => {
       if (/^\d$/.test(e.key)) setStudentId(prev => (prev + e.key).slice(0, STUDENT_ID_LENGTH))
       else if (e.key === 'Backspace') setStudentId(prev => prev.slice(0, -1))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [result])
+  }, [])
 
   const submit = async () => {
     if (submitting || !teacher || !student?.found) return
@@ -84,9 +115,21 @@ export default function CallInput() {
       const { data } = await httpsCallable(functions, 'submitCallRequest')({
         teacherUid: teacher.uid, studentId,
       })
-      setResult({ ok: true, message: `${data.teacherName} 선생님을 호출했습니다.` })
+      // 화면을 넘기지 않고 자리표 아래에 진행 상황으로 남긴다
+      setMyCalls(prev => [
+        ...prev,
+        {
+          id: data.requestId,
+          teacherName: data.teacherName,
+          studentName: data.studentName,
+          status: 'pending',
+          submittedAt: Date.now(),
+        },
+      ])
+      setToast({ ok: true, message: `${data.teacherName} 선생님께 신청하였습니다.` })
+      reset()
     } catch (err) {
-      setResult({ ok: false, message: err.message || '호출에 실패했습니다.' })
+      setToast({ ok: false, message: err.message || '호출에 실패했습니다.' })
     } finally {
       setSubmitting(false)
     }
@@ -94,20 +137,6 @@ export default function CallInput() {
 
   if (loadError) return <FullScreen icon="⚠️" title="교사 목록을 불러오지 못했습니다" sub={loadError} />
   if (teachers === null) return <FullScreen spinner />
-  if (result) {
-    return (
-      <FullScreen
-        icon={result.ok ? '✅' : '⚠️'}
-        title={result.ok ? '호출 완료' : '호출하지 못했습니다'}
-        sub={result.message}
-        extra={
-          <Button variant="contained" size="large" onClick={reset} sx={{ mt: 3, px: 5, py: 1.5, fontSize: '1.05rem' }}>
-            처음으로
-          </Button>
-        }
-      />
-    )
-  }
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: '#f8fafc', overflow: 'hidden' }}>
@@ -120,19 +149,28 @@ export default function CallInput() {
       </Box>
 
       <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* ── 왼쪽: 선생님 자리 배치 ── */}
+        {/* ── 왼쪽: 선생님 자리 배치 + 신청 현황 ── */}
         <Box sx={{ flex: 1, p: 2.5, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Typography fontSize="1.05rem" fontWeight={700} mb={1.5}>
             1. 찾는 선생님을 선택하세요
           </Typography>
-          {teachers.length === 0 ? (
-            <Typography color="text.secondary">
-              이 사무실에 배정된 선생님이 없습니다. 관리자에게 문의하세요.
-            </Typography>
-          ) : hasLayout ? (
-            <SeatMap teachers={teachers} selected={teacher} onSelect={setTeacher} />
-          ) : (
-            <TeacherGrid teachers={teachers} selected={teacher} onSelect={setTeacher} />
+
+          <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+            {teachers.length === 0 ? (
+              <Typography color="text.secondary">
+                이 사무실에 배정된 선생님이 없습니다. 관리자에게 문의하세요.
+              </Typography>
+            ) : hasLayout ? (
+              <SeatMap teachers={teachers} selected={teacher} onSelect={setTeacher} />
+            ) : (
+              <TeacherGrid teachers={teachers} selected={teacher} onSelect={setTeacher} />
+            )}
+          </Box>
+
+          {myCalls.length > 0 && (
+            <Box sx={{ flexShrink: 0, mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 190, overflowY: 'auto' }}>
+              {myCalls.map(c => <CallStatusStrip key={c.id} call={c} />)}
+            </Box>
           )}
         </Box>
 
@@ -218,10 +256,51 @@ export default function CallInput() {
             onClick={submit}
             sx={{ py: 1.5, fontSize: '1.1rem', mt: 'auto' }}
           >
-            {submitting ? '호출 중...' : '호출하기'}
+            {submitting ? '신청 중...' : '호출하기'}
           </Button>
         </Box>
       </Box>
+
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={3500}
+        onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {toast ? (
+          <Alert severity={toast.ok ? 'success' : 'error'} variant="filled" sx={{ fontSize: '1rem' }}>
+            {toast.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
+    </Box>
+  )
+}
+
+// ── 신청 현황 (자리표 아래) ───────────────────────────────────
+function CallStatusStrip({ call }) {
+  const s = CALL_STRIP_STYLE[call.status] || CALL_STRIP_STYLE.pending
+  const isReady = call.status === 'acknowledged'
+  return (
+    <Box sx={{
+      display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.2,
+      borderRadius: 2, bgcolor: s.bg, border: '2px solid', borderColor: s.border,
+    }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography fontSize="1rem" fontWeight={700} noWrap>
+          {call.teacherName} 선생님
+        </Typography>
+        <Typography fontSize="0.8rem" color="text.secondary" noWrap>
+          {call.studentName} 학생 신청
+        </Typography>
+      </Box>
+      <Typography
+        fontSize={isReady ? '1.35rem' : '1.05rem'}
+        fontWeight={800}
+        sx={{ color: s.fg, flexShrink: 0 }}
+      >
+        {s.label}
+      </Typography>
     </Box>
   )
 }
