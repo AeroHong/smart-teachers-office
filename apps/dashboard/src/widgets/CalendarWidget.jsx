@@ -1,26 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, limit, onSnapshot, query } from 'firebase/firestore'
 import Box from '@mui/material/Box'
-import Chip from '@mui/material/Chip'
 import Typography from '@mui/material/Typography'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
+import { EmptyState, ListRow, RowStack, ToneChip } from '../components/widgetUi'
+import { portalLink } from '../lib/portalUrl'
 
-const TYPE_STYLE = {
-  시험: { bg: '#fdecea', fg: '#d32f2f' },
-  휴업일: { bg: '#e8f5e9', fg: '#2e7d32' },
-  행사: { bg: '#eef2ff', fg: '#4f46e5' },
+// 일정 종류별 색은 의미로만 정한다 (실제 색은 ToneChip이 테마에서 읽는다)
+const TYPE_TONE = {
+  시험: 'danger',
+  휴업일: 'success',
+  행사: 'info',
 }
-const DEFAULT_STYLE = { bg: '#f1f3f4', fg: '#5f6368' }
+
+const UPCOMING_COUNT = 8
+const FETCH_LIMIT = 200
 
 function toDate(value) {
   if (!value) return null
   return value.toDate ? value.toDate() : new Date(value)
 }
 
-function startOfToday() {
-  const d = new Date()
+function startOfDay(date) {
+  const d = new Date(date)
   d.setHours(0, 0, 0, 0)
   return d
 }
@@ -31,67 +35,75 @@ function formatRange(start, end) {
   return `${fmt(start)} ~ ${fmt(end)}`
 }
 
-function dDayLabel(start, today) {
-  const diffDays = Math.round((start.setHours(0, 0, 0, 0) - today.getTime()) / 86400000)
-  if (diffDays === 0) return 'D-Day'
-  if (diffDays > 0) return `D-${diffDays}`
-  return null // 이미 시작한 다일 일정은 D-day 표시 생략
+/** 시작 전이면 D-n, 오늘이면 D-Day, 이미 시작한 다일 일정이면 '진행 중'. */
+function dDayLabel(start, end, today) {
+  const diffDays = Math.round((startOfDay(start).getTime() - today.getTime()) / 86400000)
+  if (diffDays > 0) return { label: `D-${diffDays}`, tone: diffDays <= 7 ? 'warning' : 'neutral' }
+  if (diffDays === 0) return { label: 'D-Day', tone: 'danger' }
+  if (end && startOfDay(end).getTime() >= today.getTime()) return { label: '진행 중', tone: 'success' }
+  return null
 }
 
 export default function CalendarWidget() {
-  const { schoolId } = useAuth()
+  const { schoolId, isAdmin } = useAuth()
   const [events, setEvents] = useState([])
 
   useEffect(() => {
     if (!schoolId) return
     return onSnapshot(
-      collection(db, ...schoolPath(schoolId, COL.ACADEMIC_CALENDAR)),
+      query(collection(db, ...schoolPath(schoolId, COL.ACADEMIC_CALENDAR)), limit(FETCH_LIMIT)),
       snap => setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     )
   }, [schoolId])
 
   const upcoming = useMemo(() => {
-    const today = startOfToday()
+    const today = startOfDay(new Date())
     return events
       .map(e => ({ ...e, _start: toDate(e.date), _end: toDate(e.endDate) }))
-      .filter(e => e._start && (e._end || e._start) >= today)
+      .filter(e => e._start && startOfDay(e._end || e._start).getTime() >= today.getTime())
       .sort((a, b) => a._start - b._start)
-      .slice(0, 8)
+      .slice(0, UPCOMING_COUNT)
   }, [events])
 
   if (upcoming.length === 0) {
     return (
-      <Box sx={{ textAlign: 'center', py: 5 }}>
-        <Typography fontSize="2rem" mb={0.5}>📅</Typography>
-        <Typography color="text.secondary" fontSize="0.9rem">예정된 학사일정이 없습니다.</Typography>
-      </Box>
+      <EmptyState
+        emoji="📅"
+        message="예정된 학사일정이 없습니다."
+        hint={
+          isAdmin
+            ? undefined
+            : events.length > 0
+              ? '지난 일정만 있습니다.'
+              : '학사일정은 관리자가 등록합니다.'
+        }
+        actionLabel={isAdmin ? '학사일정 등록하기' : undefined}
+        href={isAdmin ? portalLink('/admin/academic-calendar') : undefined}
+      />
     )
   }
 
+  const today = startOfDay(new Date())
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+    <RowStack>
       {upcoming.map(item => {
-        const style = TYPE_STYLE[item.type] || DEFAULT_STYLE
-        const dDay = dDayLabel(new Date(item._start), startOfToday())
+        const dDay = dDayLabel(item._start, item._end, today)
         return (
-          <Box
-            key={item.id}
-            sx={{
-              p: 1.2, borderRadius: 2, border: '1px solid #ececf1',
-              display: 'flex', alignItems: 'center', gap: 1,
-            }}
-          >
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography fontWeight={600} fontSize="0.95rem" noWrap>{item.title}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {formatRange(item._start, item._end)}
-              </Typography>
+          <ListRow key={item.id}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Typography fontWeight={600} fontSize="0.95rem" noWrap>{item.title}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formatRange(item._start, item._end)}
+                </Typography>
+              </Box>
+              {dDay && <ToneChip label={dDay.label} tone={dDay.tone} />}
+              {item.type && <ToneChip label={item.type} tone={TYPE_TONE[item.type] || 'neutral'} />}
             </Box>
-            {dDay && <Chip size="small" label={dDay} sx={{ bgcolor: '#fff7ed', color: '#c2410c', fontWeight: 700 }} />}
-            {item.type && <Chip size="small" label={item.type} sx={{ bgcolor: style.bg, color: style.fg, fontWeight: 600 }} />}
-          </Box>
+          </ListRow>
         )
       })}
-    </Box>
+    </RowStack>
   )
 }

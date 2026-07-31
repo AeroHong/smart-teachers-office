@@ -3,19 +3,24 @@ import { collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc, s
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { EmptyState, ListRow, RowStack, SectionLabel, ToneChip, useWidgetBadge } from '../components/widgetUi'
+import { useToast } from '../components/ToastProvider'
+import { formatRelative } from '../lib/formatTime'
 
 const STATUS_STYLE = {
-  pending:      { label: '대기 중', bg: '#fdecea', fg: '#d32f2f' },
-  acknowledged: { label: '확인함',  bg: '#e8f5e9', fg: '#2e7d32' },
-  done:         { label: '완료',    bg: '#f1f3f4', fg: '#5f6368' },
-  expired:      { label: '만료',    bg: '#f1f3f4', fg: '#9aa0a6' },
+  pending:      { label: '대기 중', tone: 'danger' },
+  acknowledged: { label: '확인함',  tone: 'success' },
+  done:         { label: '완료',    tone: 'neutral' },
+  expired:      { label: '만료',    tone: 'neutral' },
 }
+
+const PAST_COUNT = 5
 
 export default function CallsWidget() {
   const { user, schoolId } = useAuth()
+  const toast = useToast()
   const [calls, setCalls] = useState([])
   const [now, setNow] = useState(Date.now())
 
@@ -37,41 +42,44 @@ export default function CallsWidget() {
 
   const { active, past } = useMemo(() => ({
     active: calls.filter(c => c.status === 'pending' || c.status === 'acknowledged'),
-    past: calls.filter(c => c.status === 'done' || c.status === 'expired').slice(0, 5),
+    past: calls.filter(c => c.status === 'done' || c.status === 'expired').slice(0, PAST_COUNT),
   }), [calls])
+
+  // 아직 확인하지 않은 호출만 배지로 — 확인한 호출까지 세면 숫자가 줄지 않아 무시하게 된다
+  const pendingCount = useMemo(() => active.filter(c => c.status === 'pending').length, [active])
+  useWidgetBadge(pendingCount)
 
   const setStatus = async (call, status) => {
     const patch = { status }
     if (status === 'acknowledged') patch.acknowledgedAt = serverTimestamp()
     if (status === 'done') patch.doneAt = serverTimestamp()
-    await updateDoc(doc(db, 'schools', schoolId, 'callRequests', call.id), patch)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId, 'callRequests', call.id), patch)
+    } catch (e) {
+      toast.error('호출 상태를 바꾸지 못했습니다.', e)
+    }
   }
 
   return (
     <Box>
       {active.length === 0 ? (
-        <Box sx={{ textAlign: 'center', py: 4 }}>
-          <Typography fontSize="2rem" mb={0.5}>🔔</Typography>
-          <Typography color="text.secondary" fontSize="0.9rem">대기 중인 호출이 없습니다.</Typography>
-        </Box>
+        <EmptyState emoji="🔔" message="대기 중인 호출이 없습니다." />
       ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <RowStack>
           {active.map(call => (
             <CallRow key={call.id} call={call} now={now} onSetStatus={setStatus} />
           ))}
-        </Box>
+        </RowStack>
       )}
 
       {past.length > 0 && (
         <>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, mb: 0.8 }}>
-            지난 호출
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.7 }}>
+          <SectionLabel>지난 호출</SectionLabel>
+          <RowStack dense>
             {past.map(call => (
               <CallRow key={call.id} call={call} now={now} onSetStatus={setStatus} compact />
             ))}
-          </Box>
+          </RowStack>
         </>
       )}
     </Box>
@@ -80,36 +88,24 @@ export default function CallsWidget() {
 
 function CallRow({ call, now, onSetStatus, compact }) {
   const style = STATUS_STYLE[call.status] || STATUS_STYLE.done
-  const createdMs = call.createdAt?.toMillis?.() ?? null
 
   return (
-    <Box sx={{
-      p: compact ? 1 : 1.3, borderRadius: 2, border: '1px solid #ececf1',
-      opacity: compact ? 0.65 : 1,
-      display: 'flex', alignItems: 'center', gap: 1,
-    }}>
+    <ListRow dense={compact} muted={compact} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography fontWeight={600} fontSize={compact ? '0.88rem' : '0.98rem'} noWrap>
           {call.grade}-{call.classNo}-{call.number} {call.studentName}
         </Typography>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-          {call.office}{createdMs && ` · ${formatWhen(createdMs, now)}`}
+          {call.office}{call.createdAt && ` · ${formatRelative(call.createdAt, now)}`}
         </Typography>
       </Box>
-      <Chip size="small" label={style.label} sx={{ bgcolor: style.bg, color: style.fg, fontWeight: 600 }} />
+      <ToneChip label={style.label} tone={style.tone} />
       {call.status === 'pending' && (
         <Button size="small" variant="contained" onClick={() => onSetStatus(call, 'acknowledged')}>확인</Button>
       )}
       {call.status === 'acknowledged' && (
         <Button size="small" variant="outlined" onClick={() => onSetStatus(call, 'done')}>완료</Button>
       )}
-    </Box>
+    </ListRow>
   )
-}
-
-function formatWhen(ms, now) {
-  const sec = Math.floor((now - ms) / 1000)
-  if (sec < 60) return '방금 전'
-  if (sec < 3600) return `${Math.floor(sec / 60)}분 전`
-  return new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }

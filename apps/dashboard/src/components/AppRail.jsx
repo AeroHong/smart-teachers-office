@@ -1,0 +1,100 @@
+/**
+ * 좌측 이동 레일 — 화면에서 유일하게 어두운 영역.
+ *
+ * 예전에는 상단 AppBar가 이동·사용자·로그아웃을 전부 들고 있었는데, 3분할로 바꾸면서
+ * 가로 공간을 캔버스와 명단에 넘기고 이동 수단만 세로로 세웠다. 레일은 항상 같은
+ * 자리에 고정돼 있어 어느 화면에 있든 위치 감각이 유지된다.
+ */
+import { Link, useLocation } from 'react-router-dom'
+import Box from '@mui/material/Box'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+import DashboardIcon from '@mui/icons-material/SpaceDashboard'
+import AssignmentIcon from '@mui/icons-material/FactCheck'
+import PeopleIcon from '@mui/icons-material/Groups'
+import LaunchIcon from '@mui/icons-material/Launch'
+import LogoutIcon from '@mui/icons-material/Logout'
+import { useAuth } from '@shared/contexts/AuthContext'
+import { portalLink } from '../lib/portalUrl'
+
+const RAIL_WIDTH = 64
+
+function RailButton({ icon: Icon, label, active, onClick, to, href }) {
+  const linkProps = to
+    ? { component: Link, to }
+    : href
+      ? { component: 'a', href, target: '_blank', rel: 'noopener' }
+      : { component: 'button', onClick, type: 'button' }
+
+  return (
+    <Tooltip title={label} placement="right">
+      <Box
+        {...linkProps}
+        aria-label={label}
+        sx={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3,
+          width: 48, py: 0.9, borderRadius: 2,
+          border: 0, background: 'none', cursor: 'pointer',
+          textDecoration: 'none', position: 'relative',
+          color: active ? 'rail.iconActive' : 'rail.icon',
+          bgcolor: active ? 'rail.activeBg' : 'transparent',
+          transition: 'background-color .15s ease, color .15s ease',
+          '&:hover': { bgcolor: active ? 'rail.activeBg' : 'rail.hoverBg', color: 'rail.iconActive' },
+          // 활성 표시는 왼쪽 인디고 막대 — 배경만으로는 어두운 면에서 잘 안 보인다
+          ...(active && {
+            '&::before': {
+              content: '""', position: 'absolute', left: -8, top: 6, bottom: 6,
+              width: 3, borderRadius: 3, bgcolor: 'primary.light',
+            },
+          }),
+        }}
+      >
+        <Icon sx={{ fontSize: 21 }} />
+        <Typography sx={{ fontSize: '0.62rem', fontWeight: 600, lineHeight: 1.2 }}>
+          {label}
+        </Typography>
+      </Box>
+    </Tooltip>
+  )
+}
+
+export default function AppRail({ rosterOpen, onToggleRoster, showRosterToggle }) {
+  const { userName, isAdmin, logout } = useAuth()
+  const { pathname } = useLocation()
+
+  return (
+    <Box
+      component="nav"
+      sx={{
+        width: RAIL_WIDTH, flexShrink: 0,
+        bgcolor: 'rail.bg',
+        borderRight: '1px solid', borderColor: 'rail.border',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        py: 1.5, gap: 0.5,
+      }}
+    >
+      <Typography sx={{ fontSize: '1.35rem', mb: 1 }} aria-hidden>📋</Typography>
+
+      <RailButton icon={DashboardIcon} label="대시보드" to="/" active={pathname === '/'} />
+      {isAdmin && (
+        <RailButton icon={AssignmentIcon} label="업무현황" to="/admin" active={pathname === '/admin'} />
+      )}
+      {showRosterToggle && (
+        <RailButton icon={PeopleIcon} label="구성원" onClick={onToggleRoster} active={rosterOpen} />
+      )}
+
+      <Box sx={{ flexGrow: 1 }} />
+
+      <RailButton icon={LaunchIcon} label="포털" href={portalLink('/')} />
+      <Tooltip title={userName || ''} placement="right">
+        <Box sx={{ width: 30, height: 30, my: 0.6, borderRadius: '50%',
+          bgcolor: 'primary.main', color: 'primary.contrastText',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '0.8rem', fontWeight: 700, cursor: 'default' }}>
+          {(userName || '?').trim().slice(-2)}
+        </Box>
+      </Tooltip>
+      <RailButton icon={LogoutIcon} label="로그아웃" onClick={logout} />
+    </Box>
+  )
+}

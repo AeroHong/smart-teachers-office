@@ -12,11 +12,13 @@ import Paper from '@mui/material/Paper'
 import Chip from '@mui/material/Chip'
 import Fab from '@mui/material/Fab'
 import AddIcon from '@mui/icons-material/Add'
+import { alpha } from '@mui/material/styles'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import DashboardLayout from '../components/DashboardLayout'
 import TaskModal from '../components/TaskModal'
-import { getDisplayStatus, getStatusColor, formatDueDate, sortByDueDate, isOverdue } from '../lib/taskUtils'
+import { getDisplayStatus, getStatusTone, formatDueDate, sortByDueDate, isOverdue } from '../lib/taskUtils'
+import { ToneChip } from '../components/widgetUi'
 
 const STICKY_COL_SX = {
   position: 'sticky',
@@ -91,10 +93,13 @@ export default function AdminTasks() {
             </TableHead>
             <TableBody>
               {sortedTasks.map((task) => {
-                const color = getStatusColor(task)
+                const status = getStatusTone(task)
                 const overdue = isOverdue(task)
                 return (
-                  <TableRow key={task.id} sx={overdue ? { bgcolor: '#fdecea' } : undefined}>
+                  <TableRow
+                    key={task.id}
+                    sx={overdue ? theme => ({ bgcolor: alpha(theme.palette.error.main, 0.08) }) : undefined}
+                  >
                     <TableCell sx={STICKY_COL_SX}>
                       <Typography fontWeight={600} noWrap>{task.title}</Typography>
                       {task.dueDate && (
@@ -104,7 +109,7 @@ export default function AdminTasks() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Chip size="small" label={getDisplayStatus(task)} sx={{ bgcolor: color.bg, color: color.fg, fontWeight: 600 }} />
+                      <ToneChip label={getDisplayStatus(task)} tone={status.tone} />
                     </TableCell>
                     {teachers.map((t) => {
                       const assigned = (task.assignees || []).includes(t.uid)

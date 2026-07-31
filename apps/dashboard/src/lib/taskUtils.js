@@ -11,11 +11,12 @@ export function getDisplayStatus(task) {
   return task.status || '진행중'
 }
 
-export function getStatusColor(task) {
+// 색 대신 의미(tone)를 돌려준다. 실제 색은 widgetUi의 ToneChip이 테마에서 읽는다.
+export function getStatusTone(task) {
   const status = getDisplayStatus(task)
-  if (status === '완료') return { bg: '#f1f3f4', fg: '#5f6368', label: '완료' }
-  if (status === '지연') return { bg: '#fdecea', fg: '#d32f2f', label: '지연' }
-  return { bg: '#eef2ff', fg: '#4f46e5', label: status }
+  if (status === '완료') return { tone: 'neutral', label: '완료' }
+  if (status === '지연') return { tone: 'danger', label: '지연' }
+  return { tone: 'info', label: status }
 }
 
 export function formatDueDate(dueDate) {

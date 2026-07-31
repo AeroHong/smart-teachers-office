@@ -6,6 +6,7 @@ import Typography from '@mui/material/Typography'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { PRESENCE, PRESENCE_ORDER, effectivePresence } from '@shared/lib/presence'
+import { useToast } from '../components/ToastProvider'
 
 /**
  * 내 재실 상태 위젯
@@ -16,6 +17,7 @@ import { PRESENCE, PRESENCE_ORDER, effectivePresence } from '@shared/lib/presenc
  */
 export default function PresenceWidget() {
   const { user, schoolId } = useAuth()
+  const toast = useToast()
   const [current, setCurrent] = useState('unknown')
   const [source, setSource] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -37,7 +39,8 @@ export default function PresenceWidget() {
         uid: user.uid, status, source: 'manual', updatedAt: serverTimestamp(),
       }, { merge: true })
     } catch (e) {
-      console.error('상태 변경 실패:', e)
+      // 키오스크에 그대로 표시되는 값이라, 반영 안 된 걸 모르고 지나가면 안 된다
+      toast.error('재실 상태를 바꾸지 못했습니다.', e)
     } finally {
       setSaving(false)
     }
@@ -63,9 +66,9 @@ export default function PresenceWidget() {
               disabled={saving}
               sx={{
                 px: 2, py: 0.9, borderRadius: 2, fontWeight: 700, fontSize: '0.88rem',
-                border: '1px solid', borderColor: active ? s.color : '#e2e8f0',
-                bgcolor: active ? s.bg : '#fff',
-                color: active ? s.color : '#64748b',
+                border: '1px solid', borderColor: active ? s.color : 'divider',
+                bgcolor: active ? s.bg : 'background.paper',
+                color: active ? s.color : 'text.secondary',
                 '&:hover': { bgcolor: s.bg, borderColor: s.color },
               }}
             >

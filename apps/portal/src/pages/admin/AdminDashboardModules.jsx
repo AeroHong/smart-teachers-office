@@ -3,7 +3,7 @@ import { collection, doc, getDocs, onSnapshot, query, setDoc, where } from 'fire
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, USERS, schoolPath, currentSchoolYear } from '@shared/lib/schema'
-import { MODULE_CATALOG, MODULE_VISIBILITY } from '@shared/lib/dashboardModules'
+import { MODULE_VISIBILITY, mergeModuleSettings } from '@shared/lib/dashboardModules'
 import { table } from './adminUi'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
@@ -16,20 +16,16 @@ import TextField from '@mui/material/TextField'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
 
-const DEFAULT_MODULE = { enabled: false, visibility: 'all', targetDepartments: [], targetTeacherUids: [] }
-
 export default function AdminDashboardModules() {
   const { schoolId } = useAuth()
-  const [modulesById, setModulesById] = useState({})
+  const [moduleDocs, setModuleDocs] = useState([])
   const [staff, setStaff] = useState([])
   const [departments, setDepartments] = useState([])
 
   useEffect(() => {
     if (!schoolId) return
     return onSnapshot(collection(db, ...schoolPath(schoolId, COL.DASHBOARD_MODULES)), snap => {
-      const next = {}
-      snap.docs.forEach(d => { next[d.id] = { id: d.id, ...d.data() } })
-      setModulesById(next)
+      setModuleDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     })
   }, [schoolId])
 
@@ -47,12 +43,7 @@ export default function AdminDashboardModules() {
       .catch(e => console.error('부서 목록 조회 실패:', e))
   }, [schoolId])
 
-  const rows = useMemo(() => Object.entries(MODULE_CATALOG).map(([key, meta]) => ({
-    key,
-    ...meta,
-    ...DEFAULT_MODULE,
-    ...modulesById[key],
-  })), [modulesById])
+  const rows = useMemo(() => mergeModuleSettings(moduleDocs), [moduleDocs])
 
   const patch = async (key, changes) => {
     try {
@@ -66,7 +57,8 @@ export default function AdminDashboardModules() {
     <Box>
       <Typography variant="h4" fontWeight={700} mb={1}>대시보드 모듈 노출 관리</Typography>
       <Typography color="text.secondary" fontSize="0.9rem" mb={3}>
-        미리 만들어둔 대시보드 위젯을 켜고 끄며, 볼 수 있는 교사를 지정합니다. 꺼진 모듈은 아무에게도 보이지 않습니다.
+        미리 만들어둔 대시보드 위젯을 켜고 끄며, 볼 수 있는 교사를 지정합니다.
+        꺼진 모듈은 아무에게도 보이지 않습니다. 아래 모듈은 따로 설정하지 않으면 전체 공개로 켜져 있습니다.
       </Typography>
 
       <table style={table.table}>

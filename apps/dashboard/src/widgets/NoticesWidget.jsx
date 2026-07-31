@@ -1,106 +1,131 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import Box from '@mui/material/Box'
-import Chip from '@mui/material/Chip'
-import Collapse from '@mui/material/Collapse'
-import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
+import Typography from '@mui/material/Typography'
+import ReplyIcon from '@mui/icons-material/Reply'
 import SendIcon from '@mui/icons-material/Send'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
+import { EmptyState, ListRow, RowStack, ToneChip, WidgetAction, useWidgetBadge } from '../components/widgetUi'
+import { useToast } from '../components/ToastProvider'
+import { formatRelative } from '../lib/formatTime'
 import NoticeComposeModal from '../components/NoticeComposeModal'
 
-function formatWhen(ts) {
-  const date = ts?.toDate?.()
-  if (!date) return ''
-  return date.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
+const FETCH_LIMIT = 30
 
 export default function NoticesWidget() {
   const { user, schoolId } = useAuth()
-  const [notices, setNotices] = useState([])
+  const toast = useToast()
+  const [box, setBox] = useState('inbox')          // inbox | sent
+  const [inbox, setInbox] = useState([])
+  const [sent, setSent] = useState([])
   const [expandedId, setExpandedId] = useState(null)
-  const [composeOpen, setComposeOpen] = useState(false)
+  const [compose, setCompose] = useState(null)     // null | {} | { replyTo }
 
+  // 받은함과 보낸함을 각각 구독한다. 보낸함은 열었을 때만 읽어도 되지만, 안읽음 배지와
+  // 달리 건수가 적고 탭 전환이 잦아 미리 구독해두는 편이 체감이 낫다.
   useEffect(() => {
     if (!schoolId || !user) return
-    const q = query(
-      collection(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES)),
-      where('recipientUid', '==', user.uid),
-      orderBy('createdAt', 'desc'),
-      limit(30),
+    const base = collection(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES))
+    const subscribe = (field, setter) => onSnapshot(
+      query(base, where(field, '==', user.uid), orderBy('createdAt', 'desc'), limit(FETCH_LIMIT)),
+      snap => setter(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      e => toast.error('쪽지를 불러오지 못했습니다.', e),
     )
-    return onSnapshot(q, snap => setNotices(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-  }, [schoolId, user])
+    const unsubs = [subscribe('recipientUid', setInbox), subscribe('senderUid', setSent)]
+    return () => unsubs.forEach(u => u())
+  }, [schoolId, user, toast])
+
+  const unreadCount = useMemo(() => inbox.filter(n => !n.readAt).length, [inbox])
+  useWidgetBadge(unreadCount)
 
   const openNotice = (notice) => {
-    const expanded = expandedId === notice.id
-    setExpandedId(expanded ? null : notice.id)
-    if (!expanded && !notice.readAt) {
+    const wasExpanded = expandedId === notice.id
+    setExpandedId(wasExpanded ? null : notice.id)
+    // 받은 쪽지를 펼칠 때만 읽음 처리한다 (보낸함에서 내 쪽지를 열어도 상대의 읽음은 그대로)
+    if (!wasExpanded && box === 'inbox' && !notice.readAt) {
       updateDoc(doc(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES), notice.id), {
         readAt: serverTimestamp(),
-      }).catch(e => console.error('읽음 처리 실패:', e))
+      }).catch(e => toast.error('읽음 처리에 실패했습니다.', e))
     }
   }
 
+  const list = box === 'inbox' ? inbox : sent
+
   return (
     <Box>
-      <Button
-        size="small"
-        startIcon={<SendIcon sx={{ fontSize: 16 }} />}
-        onClick={() => setComposeOpen(true)}
-        sx={{ mb: 1.5 }}
+      <Tabs
+        value={box}
+        onChange={(_, v) => { setBox(v); setExpandedId(null) }}
+        sx={{ minHeight: 34, mb: 1, '& .MuiTab-root': { minHeight: 34, py: 0, fontSize: '0.85rem' } }}
       >
-        쪽지 보내기
-      </Button>
+        <Tab value="inbox" label={unreadCount > 0 ? `받은 쪽지 (${unreadCount})` : '받은 쪽지'} />
+        <Tab value="sent" label="보낸 쪽지" />
+      </Tabs>
 
-      {notices.length === 0 ? (
-        <Box sx={{ textAlign: 'center', py: 5 }}>
-          <Typography fontSize="2rem" mb={0.5}>✉️</Typography>
-          <Typography color="text.secondary" fontSize="0.9rem">받은 쪽지가 없습니다.</Typography>
-        </Box>
+      <WidgetAction icon={<SendIcon sx={{ fontSize: 16 }} />} onClick={() => setCompose({})}>
+        쪽지 보내기
+      </WidgetAction>
+
+      {list.length === 0 ? (
+        <EmptyState
+          emoji="✉️"
+          message={box === 'inbox' ? '받은 쪽지가 없습니다.' : '보낸 쪽지가 없습니다.'}
+          actionLabel="쪽지 보내기"
+          onAction={() => setCompose({})}
+        />
       ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {notices.map(notice => {
+        <RowStack>
+          {list.map(notice => {
             const expanded = expandedId === notice.id
-            const unread = !notice.readAt
+            const unread = box === 'inbox' && !notice.readAt
             return (
-              <Box
-                key={notice.id}
-                onClick={() => openNotice(notice)}
-                sx={{
-                  p: 1.2, borderRadius: 2, cursor: 'pointer',
-                  border: '1px solid #ececf1',
-                  bgcolor: unread ? 'rgba(99,102,241,.04)' : 'transparent',
-                  transition: 'box-shadow .15s ease, border-color .15s ease',
-                  '&:hover': { boxShadow: '0 4px 14px rgba(15,23,42,.07)', borderColor: 'transparent' },
-                }}
-              >
+              <ListRow key={notice.id} onClick={() => openNotice(notice)} highlight={unread}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                     <Typography fontWeight={unread ? 700 : 600} fontSize="0.95rem" noWrap>
                       {notice.title}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                      {notice.senderName} · {formatWhen(notice.createdAt)}
+                      {box === 'inbox' ? notice.senderName : `받는 사람: ${notice.recipientName || '—'}`}
+                      {' · '}{formatRelative(notice.createdAt)}
                     </Typography>
                   </Box>
-                  {unread && <Chip size="small" label="안읽음" sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 600 }} />}
+                  {unread && <ToneChip label="안읽음" tone="info" />}
+                  {box === 'sent' && <ToneChip label={notice.readAt ? '읽음' : '안읽음'} tone={notice.readAt ? 'success' : 'neutral'} />}
                 </Box>
 
                 <Collapse in={expanded}>
                   <Typography variant="body2" color="text.secondary" sx={{ pt: 1, whiteSpace: 'pre-wrap' }}>
                     {notice.content}
                   </Typography>
+                  {box === 'inbox' && (
+                    <Button
+                      size="small"
+                      startIcon={<ReplyIcon sx={{ fontSize: 16 }} />}
+                      onClick={(e) => { e.stopPropagation(); setCompose({ replyTo: notice }) }}
+                      sx={{ mt: 1 }}
+                    >
+                      답장
+                    </Button>
+                  )}
                 </Collapse>
-              </Box>
+              </ListRow>
             )
           })}
-        </Box>
+        </RowStack>
       )}
 
-      <NoticeComposeModal open={composeOpen} onClose={() => setComposeOpen(false)} />
+      <NoticeComposeModal
+        open={!!compose}
+        replyTo={compose?.replyTo}
+        onClose={() => setCompose(null)}
+      />
     </Box>
   )
 }
