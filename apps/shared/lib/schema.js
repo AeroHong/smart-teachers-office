@@ -75,6 +75,11 @@ export const COL = {
   PERSONAL_NOTICES: 'personalNotices',      // 교사 상호간 쪽지
   DASHBOARD_MODULES: 'dashboardModules',    // 위젯 노출 제어 (enabled + visibility)
 
+  // 업무 요청 — 사람마다 완료 여부가 생기는 일 (원안 제출, 성적 마감 등)
+  // 공지(읽으면 끝)와 달리 대상 명단과 완료 상태를 갖는다.
+  REQUESTS: 'requests',
+  REQUEST_COMPLETIONS: 'completions',       // requests/{id}/completions/{uid} — ID가 곧 uid
+
   // 성취평가제(ASA)
   ASA_SUBJECTS: 'asaSubjects',
   ASA_SUBMISSIONS: 'asaSubmissions',

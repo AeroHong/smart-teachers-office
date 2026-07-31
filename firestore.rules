@@ -45,6 +45,16 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
+    // 업무 요청의 완료 토글 검사 — completedUids에서 움직인 uid가 본인뿐인지 본다.
+    // 이게 없으면 대상 교사가 남의 완료를 대신 체크하거나 지울 수 있다.
+    // (빈 집합도 hasOnly를 통과하므로 넣기·빼기·변화 없음이 모두 허용된다)
+    function selfOnlyCompletionChange() {
+      let before = resource.data.get('completedUids', []).toSet();
+      let after = request.resource.data.get('completedUids', []).toSet();
+      return after.difference(before).hasOnly([request.auth.uid]) &&
+             before.difference(after).hasOnly([request.auth.uid]);
+    }
+
     // 호출 시스템 키오스크 기기 — 관리자가 발급한 페어링 코드로 Custom Claims를 받은
     // 익명 계정만 통과. 사무실(kioskOffice) 단위까지 범위를 좁힌다.
     function isKioskDevice(schoolId) {
@@ -207,6 +217,49 @@ service cloud.firestore {
           ));
         allow delete: if isSuperAdmin() ||
           (isTeacher(schoolId) && resource.data.senderUid == request.auth.uid);
+      }
+
+      // 업무 요청 — 사람마다 완료 여부가 생기는 일 (원안 제출, 성적 마감 등)
+      //
+      // 만들기는 소속 교사 누구나 할 수 있다. 지금도 쿨메신저로 누구나 전체 발송이 되고,
+      // 여기서는 최소한 누가 만들었는지가 남는다.
+      //
+      // 완료 표시가 이 규칙의 핵심이다. 대상 교사는 요청 문서의 completedUids에 자기 uid만
+      // 넣고 뺄 수 있어야 하고, 제목·마감일·대상 명단은 건드릴 수 없어야 한다.
+      match /requests/{requestId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+
+        allow create: if isSuperAdmin() ||
+          (isTeacher(schoolId) &&
+           request.resource.data.createdBy == request.auth.uid &&
+           request.resource.data.completedUids.size() == 0);
+
+        // 요청 내용 수정·마감은 만든 사람과 관리자만
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid) ||
+          // 대상 교사의 완료 토글 — 바뀌는 필드도, 그 안에서 움직이는 uid도 제한한다
+          (isTeacher(schoolId) &&
+           request.auth.uid in resource.data.targetUids &&
+           request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['completedUids', 'updatedAt']) &&
+           selfOnlyCompletionChange());
+
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+
+        // 완료 상세(시각·비고). 문서 ID가 곧 uid다.
+        // 읽기를 소속 교사 전체에 여는 이유는 현황 화면이 누가 언제 했는지를 보여주기 때문.
+        // 어차피 요청 문서의 completedUids로 완료 여부는 드러나므로 새로 노출되는 정보가 아니다.
+        match /completions/{completionUid} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            // 본인이 체크
+            (isTeacher(schoolId) && completionUid == request.auth.uid) ||
+            // 담당자가 확인 후 대신 체크 (완료 버튼을 안 누르는 사람이 반드시 있다)
+            (isTeacher(schoolId) &&
+             get(/databases/$(database)/documents/schools/$(schoolId)/requests/$(requestId))
+               .data.createdBy == request.auth.uid);
+        }
       }
 
       // 대시보드 위젯 노출 제어 — 관리자만 쓰기, 소속 교사 전체 읽기
