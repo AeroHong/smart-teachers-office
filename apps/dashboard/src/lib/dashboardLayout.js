@@ -1,9 +1,9 @@
 /**
  * 대시보드 위젯 배치 모델.
  *
- * 예전 구조는 열별 2차원 배열(`[['tasks'], ['presence','calls']]`)이라 위젯이 어느 열에
+ * 예전 구조는 열별 2차원 배열(`[['requests'], ['presence','calls']]`)이라 위젯이 어느 열에
  * 있느냐로 크기가 정해졌다. 12열 그리드로 바꾸면서 "순서 + 각자의 폭"으로 바꾼다
- * (`[{ id:'tasks', size:'L' }, ...]`). 열이 아니라 폭을 직접 고르므로 화면 폭이 달라져도
+ * (`[{ id:'requests', size:'L' }, ...]`). 열이 아니라 폭을 직접 고르므로 화면 폭이 달라져도
  * 의도한 비율이 유지된다.
  *
  * 완전 자유 배치(태블릿 바탕화면)는 하지 않는다. 아이콘과 달리 위젯은 내용에 따라 높이가
@@ -24,10 +24,9 @@ export const SIZE_KEYS = ['S', 'M', 'L']
 
 /** 위젯별 기본 폭 — 내용의 성격에 맞춰 정한다. */
 const DEFAULT_SIZE = {
-  tasks: 'L',
+  requests: 'L',
   announcements: 'L',
   calendar: 'M',
-  notices: 'M',
   presence: 'S',
   calls: 'S',
 }
@@ -36,13 +35,13 @@ export function defaultSizeFor(id) {
   return DEFAULT_SIZE[id] || 'M'
 }
 
+// 요청받은 일이 맨 위다. 마감이 걸린 일을 가장 먼저 보게 하는 것이 이 화면의 목적이다.
 export const DEFAULT_LAYOUT = [
-  { id: 'tasks', size: 'L' },
+  { id: 'requests', size: 'L' },
   { id: 'presence', size: 'S' },
   { id: 'calls', size: 'S' },
-  { id: 'notices', size: 'M' },
-  { id: 'announcements', size: 'L' },
   { id: 'calendar', size: 'M' },
+  { id: 'announcements', size: 'L' },
 ]
 
 function isLegacyLayout(saved) {

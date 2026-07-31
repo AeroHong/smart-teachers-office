@@ -64,16 +64,17 @@ export const COL = {
   COVER_REQUESTS: 'coverRequests',
   TRAININGS: 'trainings',
   NOTICES: 'notices',
-  TASKS: 'tasks',
 
   // 호출 시스템
   CALL_REQUESTS: 'callRequests',
 
-  // 대시보드 — 공지/일정/쪽지/모듈 노출 제어
+  // 대시보드 — 공지/일정/모듈 노출 제어
   ANNOUNCEMENTS: 'announcements',           // 전체 공지 (관리자 작성)
   ACADEMIC_CALENDAR: 'academicCalendar',    // 학사일정 (관리자 작성)
-  PERSONAL_NOTICES: 'personalNotices',      // 교사 상호간 쪽지
   DASHBOARD_MODULES: 'dashboardModules',    // 위젯 노출 제어 (enabled + visibility)
+
+  // 쪽지 — 교사 상호간 1:1. 위젯이 아니라 별도 탭(/messages)에서 다룬다.
+  PERSONAL_NOTICES: 'personalNotices',
 
   // 업무 요청 — 사람마다 완료 여부가 생기는 일 (원안 제출, 성적 마감 등)
   // 공지(읽으면 끝)와 달리 대상 명단과 완료 상태를 갖는다.

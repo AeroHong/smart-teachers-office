@@ -167,25 +167,9 @@ service cloud.firestore {
         allow read, write: if isSuperAdmin() || isTeacher(schoolId);
       }
 
-      // 업무 관리 — 개인 업무는 본인·담당자만, 전체공개는 소속 교사 전체가 조회
-      match /tasks/{taskId} {
-        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
-          (isTeacher(schoolId) && (
-            resource.data.visibility == '전체공개' ||
-            resource.data.createdBy == request.auth.uid ||
-            request.auth.uid in resource.data.assignees
-          ));
-        allow create: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
-          (isTeacher(schoolId) && request.resource.data.createdBy == request.auth.uid);
-        // 담당자는 상태 변경(체크박스 완료 처리)을 위해 본인 생성분이 아니어도 수정 가능
-        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
-          (isTeacher(schoolId) && (
-            resource.data.createdBy == request.auth.uid ||
-            request.auth.uid in resource.data.assignees
-          ));
-        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
-          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
-      }
+      // tasks 컬렉션은 업무 요청(requests)으로 통합되면서 제거했다.
+      // 담당자를 여럿 지정해도 status가 하나뿐이라 "누가 안 했나"를 물을 수 없는 구조였고,
+      // 할 일 목록이 요청과 둘로 갈려 있는 것도 문제였다. 남은 문서는 접근 경로가 없다.
 
       // 전체 공지 — 관리자만 쓰기, 소속 교사 전체 읽기
       match /announcements/{announcementId} {

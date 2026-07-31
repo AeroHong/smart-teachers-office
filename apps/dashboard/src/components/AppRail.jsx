@@ -7,19 +7,22 @@
  */
 import { Link, useLocation } from 'react-router-dom'
 import Box from '@mui/material/Box'
+import Badge from '@mui/material/Badge'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import DashboardIcon from '@mui/icons-material/SpaceDashboard'
-import AssignmentIcon from '@mui/icons-material/FactCheck'
+import RequestIcon from '@mui/icons-material/PlaylistAddCheck'
+import MailIcon from '@mui/icons-material/MailOutline'
 import PeopleIcon from '@mui/icons-material/Groups'
 import LaunchIcon from '@mui/icons-material/Launch'
 import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { portalLink } from '../lib/portalUrl'
+import useUnreadNotices from '../lib/useUnreadNotices'
 
 const RAIL_WIDTH = 64
 
-function RailButton({ icon: Icon, label, active, onClick, to, href }) {
+function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
   const linkProps = to
     ? { component: Link, to }
     : href
@@ -49,7 +52,14 @@ function RailButton({ icon: Icon, label, active, onClick, to, href }) {
           }),
         }}
       >
-        <Icon sx={{ fontSize: 21 }} />
+        <Badge
+          badgeContent={badge}
+          color="error"
+          overlap="circular"
+          sx={{ '& .MuiBadge-badge': { fontSize: '0.6rem', height: 15, minWidth: 15 } }}
+        >
+          <Icon sx={{ fontSize: 21 }} />
+        </Badge>
         <Typography sx={{ fontSize: '0.62rem', fontWeight: 600, lineHeight: 1.2 }}>
           {label}
         </Typography>
@@ -59,8 +69,9 @@ function RailButton({ icon: Icon, label, active, onClick, to, href }) {
 }
 
 export default function AppRail({ rosterOpen, onToggleRoster, showRosterToggle }) {
-  const { userName, isAdmin, logout } = useAuth()
+  const { userName, logout } = useAuth()
   const { pathname } = useLocation()
+  const unreadNotices = useUnreadNotices()
 
   return (
     <Box
@@ -76,9 +87,19 @@ export default function AppRail({ rosterOpen, onToggleRoster, showRosterToggle }
       <Typography sx={{ fontSize: '1.35rem', mb: 1 }} aria-hidden>📋</Typography>
 
       <RailButton icon={DashboardIcon} label="대시보드" to="/" active={pathname === '/'} />
-      {isAdmin && (
-        <RailButton icon={AssignmentIcon} label="업무현황" to="/admin" active={pathname === '/admin'} />
-      )}
+      <RailButton
+        icon={RequestIcon}
+        label="업무요청"
+        to="/requests"
+        active={pathname.startsWith('/requests')}
+      />
+      <RailButton
+        icon={MailIcon}
+        label="쪽지"
+        to="/messages"
+        active={pathname.startsWith('/messages')}
+        badge={unreadNotices}
+      />
       {showRosterToggle && (
         <RailButton icon={PeopleIcon} label="구성원" onClick={onToggleRoster} active={rosterOpen} />
       )}

@@ -24,22 +24,17 @@ export const REQUEST_STATUS = {
 }
 
 /**
- * 완료를 누가 표시하는가.
- *  self    — 본인이 체크 (원안 제출, 연수 신청처럼 본인만 아는 일)
- *  manager — 담당자가 확인 후 체크 (성적 마감처럼 나이스에서 대조해야 하는 일)
+ * 완료는 본인도 담당자도 언제든 표시할 수 있다.
  *
- * manager 모드가 필요한 이유는 완료 버튼을 안 누르는 사람이 반드시 있기 때문이다.
- * 그 경우에도 담당자가 채워 넣을 수 있어야 현황이 멈추지 않는다.
+ * 예전에는 요청을 만들 때 '본인 체크'와 '담당자 확인' 중 하나를 고르게 했는데, 실제로는
+ * 둘 다 필요하다 — 보통은 본인이 누르고, 안 누르는 사람은 담당자가 나이스에서 확인해
+ * 채워 넣는다. 만들 때 미리 정하게 하면 물어볼 이유가 없는 것을 묻는 셈이라 없앴다.
+ * 누가 표시했는지는 completions/{uid}.doneBy에 남는다.
  */
-export const COMPLETION_MODE = {
-  self: '본인이 체크',
-  manager: '담당자가 확인',
-}
 
 /** 새 요청 문서의 초기값. createdAt/updatedAt은 호출부가 serverTimestamp로 채운다. */
 export function newRequestPayload({
   title, description = '', dueDate = null,
-  completionMode = 'self',
   attachments = [], links = [],
   targetRule, targetRuleText, targets,
   createdBy, createdByName,
@@ -49,7 +44,6 @@ export function newRequestPayload({
     description: (description || '').trim(),
     dueDate,
     status: 'open',
-    completionMode: COMPLETION_MODE[completionMode] ? completionMode : 'self',
     attachments,
     links,
     // 조건은 재계산·감사용으로 남기고, 실제 대상은 발송 시점 명단으로 고정한다.

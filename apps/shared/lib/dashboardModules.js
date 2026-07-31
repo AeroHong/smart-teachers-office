@@ -19,7 +19,6 @@
 export const MODULE_CATALOG = {
   announcements: { title: '전체 공지', emoji: '📢', defaultEnabled: true },
   calendar: { title: '학사일정', emoji: '📅', defaultEnabled: true },
-  notices: { title: '쪽지', emoji: '✉️', defaultEnabled: true },
 }
 
 export const MODULE_VISIBILITY = {

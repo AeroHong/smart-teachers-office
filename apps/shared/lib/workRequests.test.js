@@ -110,10 +110,4 @@ test('새 요청은 완료자 없이 시작하고 대상 명단을 고정한다'
   assert.deepEqual(payload.targetNames, ['김국어', '이수학'])
   assert.deepEqual(payload.completedUids, [])
   assert.equal(payload.status, 'open')
-  assert.equal(payload.completionMode, 'self')
-})
-
-test('알 수 없는 완료 모드는 기본값으로 떨어진다', () => {
-  const payload = newRequestPayload({ title: 'x', targets: [], completionMode: '이상한값' })
-  assert.equal(payload.completionMode, 'self')
 })

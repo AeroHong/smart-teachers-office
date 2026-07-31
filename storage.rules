@@ -1,12 +1,46 @@
 rules_version = '2';
+
+// 파일 저장소 규칙.
+//
+// 주의 — 다운로드 토큰 URL은 이 규칙을 우회한다.
+// getDownloadURL()이 돌려주는 `?alt=media&token=...` 주소는 Storage 보안 규칙과 무관하게
+// 링크를 가진 사람이면 누구나 열 수 있다. 아래 read 규칙은 SDK 접근과 목록 열람을 막을 뿐
+// 이미 만들어진 링크는 막지 못한다.
+// 따라서 고사 원안처럼 유출되면 안 되는 파일은 여기 올리지 않는다.
 service firebase.storage {
   match /b/{bucket}/o {
-    match /schools/{schoolId}/{allPaths=**} {
-      allow read: if true;
-      allow write: if request.auth != null
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == schoolId
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['school_admin', 'admin'];
+
+    function userData() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
     }
+
+    function isMemberOf(schoolId) {
+      return request.auth != null && userData().schoolId == schoolId;
+    }
+
+    function isStaffOf(schoolId) {
+      return isMemberOf(schoolId) &&
+        userData().role in ['teacher', 'admin', 'school_admin', 'principal'];
+    }
+
+    // 업무 요청 첨부 — 양식·매뉴얼. 요청을 만드는 건 교사 누구나이므로 업로드도 교사 전체.
+    //
+    // 파일 형식을 제한하지 않는 이유: 학교 주력이 한글(.hwp)인데 브라우저가 붙이는
+    // contentType이 application/x-hwp, application/haansofthwp, application/octet-stream 등
+    // 환경마다 달라 형식으로 거르면 정상 파일이 막힌다. 크기만 제한한다.
+    match /schools/{schoolId}/requests/{requestId}/{fileName} {
+      allow read: if isMemberOf(schoolId);
+      allow write: if isStaffOf(schoolId) && request.resource.size < 20 * 1024 * 1024;
+    }
+
+    // 그 밖의 학교 파일 — 기존대로 관리자만 쓰기.
+    // read를 `if true`에서 소속 구성원으로 좁혔다. 학교 문서가 인증 없이 열려 있었고,
+    // 지금 이 경로를 쓰는 살아있는 코드가 없어 좁혀도 깨지는 기능이 없다.
+    match /schools/{schoolId}/{allPaths=**} {
+      allow read: if isMemberOf(schoolId);
+      allow write: if isMemberOf(schoolId) && userData().role in ['school_admin', 'admin'];
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

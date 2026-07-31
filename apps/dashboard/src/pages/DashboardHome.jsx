@@ -18,12 +18,11 @@ import { MODULE_CATALOG, isModuleVisibleToMe, mergeModuleSettings } from '@share
 import { WidgetBadgeProvider } from '../components/widgetUi'
 import { useToast } from '../components/ToastProvider'
 import DashboardLayout from '../components/DashboardLayout'
-import MyTasksWidget from '../widgets/MyTasksWidget'
+import MyRequestsWidget from '../widgets/MyRequestsWidget'
 import CallsWidget from '../widgets/CallsWidget'
 import PresenceWidget from '../widgets/PresenceWidget'
 import AnnouncementsWidget from '../widgets/AnnouncementsWidget'
 import CalendarWidget from '../widgets/CalendarWidget'
-import NoticesWidget from '../widgets/NoticesWidget'
 import {
   DEFAULT_LAYOUT, GRID_COLUMNS, SIZES, SIZE_KEYS,
   moveItem, normalizeLayout, setSize,
@@ -40,16 +39,21 @@ import {
  * enabled + visibility로 관리자가 켜고 끄며 대상을 지정한다.
  */
 
+// 요청받은 일은 끌 수 없는 핵심 위젯이다. 이걸 숨길 수 있으면 "할 일이 하나도 안 빠지고
+// 보인다"는 전제가 무너져, 마감을 놓치고도 시스템 탓을 할 수 없게 된다.
+//
+// 예전에 있던 '내 업무'(tasks)는 업무 요청과 같은 기능이라 걷어냈다. 요청 만들기에서
+// 대상을 자신으로 지정하면 개인 업무가 되므로 별도 컬렉션을 둘 이유가 없었고,
+// 할 일 목록이 둘로 갈려 있으면 "하나도 안 빠지고 보인다"는 전제도 무너진다.
 const CORE_WIDGETS = {
-  tasks:    { title: '내 업무',   emoji: '📋', Component: MyTasksWidget },
-  calls:    { title: '호출 알림', emoji: '🔔', Component: CallsWidget },
-  presence: { title: '내 상태',   emoji: '🟢', Component: PresenceWidget },
+  requests: { title: '요청받은 일', emoji: '✅', Component: MyRequestsWidget },
+  calls:    { title: '호출 알림',   emoji: '🔔', Component: CallsWidget },
+  presence: { title: '내 상태',     emoji: '🟢', Component: PresenceWidget },
 }
 
 const OPTIONAL_COMPONENTS = {
   announcements: AnnouncementsWidget,
   calendar: CalendarWidget,
-  notices: NoticesWidget,
 }
 
 const OPTIONAL_WIDGETS = Object.fromEntries(
