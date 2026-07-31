@@ -1,22 +1,39 @@
 /**
- * 업무 요청 — 사람마다 완료 여부가 생기는 일.
+ * 업무 글 — 안내(공지)와 요청.
  *
- * 공지(읽으면 끝)와 갈라지는 지점이 여기다. 원안 제출·성적 마감·교육계획서처럼
- * 대상 한 명 한 명에게 "했다/안 했다"가 생기는 일은 메시지로 뿌리면 양쪽이 같이 고생한다.
- *   - 교사: 수백 개 메시지에 묻혀 뭘 해야 하는지 모른다
- *   - 담당자: 누가 안 했는지 손으로 대조해야 한다
- * 둘은 같은 데이터를 양쪽에서 본 것이라, 사람별 완료 상태를 한 번 기록하면 동시에 풀린다.
+ * 학교에서 쿨메신저로 도는 내용은 크게 둘로 나뉜다.
+ *   안내 — 단축수업, 시간표 변경, 행사 일정. 읽으면 끝
+ *   요청 — 원안 제출, 성적 마감, 교육계획서. 사람마다 "했다/안 했다"가 생긴다
+ *
+ * 필요한 것이 제목·내용·자료·대상까지 똑같고 다른 건 "완료 확인을 받느냐" 하나뿐이라,
+ * 컬렉션을 나누지 않고 kind로만 구분한다. 작성 화면·목록·상세를 한 벌만 유지하면 되고,
+ * 쓰는 사람도 "공지냐 요청이냐"가 아니라 "이거 확인받아야 하나"만 판단하면 된다.
+ *
+ * 요청을 메시지로 뿌리면 양쪽이 같이 고생한다 — 교사는 수백 개 메시지에 묻혀 할 일을
+ * 모르고, 담당자는 누가 안 했는지 손으로 대조해야 한다. 둘은 같은 데이터를 양쪽에서 본
+ * 것이라, 사람별 완료 상태를 한 번 기록하면 동시에 풀린다.
  *
  * 저장 구조
  *   schools/{schoolId}/requests/{requestId}
- *     targetUids[]     발송 시점에 고정된 대상 명단 (조건 재계산은 담당자가 명시적으로)
- *     completedUids[]  빠른 조회를 위한 완료자 목록
+ *     kind             'notice'(안내) | 'request'(요청)
+ *     targetUids[]     발송 시점에 고정된 대상 명단 (조건 재계산은 작성자가 명시적으로)
+ *     completedUids[]  빠른 조회를 위한 완료자 목록 (요청만)
  *     /completions/{uid}  완료 시각·비고 등 상세 (문서 ID가 곧 uid)
  *
- * completedUids를 요청 문서에 같이 두는 이유는 "내 할 일" 위젯 때문이다. 이게 없으면
+ * completedUids를 문서에 같이 두는 이유는 "요청받은 일" 위젯 때문이다. 이게 없으면
  * 교사 화면에서 요청마다 완료 문서를 한 번씩 더 읽어야 한다. 대신 규칙에서 본인 uid만
  * 넣고 뺄 수 있게 막는다.
  */
+
+export const POST_KIND = {
+  notice: { label: '안내', emoji: '📢' },
+  request: { label: '요청', emoji: '✅' },
+}
+
+export function isRequest(post) {
+  // kind가 없는 문서는 요청 기능만 있던 시절에 만들어진 것이다
+  return (post?.kind || 'request') === 'request'
+}
 
 export const REQUEST_STATUS = {
   open: '진행 중',
@@ -32,17 +49,23 @@ export const REQUEST_STATUS = {
  * 누가 표시했는지는 completions/{uid}.doneBy에 남는다.
  */
 
-/** 새 요청 문서의 초기값. createdAt/updatedAt은 호출부가 serverTimestamp로 채운다. */
+/** 새 글의 초기값. createdAt/updatedAt은 호출부가 serverTimestamp로 채운다. */
 export function newRequestPayload({
+  kind = 'request',
   title, description = '', dueDate = null,
+  pinned = false,
   attachments = [], links = [],
   targetRule, targetRuleText, targets,
   createdBy, createdByName,
 }) {
+  const resolvedKind = POST_KIND[kind] ? kind : 'request'
   return {
+    kind: resolvedKind,
     title: (title || '').trim(),
     description: (description || '').trim(),
-    dueDate,
+    // 안내는 마감이라는 개념이 없다 — 읽으면 끝이다
+    dueDate: resolvedKind === 'request' ? dueDate : null,
+    pinned: resolvedKind === 'notice' ? !!pinned : false,
     status: 'open',
     attachments,
     links,

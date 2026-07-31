@@ -17,7 +17,7 @@ import AddIcon from '@mui/icons-material/Add'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
-import { completionStats, dueState, sortByUrgency } from '@shared/lib/workRequests'
+import { POST_KIND, completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
 import DashboardLayout from '../components/DashboardLayout'
 import { EmptyState, ToneChip } from '../components/widgetUi'
 import { useToast } from '../components/ToastProvider'
@@ -53,10 +53,10 @@ export default function RequestList() {
     <DashboardLayout>
       <Box sx={{ maxWidth: 820, mx: 'auto' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6" fontWeight={800}>업무 요청</Typography>
+          <Typography variant="h6" fontWeight={800}>안내 · 요청</Typography>
           <Box sx={{ flexGrow: 1 }} />
           <Button component={Link} to="/requests/new" variant="contained" size="small" startIcon={<AddIcon />}>
-            새 요청
+            글 쓰기
           </Button>
         </Box>
 
@@ -66,22 +66,23 @@ export default function RequestList() {
             onChange={(_, v) => setScope(v)}
             sx={{ mb: 2, borderBottom: '1px solid', borderColor: 'divider' }}
           >
-            <Tab value="mine" label="내가 보낸 요청" />
-            <Tab value="all" label="전체 요청" />
+            <Tab value="mine" label="내가 보낸 글" />
+            <Tab value="all" label="전체" />
           </Tabs>
         )}
 
         {!loaded ? null : sorted.length === 0 ? (
           <EmptyState
             emoji="📤"
-            message={showingAll ? '등록된 업무 요청이 없습니다.' : '보낸 업무 요청이 없습니다.'}
-            hint="대상을 조건으로 뽑아 보내면 누가 했는지 자동으로 집계됩니다."
+            message={showingAll ? '등록된 글이 없습니다.' : '보낸 글이 없습니다.'}
+            hint="대상을 조건으로 뽑아 보내면, 요청은 누가 했는지 자동으로 집계됩니다."
           />
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.2 }}>
             {sorted.map(request => {
               const stats = completionStats(request)
               const due = dueState(request)
+              const kind = isRequest(request) ? 'request' : 'notice'
               return (
                 <Box
                   key={request.id}
@@ -96,28 +97,34 @@ export default function RequestList() {
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.8 }}>
+                    <Typography sx={{ fontSize: '0.95rem' }}>{POST_KIND[kind].emoji}</Typography>
                     <Typography fontWeight={700} fontSize="0.98rem" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
                       {request.title}
                     </Typography>
+                    {request.pinned && <ToneChip label="고정" tone="warning" />}
                     {due.label && <ToneChip label={due.label} tone={DUE_TONE[due.state]} />}
                   </Box>
 
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <LinearProgress
-                      variant="determinate"
-                      value={stats.percent}
-                      sx={{ flexGrow: 1, height: 6, borderRadius: 3 }}
-                    />
-                    <Typography fontSize="0.8rem" color="text.secondary" sx={{ flexShrink: 0 }}>
-                      {stats.doneCount}/{stats.total}명
-                    </Typography>
-                  </Box>
+                  {kind === 'request' && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <LinearProgress
+                        variant="determinate"
+                        value={stats.percent}
+                        sx={{ flexGrow: 1, height: 6, borderRadius: 3 }}
+                      />
+                      <Typography fontSize="0.8rem" color="text.secondary" sx={{ flexShrink: 0 }}>
+                        {stats.doneCount}/{stats.total}명
+                      </Typography>
+                    </Box>
+                  )}
 
                   <Typography fontSize="0.78rem" color="text.secondary" sx={{ mt: 0.6 }}>
                     {showingAll && `${request.createdByName} · `}
-                    {stats.pendingUids.length > 0 && request.status !== 'closed'
-                      ? `미완료 ${stats.pendingUids.length}명`
-                      : request.status === 'closed' ? '마감됨' : '모두 완료'}
+                    {kind === 'notice'
+                      ? `안내 · 대상 ${stats.total}명`
+                      : stats.pendingUids.length > 0 && request.status !== 'closed'
+                        ? `미완료 ${stats.pendingUids.length}명`
+                        : request.status === 'closed' ? '마감됨' : '모두 완료'}
                   </Typography>
                 </Box>
               )

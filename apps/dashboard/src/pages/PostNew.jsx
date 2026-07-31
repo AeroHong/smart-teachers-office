@@ -1,8 +1,12 @@
 /**
- * 업무 요청 만들기.
+ * 업무 글 쓰기 — 안내(공지)와 요청을 한 화면에서.
  *
- * 게시판 글쓰기와 같은 순서로 둔다 — 제목 · 내용 · 자료를 쓰고, 그 아래에서 대상과 마감을
- * 정한다. 요청도 결국 "누구에게 보내는 글"이라 새로운 양식을 배울 이유가 없다.
+ * 게시판 글쓰기와 같은 순서로 둔다 — 제목 · 내용 · 자료를 쓰고, 그 아래에서 대상을 정한다.
+ * 결국 "누구에게 보내는 글"이라 새로운 양식을 배울 이유가 없다.
+ *
+ * 안내와 요청을 따로 만들지 않는 이유: 필요한 것이 제목·내용·자료·대상까지 똑같고
+ * 다른 건 "완료 확인을 받느냐" 하나뿐이다. 그래서 쓰는 사람은 "공지냐 요청이냐"가 아니라
+ * "이거 확인받아야 하나"만 판단하면 된다. 그 체크를 켜야 마감일이 나타난다.
  *
  * 완료를 누가 표시할지는 묻지 않는다. 보통은 본인이 누르고, 안 누르는 사람은 담당자가
  * 확인해 채워 넣는다 — 둘 다 필요하므로 미리 고르게 할 이유가 없다.
@@ -16,6 +20,8 @@ import { useNavigate } from 'react-router-dom'
 import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { db } from '@shared/lib/firebase'
@@ -31,7 +37,7 @@ import useSchoolMembers from '../lib/useSchoolMembers'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
 
-export default function RequestNew() {
+export default function PostNew() {
   const { user, userName, schoolId } = useAuth()
   const navigate = useNavigate()
   const toast = useToast()
@@ -45,6 +51,8 @@ export default function RequestNew() {
 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [needsCompletion, setNeedsCompletion] = useState(true)
+  const [pinned, setPinned] = useState(false)
   const [dueDate, setDueDate] = useState('')
   const [rule, setRule] = useState(EMPTY_RULE)
   const [attachments, setAttachments] = useState([])
@@ -60,8 +68,10 @@ export default function RequestNew() {
     try {
       await setDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId), {
         ...newRequestPayload({
+          kind: needsCompletion ? 'request' : 'notice',
           title,
           description,
+          pinned,
           dueDate: dueDate ? new Date(dueDate) : null,
           attachments,
           links,
@@ -74,7 +84,7 @@ export default function RequestNew() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
-      toast.success(`${targets.length}명에게 요청을 보냈습니다.`)
+      toast.success(`${targets.length}명에게 ${needsCompletion ? '요청을' : '안내를'} 보냈습니다.`)
       navigate(`/requests/${requestId}`)
     } catch (e) {
       toast.error('요청을 만들지 못했습니다.', e)
@@ -94,7 +104,7 @@ export default function RequestNew() {
   return (
     <DashboardLayout>
       <Box sx={{ maxWidth: 780, mx: 'auto' }}>
-        <Typography variant="h6" fontWeight={800} mb={2.5}>업무 요청 만들기</Typography>
+        <Typography variant="h6" fontWeight={800} mb={2.5}>글 쓰기</Typography>
 
         {/* 글쓰기 — 제목 · 내용 · 자료 */}
         <TextField
@@ -127,12 +137,32 @@ export default function RequestNew() {
             ? <Typography color="text.secondary" fontSize="0.85rem">구성원 불러오는 중…</Typography>
             : <TargetPicker members={members} value={rule} onChange={setRule} />}
 
-          <TextField
-            label="마감일" type="date" size="small"
-            InputLabelProps={{ shrink: true }}
-            value={dueDate} onChange={e => setDueDate(e.target.value)}
-            sx={{ mt: 2.5, width: 200 }}
-          />
+          <Box sx={{ mt: 2.5, pt: 2.5, borderTop: '1px solid', borderColor: 'divider' }}>
+            <FormControlLabel
+              control={<Checkbox checked={needsCompletion} onChange={e => setNeedsCompletion(e.target.checked)} />}
+              label="완료 확인 받기"
+            />
+            <Typography fontSize="0.78rem" color="text.secondary" sx={{ ml: 4, mt: -0.5 }}>
+              {needsCompletion
+                ? '받는 분의 할 일 목록에 남고, 누가 했는지 집계됩니다.'
+                : '읽으면 끝나는 안내입니다. 완료를 확인하지 않습니다.'}
+            </Typography>
+
+            {needsCompletion ? (
+              <TextField
+                label="마감일" type="date" size="small"
+                InputLabelProps={{ shrink: true }}
+                value={dueDate} onChange={e => setDueDate(e.target.value)}
+                sx={{ mt: 2, width: 200, display: 'block' }}
+              />
+            ) : (
+              <FormControlLabel
+                sx={{ mt: 1, display: 'block' }}
+                control={<Checkbox checked={pinned} onChange={e => setPinned(e.target.checked)} />}
+                label="목록 맨 위에 고정"
+              />
+            )}
+          </Box>
         </Box>
 
         <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2.5 }}>

@@ -48,7 +48,6 @@ const AdminStaff = lazy(() => import('./pages/admin/AdminStaff'))
 const AdminStudents = lazy(() => import('./pages/admin/AdminStudents'))
 const AdminSubjects = lazy(() => import('./pages/admin/AdminSubjects'))
 const AdminSpaces = lazy(() => import('./pages/admin/AdminSpaces'))
-const AdminAnnouncements = lazy(() => import('./pages/admin/AdminAnnouncements'))
 const AdminAcademicCalendar = lazy(() => import('./pages/admin/AdminAcademicCalendar'))
 const AdminDashboardModules = lazy(() => import('./pages/admin/AdminDashboardModules'))
 
@@ -115,7 +114,6 @@ export default function App() {
             <Route path="students" element={<AdminStudents />} />
             <Route path="subjects" element={<AdminSubjects />} />
             <Route path="spaces" element={<AdminSpaces />} />
-            <Route path="announcements" element={<AdminAnnouncements />} />
             <Route path="academic-calendar" element={<AdminAcademicCalendar />} />
             <Route path="dashboard-modules" element={<AdminDashboardModules />} />
 

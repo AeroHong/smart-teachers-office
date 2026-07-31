@@ -40,6 +40,7 @@ export default function MyRequestsWidget() {
       query(
         collection(db, ...schoolPath(schoolId, COL.REQUESTS)),
         where('targetUids', 'array-contains', user.uid),
+        where('kind', '==', 'request'),
         where('status', '==', 'open'),
       ),
       snap => setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))),

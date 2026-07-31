@@ -4,7 +4,7 @@ import ToastProvider from './components/ToastProvider'
 import Login from './pages/Login'
 import DashboardHome from './pages/DashboardHome'
 import RequestList from './pages/RequestList'
-import RequestNew from './pages/RequestNew'
+import PostNew from './pages/PostNew'
 import RequestDetail from './pages/RequestDetail'
 import Messages from './pages/Messages'
 import RedirectToPortal from './pages/RedirectToPortal'
@@ -26,7 +26,7 @@ export default function App() {
               상세는 만든 사람에게는 현황판, 대상 교사에게는 할 일 상세로 보인다
               (쿨메신저에 붙여넣는 링크가 이 주소를 가리킨다) */}
           <Route path="/requests" element={<ProtectedRoute anyUser><RequestList /></ProtectedRoute>} />
-          <Route path="/requests/new" element={<ProtectedRoute anyUser><RequestNew /></ProtectedRoute>} />
+          <Route path="/requests/new" element={<ProtectedRoute anyUser><PostNew /></ProtectedRoute>} />
           <Route path="/requests/:requestId" element={<ProtectedRoute anyUser><RequestDetail /></ProtectedRoute>} />
           {/* 쪽지 — 위젯이 아니라 전용 탭. 쿨메신저를 대체하지 않고 병행하는 보조 수단이라
               매일 보는 대시보드의 자리를 차지하지 않는다 */}

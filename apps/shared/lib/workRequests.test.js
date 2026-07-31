@@ -7,7 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  completionStats, dueState, isDoneBy, newRequestPayload,
+  completionStats, dueState, isDoneBy, isRequest, newRequestPayload,
   pendingMembers, sortByUrgency,
 } from './workRequests.js'
 
@@ -110,4 +110,31 @@ test('새 요청은 완료자 없이 시작하고 대상 명단을 고정한다'
   assert.deepEqual(payload.targetNames, ['김국어', '이수학'])
   assert.deepEqual(payload.completedUids, [])
   assert.equal(payload.status, 'open')
+})
+
+test('안내는 마감일과 완료 개념이 없다', () => {
+  const payload = newRequestPayload({
+    kind: 'notice',
+    title: '단축수업 안내',
+    dueDate: new Date('2026-06-20'),   // 넘겨도 무시된다
+    pinned: true,
+    targets: [{ uid: 'u1', name: '김국어' }],
+  })
+  assert.equal(payload.kind, 'notice')
+  assert.equal(payload.dueDate, null)
+  assert.equal(payload.pinned, true)
+})
+
+test('요청에는 고정(pinned) 개념이 없다', () => {
+  const payload = newRequestPayload({ kind: 'request', title: 'x', pinned: true, targets: [] })
+  assert.equal(payload.pinned, false)
+})
+
+test('알 수 없는 종류는 요청으로 떨어진다', () => {
+  assert.equal(newRequestPayload({ kind: '이상한값', title: 'x', targets: [] }).kind, 'request')
+})
+
+test('kind가 없는 옛 문서는 요청으로 본다', () => {
+  assert.equal(isRequest({ title: '옛 문서' }), true)
+  assert.equal(isRequest({ kind: 'notice' }), false)
 })

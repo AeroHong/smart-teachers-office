@@ -25,7 +25,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
 import {
-  completionStats, dueState, isDoneBy, isTargetOf, pendingMembers,
+  POST_KIND, completionStats, dueState, isDoneBy, isRequest, isTargetOf, pendingMembers,
 } from '@shared/lib/workRequests'
 import DashboardLayout from '../components/DashboardLayout'
 import RequestMaterials from '../components/RequestMaterials'
@@ -71,6 +71,8 @@ export default function RequestDetail() {
 
   const isOwner = request?.createdBy === user?.uid
   const isTarget = isTargetOf(request, user?.uid)
+  // 안내는 읽으면 끝이라 완료 표시도, 진행률도 없다
+  const trackCompletion = isRequest(request)
   const stats = useMemo(() => (request ? completionStats(request) : null), [request])
   const pending = useMemo(() => (request ? pendingMembers(request) : []), [request])
   const doneList = useMemo(() => {
@@ -115,6 +117,9 @@ export default function RequestDetail() {
         </Button>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
+          <Typography sx={{ fontSize: '1.1rem' }}>
+            {POST_KIND[isRequest(request) ? 'request' : 'notice'].emoji}
+          </Typography>
           <Typography variant="h6" fontWeight={800}>{request.title}</Typography>
           {due.label && <ToneChip label={due.label} tone={DUE_TONE[due.state]} />}
           {request.status === 'closed' && <Chip size="small" label="마감됨" />}
@@ -131,8 +136,8 @@ export default function RequestDetail() {
           <RequestMaterials attachments={request.attachments} links={request.links} />
         </Box>
 
-        {/* 대상 교사 — 내 완료 표시 */}
-        {isTarget && (
+        {/* 대상 교사 — 내 완료 표시 (안내에는 없다) */}
+        {isTarget && trackCompletion && (
           <Box sx={{
             p: 2, mb: 3, borderRadius: 3,
             border: '1px solid', borderColor: myDone ? 'success.main' : 'primary.main',
@@ -156,8 +161,13 @@ export default function RequestDetail() {
           </Box>
         )}
 
-        {/* 만든 사람 — 현황판 */}
-        {isOwner && stats && (
+        {/* 만든 사람 — 현황판 (안내는 대상 수만 보여주면 된다) */}
+        {isOwner && !trackCompletion && (
+          <Typography color="text.secondary" fontSize="0.85rem">
+            대상 {request.targetUids?.length || 0}명에게 전달된 안내입니다.
+          </Typography>
+        )}
+        {isOwner && trackCompletion && stats && (
           <>
             <Divider sx={{ mb: 2 }} />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
