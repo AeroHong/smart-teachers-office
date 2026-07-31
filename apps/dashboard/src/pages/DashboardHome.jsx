@@ -1,64 +1,122 @@
-import { useEffect, useState, useCallback } from 'react'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { collection, doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { COL, schoolPath, teacherAssignmentId, currentSchoolYear } from '@shared/lib/schema'
+import { MODULE_CATALOG, isModuleVisibleToMe } from '@shared/lib/dashboardModules'
 import DashboardLayout from '../components/DashboardLayout'
 import MyTasksWidget from '../widgets/MyTasksWidget'
 import CallsWidget from '../widgets/CallsWidget'
 import PresenceWidget from '../widgets/PresenceWidget'
+import AnnouncementsWidget from '../widgets/AnnouncementsWidget'
+import CalendarWidget from '../widgets/CalendarWidget'
+import NoticesWidget from '../widgets/NoticesWidget'
 
 /**
  * 위젯 대시보드
  *
  * 탭으로 화면을 나누지 않고 한 화면 안에서 영역별로 보여준다.
  * 위젯은 열 사이를 드래그해 자유롭게 옮길 수 있고, 배치는 users/{uid}.dashboardLayout에
- * 저장돼 다음 접속에도 유지된다. 캘린더·메신저 같은 위젯은 WIDGETS에 항목만 추가하면 된다.
+ * 저장돼 다음 접속에도 유지된다.
+ *
+ * CORE_WIDGETS는 항상 노출된다. OPTIONAL_WIDGETS는 schools/{id}/dashboardModules 문서
+ * (componentKey가 이 객체의 키와 일치)의 enabled + visibility로 관리자가 켜고 끄며
+ * 대상(전체/부서/개인)을 지정한다 — PLAN_dashboardElectron.md "모듈 노출 제어" 참고.
  *
  * 화면 기준: FHD(1920×1080) 이상 (개발 스펙 6.6). 좁아지면 열이 자동으로 접힌다.
  */
 
-const WIDGETS = {
+const CORE_WIDGETS = {
   tasks:    { title: '내 업무',   emoji: '📋', Component: MyTasksWidget },
   calls:    { title: '호출 알림', emoji: '🔔', Component: CallsWidget },
   presence: { title: '내 상태',   emoji: '🟢', Component: PresenceWidget },
 }
 
+const OPTIONAL_COMPONENTS = {
+  announcements: AnnouncementsWidget,
+  calendar: CalendarWidget,
+  notices: NoticesWidget,
+}
+
+const OPTIONAL_WIDGETS = Object.fromEntries(
+  Object.entries(MODULE_CATALOG).map(([key, meta]) => [key, { ...meta, Component: OPTIONAL_COMPONENTS[key] }]),
+)
+
+const WIDGETS = { ...CORE_WIDGETS, ...OPTIONAL_WIDGETS }
 const DEFAULT_LAYOUT = [['tasks'], ['presence', 'calls']]
 
-// 저장된 배치에 빠진 위젯이 있으면 마지막 열에 붙이고, 없어진 위젯 id는 걸러낸다
-function normalizeLayout(saved) {
-  const known = Object.keys(WIDGETS)
-  const base = Array.isArray(saved) && saved.length > 0
-    ? saved.map(col => (Array.isArray(col) ? col.filter(id => known.includes(id)) : []))
-    : DEFAULT_LAYOUT.map(col => [...col])
+function padColumns(cols) {
+  const next = cols.map(col => [...col])
+  while (next.length < DEFAULT_LAYOUT.length) next.push([])
+  return next
+}
 
-  while (base.length < DEFAULT_LAYOUT.length) base.push([])
-  const placed = new Set(base.flat())
-  known.forEach(id => { if (!placed.has(id)) base[base.length - 1].push(id) })
-  return base
+// 대상 목록(knownIds)에 없는 위젯은 걸러내고, 배치에 아직 없는 위젯은 마지막 열에 붙인다.
+// 관리자가 모듈을 껐다 켰다 하거나, 새 옵션 위젯이 추가돼도 이 한 함수로 정리된다.
+function reconcileLayout(columns, knownIds) {
+  const filtered = columns.map(col => col.filter(id => knownIds.includes(id)))
+  const placed = new Set(filtered.flat())
+  knownIds.forEach(id => { if (!placed.has(id)) filtered[filtered.length - 1].push(id) })
+  return filtered
+}
+
+function normalizeLayout(saved, knownIds) {
+  const base = Array.isArray(saved) && saved.length > 0
+    ? padColumns(saved.map(col => (Array.isArray(col) ? col : [])))
+    : padColumns(DEFAULT_LAYOUT)
+  return reconcileLayout(base, knownIds)
 }
 
 export default function DashboardHome() {
-  const { user } = useAuth()
-  const [layout, setLayout] = useState(() => normalizeLayout(null))
-  const [loaded, setLoaded] = useState(false)
+  const { user, schoolId } = useAuth()
+  const [rawLayout, setRawLayout] = useState(null)        // Firestore 원본 배치 (미로드 시 null)
+  const [layoutLoaded, setLayoutLoaded] = useState(false)
+  const [modules, setModules] = useState([])
+  const [modulesLoaded, setModulesLoaded] = useState(false)
+  const [department, setDepartment] = useState(null)
   const [dragging, setDragging] = useState(null)          // 끌고 있는 위젯 id
   const [dropAt, setDropAt] = useState(null)              // { col, index }
 
   useEffect(() => {
     if (!user) return
     getDoc(doc(db, 'users', user.uid))
-      .then(snap => setLayout(normalizeLayout(snap.data()?.dashboardLayout)))
+      .then(snap => setRawLayout(snap.data()?.dashboardLayout ?? null))
       .catch(() => {})
-      .finally(() => setLoaded(true))
+      .finally(() => setLayoutLoaded(true))
   }, [user])
 
+  useEffect(() => {
+    if (!schoolId || !user) return
+    getDoc(doc(db, ...schoolPath(schoolId, COL.TEACHER_ASSIGNMENTS), teacherAssignmentId(currentSchoolYear(), user.uid)))
+      .then(snap => setDepartment(snap.data()?.department || null))
+      .catch(() => {})
+  }, [schoolId, user])
+
+  useEffect(() => {
+    if (!schoolId) return
+    return onSnapshot(collection(db, ...schoolPath(schoolId, COL.DASHBOARD_MODULES)), snap => {
+      setModules(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setModulesLoaded(true)
+    })
+  }, [schoolId])
+
+  const visibleWidgetIds = useMemo(() => {
+    // dashboardModules 문서 ID가 곧 componentKey다 (schools/{id}/dashboardModules/{componentKey})
+    const optionalIds = modules
+      .filter(m => OPTIONAL_WIDGETS[m.id] && isModuleVisibleToMe(m, { uid: user?.uid, department }))
+      .map(m => m.id)
+    return [...Object.keys(CORE_WIDGETS), ...optionalIds]
+  }, [modules, user, department])
+
+  const layout = useMemo(() => normalizeLayout(rawLayout, visibleWidgetIds), [rawLayout, visibleWidgetIds])
+  const loaded = layoutLoaded && modulesLoaded
+
   const persist = useCallback(async (next) => {
-    setLayout(next)
+    setRawLayout(next)
     if (!user) return
     try {
       await updateDoc(doc(db, 'users', user.uid), { dashboardLayout: next })

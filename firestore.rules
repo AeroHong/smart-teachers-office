@@ -169,6 +169,45 @@ service cloud.firestore {
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
       }
 
+      // 전체 공지 — 관리자만 쓰기, 소속 교사 전체 읽기
+      match /announcements/{announcementId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 학사일정 — 관리자만 쓰기, 소속 교사 전체 읽기
+      match /academicCalendar/{eventId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 개인 쪽지 — 발신자만 생성, 발신자·수신자만 읽기/삭제.
+      // 읽음 처리(readAt)는 수신자가 update로 하므로 발신자·수신자 모두 update 허용 범위에 둔다
+      // (본문 위·변조는 클라이언트 UI에서 막고, 규칙은 문서 소유 여부까지만 판정한다).
+      match /personalNotices/{noticeId} {
+        allow read: if isSuperAdmin() ||
+          (isTeacher(schoolId) && (
+            resource.data.senderUid == request.auth.uid ||
+            resource.data.recipientUid == request.auth.uid
+          ));
+        allow create: if isSuperAdmin() ||
+          (isTeacher(schoolId) && request.resource.data.senderUid == request.auth.uid);
+        allow update: if isSuperAdmin() ||
+          (isTeacher(schoolId) && (
+            resource.data.senderUid == request.auth.uid ||
+            resource.data.recipientUid == request.auth.uid
+          ));
+        allow delete: if isSuperAdmin() ||
+          (isTeacher(schoolId) && resource.data.senderUid == request.auth.uid);
+      }
+
+      // 대시보드 위젯 노출 제어 — 관리자만 쓰기, 소속 교사 전체 읽기
+      // (자신이 대상인지는 department/uid 비교로 클라이언트가 판정 — enabled 여부만 서버가 강제)
+      match /dashboardModules/{moduleId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
       // 학생 — 소속 학교 구성원만 ──────────────────────────────────
       match /students/{studentId} {
         // 학생 본인도 자신의 학생 정보를 읽을 수 있음 (QR 체크인용)

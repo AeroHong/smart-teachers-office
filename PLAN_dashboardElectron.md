@@ -1,8 +1,41 @@
 # 대시보드 기능 확장 + Electron 데스크톱 앱 — 계획
 
 > 작성일: 2026-07-31
-> 상태: 계획만 (미착수)
+> 상태: Phase A 코드 구현 완료, **배포 전** (아래 "배포 전 남은 작업" 참고)
 > 관련 문서: [PLAN_messenger.md](./PLAN_messenger.md) (0단계 Electron 클라이언트·1단계 쪽지 로드맵과 통합)
+
+---
+
+## 진행 상황 (2026-07-31)
+
+**Phase A 코드 구현 완료.** 원격 개발 환경(Claude Code on the web)에서는 Firebase 인증이
+없어 `firebase deploy`를 실행할 수 없으므로, 아래 항목은 코드만 작성해뒀고 **PC 환경에서
+Firebase CLI로 배포해야 실제로 동작한다**:
+
+- [ ] `firestore.rules` 배포 (`firebase deploy --only firestore:rules`) — 새 컬렉션
+      4종(`announcements`/`academicCalendar`/`personalNotices`/`dashboardModules`) 규칙 추가됨
+- [ ] `firestore.indexes.json` 배포 (`firebase deploy --only firestore:indexes`) —
+      `personalNotices` 복합 인덱스(`recipientUid` + `createdAt`) 추가됨. 인덱스 빌드는
+      데이터량에 따라 시간이 걸리므로 배포 후 바로 쪽지 위젯을 열면 일시적으로 오류가 날 수 있음
+- [ ] `apps/portal`, `apps/dashboard` Hosting 배포 (`npm run build && npm run build:dashboard`
+      후 `firebase deploy --only hosting:seonyoo,hosting:smart-school,hosting:dashboard`)
+- [ ] 배포 후 관리자 페이지(`/admin/dashboard-modules`)에서 신규 위젯 3종(전체 공지·학사일정·쪽지)을
+      켜야 대시보드에 나타남 — 기본값이 `enabled: false`라 배포만으로는 아무도 못 봄
+- [ ] `apps/portal/src/pages/admin/AdminAnnouncements.jsx`, `AdminAcademicCalendar.jsx`에서
+      실제 공지/일정 콘텐츠 입력 (빈 상태로는 위젯이 "등록된 X가 없습니다"만 보임)
+
+구현된 코드:
+- `apps/shared/lib/schema.js` — `COL.ANNOUNCEMENTS`/`ACADEMIC_CALENDAR`/`PERSONAL_NOTICES`/`DASHBOARD_MODULES`
+- `apps/shared/lib/dashboardModules.js` — 모듈 카탈로그(`MODULE_CATALOG`) + 노출 판정(`isModuleVisibleToMe`) 단일 소스
+- `apps/dashboard/src/widgets/{AnnouncementsWidget,CalendarWidget,NoticesWidget}.jsx`
+- `apps/dashboard/src/components/NoticeComposeModal.jsx`
+- `apps/dashboard/src/pages/DashboardHome.jsx` — `dashboardModules` 구독 + department 조회로
+  옵션 위젯 노출 필터링, 기존 드래그 배치 로직과 통합
+- `apps/portal/src/pages/admin/{AdminAnnouncements,AdminAcademicCalendar,AdminDashboardModules}.jsx`
+  + `AdminLayout.jsx`/`App.jsx` 라우트 배선
+
+`npm run build`, `npm run build:dashboard` 모두 정상 빌드 확인됨(원격 환경에서 검증 가능한
+범위 — 실제 Firestore 데이터로의 동작 확인은 PC 환경 필요).
 
 ---
 

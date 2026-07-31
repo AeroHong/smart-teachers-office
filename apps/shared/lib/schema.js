@@ -69,6 +69,12 @@ export const COL = {
   // 호출 시스템
   CALL_REQUESTS: 'callRequests',
 
+  // 대시보드 — 공지/일정/쪽지/모듈 노출 제어
+  ANNOUNCEMENTS: 'announcements',           // 전체 공지 (관리자 작성)
+  ACADEMIC_CALENDAR: 'academicCalendar',    // 학사일정 (관리자 작성)
+  PERSONAL_NOTICES: 'personalNotices',      // 교사 상호간 쪽지
+  DASHBOARD_MODULES: 'dashboardModules',    // 위젯 노출 제어 (enabled + visibility)
+
   // 성취평가제(ASA)
   ASA_SUBJECTS: 'asaSubjects',
   ASA_SUBMISSIONS: 'asaSubmissions',
