@@ -90,6 +90,45 @@ const WIDGETS = {
 - 쪽지 작성은 대시보드 위젯 안에서 바로 (수신자는 `teacherAssignments` 조직도에서 선택 —
   `PLAN_messenger.md`가 이미 이 용도로 재사용 가능하다고 확인해둔 데이터)
 
+### 모듈 노출 제어 (관리자가 대상 지정)
+
+공지·학사일정·쪽지 외에도, 대시보드에 없는 다른 스마트교무실 기능(예: 보강 신청 현황,
+출결 미체크 요약 등)을 "요약 위젯" 형태로 계속 추가하게 될 것을 감안해, 위젯 노출 자체를
+관리자가 켜고 끄고 대상 교사를 지정할 수 있게 만든다.
+
+**핵심 원칙: 컴포넌트 레지스트리(코드)와 노출 제어(DB)를 분리한다.**
+실제 React 컴포넌트 매핑은 지금처럼 코드에 고정해두고 — Firestore에서 임의 코드를
+실행하는 구조가 아니므로 보안 문제가 없다. Firestore 쪽은 "그 컴포넌트를 누구에게 보여줄지"만
+결정한다.
+
+```
+schools/{schoolId}/dashboardModules/{moduleId}
+  componentKey: string        // 코드 쪽 WIDGETS 레지스트리 키 (예: 'substituteSummary')
+  title, emoji                // 표시용 메타 (관리자가 문구만 바꿀 수 있게)
+  enabled: boolean             // 마스터 온/오프
+  visibility: 'all' | 'department' | 'individual'
+  targetDepartments: array<string>   // visibility='department'일 때
+  targetTeacherUids: array<string>   // visibility='individual'일 때
+  order: number
+```
+
+**동작 흐름**
+1. 클라이언트는 `dashboardModules`에서 `enabled == true`인 문서를 구독
+2. `visibility` 규칙(전체/부서/개인)을 로그인한 교사의 `department`/`uid`와 대조해 필터링
+3. 통과한 모듈만 `componentKey`로 코드 레지스트리에서 컴포넌트를 찾아 기존 `WidgetFrame`으로
+   감싸서 렌더링 — 디자인은 셸이 강제하므로 어떤 모듈을 추가해도 통일감 유지
+4. 개인별 배치(`users/{uid}.dashboardLayout`)는 그 위에서 그대로 동작 — 노출 여부(관리자)와
+   배치 순서(개인)는 별개 레이어
+
+**관리자 화면**
+- 새 Admin 탭 `AdminDashboardModules.jsx` — 모듈 목록 테이블 + 켜고 끄기 스위치 + 대상 지정
+  (부서 선택 또는 교사 Autocomplete, `NEXT_STEPS.md`에 이미 있는 패턴 재사용)
+
+**새 모듈을 추가하는 절차 (예: 보강 신청 현황 요약)**
+1. 원본 기능(`/cover/*`)은 그대로 두고, 핵심 정보만 뽑아 보여주는 얇은 위젯 컴포넌트를 새로 작성
+2. `WIDGETS` 레지스트리에 `componentKey`로 등록 (코드 배포 1회)
+3. 이후로는 관리자가 `AdminDashboardModules`에서 켜고 끄고 대상만 지정 — 재배포 불필요
+
 ---
 
 ## Phase B — Electron wrapper (`PLAN_messenger.md` 0단계)
