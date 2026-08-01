@@ -19,33 +19,9 @@ export const CONDITION_TYPES = {
   office: { label: '사무실', field: 'office' },
   department: { label: '부서', field: 'department' },
   subject: { label: '교과', field: 'subject' },
-  rank: { label: '직급', field: 'rank' },
   position: { label: '직책', field: 'positionLabel' },
   teachingGrade: { label: '수업 학년', field: 'teachingGrades' },
   homeroom: { label: '담임 여부' },
-}
-
-/**
- * 직책 이름에서 직급을 뽑는다.
- *
- * 부장 직책은 학교마다 이름이 다르고(교무부장·연구부장·3학년부장·창의예체교육부장…)
- * 해마다 부서가 바뀌면 값도 바뀐다. 그래서 '직책'으로 부장단을 지정하려면 열 몇 개를
- * 일일이 골라야 하고, 새 부장이 생기면 조용히 빠진다.
- *
- * '…부장'으로 끝나는지만 보면 이름이 무엇이든 부장으로 묶인다. 부장단 안내에 교감·교장이
- * 늘 따라붙는 것도 직급 두 개를 고르면 끝난다.
- *
- * 직책이 없는 사람은 '일반'이다 — 교사와 행정직을 이 값으로는 구분할 수 없어서,
- * 없는 정보를 있는 척하지 않고 그대로 둔다.
- */
-export const RANKS = ['관리자', '부장', '일반']
-
-export function deriveRank(positionLabel) {
-  const label = (positionLabel || '').replace(/\s/g, '')
-  if (!label) return '일반'
-  if (label.includes('교장') || label.includes('교감')) return '관리자'
-  if (label.includes('부장')) return '부장'
-  return '일반'
 }
 
 /**
@@ -79,7 +55,6 @@ export function buildTargetMembers({ users = [], assignments = [], teacherSubjec
       department: (a.department || '').trim(),
       subject: (a.subject || '').trim(),
       positionLabel: (a.positionLabel || '').trim(),
-      rank: deriveRank(a.positionLabel),
       isHomeroom: !!a.isHomeroom,
       homeroomGrade: a.homeroomGrade ?? null,
       homeroomClassNo: a.homeroomClassNo ?? null,
@@ -99,16 +74,11 @@ export function collectFacets(members = []) {
     members.filter(m => m.isHomeroom && m.homeroomGrade != null).map(m => m.homeroomGrade),
   )].sort((a, b) => a - b)
 
-  // 직급은 데이터에 있는 것만 보여주되 관리자 → 부장 → 일반 순서를 지킨다.
-  // 가나다순이면 '관리자·부장·일반'이 뒤섞여 고르는 순간마다 위치를 다시 찾아야 한다.
-  const ranks = RANKS.filter(r => members.some(m => m.rank === r))
-
   return {
     offices: distinct('office'),
     departments: distinct('department'),
     subjects: distinct('subject'),
     positions: distinct('positionLabel'),
-    ranks,
     teachingGrades: grades,
     homeroomGrades,
   }
@@ -206,6 +176,5 @@ function describeCondition(condition) {
   if (values.length === 0) return ''
 
   if (condition.type === 'teachingGrade') return `${values.join('·')}학년 수업 담당`
-  if (condition.type === 'rank') return values.join('·')
   return `${CONDITION_TYPES[condition.type]?.label || condition.type} ${values.join('·')}`
 }

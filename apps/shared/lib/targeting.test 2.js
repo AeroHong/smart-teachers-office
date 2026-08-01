@@ -7,7 +7,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTargetMembers, collectFacets, deriveRank, describeRule, resolveTargets } from './targeting.js'
+import { buildTargetMembers, collectFacets, describeRule, resolveTargets } from './targeting.js'
 
 // 선유고를 축소한 가상 교직원 6명
 const users = [
@@ -151,57 +151,4 @@ test('2학기 기준으로 보면 수업 학년이 달라진다', () => {
     users: [{ uid: 'u1', name: '김국어' }], assignments, teacherSubjects: twoSemesters, semester: 2,
   })
   assert.deepEqual(sem2[0].teachingGrades, [3])
-})
-
-
-// ── 직급 (선유고 실제 직책 이름을 그대로 씀) ─────────────────
-test('직책 이름이 달라도 부장으로 묶인다', () => {
-  const heads = ['교무부장', '연구부장', '3학년부장', '인문사회교육부장', '창의예체교육부장', '진로상담복지부장']
-  heads.forEach(label => assert.equal(deriveRank(label), '부장', label))
-})
-
-test('교장·교감은 관리자', () => {
-  assert.equal(deriveRank('교장'), '관리자')
-  assert.equal(deriveRank('교감'), '관리자')
-})
-
-test('직책이 없으면 일반 — 교사와 행정직을 이 값으로는 구분할 수 없다', () => {
-  assert.equal(deriveRank(''), '일반')
-  assert.equal(deriveRank(null), '일반')
-  assert.equal(deriveRank('  '), '일반')
-})
-
-test('부장단 = 직급 하나로 관리자와 부장을 함께 (열두 번 고르지 않아도 된다)', () => {
-  const staff = [
-    { uid: 'p', name: '교장' }, { uid: 'v', name: '교감' },
-    { uid: 'h1', name: '교무부장' }, { uid: 'h2', name: '3학년부장' },
-    { uid: 't1', name: '평교사' },
-  ]
-  const assigns = [
-    { uid: 'p', positionLabel: '교장' }, { uid: 'v', positionLabel: '교감' },
-    { uid: 'h1', positionLabel: '교무부장' }, { uid: 'h2', positionLabel: '3학년부장' },
-    { uid: 't1', positionLabel: '' },
-  ]
-  const list = buildTargetMembers({ users: staff, assignments: assigns, teacherSubjects: [], semester: 1 })
-
-  const rule = { conditions: [{ type: 'rank', values: ['관리자', '부장'] }] }
-  const result = resolveTargets(rule, list)
-  assert.deepEqual(result.members.map(m => m.name), ['3학년부장', '교감', '교무부장', '교장'])
-  assert.equal(describeRule(rule), '관리자·부장')
-
-  // 부장만 따로도 뽑힌다
-  assert.equal(resolveTargets({ conditions: [{ type: 'rank', values: ['부장'] }] }, list).uids.length, 2)
-})
-
-test('직급 보기 목록은 관리자 → 부장 → 일반 순서를 지킨다', () => {
-  const list = buildTargetMembers({
-    users: [{ uid: 'a', name: 'A' }, { uid: 'b', name: 'B' }, { uid: 'c', name: 'C' }],
-    assignments: [
-      { uid: 'a', positionLabel: '' },
-      { uid: 'b', positionLabel: '교무부장' },
-      { uid: 'c', positionLabel: '교감' },
-    ],
-    teacherSubjects: [], semester: 1,
-  })
-  assert.deepEqual(collectFacets(list).ranks, ['관리자', '부장', '일반'])
 })

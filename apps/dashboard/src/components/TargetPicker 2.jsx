@@ -35,7 +35,6 @@ function optionsFor(type, facets) {
     case 'department': return facets.departments
     case 'subject': return facets.subjects
     case 'position': return facets.positions
-    case 'rank': return facets.ranks
     case 'teachingGrade': return facets.teachingGrades
     default: return []
   }
