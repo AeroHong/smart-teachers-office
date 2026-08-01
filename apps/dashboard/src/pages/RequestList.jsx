@@ -12,6 +12,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
+import OutboxIcon from '@mui/icons-material/Outbox'
+import SchoolIcon from '@mui/icons-material/School'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
@@ -92,7 +94,7 @@ export default function RequestList() {
 
       <SidebarSection
         label="내가 보낸 요청"
-        icon="📤"
+        icon={OutboxIcon}
         count={sortedMine.length}
         open={open.mine}
         onToggle={() => setOpen(o => ({ ...o, mine: !o.mine }))}
@@ -105,7 +107,7 @@ export default function RequestList() {
       {isAdmin && (
         <SidebarSection
           label="학교 전체"
-          icon="🏫"
+          icon={SchoolIcon}
           count={open.all ? sortedAll.length : null}
           open={open.all}
           onToggle={() => setOpen(o => ({ ...o, all: !o.all }))}

@@ -20,6 +20,9 @@ import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../componen
 import PostDetail from '../components/PostDetail'
 import EventDetail from '../components/EventDetail'
 import useHomeFeed from '../lib/useHomeFeed'
+import TaskAltIcon from '@mui/icons-material/TaskAlt'
+import CampaignIcon from '@mui/icons-material/Campaign'
+import EventIcon from '@mui/icons-material/Event'
 import useSeenPosts from '../lib/useSeenPosts'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -69,7 +72,7 @@ export default function Home() {
 
       <SidebarSection
         label="요청받은 일"
-        icon="✅"
+        icon={TaskAltIcon}
         badge={pendingCount}
         open={open.requests}
         onToggle={() => setOpen(o => ({ ...o, requests: !o.requests }))}
@@ -98,7 +101,7 @@ export default function Home() {
 
       <SidebarSection
         label="전체 공지"
-        icon="📢"
+        icon={CampaignIcon}
         count={notices.length}
         badge={newNoticeCount}
         open={open.notices}
@@ -121,7 +124,7 @@ export default function Home() {
 
       <SidebarSection
         label="학사일정"
-        icon="🗓"
+        icon={EventIcon}
         count={events.length}
         open={open.events}
         onToggle={() => setOpen(o => ({ ...o, events: !o.events }))}

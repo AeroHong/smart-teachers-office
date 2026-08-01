@@ -13,6 +13,8 @@ import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import ReplyIcon from '@mui/icons-material/Reply'
 import SendIcon from '@mui/icons-material/Send'
+import InboxIcon from '@mui/icons-material/Inbox'
+import OutboxIcon from '@mui/icons-material/Outbox'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
@@ -69,7 +71,7 @@ export default function Messages() {
 
       <SidebarSection
         label="받은 쪽지"
-        icon="📥"
+        icon={InboxIcon}
         count={inbox.length}
         badge={unreadCount}
         open={open.inbox}
@@ -89,7 +91,7 @@ export default function Messages() {
 
       <SidebarSection
         label="보낸 쪽지"
-        icon="📤"
+        icon={OutboxIcon}
         count={sent.length}
         open={open.sent}
         onToggle={() => setOpen(o => ({ ...o, sent: !o.sent }))}

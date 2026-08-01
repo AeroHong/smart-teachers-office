@@ -12,8 +12,15 @@ import Collapse from '@mui/material/Collapse'
 import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 
-/** 접이식 섹션 머리. 접혀 있어도 건수는 보여야 열지 말지 판단할 수 있다. */
-export function SidebarSection({ label, icon, count, badge, open, onToggle, children }) {
+/**
+ * 접이식 섹션 머리. 접혀 있어도 건수는 보여야 열지 말지 판단할 수 있다.
+ *
+ * 섹션마다 다른 아이콘을 쓴다. 전부 같은 꺾쇠면 목록이 세 덩어리로 나뉘어 있다는 것만
+ * 알 뿐 어느 덩어리인지는 글자를 읽어야 안다. 접힌 상태는 아이콘을 흐리게 해서 알린다.
+ *
+ * @param {React.ElementType} [icon] 이 섹션을 나타내는 아이콘. 없으면 꺾쇠를 쓴다.
+ */
+export function SidebarSection({ label, icon: Icon, count, badge, open, onToggle, children }) {
   return (
     <Box sx={{ mb: 0.3 }}>
       <Box
@@ -28,19 +35,26 @@ export function SidebarSection({ label, icon, count, badge, open, onToggle, chil
           '&:hover': { bgcolor: 'action.hover' },
         }}
       >
-        <ExpandMoreIcon
-          sx={{
-            fontSize: 16, color: 'text.disabled', flexShrink: 0,
-            transform: open ? 'none' : 'rotate(-90deg)',
-            transition: 'transform .15s ease',
-          }}
-        />
-        {/* 꺾쇠만 있으면 섹션이 전부 같아 보인다. 무엇에 대한 목록인지 아이콘으로 구분한다. */}
-        {icon && (
-          <Typography sx={{ fontSize: '0.8rem', lineHeight: 1, flexShrink: 0, mr: 0.2 }}>{icon}</Typography>
+        {Icon ? (
+          <Icon sx={{
+            fontSize: 16, flexShrink: 0, mr: 0.35,
+            color: open ? 'text.secondary' : 'text.disabled',
+            transition: 'color .15s ease',
+          }} />
+        ) : (
+          <ExpandMoreIcon
+            sx={{
+              fontSize: 16, color: 'text.disabled', flexShrink: 0,
+              transform: open ? 'none' : 'rotate(-90deg)',
+              transition: 'transform .15s ease',
+            }}
+          />
         )}
         <Typography
-          sx={{ fontSize: '0.73rem', fontWeight: 800, letterSpacing: '.03em', color: 'text.secondary' }}
+          sx={{
+            fontSize: '0.73rem', fontWeight: 800, letterSpacing: '.03em',
+            color: open ? 'text.secondary' : 'text.disabled',
+          }}
           noWrap
         >
           {label}
