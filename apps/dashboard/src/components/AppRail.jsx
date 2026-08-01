@@ -1,9 +1,8 @@
 /**
  * 좌측 이동 레일 — 화면에서 유일하게 어두운 영역.
  *
- * 예전에는 상단 AppBar가 이동·사용자·로그아웃을 전부 들고 있었는데, 3분할로 바꾸면서
- * 가로 공간을 캔버스와 명단에 넘기고 이동 수단만 세로로 세웠다. 레일은 항상 같은
- * 자리에 고정돼 있어 어느 화면에 있든 위치 감각이 유지된다.
+ * 이동 수단만 세로로 세워 가로 공간을 목록과 상세에 넘긴다. 레일은 항상 같은 자리에
+ * 고정돼 있어 어느 화면에 있든 위치 감각이 유지된다.
  */
 import { Link, useLocation } from 'react-router-dom'
 import Box from '@mui/material/Box'
@@ -73,7 +72,7 @@ function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
   )
 }
 
-export default function AppRail({ rosterOpen, onToggleRoster, showRosterToggle }) {
+export default function AppRail() {
   const { userName, logout } = useAuth()
   const { pathname } = useLocation()
   const unreadNotices = useUnreadNotices()
@@ -91,10 +90,15 @@ export default function AppRail({ rosterOpen, onToggleRoster, showRosterToggle }
     >
       <Typography sx={{ fontSize: '1.35rem', mb: 1 }} aria-hidden>📋</Typography>
 
-      <RailButton icon={DashboardIcon} label="대시보드" to="/" active={pathname === '/'} />
+      <RailButton
+        icon={DashboardIcon}
+        label="홈"
+        to="/"
+        active={pathname === '/' || pathname.startsWith('/posts')}
+      />
       <RailButton
         icon={RequestIcon}
-        label="업무요청"
+        label="보낸 글"
         to="/requests"
         active={pathname.startsWith('/requests')}
       />
@@ -105,9 +109,12 @@ export default function AppRail({ rosterOpen, onToggleRoster, showRosterToggle }
         active={pathname.startsWith('/messages')}
         badge={unreadNotices}
       />
-      {showRosterToggle && (
-        <RailButton icon={PeopleIcon} label="구성원" onClick={onToggleRoster} active={rosterOpen} />
-      )}
+      <RailButton
+        icon={PeopleIcon}
+        label="구성원"
+        to="/members"
+        active={pathname.startsWith('/members')}
+      />
 
       <Box sx={{ flexGrow: 1 }} />
 

@@ -22,13 +22,26 @@ import { COL, schoolPath } from '@shared/lib/schema'
 import { POST_KIND, isRequest } from '@shared/lib/workRequests'
 
 const PAGES = [
-  { id: 'page:/', label: '대시보드', hint: '위젯 한 화면', to: '/', emoji: '🏠' },
+  { id: 'page:/', label: '홈', hint: '요청·안내·호출·일정', to: '/', emoji: '🏠' },
   { id: 'page:/requests', label: '안내 · 요청', hint: '내가 보낸 글', to: '/requests', emoji: '📋' },
   { id: 'page:/requests/new', label: '글 쓰기', hint: '안내 또는 요청 만들기', to: '/requests/new', emoji: '✏️' },
   { id: 'page:/messages', label: '쪽지', hint: '받은 쪽지·보낸 쪽지', to: '/messages', emoji: '✉️' },
+  { id: 'page:/members', label: '구성원', hint: '조직도·연락', to: '/members', emoji: '👥' },
 ]
 
 const MAX_POSTS = 8
+
+/**
+ * 상단바 검색 상자에서 팔레트를 연다.
+ *
+ * 팔레트는 라우트 바깥에 한 벌만 떠 있고 상단바는 그 위에 없어서, 부모-자식으로 상태를
+ * 내려줄 수 없다. 컨텍스트를 새로 두기엔 여는 동작 하나뿐이라 이벤트로 처리한다.
+ */
+const OPEN_EVENT = 'command-palette:open'
+
+export function openCommandPalette() {
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT))
+}
 
 export default function CommandPalette() {
   const { user, schoolId } = useAuth()
@@ -46,8 +59,13 @@ export default function CommandPalette() {
         setOpen(v => !v)
       }
     }
+    const onOpen = () => setOpen(true)
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener(OPEN_EVENT, onOpen)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener(OPEN_EVENT, onOpen)
+    }
   }, [])
 
   // 팔레트를 연 동안만 구독한다 — 늘 켜두면 모든 화면에 리스너가 하나씩 붙는다
@@ -76,7 +94,7 @@ export default function CommandPalette() {
       id: `post:${p.id}`,
       label: p.title || '(제목 없음)',
       hint: `${POST_KIND[isRequest(p) ? 'request' : 'notice'].label} · ${p.createdByName || ''}`,
-      to: `/requests/${p.id}`,
+      to: `/posts/${p.id}`,
       emoji: POST_KIND[isRequest(p) ? 'request' : 'notice'].emoji,
     }))
     return [...pages, ...matched]

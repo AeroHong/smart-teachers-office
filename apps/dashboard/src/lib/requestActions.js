@@ -136,7 +136,7 @@ export function buildShareText(request, dashboardUrl) {
     request.description || null,
     '',
     `아래에서 자료를 받고 완료를 체크해 주세요.`,
-    `${dashboardUrl}/requests/${request.id}`,
+    `${dashboardUrl}/posts/${request.id}`,
   ]
   return lines.filter(l => l !== null).join('\n')
 }

@@ -1,14 +1,15 @@
 /**
- * 업무 요청 상세.
+ * 안내·요청 상세 — 목록/상세 구조의 오른쪽 칸.
  *
- * 한 화면이 두 역할을 한다 — 만든 사람에게는 현황판, 대상 교사에게는 할 일 상세.
- * 쿨메신저에 붙여넣는 링크가 이 주소를 가리키므로, 누가 열든 자기에게 필요한 것이 보여야 한다.
+ * 한 컴포넌트가 두 역할을 한다 — 만든 사람에게는 현황판, 대상 교사에게는 할 일 상세.
+ * 쿨메신저에 붙여넣는 링크가 이 화면을 가리키므로, 누가 열든 자기에게 필요한 것이 보여야 한다.
  *
  * 담당자에게 가장 중요한 건 "누가 안 했나"다. 그 명단을 찾느라 뒤지는 일을 없애는 것이
  * 이 기능 전체의 요점이라, 미완료 명단을 접지 않고 펼쳐서 보여준다.
+ *
+ * 셸(레일·사이드바)은 바깥이 담당하므로 여기서는 내용만 그린다.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -21,7 +22,6 @@ import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
@@ -32,10 +32,9 @@ import { resolveTargets } from '@shared/lib/targeting'
 import {
   POST_KIND, completionStats, dueState, isDoneBy, isRequest, isTargetOf, pendingMembers,
 } from '@shared/lib/workRequests'
-import DashboardLayout from '../components/DashboardLayout'
-import RequestMaterials from '../components/RequestMaterials'
-import { ListSkeleton, ToneChip } from '../components/widgetUi'
-import { useToast } from '../components/ToastProvider'
+import RequestMaterials from './RequestMaterials'
+import { ListSkeleton, ToneChip } from './widgetUi'
+import { useToast } from './ToastProvider'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import {
   buildShareText, deletePost, recalculateTargets, remindPending,
@@ -44,10 +43,8 @@ import {
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
-export default function RequestDetail() {
-  const { requestId } = useParams()
+export default function PostDetail({ requestId, onDeleted }) {
   const { user, userName, schoolId } = useAuth()
-  const navigate = useNavigate()
   const toast = useToast()
   const { members } = useSchoolMembers()
 
@@ -104,19 +101,13 @@ export default function RequestDetail() {
   }
 
   if (!loaded) {
-    return (
-      <DashboardLayout>
-        <Box sx={{ maxWidth: 820, mx: 'auto' }}>
-          <ListSkeleton rows={4} />
-        </Box>
-      </DashboardLayout>
-    )
+    return <Box sx={{ p: 2.5 }}><ListSkeleton rows={4} /></Box>
   }
   if (!request) {
     return (
-      <DashboardLayout>
-        <Typography color="text.secondary">요청을 찾을 수 없습니다. 삭제되었을 수 있습니다.</Typography>
-      </DashboardLayout>
+      <Typography color="text.secondary" sx={{ p: 2.5, fontSize: '0.9rem' }}>
+        글을 찾을 수 없습니다. 삭제되었을 수 있습니다.
+      </Typography>
     )
   }
 
@@ -124,12 +115,8 @@ export default function RequestDetail() {
   const myDone = isDoneBy(request, user?.uid)
 
   return (
-    <DashboardLayout>
-      <Box sx={{ maxWidth: 820, mx: 'auto' }}>
-        <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => navigate('/requests')} sx={{ mb: 1 }}>
-          목록
-        </Button>
-
+    <>
+      <Box sx={{ maxWidth: 820, p: 2.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
           <Typography sx={{ fontSize: '1.1rem' }}>
             {POST_KIND[isRequest(request) ? 'request' : 'notice'].emoji}
@@ -317,7 +304,7 @@ export default function RequestDetail() {
               setConfirmDelete(false)
               run(async () => {
                 await deletePost({ schoolId, requestId, attachments: request.attachments })
-                navigate('/requests')
+                onDeleted?.()
               }, '삭제했습니다.')
             }}
           >
@@ -325,7 +312,7 @@ export default function RequestDetail() {
           </Button>
         </DialogActions>
       </Dialog>
-    </DashboardLayout>
+    </>
   )
 }
 

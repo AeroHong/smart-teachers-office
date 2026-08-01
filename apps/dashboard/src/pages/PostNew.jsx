@@ -30,7 +30,7 @@ import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { newRequestPayload } from '@shared/lib/workRequests'
 import { deleteAttachment } from '@shared/lib/requestAttachments'
-import DashboardLayout from '../components/DashboardLayout'
+import WorkspaceLayout from '../components/WorkspaceLayout'
 import TargetPicker from '../components/TargetPicker'
 import AttachmentPicker from '../components/AttachmentPicker'
 import { useToast } from '../components/ToastProvider'
@@ -109,15 +109,15 @@ export default function PostNew() {
 
   if (error) {
     return (
-      <DashboardLayout>
-        <Typography color="error">구성원 정보를 불러오지 못했습니다. 새로고침해 주세요.</Typography>
-      </DashboardLayout>
+      <WorkspaceLayout>
+        <Typography color="error" sx={{ p: 2.5 }}>구성원 정보를 불러오지 못했습니다. 새로고침해 주세요.</Typography>
+      </WorkspaceLayout>
     )
   }
 
   return (
-    <DashboardLayout>
-      <Box sx={{ maxWidth: 780, mx: 'auto' }}>
+    <WorkspaceLayout>
+      <Box sx={{ maxWidth: 780, p: 2.5 }}>
         <Typography variant="h6" fontWeight={800} mb={2.5}>글 쓰기</Typography>
 
         {/* 글쓰기 — 제목 · 내용 · 자료 */}
@@ -186,6 +186,6 @@ export default function PostNew() {
           </Button>
         </Box>
       </Box>
-    </DashboardLayout>
+    </WorkspaceLayout>
   )
 }
