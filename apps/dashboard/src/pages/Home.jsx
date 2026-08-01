@@ -35,7 +35,9 @@ export default function Home() {
 
   // 글 외의 선택(호출·일정)은 주소가 없으므로 화면 안에서만 기억한다
   const [localSel, setLocalSel] = useState(null)
-  const [open, setOpen] = useState({ requests: true, notices: true, calls: true, events: false })
+  // 학사일정도 펴둔다. 접어두면 D-day가 코앞인 일정을 열어봐야만 알 수 있는데,
+  // 그건 "놓치지 않게 한다"는 이 화면의 목적과 어긋난다.
+  const [open, setOpen] = useState({ requests: true, notices: true, calls: true, events: true })
 
   // 글을 고르면 주소가 바뀌므로 화면 안의 선택은 지운다 (양쪽이 동시에 선택돼 보이지 않게)
   useEffect(() => { if (requestId) setLocalSel(null) }, [requestId])

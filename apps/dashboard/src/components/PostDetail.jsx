@@ -116,7 +116,9 @@ export default function PostDetail({ requestId, onDeleted }) {
 
   return (
     <>
-      <Box sx={{ maxWidth: 820, p: 2.5 }}>
+      {/* 바깥은 넓게 두되 '읽는 것'만 좁게 잡는다. 제목·설명은 한 줄이 길면 눈이 끝까지
+          따라가야 하지만, 완료 명단 수십 명은 좁은 칸에 세로로 쌓이면 스크롤만 길어진다. */}
+      <Box sx={{ maxWidth: 1120, p: 2.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
           <Typography sx={{ fontSize: '1.1rem' }}>
             {POST_KIND[isRequest(request) ? 'request' : 'notice'].emoji}
@@ -138,18 +140,19 @@ export default function PostDetail({ requestId, onDeleted }) {
           {request.createdByName} · 대상 {request.targetRuleText || '전체 교직원'}
         </Typography>
 
-        {request.description && (
-          <Typography sx={{ whiteSpace: 'pre-wrap', mb: 2 }}>{request.description}</Typography>
-        )}
-
-        <Box sx={{ mb: 3 }}>
-          <RequestMaterials attachments={request.attachments} links={request.links} />
+        <Box sx={{ maxWidth: 760 }}>
+          {request.description && (
+            <Typography sx={{ whiteSpace: 'pre-wrap', mb: 2 }}>{request.description}</Typography>
+          )}
+          <Box sx={{ mb: 3 }}>
+            <RequestMaterials attachments={request.attachments} links={request.links} />
+          </Box>
         </Box>
 
         {/* 대상 교사 — 내 완료 표시 (안내에는 없다) */}
         {isTarget && trackCompletion && (
           <Box sx={{
-            p: 1.75, mb: 2.5, borderRadius: 1.25,
+            p: 1.75, mb: 2.5, borderRadius: 1.25, maxWidth: 760,
             border: '1px solid', borderColor: myDone ? 'success.main' : 'primary.main',
           }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -324,10 +327,16 @@ function NameSection({ title, tone, members, emptyText, action, subtitle, bulkAc
         <Box sx={{ flexGrow: 1 }} />
         {bulkAction}
       </Box>
+      {/* 이름 한 줄에 화면 전체 폭을 쓰면 59명이 스크롤 두 화면이 된다.
+          폭이 허락하는 만큼 열을 늘려 한눈에 담는다. */}
       {members.length === 0 ? (
         <Typography color="text.secondary" fontSize="0.85rem">{emptyText}</Typography>
       ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(232px, 1fr))',
+          gap: 0.6,
+        }}>
           {members.map(m => (
             <Box
               key={m.uid}
