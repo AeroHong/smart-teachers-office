@@ -4,6 +4,7 @@
   "description": "선유고 스마트 교무실 — 포털 + 출결 + 보강신청 통합",
   "type": "module",
   "scripts": {
+    "test": "node --test \"apps/**/*.test.js\"",
     "dev": "vite --config apps/portal/vite.config.js",
     "build": "vite build --config apps/portal/vite.config.js",
     "deploy": "npm run build && firebase deploy --only hosting:seonyoo,hosting:smart-school",

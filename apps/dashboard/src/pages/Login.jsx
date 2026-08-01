@@ -57,7 +57,7 @@ export default function Login() {
           fontSize: '0.95rem',
           px: 3.5,
           py: 1.4,
-          borderRadius: 3,
+          borderRadius: 1.25,
           boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
           '&:hover': { bgcolor: '#faf5ff', boxShadow: '0 8px 28px rgba(0,0,0,0.26)' },
         }}

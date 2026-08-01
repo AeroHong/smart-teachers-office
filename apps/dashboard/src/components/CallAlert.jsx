@@ -61,7 +61,7 @@ export default function CallAlert() {
     <Slide direction="up" in={!!current} mountOnEnter unmountOnExit>
       <Box sx={{
         position: 'fixed', right: 24, bottom: 24, zIndex: 1400,
-        width: 360, borderRadius: 3, overflow: 'hidden',
+        width: 360, borderRadius: 1.25, overflow: 'hidden',
         bgcolor: '#fff', border: '1px solid #fecaca',
         boxShadow: '0 18px 40px rgba(15,23,42,.22)',
       }}>

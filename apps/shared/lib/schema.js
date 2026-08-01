@@ -64,16 +64,22 @@ export const COL = {
   COVER_REQUESTS: 'coverRequests',
   TRAININGS: 'trainings',
   NOTICES: 'notices',
-  TASKS: 'tasks',
 
   // 호출 시스템
   CALL_REQUESTS: 'callRequests',
 
-  // 대시보드 — 공지/일정/쪽지/모듈 노출 제어
-  ANNOUNCEMENTS: 'announcements',           // 전체 공지 (관리자 작성)
+  // 대시보드 — 일정/모듈 노출 제어
+  // (전체 공지는 REQUESTS의 kind='notice'로 통합됐다)
   ACADEMIC_CALENDAR: 'academicCalendar',    // 학사일정 (관리자 작성)
-  PERSONAL_NOTICES: 'personalNotices',      // 교사 상호간 쪽지
   DASHBOARD_MODULES: 'dashboardModules',    // 위젯 노출 제어 (enabled + visibility)
+
+  // 쪽지 — 교사 상호간 1:1. 위젯이 아니라 별도 탭(/messages)에서 다룬다.
+  PERSONAL_NOTICES: 'personalNotices',
+
+  // 업무 글 — 안내(kind='notice')와 요청(kind='request')을 함께 담는다.
+  // 둘 다 제목·내용·자료·대상이 같고 "완료 확인을 받느냐"만 달라 컬렉션을 나누지 않았다.
+  REQUESTS: 'requests',
+  REQUEST_COMPLETIONS: 'completions',       // requests/{id}/completions/{uid} — ID가 곧 uid
 
   // 성취평가제(ASA)
   ASA_SUBJECTS: 'asaSubjects',

@@ -16,7 +16,6 @@ const MENU_ITEMS = [
   { path: '/admin/staff', label: '교직원 관리', icon: '👨‍🏫' },
   { path: '/admin/students', label: '학생 관리', icon: '🎓' },
   { path: '/admin/spaces', label: '공간 관리', icon: '🏢' },
-  { path: '/admin/announcements', label: '전체 공지', icon: '📢' },
   { path: '/admin/academic-calendar', label: '학사일정', icon: '📅' },
   { path: '/admin/dashboard-modules', label: '대시보드 모듈', icon: '🧩' },
   { path: '/admin/asa-cutoffs', label: '분할점수 기준', icon: '📊' },
