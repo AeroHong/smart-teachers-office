@@ -2,6 +2,14 @@ rules_version = '2';
 
 // 파일 저장소 규칙.
 //
+// 소속·직군은 인증 토큰(Custom Claims)에서 읽는다. 예전에는 규칙 안에서
+// firestore.get()으로 users 문서를 읽었는데, 이 프로젝트에서는 그 호출이 동작하지 않아
+// 업로드가 전부 거부됐다(storage/unauthorized). IAM(firebaserules.firestoreServiceAgent)을
+// 부여해도 같았고 원인을 특정하지 못했다.
+//
+// 토큰에서 읽으면 교차 서비스 의존이 사라지고, 업로드마다 발생하던 Firestore 읽기도
+// 없어진다. 클레임은 functions/userClaims.js가 users 문서에 맞춰 유지한다.
+//
 // 주의 — 다운로드 토큰 URL은 이 규칙을 우회한다.
 // getDownloadURL()이 돌려주는 `?alt=media&token=...` 주소는 Storage 보안 규칙과 무관하게
 // 링크를 가진 사람이면 누구나 열 수 있다. 아래 read 규칙은 SDK 접근과 목록 열람을 막을 뿐
@@ -10,35 +18,35 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    function userData() {
-      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
-    }
-
     function isMemberOf(schoolId) {
-      return request.auth != null && userData().schoolId == schoolId;
+      return request.auth != null && request.auth.token.schoolId == schoolId;
     }
 
     function isStaffOf(schoolId) {
-      return isMemberOf(schoolId) &&
-        userData().role in ['teacher', 'admin', 'school_admin', 'principal'];
+      return isMemberOf(schoolId) && request.auth.token.staff == true;
     }
 
-    // 업무 요청 첨부 — 양식·매뉴얼. 요청을 만드는 건 교사 누구나이므로 업로드도 교사 전체.
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.superAdmin == true;
+    }
+
+    // 업무 요청 첨부 — 양식·매뉴얼과 본문 이미지. 요청을 만드는 건 교사 누구나이므로
+    // 업로드도 교직원 전체.
     //
     // 파일 형식을 제한하지 않는 이유: 학교 주력이 한글(.hwp)인데 브라우저가 붙이는
     // contentType이 application/x-hwp, application/haansofthwp, application/octet-stream 등
     // 환경마다 달라 형식으로 거르면 정상 파일이 막힌다. 크기만 제한한다.
     match /schools/{schoolId}/requests/{requestId}/{fileName} {
-      allow read: if isMemberOf(schoolId);
-      allow write: if isStaffOf(schoolId) && request.resource.size < 20 * 1024 * 1024;
+      allow read: if isSuperAdmin() || isMemberOf(schoolId);
+      allow write: if (isSuperAdmin() || isStaffOf(schoolId))
+                   && request.resource.size < 20 * 1024 * 1024;
     }
 
-    // 그 밖의 학교 파일 — 기존대로 관리자만 쓰기.
-    // read를 `if true`에서 소속 구성원으로 좁혔다. 학교 문서가 인증 없이 열려 있었고,
-    // 지금 이 경로를 쓰는 살아있는 코드가 없어 좁혀도 깨지는 기능이 없다.
+    // 그 밖의 학교 파일 — 관리자만 쓰기.
     match /schools/{schoolId}/{allPaths=**} {
-      allow read: if isMemberOf(schoolId);
-      allow write: if isMemberOf(schoolId) && userData().role in ['school_admin', 'admin'];
+      allow read: if isSuperAdmin() || isMemberOf(schoolId);
+      allow write: if isSuperAdmin() ||
+        (isMemberOf(schoolId) && request.auth.token.admin == true);
     }
 
     match /{allPaths=**} {

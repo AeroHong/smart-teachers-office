@@ -31,6 +31,11 @@ exports.rollbackStudentsMigration = migrations.rollbackStudentsMigration
 const groupMigrations = require('./migrations/migrateStudentGroups')
 exports.migrateStudentGroups = groupMigrations.migrateStudentGroups
 
+// 소속·직군을 인증 토큰에 심는다 — Storage 규칙이 Firestore를 읽지 않아도 되게
+const userClaims = require('./userClaims')
+exports.syncUserClaims = userClaims.syncUserClaims
+exports.refreshMyClaims = userClaims.refreshMyClaims
+
 /**
  * superAdmin Custom Claims 초기 부여 (1회 실행용)
  *

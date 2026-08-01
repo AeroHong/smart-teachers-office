@@ -3,7 +3,8 @@ import {
   onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
-import { auth, db } from '@shared/lib/firebase'
+import { httpsCallable } from 'firebase/functions'
+import { auth, db, functions } from '@shared/lib/firebase'
 import { emailToDocId } from '@shared/lib/emailToDocId'
 
 const SUPER_ADMIN_EMAIL = 'hckgood@gmail.com'
@@ -221,12 +222,37 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  /**
+   * 소속·직군 클레임이 토큰에 있는지 확인하고, 없으면 서버에 채워달라고 요청한다.
+   *
+   * Storage 규칙이 이 클레임으로 소속 학교와 교직원 여부를 판정한다. 클레임이 없으면
+   * 파일 업로드가 통째로 막히는데, 사용자 입장에서는 이유를 알 수 없다.
+   *
+   * 이미 가입해 있던 계정은 users 문서가 바뀔 일이 없어 트리거가 돌지 않는다.
+   * 그래서 로그인할 때마다 한 번 확인하고 비어 있으면 채운다. 채운 뒤에는 토큰을 새로
+   * 받아야 새 값이 반영된다(getIdTokenResult(true)).
+   */
+  const ensureClaims = useCallback(async (firebaseUser) => {
+    try {
+      const { claims } = await firebaseUser.getIdTokenResult()
+      if (claims.schoolId) return
+
+      await httpsCallable(functions, 'refreshMyClaims')()
+      await firebaseUser.getIdTokenResult(true)
+    } catch (e) {
+      // 실패해도 로그인은 진행한다. 파일 업로드만 안 될 뿐 나머지 기능은 Firestore
+      // 규칙으로 동작하므로, 여기서 막아 세우면 손해가 더 크다.
+      console.error('권한 정보 갱신 실패:', e)
+    }
+  }, [])
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true)
       try {
         if (firebaseUser) {
           await processUser(firebaseUser)
+          await ensureClaims(firebaseUser)
         } else {
           setUser(null)
           setUserName('')
