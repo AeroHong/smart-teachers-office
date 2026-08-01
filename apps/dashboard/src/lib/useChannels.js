@@ -14,7 +14,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
-import { channelStats, sortChannels } from '@shared/lib/channels'
+import { channelStats, hasLeft, sortChannels } from '@shared/lib/channels'
 
 export default function useChannels() {
   const { user, schoolId } = useAuth()
@@ -27,8 +27,12 @@ export default function useChannels() {
     if (!schoolId || !user) return
     setLoading(true)
 
-    // 보관한 채널은 목록에서 뺀다. archived까지 조건에 넣으면 복합 색인이 하나 더
-    // 필요한데, 채널 수가 수십 개라 클라이언트에서 거르는 편이 싸다.
+    // 보관·나간 채널까지 여기서 다 받아온다. archived나 leftUids를 쿼리 조건에 넣으면
+    // 복합 색인이 늘어나는 데다, 보관함과 '나간 채널'을 열어보려면 어차피 그 문서들이
+    // 필요하다. 채널 수가 수십 개라 통째로 받아 클라이언트에서 나누는 편이 싸다.
+    //
+    // 나간 사람도 memberUids에는 남아 있어서 이 쿼리에 계속 걸린다. 그래야 본인이
+    // '다시 참여'를 누를 자리가 남는다 — 쿼리에서 사라지면 되돌아올 길이 없어진다.
     const unsubChannels = onSnapshot(
       query(
         collection(db, ...schoolPath(schoolId, COL.CHANNELS)),
@@ -50,22 +54,32 @@ export default function useChannels() {
     return () => { unsubChannels(); unsubPosts() }
   }, [schoolId, user])
 
-  const channels = useMemo(() => {
+  /**
+   * 세 갈래로 나눈다 — 보고 있는 채널, 보관한 채널, 내가 나간 채널.
+   *
+   * 보관을 나가기보다 먼저 본다. 둘 다 해당하면 한쪽에만 놓아야 목록에 두 번 뜨지 않는데,
+   * 보관은 채널 전체에 일어난 일이고 나가기는 나 혼자의 일이라 보관 쪽이 더 큰 사실이다.
+   */
+  const groups = useMemo(() => {
     const byChannel = new Map()
     posts.forEach(p => {
       if (!p.channelId) return
       if (!byChannel.has(p.channelId)) byChannel.set(p.channelId, [])
       byChannel.get(p.channelId).push(p)
     })
-    return sortChannels(
-      raw
-        .filter(c => !c.archived)
-        .map(c => {
-          const own = byChannel.get(c.id) || []
-          return { ...c, posts: own, stats: channelStats(own) }
-        }),
-    )
-  }, [raw, posts])
 
-  return { channels, loading, error }
+    const all = raw.map(c => {
+      const own = byChannel.get(c.id) || []
+      return { ...c, posts: own, stats: channelStats(own) }
+    })
+    const left = c => hasLeft(c, user?.uid)
+
+    return {
+      channels: sortChannels(all.filter(c => !c.archived && !left(c))),
+      archivedChannels: sortChannels(all.filter(c => c.archived)),
+      leftChannels: sortChannels(all.filter(c => !c.archived && left(c))),
+    }
+  }, [raw, posts, user])
+
+  return { ...groups, loading, error }
 }

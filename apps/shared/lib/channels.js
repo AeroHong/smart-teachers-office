@@ -43,6 +43,7 @@ export function newChannelPayload({
     memberRule,
     memberRuleText,
     memberUids: members.map(m => m.uid),
+    leftUids: [],
     createdBy,
     createdByName,
     archived: false,
@@ -124,8 +125,71 @@ export function validateChannelName(name, existingNames = []) {
   return null
 }
 
+/**
+ * 나갔다는 사실을 memberUids에서 빼는 대신 따로 기억하는 이유.
+ *
+ * memberUids는 사람의 뜻이 아니라 조건을 지금 구성원에 펼친 계산 결과다. 거기서 자기를
+ * 지워봐야 다음 갱신 때 조건이 그대로 다시 채워 넣는다. 나갔다는 것은 조건과 무관하게
+ * 살아남아야 하는 사실이라 조건의 결과물과 같은 칸에 둘 수 없다.
+ *
+ * 규칙 검증에도 이 편이 낫다. 나가기가 leftUids 하나만 건드리면 "움직인 uid가 본인뿐인가"를
+ * completedUids와 똑같은 방식으로 볼 수 있다. 나가기가 memberUids를 건드리게 두면 참여자
+ * 명단을 바꾸는 일과 나가는 일이 한 필드에서 일어나 규칙으로 둘을 갈라낼 수 없고,
+ * 결국 "명단을 고칠 수 있는 사람"과 "나갈 수 있는 사람"의 권한이 같아져 버린다.
+ *
+ * 갱신할 때 leftUids를 정리하지 않는 것도 같은 이유다. 조건이 이 사람을 다시 데려와도
+ * 본인이 밝힌 뜻은 그대로 남아야 한다 — 돌아오는 것은 본인이 '다시 참여'를 누를 때다.
+ */
+export function hasLeft(channel, uid) {
+  if (!channel || !uid) return false
+  return (channel.leftUids || []).includes(uid)
+}
+
 /** 내가 이 채널의 참여자인가. 만든 사람은 조건에서 빠져도 계속 본다. */
 export function isMember(channel, uid) {
   if (!channel || !uid) return false
+  // 나간 사람은 만든 사람이라도 목록에서 빼준다. 스스로 밝힌 뜻이 조건보다 뒤에 오면
+  // 나가기 버튼이 아무 일도 안 하는 버튼이 된다.
+  if (hasLeft(channel, uid)) return false
   return channel.createdBy === uid || (channel.memberUids || []).includes(uid)
+}
+
+/**
+ * 보관·갱신·고치기를 만든 사람과 관리자로 묶는 기준.
+ *
+ * firestore.rules의 채널 update 조건과 같은 판정을 화면에서도 해서, 규칙에 막힐 동작이
+ * 애초에 눌리지 않게 한다. 눌린 뒤 권한 오류로 튕기면 사용자는 기능이 고장 난 것으로 읽는다.
+ */
+export function canManageChannel(channel, uid, isAdmin = false) {
+  if (!channel || !uid) return false
+  return !!isAdmin || channel.createdBy === uid
+}
+
+/**
+ * 저장된 참여자 명단과, 조건을 지금 구성원에 다시 푼 결과를 견준다.
+ *
+ * 인사이동이나 배정 입력이 있으면 memberUids가 조용히 낡는다. 화면은 어제와 똑같아서
+ * 아무도 눈치채지 못하는데, 새로 온 선생님에게는 채널이 안 보이고 떠난 선생님에게는
+ * 계속 보인다. 목록을 눈으로 훑어서는 못 잡는 종류의 어긋남이라 계산으로 잡는다.
+ *
+ * 자동으로 덮어쓰지 않고 사람에게 보이기만 하는 이유: 참여자가 바뀌는 것은 알아야 할
+ * 변화다. 조건을 잘못 고쳐 절반이 빠지는 경우와 인사이동으로 두 명이 바뀌는 경우가
+ * 화면에 똑같이 보이면, 갱신 버튼은 내용을 안 읽고 누르는 버튼이 된다.
+ *
+ * 순서와 중복은 변화로 세지 않는다. 조건 엔진은 이름순으로 정렬해 돌려주기 때문에
+ * 개명 하나로도 uid 순서가 바뀌는데, 그걸 변화로 치면 실제로는 그대로인 채널에
+ * 갱신 표시가 영영 붙어 있고 그러면 표시 자체를 안 믿게 된다.
+ *
+ * @param {string[]} savedUids    채널 문서의 memberUids
+ * @param {string[]} resolvedUids resolveTargets로 지금 다시 푼 uid들
+ * @returns {{ added: string[], removed: string[], changed: boolean }}
+ */
+export function memberDiff(savedUids = [], resolvedUids = []) {
+  const saved = new Set((savedUids || []).filter(Boolean))
+  const resolved = new Set((resolvedUids || []).filter(Boolean))
+
+  const added = [...resolved].filter(uid => !saved.has(uid)).sort()
+  const removed = [...saved].filter(uid => !resolved.has(uid)).sort()
+
+  return { added, removed, changed: added.length > 0 || removed.length > 0 }
 }

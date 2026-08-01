@@ -147,21 +147,41 @@ export async function updatePostContent({ schoolId, requestId, patch }) {
 }
 
 /**
+ * 하위 컬렉션 문서를 지운다. Firestore는 부모를 지워도 하위를 따라 지우지 않는다.
+ *
+ * 배치가 아니라 한 건씩 지우고 실패를 삼킨다. 댓글은 글쓴이라도 남의 것을 지울 수 없어서
+ * (firestore.rules 참고) 배치로 묶으면 남의 댓글 하나에 거부되는 순간 배치 전체가
+ * 실패하고, 그러면 글 자체가 지워지지 않는다. 지울 수 있는 것만 지우는 편이 낫다.
+ *
+ * @returns {number} 지우지 못하고 남은 문서 수
+ */
+async function deleteSubcollection(schoolId, requestId, name) {
+  const snap = await getDocs(
+    collection(db, ...schoolPath(schoolId, COL.REQUESTS), requestId, name),
+  )
+  const results = await Promise.all(
+    snap.docs.map(d => deleteDoc(d.ref).then(() => true).catch(() => false)),
+  )
+  return results.filter(ok => !ok).length
+}
+
+/**
  * 글 삭제.
  *
- * 첨부 파일과 완료 기록도 같이 지운다. 문서만 지우면 저장소에 파일이, 하위 컬렉션에
- * 완료 기록이 참조 없이 남는다 (Firestore는 하위 컬렉션을 자동으로 지우지 않는다).
+ * 첨부 파일과 완료 기록·댓글도 같이 지운다. 문서만 지우면 저장소에 파일이, 하위
+ * 컬렉션에 기록이 참조 없이 남는다 — 화면에서는 사라졌는데 데이터는 계속 쌓인다.
+ *
+ * 남의 댓글은 권한이 없어 남을 수 있다. 화면에서 닿을 수 없는 문서라 새어나가지는
+ * 않지만 몇 건이 남았는지는 돌려줘서, 부르는 쪽이 알릴지 말지 정하게 한다.
+ *
+ * @returns {{ orphanedComments: number }}
  */
 export async function deletePost({ schoolId, requestId, attachments = [] }) {
-  const completions = await getDocs(
-    collection(db, ...schoolPath(schoolId, COL.REQUESTS), requestId, COL.REQUEST_COMPLETIONS),
-  )
-  if (!completions.empty) {
-    const batch = writeBatch(db)
-    completions.docs.forEach(d => batch.delete(d.ref))
-    await batch.commit()
-  }
+  await deleteSubcollection(schoolId, requestId, COL.REQUEST_COMPLETIONS)
+  const orphanedComments = await deleteSubcollection(schoolId, requestId, COL.REQUEST_COMMENTS)
 
   await Promise.all(attachments.map(a => deleteAttachment(a).catch(() => {})))
   await deleteDoc(requestRef(schoolId, requestId))
+
+  return { orphanedComments }
 }

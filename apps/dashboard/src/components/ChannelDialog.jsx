@@ -94,7 +94,8 @@ export default function ChannelDialog({ open, channel, existingNames = [], onClo
             : <TargetPicker members={members} value={rule} onChange={setRule} label="참여자" />}
         </Box>
         <Typography fontSize="0.76rem" color="text.secondary" sx={{ mt: 0.8 }}>
-          참여자는 조건으로 정합니다. 인사이동이 있으면 채널을 열어 다시 저장하면 갱신됩니다.
+          참여자는 조건으로 정합니다. 인사이동으로 조건에 맞는 사람이 달라지면 채널 머리에
+          갱신 안내가 뜨고, 거기서 누가 들어오고 빠지는지 확인한 뒤 갱신합니다.
         </Typography>
       </DialogContent>
       <DialogActions>

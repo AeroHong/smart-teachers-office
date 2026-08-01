@@ -35,6 +35,7 @@ import {
   POST_KIND, completionStats, dueState, isDoneBy, isRequest, isTargetOf, pendingMembers,
 } from '@shared/lib/workRequests'
 import { sanitizeHtml } from '@shared/lib/richText'
+import PostComments from './PostComments'
 import RequestMaterials from './RequestMaterials'
 import { ListSkeleton, ToneChip } from './widgetUi'
 import { useToast } from './ToastProvider'
@@ -314,6 +315,10 @@ export default function PostDetail({ requestId, onDeleted }) {
             />
           </>
         )}
+
+        {/* 댓글은 누가 열든 보인다 — 되묻는 말은 담당자에게만 생기는 것이 아니고,
+            같은 질문에 대한 답을 대상 전원이 함께 보는 것이 이 기능의 요점이다. */}
+        <PostComments requestId={requestId} />
       </Box>
 
       {/* 되돌릴 수 없는 동작이라 확인을 받는다. window.confirm은 앱과 모양이 따로 놀고
