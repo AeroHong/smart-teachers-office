@@ -25,7 +25,7 @@ export const SIZE_KEYS = ['S', 'M', 'L']
 /** 위젯별 기본 폭 — 내용의 성격에 맞춰 정한다. */
 const DEFAULT_SIZE = {
   requests: 'L',
-  announcements: 'L',
+  announcements: 'M',
   calendar: 'M',
   presence: 'S',
   calls: 'S',
@@ -36,12 +36,14 @@ export function defaultSizeFor(id) {
 }
 
 // 요청받은 일이 맨 위다. 마감이 걸린 일을 가장 먼저 보게 하는 것이 이 화면의 목적이다.
+// 나머지는 두 개씩 나란히 놓아 노트북 한 화면에 최대한 담는다 — 전부 전체 폭으로 쌓으면
+// 768px 화면에서 두 개밖에 안 보인다.
 export const DEFAULT_LAYOUT = [
   { id: 'requests', size: 'L' },
+  { id: 'announcements', size: 'M' },
+  { id: 'calendar', size: 'M' },
   { id: 'presence', size: 'S' },
   { id: 'calls', size: 'S' },
-  { id: 'calendar', size: 'M' },
-  { id: 'announcements', size: 'L' },
 ]
 
 function isLegacyLayout(saved) {

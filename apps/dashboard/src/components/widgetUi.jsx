@@ -103,22 +103,26 @@ export function SectionLabel({ children }) {
 export function EmptyState({ emoji, message, hint, actionLabel, onAction, href }) {
   const action = actionLabel && (onAction || href)
 
+  // 노트북(768px 높이)에서 빈 상태 하나가 세로 280px를 먹어 위젯이 두 개밖에 안 보였다.
+  // 빈 화면은 '지금은 볼 게 없다'만 알리면 되므로 한 줄로 눕히고 높이를 최소로 잡는다.
   return (
-    <Box sx={{ textAlign: 'center', py: 4.5, px: 2 }}>
-      <Typography fontSize="2rem" mb={0.5}>{emoji}</Typography>
-      <Typography color="text.secondary" fontSize="0.9rem">{message}</Typography>
+    <Box sx={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      gap: 1, flexWrap: 'wrap', py: 2.5, px: 1.5, textAlign: 'center',
+    }}>
+      <Typography fontSize="1.15rem" sx={{ lineHeight: 1 }}>{emoji}</Typography>
+      <Typography color="text.secondary" fontSize="0.87rem">{message}</Typography>
       {hint && (
-        <Typography color="text.secondary" fontSize="0.8rem" sx={{ mt: 0.5, opacity: 0.8 }}>
+        <Typography color="text.secondary" fontSize="0.78rem" sx={{ opacity: 0.75, width: '100%' }}>
           {hint}
         </Typography>
       )}
       {action && (
         <Button
           size="small"
-          variant="outlined"
           onClick={onAction}
           {...(href ? { href, target: '_blank', rel: 'noopener' } : {})}
-          sx={{ mt: 1.5 }}
+          sx={{ py: 0.1 }}
         >
           {actionLabel}
         </Button>

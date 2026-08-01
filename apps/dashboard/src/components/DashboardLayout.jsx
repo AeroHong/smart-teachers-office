@@ -19,7 +19,7 @@ import AppRail from './AppRail'
 import MemberRoster from './MemberRoster'
 import CallAlert from './CallAlert'
 
-const ROSTER_WIDTH = 280
+const ROSTER_WIDTH = 244
 
 export default function DashboardLayout({ children }) {
   const theme = useTheme()
@@ -37,7 +37,7 @@ export default function DashboardLayout({ children }) {
         showRosterToggle={!wideEnough}
       />
 
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 3 }, py: 3 }}>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 1.75, md: 2.5 }, py: 2 }}>
         {children}
       </Box>
 

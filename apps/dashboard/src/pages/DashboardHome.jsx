@@ -152,8 +152,10 @@ export default function DashboardHome() {
 
   return (
     <DashboardLayout>
-      <Box sx={{ maxWidth: 1680, mx: 'auto' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+      {/* 1680px까지 늘리면 리스트 한 줄이 1500px를 가로질러 눈이 끝까지 따라가야 한다.
+          읽기 좋은 폭에서 멈추고 남는 가로는 여백으로 둔다. */}
+      <Box sx={{ maxWidth: 1360, mx: 'auto' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
           <Typography variant="h6" fontWeight={800}>대시보드</Typography>
           {editing && (
             <Typography fontSize="0.8rem" color="text.secondary">
@@ -178,7 +180,7 @@ export default function DashboardHome() {
             xs: '1fr',
             md: `repeat(${GRID_COLUMNS}, 1fr)`,
           },
-          gap: 2.5,
+          gap: 2,
           alignItems: 'start',
         }}>
           {layout.map((item, index) => (
@@ -238,7 +240,7 @@ function WidgetFrame({
     >
       <Box sx={{
         display: 'flex', alignItems: 'center', gap: 0.8,
-        px: 2, py: 1.4, borderBottom: '1px solid', borderColor: 'divider',
+        px: 1.75, py: 0.9, borderBottom: '1px solid', borderColor: 'divider',
       }}>
         {editing && <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled' }} />}
         <Typography fontSize="0.95rem" fontWeight={700} noWrap>
@@ -256,9 +258,11 @@ function WidgetFrame({
         {editing && <SizePicker value={item.size} onChange={(size) => onResize(item.id, size)} />}
       </Box>
 
-      {/* 편집 중에는 내용을 접어둔다 — 위젯이 길면 끌어 옮길 때 화면이 크게 튄다 */}
+      {/* 편집 중에는 내용을 접어둔다 — 위젯이 길면 끌어 옮길 때 화면이 크게 튄다.
+          본문 높이 상한은 화면에 비례시킨다. 460px 고정이면 768px 노트북에서 위젯 하나가
+          화면의 60%를 차지해 두 개밖에 안 보인다. */}
       {!editing && (
-        <Box sx={{ p: 2, maxHeight: 460, overflowY: 'auto' }}>
+        <Box sx={{ p: 1.75, maxHeight: 'min(420px, 44vh)', overflowY: 'auto' }}>
           {/* 위젯 하나가 터져도 나머지 화면은 살아 있어야 한다 */}
           <ErrorBoundary label={w.title}>
             <WidgetBadgeProvider onChange={setBadge}>
