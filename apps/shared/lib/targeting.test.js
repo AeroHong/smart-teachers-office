@@ -90,6 +90,7 @@ test('화면에서 없앤 직책 조건도 옛 요청에서는 그대로 판정�
   // 조건을 모른다고 무시하면 대상이 조용히 전체로 넓어진다
   const rule = { conditions: [{ type: 'position', values: ['부장교사'] }] }
   assert.deepEqual(namesOf(resolveTargets(rule, members)), ['김국어', '정체육'])
+  assert.equal(describeRule(rule), '직책 부장교사')
 })
 
 test('직접 추가는 조건을 통과하지 못해도 포함된다', () => {
@@ -111,12 +112,12 @@ test('직접 제외는 조건과 직접 추가보다 우선한다', () => {
 
 test('값을 아직 고르지 않은 조건은 명단을 비우지 않는다', () => {
   // 조건을 추가한 직후 값이 비어 있을 때 0명이 되면, 쓰는 사람이 당황한다
-  const rule = { conditions: [{ type: 'office', values: [] }] }
+  const rule = { conditions: [{ type: 'department', values: [] }] }
   assert.equal(resolveTargets(rule, members).uids.length, 6)
 })
 
 test('대상이 0명이면 경고한다', () => {
-  const rule = { conditions: [{ type: 'office', values: ['없는교무실'] }] }
+  const rule = { conditions: [{ type: 'department', values: ['없는부서'] }] }
   const result = resolveTargets(rule, members)
   assert.equal(result.uids.length, 0)
   assert.ok(result.warnings.some(w => w.includes('대상이 없습니다')))
@@ -128,13 +129,19 @@ test('명단에 없는 uid를 지정하면 경고한다', () => {
 })
 
 test('결과는 이름 가나다순으로 정렬된다', () => {
-  const result = resolveTargets({ conditions: [{ type: 'office', values: ['2교무실'] }] }, members)
-  assert.deepEqual(namesOf(result), ['박영어', '정체육', '최과학'])
+  const result = resolveTargets({ conditions: [{ type: 'department', values: ['연구부', '체육부'] }] }, members)
+  assert.deepEqual(namesOf(result), ['이수학', '정체육', '최과학'])
+})
+
+test('화면에서 없앤 사무실 조건도 옛 요청에서는 그대로 판정된다', () => {
+  const rule = { conditions: [{ type: 'office', values: ['2교무실'] }] }
+  assert.deepEqual(namesOf(resolveTargets(rule, members)), ['박영어', '정체육', '최과학'])
+  assert.equal(describeRule(rule), '사무실 2교무실')   // 'office 2교무실'로 새면 안 된다
 })
 
 test('보기 목록은 실제 데이터에 있는 값만 담는다', () => {
   const facets = collectFacets(members)
-  assert.deepEqual(facets.offices, ['1교무실', '2교무실', '행정실'])
+  assert.deepEqual(facets.offices, ['1교무실', '2교무실', '행정실'])  // 구성원 명단이 쓴다
   assert.deepEqual(facets.ranks, ['부장', '일반'])          // 직책 없는 사람은 일반
   assert.deepEqual(facets.teachingGrades, [1, 2, 3])
   assert.deepEqual(facets.homeroomGrades, [1, 2])

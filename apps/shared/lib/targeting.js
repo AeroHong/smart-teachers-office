@@ -16,7 +16,6 @@
 
 /** 조건 종류. 화면의 조건 선택기와 describeRule이 같이 쓴다. */
 export const CONDITION_TYPES = {
-  office: { label: '사무실', field: 'office' },
   department: { label: '부서', field: 'department' },
   subject: { label: '교과', field: 'subject' },
   rank: { label: '직급', field: 'rank' },
@@ -122,12 +121,18 @@ export function collectFacets(members = []) {
 /**
  * 화면에서 없앤 조건 종류.
  *
- * 'position'(직책)은 직급과 거의 같은 대상을 뽑으면서 값만 열 몇 개로 흩어져 있어 뺐다.
- * 다만 이미 저장된 요청의 targetRule에는 남아 있을 수 있는데, 여기서 모르는 종류라고
+ *  - position(직책) : 직급과 거의 같은 대상을 뽑으면서 값만 열 몇 개로 흩어져 있었다.
+ *  - office(사무실) : 업무 요청은 조직(부서·직급·교과)으로 나가지 앉은 자리로 나가지
+ *    않는다. 사무실은 구성원 명단(rosterTree)에서 자리 확인·호출 기준으로만 쓴다.
+ *
+ * 이미 저장된 요청의 targetRule에는 남아 있을 수 있는데, 여기서 모르는 종류라고
  * 무시해버리면 조건 하나가 사라지면서 대상이 조용히 전체로 넓어진다.
  * 새로 만들 수는 없어도 판정은 예전 그대로 한다.
  */
-const LEGACY_FIELDS = { position: 'positionLabel' }
+const LEGACY_FIELDS = { position: 'positionLabel', office: 'office' }
+
+/** 옛 요청의 조건을 문장으로 옮길 때 쓸 이름. 없으면 'office 2층 교무실'처럼 나온다. */
+const LEGACY_LABELS = { position: '직책', office: '사무실' }
 
 function matchesCondition(member, condition) {
   if (!condition || !condition.type) return true
@@ -222,6 +227,6 @@ function describeCondition(condition) {
 
   if (condition.type === 'teachingGrade') return `${values.join('·')}학년 수업 담당`
   if (condition.type === 'rank') return values.join('·')
-  if (condition.type === 'position') return `직책 ${values.join('·')}`   // 옛 요청 표시용
-  return `${CONDITION_TYPES[condition.type]?.label || condition.type} ${values.join('·')}`
+  const label = CONDITION_TYPES[condition.type]?.label || LEGACY_LABELS[condition.type] || condition.type
+  return `${label} ${values.join('·')}`
 }

@@ -46,7 +46,6 @@ const COMPACT_LIST = { paper: { sx: { '& li': { fontSize: '0.82rem', minHeight: 
 /** 조건 종류별로 고를 수 있는 값 목록을 facets에서 꺼낸다. */
 function optionsFor(type, facets) {
   switch (type) {
-    case 'office': return facets.offices
     case 'department': return facets.departments
     case 'subject': return facets.subjects
     case 'rank': return facets.ranks
