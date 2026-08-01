@@ -344,6 +344,9 @@ function NameSection({ title, tone, members, emptyText, action, subtitle, bulkAc
                 display: 'flex', alignItems: 'center', gap: 1,
                 px: 1.2, py: 0.5, borderRadius: 0.75,
                 border: '1px solid', borderColor: 'divider',
+                // 59칸에 버튼이 다 떠 있으면 이름보다 버튼이 먼저 눈에 들어온다.
+                // 담당자가 보려는 건 '누가 안 했나'지 버튼이 아니다 — 마우스를 올릴 때만 꺼낸다.
+                '&:hover .row-action': { opacity: 1 },
               }}
             >
               <Typography fontSize="0.88rem" fontWeight={600}>{m.name}</Typography>
@@ -351,7 +354,12 @@ function NameSection({ title, tone, members, emptyText, action, subtitle, bulkAc
                 <Typography fontSize="0.75rem" color="text.secondary">{subtitle(m)}</Typography>
               )}
               <Box sx={{ flexGrow: 1 }} />
-              {action?.(m)}
+              <Box
+                className="row-action"
+                sx={{ opacity: 0, transition: 'opacity .12s ease', flexShrink: 0 }}
+              >
+                {action?.(m)}
+              </Box>
             </Box>
           ))}
         </Box>
