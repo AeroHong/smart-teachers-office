@@ -56,6 +56,10 @@ export default function SlashMenu({ open, anchorRect, query, onSelect, onClose }
   useEffect(() => {
     if (!open) return
     const onKey = (e) => {
+      // 한글 입력 중에는 Enter가 '글자 확정'이지 '선택'이 아니다. 여기서 가로채면
+      // 마지막 글자가 확정되기 전에 메뉴가 실행돼, 지우는 글자 수가 어긋나고
+      // 확정된 글자만 본문에 남는다 ('/구분선' → '선'이 남던 문제).
+      if (e.isComposing || e.keyCode === 229) return
       if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(c => Math.min(c + 1, items.length - 1)) }
       else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor(c => Math.max(c - 1, 0)) }
       else if (e.key === 'Enter' || e.key === 'Tab') {

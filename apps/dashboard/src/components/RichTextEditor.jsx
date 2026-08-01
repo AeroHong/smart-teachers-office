@@ -64,6 +64,8 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(0)
   const [colorAnchor, setColorAnchor] = useState(null)
+  // 크기를 조절하려고 고른 이미지. 손잡이는 이 값이 있을 때만 그린다.
+  const [picked, setPicked] = useState(null)   // { el, rect }
   // '/'를 친 위치와 그 뒤에 이어 친 글자. 메뉴를 고르면 이 구간을 지우고 블록을 넣는다.
   const [slash, setSlash] = useState(null)
 
@@ -78,6 +80,82 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
   }, [onChange])
 
   const handleInput = () => { emit(); syncSlash() }
+
+  /** 고른 이미지의 화면 위치를 다시 잰다 — 스크롤·창 크기·크기 조절 후 손잡이를 따라 붙인다. */
+  const measure = useCallback(() => {
+    setPicked(prev => (prev?.el ? {
+      el: prev.el,
+      rect: prev.el.getBoundingClientRect(),
+      // 편집기는 내용이 넘치면 잘라내므로(overflow: auto), 테두리와 손잡이도 같은 범위
+      // 안에서만 그려야 한다. 안 그러면 이미지는 잘리는데 테두리만 화면을 가로질러 남는다.
+      clip: editorRef.current?.getBoundingClientRect() || null,
+    } : null))
+  }, [])
+
+  // 이미지를 누르면 고르고, 다른 곳을 누르면 푼다
+  const handleEditorClick = (e) => {
+    if (e.target?.tagName === 'IMG') {
+      setPicked({ el: e.target, rect: e.target.getBoundingClientRect() })
+    } else {
+      setPicked(null)
+      syncSlash()
+    }
+  }
+
+  useEffect(() => {
+    if (!picked) return
+    const el = editorRef.current
+    window.addEventListener('resize', measure)
+    el?.addEventListener('scroll', measure)
+    return () => {
+      window.removeEventListener('resize', measure)
+      el?.removeEventListener('scroll', measure)
+    }
+  }, [picked, measure])
+
+  /**
+   * 오른쪽 아래 손잡이를 끌어 폭을 바꾼다.
+   *
+   * style이 아니라 width 속성에 px로 넣는다. 저장할 때 style은 색만 남기고 걸러지는데,
+   * width 속성은 그대로 통과하기 때문이다. 화면에서는 max-width:100%가 걸려 있어
+   * 좁은 창에서는 알아서 줄어든다 — 지정한 폭은 상한으로만 작동한다.
+   */
+  const startResize = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const img = picked?.el
+    if (!img) return
+
+    const startX = e.clientX
+    const startWidth = img.getBoundingClientRect().width
+    const maxWidth = editorRef.current?.clientWidth || 900
+
+    const onMove = (ev) => {
+      const next = Math.round(Math.min(maxWidth, Math.max(80, startWidth + (ev.clientX - startX))))
+      img.setAttribute('width', String(next))
+      img.style.width = ''
+      measure()
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      emit()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  /** 자주 쓰는 폭 — 손으로 끌지 않고도 한 번에 맞춘다. */
+  const setImageWidth = (ratio) => {
+    const img = picked?.el
+    if (!img) return
+    const box = editorRef.current?.clientWidth || 900
+    if (ratio === null) img.removeAttribute('width')
+    else img.setAttribute('width', String(Math.round(box * ratio)))
+    img.style.width = ''
+    measure()
+    emit()
+  }
 
   const exec = (cmd, value = null) => {
     editorRef.current?.focus()
@@ -109,11 +187,27 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
     })
   }
 
-  /** 메뉴에서 고른 블록을 넣는다. 먼저 '/질문' 글자를 지운다. */
+  /**
+   * 메뉴에서 고른 블록을 넣는다. 먼저 '/질문' 글자를 지운다.
+   *
+   * 지울 개수를 상태에 담아뒀다가 쓰지 않고 실행 시점에 다시 찾는다. 한글 입력은 마지막
+   * 글자가 늦게 확정돼 상태와 실제 글자 수가 어긋나는데, 백스페이스를 세어 지우면 그만큼
+   * 엉뚱한 글자가 지워지거나 남는다. 구간을 직접 잡아 한 번에 지운다.
+   */
   const applySlash = (item) => {
     const el = editorRef.current
     el?.focus()
-    for (let i = 0; i < (slash?.length || 0); i++) document.execCommand('delete', false, null)
+
+    const found = readSlashQuery()
+    if (found) {
+      const sel = window.getSelection()
+      const range = document.createRange()
+      range.setStart(sel.anchorNode, Math.max(0, sel.anchorOffset - found.length))
+      range.setEnd(sel.anchorNode, sel.anchorOffset)
+      range.deleteContents()
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
     setSlash(null)
 
     if (item.action === 'image') { fileInputRef.current?.click(); return }
@@ -221,7 +315,8 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
         onInput={handleInput}
         onBlur={emit}
         onKeyUp={syncSlash}
-        onClick={syncSlash}
+        onClick={handleEditorClick}
+        onCompositionEnd={syncSlash}
         onPaste={handlePaste}
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
@@ -285,6 +380,58 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
           ))}
         </Box>
       </Popover>
+
+      {picked?.clip && (
+        <Box sx={{
+          position: 'fixed',
+          top: picked.clip.top, left: picked.clip.left,
+          width: picked.clip.width, height: picked.clip.height,
+          overflow: 'hidden', pointerEvents: 'none', zIndex: 1300,
+        }}>
+          <Box sx={{
+            position: 'absolute',
+            top: picked.rect.top - picked.clip.top,
+            left: picked.rect.left - picked.clip.left,
+            width: picked.rect.width, height: picked.rect.height,
+            border: '2px solid', borderColor: 'primary.main', borderRadius: 1,
+          }} />
+          {/* 오른쪽 아래 모서리 손잡이 */}
+          <Box
+            onPointerDown={startResize}
+            sx={{
+              position: 'absolute',
+              top: picked.rect.bottom - picked.clip.top - 7,
+              left: picked.rect.right - picked.clip.left - 7,
+              width: 14, height: 14, borderRadius: '50%',
+              bgcolor: 'primary.main', border: '2px solid #fff',
+              cursor: 'nwse-resize', pointerEvents: 'auto',
+            }}
+          />
+          {/* 자주 쓰는 폭 — 이미지 위에 자리가 없으면 안쪽 위에 붙인다 */}
+          <Box sx={{
+            position: 'absolute',
+            top: Math.max(4, picked.rect.top - picked.clip.top - 34),
+            left: picked.rect.left - picked.clip.left + 4,
+            display: 'flex', gap: 0.3, p: 0.3, borderRadius: 1,
+            bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
+            boxShadow: 2, pointerEvents: 'auto',
+          }}>
+            {[['작게', 0.3], ['보통', 0.6], ['넓게', 1], ['원본', null]].map(([label, ratio]) => (
+              <Box
+                key={label}
+                onMouseDown={e => { e.preventDefault(); setImageWidth(ratio) }}
+                sx={{
+                  px: 0.9, py: 0.3, fontSize: '0.75rem', fontWeight: 600,
+                  cursor: 'pointer', borderRadius: 0.75,
+                  '&:hover': { bgcolor: 'action.hover' },
+                }}
+              >
+                {label}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
 
       <SlashMenu
         open={!!slash}
