@@ -135,13 +135,13 @@ export default function DashboardHome() {
   if (!loaded) {
     return (
       <DashboardLayout>
-        <Box sx={{ maxWidth: 1680, mx: 'auto' }}>
-          <Skeleton variant="text" width={120} height={32} sx={{ mb: 2 }} />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(12, 1fr)' }, gap: 2.5 }}>
+        <Box sx={{ maxWidth: 1360, mx: 'auto' }}>
+          <Skeleton variant="text" width={120} height={30} sx={{ mb: 1.5 }} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(12, 1fr)' }, gap: 1.25 }}>
             {[12, 4, 4].map((span, i) => (
               <Skeleton
                 key={i} variant="rounded" height={220}
-                sx={{ gridColumn: { xs: '1 / -1', md: `span ${span}` }, borderRadius: 3 }}
+                sx={{ gridColumn: { xs: '1 / -1', md: `span ${span}` }, borderRadius: 1.25 }}
               />
             ))}
           </Box>
@@ -180,7 +180,7 @@ export default function DashboardHome() {
             xs: '1fr',
             md: `repeat(${GRID_COLUMNS}, 1fr)`,
           },
-          gap: 2,
+          gap: 1.25,
           alignItems: 'start',
         }}>
           {layout.map((item, index) => (
@@ -227,24 +227,25 @@ function WidgetFrame({
       onDrop={(e) => { if (editing) { e.preventDefault(); onDrop() } }}
       sx={theme => ({
         gridColumn: { xs: '1 / -1', md: `span ${span}` },
-        bgcolor: 'background.paper', borderRadius: 3,
+        bgcolor: 'background.paper', borderRadius: 1.25,
         border: '1px solid',
         borderColor: dropTarget ? 'primary.main' : 'divider',
         boxShadow: dropTarget ? `0 0 0 3px ${alpha(theme.palette.primary.main, 0.15)}` : 'none',
         opacity: dragging ? 0.45 : 1,
         cursor: editing ? 'grab' : 'default',
-        transition: 'box-shadow .18s ease, opacity .15s ease, border-color .15s ease',
+        transition: 'opacity .15s ease, border-color .15s ease',
         '&:active': editing ? { cursor: 'grabbing' } : undefined,
-        '&:hover': !editing ? { boxShadow: '0 8px 24px rgba(15,23,42,.07)' } : undefined,
       })}
     >
       <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 0.8,
-        px: 1.75, py: 0.9, borderBottom: '1px solid', borderColor: 'divider',
+        display: 'flex', alignItems: 'center', gap: 0.7,
+        px: 1.5, py: 0.85, borderBottom: '1px solid', borderColor: 'divider',
       }}>
         {editing && <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled' }} />}
-        <Typography fontSize="0.95rem" fontWeight={700} noWrap>
-          {w.emoji} {w.title}
+        {/* 이모지를 제목과 한 문자열로 두면 공백이 뭉개져 '✅요청받은 일'로 붙어 보인다 */}
+        <Typography fontSize="0.9rem" sx={{ lineHeight: 1, flexShrink: 0 }}>{w.emoji}</Typography>
+        <Typography fontSize="0.875rem" fontWeight={700} noWrap letterSpacing="-.01em">
+          {w.title}
         </Typography>
         {!editing && badge != null && (
           <Chip
@@ -262,7 +263,7 @@ function WidgetFrame({
           본문 높이 상한은 화면에 비례시킨다. 460px 고정이면 768px 노트북에서 위젯 하나가
           화면의 60%를 차지해 두 개밖에 안 보인다. */}
       {!editing && (
-        <Box sx={{ p: 1.75, maxHeight: 'min(420px, 44vh)', overflowY: 'auto' }}>
+        <Box sx={{ p: 1.5, maxHeight: 'min(420px, 44vh)', overflowY: 'auto' }}>
           {/* 위젯 하나가 터져도 나머지 화면은 살아 있어야 한다 */}
           <ErrorBoundary label={w.title}>
             <WidgetBadgeProvider onChange={setBadge}>

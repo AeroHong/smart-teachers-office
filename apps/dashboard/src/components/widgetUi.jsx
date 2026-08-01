@@ -58,19 +58,17 @@ export function ListRow({ children, onClick, highlight = false, muted = false, d
       onClick={onClick}
       sx={[
         theme => ({
-          p: dense ? 1 : 1.2,
-          borderRadius: 2,
+          p: dense ? 0.9 : 1.1,
+          borderRadius: 0.75,
           border: '1px solid',
           borderColor: 'divider',
           opacity: muted ? 0.65 : 1,
           bgcolor: highlight ? alpha(theme.palette.primary.main, 0.04) : 'transparent',
           cursor: clickable ? 'pointer' : 'default',
-          transition: 'box-shadow .15s ease, border-color .15s ease',
+          transition: 'background-color .12s ease, border-color .12s ease',
+          // 그림자 대신 배경만 바뀐다. 목록에서 줄마다 그림자가 떴다 사라지면 산만하다.
           ...(clickable && {
-            '&:hover': {
-              boxShadow: '0 4px 14px rgba(15,23,42,.07)',
-              borderColor: 'transparent',
-            },
+            '&:hover': { bgcolor: 'action.hover' },
           }),
         }),
         ...(Array.isArray(sx) ? sx : [sx]),
@@ -83,7 +81,7 @@ export function ListRow({ children, onClick, highlight = false, muted = false, d
 
 /** 리스트 줄들을 일정한 간격으로 쌓는다. */
 export function RowStack({ children, dense = false }) {
-  return <Box sx={{ display: 'flex', flexDirection: 'column', gap: dense ? 0.7 : 1 }}>{children}</Box>
+  return <Box sx={{ display: 'flex', flexDirection: 'column', gap: dense ? 0.5 : 0.7 }}>{children}</Box>
 }
 
 /** "지난 호출" 같은 소제목. */
@@ -174,7 +172,7 @@ export function ListSkeleton({ rows = 3 }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} variant="rounded" height={52} sx={{ borderRadius: 2 }} />
+        <Skeleton key={i} variant="rounded" height={46} sx={{ borderRadius: 0.75 }} />
       ))}
     </Box>
   )

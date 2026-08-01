@@ -46,7 +46,9 @@ export default function DashboardLayout({ children }) {
           component="aside"
           sx={{
             width: ROSTER_WIDTH, flexShrink: 0,
-            bgcolor: 'background.paper',
+            // 명단은 콘텐츠가 아니라 셸이므로 캔버스와 같은 바탕을 쓴다.
+            // 흰색은 '내용이 담긴 카드'에만 남겨 화면의 색 규칙을 하나로 만든다.
+            bgcolor: 'background.default',
             borderLeft: '1px solid', borderColor: 'divider',
             display: 'flex', flexDirection: 'column', minHeight: 0,
             // 좁은 화면에서는 캔버스 위로 덮어 띄운다 (캔버스를 더 좁히지 않기 위해)

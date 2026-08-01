@@ -78,7 +78,7 @@ export default function RequestList() {
             hint="대상을 조건으로 뽑아 보내면, 요청은 누가 했는지 자동으로 집계됩니다."
           />
         ) : (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.2 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8 }}>
             {sorted.map(request => {
               const stats = completionStats(request)
               const due = dueState(request)
@@ -89,11 +89,11 @@ export default function RequestList() {
                   component={Link}
                   to={`/requests/${request.id}`}
                   sx={{
-                    display: 'block', p: 1.8, borderRadius: 3,
+                    display: 'block', p: 1.5, borderRadius: 1.25,
                     border: '1px solid', borderColor: 'divider',
                     bgcolor: 'background.paper', textDecoration: 'none', color: 'text.primary',
-                    transition: 'box-shadow .15s ease',
-                    '&:hover': { boxShadow: '0 6px 18px rgba(15,23,42,.07)' },
+                    transition: 'border-color .12s ease',
+                    '&:hover': { borderColor: 'primary.main' },
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.8 }}>

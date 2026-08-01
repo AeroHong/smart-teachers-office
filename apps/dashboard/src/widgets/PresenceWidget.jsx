@@ -50,9 +50,9 @@ export default function PresenceWidget() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: p.color }} />
-        <Typography fontSize="1.15rem" fontWeight={800} sx={{ color: p.color }}>{p.label}</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.9, mb: 1.4 }}>
+        <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: p.color }} />
+        <Typography fontSize="1rem" fontWeight={800} sx={{ color: p.color }}>{p.label}</Typography>
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -65,7 +65,7 @@ export default function PresenceWidget() {
               onClick={() => setStatus(key)}
               disabled={saving}
               sx={{
-                px: 2, py: 0.9, borderRadius: 2, fontWeight: 700, fontSize: '0.88rem',
+                px: 1.6, py: 0.6, borderRadius: 0.75, fontWeight: 700, fontSize: '0.83rem',
                 border: '1px solid', borderColor: active ? s.color : 'divider',
                 bgcolor: active ? s.bg : 'background.paper',
                 color: active ? s.color : 'text.secondary',
@@ -78,7 +78,7 @@ export default function PresenceWidget() {
         })}
       </Box>
 
-      <Typography fontSize="0.75rem" color="text.secondary" mt={1.5}>
+      <Typography fontSize="0.73rem" color="text.secondary" mt={1.2}>
         {source === 'desktop'
           ? '데스크톱 앱이 자동으로 갱신하고 있습니다.'
           : '학생용 키오스크 화면에 이 상태가 표시됩니다.'}

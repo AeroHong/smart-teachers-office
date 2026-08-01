@@ -162,7 +162,7 @@ export default function RequestDetail() {
         {/* 대상 교사 — 내 완료 표시 (안내에는 없다) */}
         {isTarget && trackCompletion && (
           <Box sx={{
-            p: 2, mb: 3, borderRadius: 3,
+            p: 1.75, mb: 2.5, borderRadius: 1.25,
             border: '1px solid', borderColor: myDone ? 'success.main' : 'primary.main',
           }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -346,7 +346,7 @@ function NameSection({ title, tone, members, emptyText, action, subtitle, bulkAc
               key={m.uid}
               sx={{
                 display: 'flex', alignItems: 'center', gap: 1,
-                px: 1.2, py: 0.6, borderRadius: 2,
+                px: 1.2, py: 0.5, borderRadius: 0.75,
                 border: '1px solid', borderColor: 'divider',
               }}
             >

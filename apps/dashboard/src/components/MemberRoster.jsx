@@ -100,9 +100,9 @@ export default function MemberRoster({ onClose }) {
 
   return (
     <>
-      <Box sx={{ px: 2, pt: 2, pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.2 }}>
-          <Typography fontSize="0.95rem" fontWeight={800} sx={{ flexGrow: 1 }}>구성원</Typography>
+      <Box sx={{ px: 1.5, pt: 1.5, pb: 1.2, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+          <Typography fontSize="0.875rem" fontWeight={800} sx={{ flexGrow: 1 }}>구성원</Typography>
           {onClose && (
             <IconButton size="small" onClick={onClose} aria-label="명단 닫기">
               <CloseIcon sx={{ fontSize: 18 }} />
@@ -117,9 +117,10 @@ export default function MemberRoster({ onClose }) {
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <SearchIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
+                <SearchIcon sx={{ fontSize: 17, color: 'text.disabled' }} />
               </InputAdornment>
             ),
+            sx: { fontSize: '0.83rem', '& input': { py: 0.7 } },
           }}
         />
       </Box>
@@ -192,8 +193,8 @@ function TreeToggle({ label, count, open, onClick, level }) {
       sx={{
         display: 'flex', alignItems: 'center', gap: 0.4, width: '100%',
         border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
-        pl: level === 0 ? 0.8 : 2, pr: 1, py: level === 0 ? 0.7 : 0.5,
-        borderRadius: 1.5, color: 'text.primary',
+        pl: level === 0 ? 0.6 : 1.8, pr: 1, py: level === 0 ? 0.45 : 0.3,
+        borderRadius: 0.75, color: 'text.primary',
         '&:hover': { bgcolor: 'action.hover' },
       }}
     >
@@ -207,7 +208,7 @@ function TreeToggle({ label, count, open, onClick, level }) {
       <Typography
         sx={{
           flexGrow: 1, minWidth: 0,
-          fontSize: level === 0 ? '0.78rem' : '0.85rem',
+          fontSize: level === 0 ? '0.73rem' : '0.82rem',
           fontWeight: level === 0 ? 800 : 600,
           letterSpacing: level === 0 ? '.04em' : 0,
           color: level === 0 ? 'text.secondary' : 'text.primary',
@@ -235,13 +236,13 @@ function MemberRow({ member, subtitle, onClick, indent = false }) {
       sx={{
         display: 'flex', alignItems: 'center', gap: 1, width: '100%',
         border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
-        pl: indent ? 3.9 : 1.2, pr: 1.2, py: 0.55, borderRadius: 1.5,
+        pl: indent ? 3.5 : 1.1, pr: 1.1, py: 0.32, borderRadius: 0.75,
         '&:hover': { bgcolor: 'action.hover' },
       }}
     >
       {/* 재실 점이 들어갈 자리를 미리 비워둔다 — Phase B에서 점만 채우면 줄이 안 흔들린다 */}
       <Box sx={{ width: 8, flexShrink: 0 }} />
-      <Typography fontSize="0.85rem" fontWeight={600} noWrap sx={{ flexShrink: 0 }}>
+      <Typography fontSize="0.82rem" fontWeight={600} noWrap sx={{ flexShrink: 0 }}>
         {member.name}
       </Typography>
       {subtitle && (

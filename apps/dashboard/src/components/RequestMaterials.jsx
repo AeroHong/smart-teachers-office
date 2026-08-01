@@ -54,7 +54,7 @@ function Item({ children, href, dense, download }) {
       onClick={e => e.stopPropagation()}
       sx={{
         display: 'flex', alignItems: 'center', gap: 1,
-        px: 1.2, py: dense ? 0.6 : 0.8, borderRadius: 2,
+        px: 1.2, py: dense ? 0.5 : 0.7, borderRadius: 0.75,
         border: '1px solid', borderColor: 'divider',
         textDecoration: 'none', color: 'text.primary',
         '&:hover': { bgcolor: 'action.hover' },
