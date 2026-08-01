@@ -16,8 +16,8 @@
  * 둘 다 고르는 즉시 schools/{schoolId}/requests/{requestId}/ 아래로 올라가야 하는데,
  * 저장 시점에 ID를 만들면 그 전에 올린 파일의 경로를 정할 수 없다.
  */
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -29,6 +29,8 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
+import MenuItem from '@mui/material/MenuItem'
+import Select from '@mui/material/Select'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
@@ -42,6 +44,7 @@ import AttachmentPicker from '../components/AttachmentPicker'
 import RichTextEditor from '../components/RichTextEditor'
 import { useToast } from '../components/ToastProvider'
 import useSchoolMembers from '../lib/useSchoolMembers'
+import useChannels from '../lib/useChannels'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
 
@@ -86,8 +89,10 @@ function dueLabel(value) {
 export default function PostNew() {
   const { user, userName, schoolId } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const toast = useToast()
   const { members, loading, error } = useSchoolMembers()
+  const { channels } = useChannels()
 
   const requestId = useMemo(
     () => (schoolId ? doc(collection(db, ...schoolPath(schoolId, COL.REQUESTS))).id : null),
@@ -100,10 +105,20 @@ export default function PostNew() {
   const [pinned, setPinned] = useState(false)
   const [dueDate, setDueDate] = useState('')
   const [rule, setRule] = useState(EMPTY_RULE)
+  const [channelId, setChannelId] = useState(searchParams.get('channel') || '')
   const [attachments, setAttachments] = useState([])
   const [bodyImages, setBodyImages] = useState([])   // 본문에 넣은 이미지 (버릴 때 정리용)
   const [links, setLinks] = useState([])
   const [saving, setSaving] = useState(false)
+
+  const channel = useMemo(() => channels.find(c => c.id === channelId) || null, [channels, channelId])
+
+  // 채널을 고르면 대상을 그 채널의 참여자 조건으로 채운다. 채널에 쓰는 글은 대개
+  // 채널 전원에게 가는데, 조건을 처음부터 다시 짜게 하면 채널을 고른 의미가 없다.
+  // 채운 뒤에는 그대로 편집할 수 있다 — 채널 안에서 일부에게만 보낼 때가 있다.
+  useEffect(() => {
+    if (channel?.memberRule) setRule(channel.memberRule)
+  }, [channel])
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
   const canSave = title.trim() && targets.length > 0 && !saving
@@ -123,7 +138,7 @@ export default function PostNew() {
     const uploaded = [...attachments, ...bodyImages]
     setAttachments([])
     setBodyImages([])
-    navigate('/requests')
+    navigate(channelId ? `/channels/${channelId}` : '/requests')
     await Promise.all(uploaded.map(a => deleteAttachment(a).catch(() => {})))
   }
 
@@ -149,11 +164,12 @@ export default function PostNew() {
           createdByName: userName,
         }),
         bodyHtml: safeHtml,
+        channelId: channelId || null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
       toast.success(`${targets.length}명에게 ${needsCompletion ? '요청을' : '안내를'} 보냈습니다.`)
-      navigate(`/requests/${requestId}`)
+      navigate(channelId ? `/channels/${channelId}/${requestId}` : `/requests/${requestId}`)
     } catch (e) {
       toast.error('글을 보내지 못했습니다.', e)
     } finally {
@@ -216,6 +232,26 @@ export default function PostNew() {
           overflow: 'hidden',
         }}>
           <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', p: 1.5 }}>
+            <PanelLabel>채널</PanelLabel>
+            <Select
+              size="small" fullWidth displayEmpty
+              value={channels.some(c => c.id === channelId) ? channelId : ''}
+              onChange={e => setChannelId(e.target.value)}
+              sx={{ fontSize: '0.83rem', mb: 0.6 }}
+            >
+              <MenuItem value="" sx={{ fontSize: '0.85rem' }}>채널 없음</MenuItem>
+              {channels.map(c => (
+                <MenuItem key={c.id} value={c.id} sx={{ fontSize: '0.85rem' }}>{c.name}</MenuItem>
+              ))}
+            </Select>
+            <Typography fontSize="0.76rem" color="text.secondary">
+              {channelId
+                ? '채널에 쌓여 이어지는 업무로 볼 수 있습니다.'
+                : '채널을 고르면 그 채널 참여자가 대상으로 채워집니다.'}
+            </Typography>
+
+            <Divider sx={{ my: 1.5 }} />
+
             {loading
               ? <Typography color="text.secondary" fontSize="0.85rem">구성원 불러오는 중…</Typography>
               : <TargetPicker members={members} value={rule} onChange={setRule} />}

@@ -54,7 +54,7 @@ function optionsFor(type, facets) {
   }
 }
 
-export default function TargetPicker({ members, value, onChange }) {
+export default function TargetPicker({ members, value, onChange, label = '대상' }) {
   const rule = value || EMPTY_RULE
   const [openManual, setOpenManual] = useState(false)
   const [openNames, setOpenNames] = useState(false)
@@ -76,7 +76,7 @@ export default function TargetPicker({ members, value, onChange }) {
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, mb: 1 }}>
-        <Typography fontSize="0.85rem" fontWeight={700} sx={{ flexGrow: 1 }}>대상</Typography>
+        <Typography fontSize="0.85rem" fontWeight={700} sx={{ flexGrow: 1 }}>{label}</Typography>
         <Typography
           fontSize="1.05rem" fontWeight={800}
           color={result.uids.length === 0 ? 'error.main' : 'primary.main'}
