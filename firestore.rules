@@ -45,12 +45,16 @@ service cloud.firestore {
         getUserData().schoolId == schoolId;
     }
 
-    // 업무 요청의 완료 토글 검사 — completedUids에서 움직인 uid가 본인뿐인지 본다.
-    // 이게 없으면 대상 교사가 남의 완료를 대신 체크하거나 지울 수 있다.
-    // (빈 집합도 hasOnly를 통과하므로 넣기·빼기·변화 없음이 모두 허용된다)
-    function selfOnlyCompletionChange() {
-      let before = resource.data.get('completedUids', []).toSet();
-      let after = request.resource.data.get('completedUids', []).toSet();
+    // uid 목록에서 움직인 값이 본인뿐인지 본다.
+    //
+    // "완료 체크"와 "채널 나가기"가 같은 모양이다 — 남의 uid를 넣거나 빼면 안 되고,
+    // 자기 것만 넣거나 뺄 수 있다. 이게 없으면 대상 교사가 남의 완료를 대신 체크하거나
+    // 남을 채널에서 내보낼 수 있다.
+    //
+    // 빈 집합도 hasOnly를 통과하므로 넣기·빼기·변화 없음이 모두 허용된다.
+    function selfOnlyUidChange(field) {
+      let before = resource.data.get(field, []).toSet();
+      let after = request.resource.data.get(field, []).toSet();
       return after.difference(before).hasOnly([request.auth.uid]) &&
              before.difference(after).hasOnly([request.auth.uid]);
     }
@@ -208,6 +212,42 @@ service cloud.firestore {
       //
       // 완료 표시가 이 규칙의 핵심이다. 대상 교사는 요청 문서의 completedUids에 자기 uid만
       // 넣고 뺄 수 있어야 하고, 제목·마감일·대상 명단은 건드릴 수 없어야 한다.
+      // 채널 — 업무 글이 모이는 곳. 글에 붙는 이름표라 별도 글 컬렉션이 없다.
+      //
+      // 읽기를 소속 교사 전체에 여는 이유: 참여자만 읽게 하면 채널 이름조차 볼 수 없어
+      // "그 채널에 넣어달라"는 말을 꺼낼 수가 없다. 채널에 든 글은 requests 규칙이
+      // 따로 지키므로 채널 문서가 열려도 내용이 새지 않는다.
+      //
+      // 고치기를 만든 사람과 관리자로 묶는 이유: 참여자 조건을 아무나 바꾸면 대상이
+      // 조용히 넓어지거나 좁아지는데, 그 변화가 채널을 열기 전에는 드러나지 않는다.
+      match /channels/{channelId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+
+        // 만들면서 남을 미리 '나간 사람'으로 박아둘 수 없게 한다
+        allow create: if isSuperAdmin() ||
+          (isTeacher(schoolId) &&
+           request.resource.data.createdBy == request.auth.uid &&
+           request.resource.data.get('leftUids', []).size() == 0);
+
+        // 참여자 명단·보관·갱신은 만든 사람과 관리자, 나가기는 본인.
+        //
+        // 나가기를 leftUids라는 별도 필드로 둔 덕에 이 둘을 규칙에서 가를 수 있다.
+        // memberUids에서 자기를 빼는 방식이었다면 "명단을 고치는 일"과 "나가는 일"이
+        // 같은 필드의 같은 변경이라, 나갈 수 있는 사람은 남을 내보낼 수도 있게 된다.
+        //
+        // .get('leftUids', []) 로 읽는 이유: 이 필드가 생기기 전에 만들어진 채널 문서에는
+        // 값이 없어서 resource.data.leftUids 로 바로 읽으면 규칙 평가가 실패한다.
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid) ||
+          (isTeacher(schoolId) &&
+           request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['leftUids', 'updatedAt']) &&
+           selfOnlyUidChange('leftUids'));
+
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+      }
+
       match /requests/{requestId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
 
@@ -224,10 +264,38 @@ service cloud.firestore {
            request.auth.uid in resource.data.targetUids &&
            request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['completedUids', 'updatedAt']) &&
-           selfOnlyCompletionChange());
+           selfOnlyUidChange('completedUids'));
 
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+
+        // 댓글 — 업무 글에 되묻는 말과 그 답.
+        //
+        // 쓰기를 대상자로 좁히지 않는 이유: 되묻는 말은 담당자에게만 생기는 것이 아니고,
+        // 같은 질문에 대한 답을 여럿이 함께 보는 것이 이 기능의 요점이다.
+        //
+        // 고치기를 막는 이유: 편집 화면이 없다. 규칙이 코드보다 넓으면 나중에 누군가
+        // 콘솔이나 SDK로 남의 눈에 안 띄게 말을 바꿔놓을 수 있다.
+        //
+        // 글쓴이에게 남의 댓글 삭제 권한을 주지 않는다. 자기 글에 달린 불편한 질문을
+        // 지울 수 있으면 "답을 모두가 함께 본다"가 깨진다. 대신 글을 지울 때 남의 댓글은
+        // 정리되지 않고 남는다(requestActions.js의 deletePost는 되는 데까지만 지운다).
+        // 화면에서 닿을 수 없는 문서라 새어나가지는 않지만, 완전히 걷어내려면 관리자가
+        // 지우거나 재귀 삭제를 함수로 옮겨야 한다.
+        match /comments/{commentId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+
+          allow create: if isSuperAdmin() ||
+            (isTeacher(schoolId) &&
+             request.resource.data.authorUid == request.auth.uid &&
+             request.resource.data.body is string &&
+             request.resource.data.body.size() > 0);
+
+          allow update: if false;
+
+          allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            (isTeacher(schoolId) && resource.data.authorUid == request.auth.uid);
+        }
 
         // 완료 상세(시각·비고). 문서 ID가 곧 uid다.
         // 읽기를 소속 교사 전체에 여는 이유는 현황 화면이 누가 언제 했는지를 보여주기 때문.

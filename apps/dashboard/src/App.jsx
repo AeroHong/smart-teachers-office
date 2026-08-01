@@ -7,6 +7,7 @@ import Login from './pages/Login'
 import Home from './pages/Home'
 import RequestList from './pages/RequestList'
 import PostNew from './pages/PostNew'
+import Channels from './pages/Channels'
 import Messages from './pages/Messages'
 import Members from './pages/Members'
 import RedirectToPortal from './pages/RedirectToPortal'
@@ -37,6 +38,10 @@ export default function App() {
           <Route path="/requests/:requestId" element={<ProtectedRoute anyUser><RequestList /></ProtectedRoute>} />
           {/* 쪽지 — 위젯이 아니라 전용 탭. 쿨메신저를 대체하지 않고 병행하는 보조 수단이라
               매일 보는 대시보드의 자리를 차지하지 않는다 */}
+          <Route path="/channels" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
+          <Route path="/channels/:channelId" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
+          <Route path="/channels/:channelId/:requestId" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
+
           <Route path="/messages" element={<ProtectedRoute anyUser><Messages /></ProtectedRoute>} />
           {/* 구성원 — 오른쪽 칸이 상세 영역이 되면서 명단을 별도 탭으로 옮겼다 */}
           <Route path="/members" element={<ProtectedRoute anyUser><Members /></ProtectedRoute>} />

@@ -5,13 +5,12 @@
  * (시각·비고 상세). 둘이 어긋나면 현황 숫자와 상세가 달라지므로 항상 한 배치로 묶는다.
  */
 import {
-  arrayRemove, arrayUnion, deleteDoc, deleteField, doc, getDocs, collection,
-  serverTimestamp, updateDoc, writeBatch,
+  arrayRemove, arrayUnion, deleteField, doc, serverTimestamp, updateDoc, writeBatch,
 } from 'firebase/firestore'
-import { db } from '@shared/lib/firebase'
+import { httpsCallable } from 'firebase/functions'
+import { db, functions } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { newCompletionPayload } from '@shared/lib/workRequests'
-import { deleteAttachment } from '@shared/lib/requestAttachments'
 
 function requestRef(schoolId, requestId) {
   return doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId)
@@ -147,21 +146,21 @@ export async function updatePostContent({ schoolId, requestId, patch }) {
 }
 
 /**
- * 글 삭제.
+ * 글 삭제 — 하위 컬렉션과 첨부 파일까지 함께.
  *
- * 첨부 파일과 완료 기록도 같이 지운다. 문서만 지우면 저장소에 파일이, 하위 컬렉션에
- * 완료 기록이 참조 없이 남는다 (Firestore는 하위 컬렉션을 자동으로 지우지 않는다).
+ * 클라이언트에서 직접 지우지 않고 함수(deletePostDeep)에 맡긴다. 두 가지가 남기 때문이다.
+ *
+ *  1. 댓글은 글쓴이라도 남의 것을 지울 수 없다(firestore.rules). 자기 글에 달린 불편한
+ *     질문을 지울 수 있으면 안 되기 때문인데, 그 탓에 글을 지워도 남의 댓글이 남는다.
+ *  2. 본문에 넣었다 뺀 이미지는 클라이언트가 목록으로 들고 있지 않아 저장소에 남는다.
+ *
+ * 함수는 Admin SDK로 규칙을 지나고, 저장소도 파일 목록이 아니라 경로 앞자리로 지워서
+ * 아무도 모르는 파일까지 걷어낸다.
+ *
+ * @returns {{ deletedFiles: number }}
  */
-export async function deletePost({ schoolId, requestId, attachments = [] }) {
-  const completions = await getDocs(
-    collection(db, ...schoolPath(schoolId, COL.REQUESTS), requestId, COL.REQUEST_COMPLETIONS),
-  )
-  if (!completions.empty) {
-    const batch = writeBatch(db)
-    completions.docs.forEach(d => batch.delete(d.ref))
-    await batch.commit()
-  }
-
-  await Promise.all(attachments.map(a => deleteAttachment(a).catch(() => {})))
-  await deleteDoc(requestRef(schoolId, requestId))
+export async function deletePost({ schoolId, requestId }) {
+  const call = httpsCallable(functions, 'deletePostDeep')
+  const { data } = await call({ schoolId, requestId })
+  return data
 }

@@ -11,6 +11,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import DashboardIcon from '@mui/icons-material/SpaceDashboard'
 import RequestIcon from '@mui/icons-material/PlaylistAddCheck'
+import TagIcon from '@mui/icons-material/Tag'
 import MailIcon from '@mui/icons-material/MailOutline'
 import PeopleIcon from '@mui/icons-material/Groups'
 import LaunchIcon from '@mui/icons-material/Launch'
@@ -101,6 +102,12 @@ export default function AppRail() {
         label="요청 현황"
         to="/requests"
         active={pathname.startsWith('/requests')}
+      />
+      <RailButton
+        icon={TagIcon}
+        label="채널"
+        to="/channels"
+        active={pathname.startsWith('/channels')}
       />
       <RailButton
         icon={MailIcon}
