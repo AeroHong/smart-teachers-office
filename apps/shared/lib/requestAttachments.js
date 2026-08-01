@@ -5,7 +5,10 @@
  * 부족하고 실제 업로드가 필요하다. "첨부파일이 지워졌어요"·"양식 다시 주세요"가 사라지는
  * 것이 이 기능의 목적이므로, 파일은 메시지가 아니라 요청 문서에 계속 붙어 있어야 한다.
  *
- * 저장 경로: schools/{schoolId}/requests/{requestId}/{timestamp}_{파일명}
+ * 저장 경로: schools/{schoolId}/{folder}/{docId}/{timestamp}_{파일명}
+ *   업무 글  → folder='requests'  (교직원 누구나 읽음 — 모두에게 뿌리는 양식이다)
+ *   쪽지     → folder='notices'   (주고받은 사람만 읽음)
+ * 폴더가 갈려 있어야 Storage 규칙에서 둘의 읽기 범위를 다르게 줄 수 있다.
  *
  * 주의 — getDownloadURL이 주는 토큰 URL은 Storage 보안 규칙을 우회한다. 링크를 가진
  * 사람은 로그인 없이도 열 수 있으므로 고사 원안처럼 민감한 파일은 올리지 않는다.
@@ -53,15 +56,20 @@ function safeFileName(name = '') {
 
 /**
  * 파일 한 개 업로드.
- * @returns {Promise<{name, size, path, url, uploadedAt}>} 요청 문서 attachments에 넣을 항목
+ *
+ * @param {object} p
+ * @param {string} p.schoolId
+ * @param {string} p.docId   파일이 딸린 문서 ID (요청 ID 또는 쪽지 묶음 ID)
+ * @param {string} [p.folder='requests'] 저장소 폴더 — 규칙의 읽기 범위를 가른다
+ * @returns {Promise<{name, size, path, url, uploadedAt}>} 문서 attachments에 넣을 항목
  */
-export async function uploadAttachment({ schoolId, requestId, file }) {
+export async function uploadAttachment({ schoolId, docId, folder = 'requests', file }) {
   if (file.size > MAX_ATTACHMENT_BYTES) {
     throw new Error(`파일이 너무 큽니다. ${formatBytes(MAX_ATTACHMENT_BYTES)}까지 올릴 수 있습니다.`)
   }
 
   // 같은 이름을 여러 번 올려도 덮어쓰지 않도록 시각을 앞에 붙인다
-  const path = `schools/${schoolId}/requests/${requestId}/${Date.now()}_${safeFileName(file.name)}`
+  const path = `schools/${schoolId}/${folder}/${docId}/${Date.now()}_${safeFileName(file.name)}`
   const objectRef = ref(storage, path)
 
   // 본문에 끼우는 이미지에는 Content-Disposition을 붙이지 않는다. attachment가 걸리면

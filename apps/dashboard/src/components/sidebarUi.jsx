@@ -20,9 +20,9 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
  *
  * @param {React.ElementType} [icon] 이 섹션을 나타내는 아이콘. 없으면 꺾쇠를 쓴다.
  */
-export function SidebarSection({ label, icon: Icon, count, badge, open, onToggle, children }) {
+export function SidebarSection({ label, icon: Icon, count, badge, open, onToggle, action, children }) {
   return (
-    <Box sx={{ mb: 0.3 }}>
+    <Box sx={{ mb: 0.3, position: 'relative' }}>
       <Box
         component="button"
         type="button"
@@ -73,6 +73,11 @@ export function SidebarSection({ label, icon: Icon, count, badge, open, onToggle
           <Typography sx={{ fontSize: '0.72rem', color: 'text.disabled' }}>{count}</Typography>
         )}
       </Box>
+      {/* 머리 줄 위에 겹쳐 놓는다. 접기 단추 안에 중첩하면 버튼 안의 버튼이 되어
+          그룹을 통째로 고르려다 접혀버린다. */}
+      {action && (
+        <Box sx={{ position: 'absolute', right: 4, top: 2 }}>{action}</Box>
+      )}
       <Collapse in={open} unmountOnExit>
         <Box sx={{ pb: 0.4 }}>{children}</Box>
       </Collapse>

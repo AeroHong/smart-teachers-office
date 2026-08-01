@@ -3,6 +3,10 @@
  *
  * 쪽지는 쿨메신저를 대체하는 게 아니라 병행하는 보조 수단이라 별도 탭에 둔다.
  * 안읽음은 레일 배지로 알리므로 이 화면을 열지 않아도 새 쪽지가 온 것은 보인다.
+ *
+ * 보낸함은 묶음 단위로 접는다. 여러 명에게 보내면 받는 사람마다 문서가 생기는데
+ * (personalNotices.js 참고) 그대로 두면 같은 제목이 사람 수만큼 늘어서 목록을 못 쓴다.
+ * 접은 줄에는 "5명 · 3명 읽음"을 붙여 다시 챙길지 판단할 수 있게 한다.
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -10,6 +14,7 @@ import {
 } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Chip from '@mui/material/Chip'
 import Typography from '@mui/material/Typography'
 import ReplyIcon from '@mui/icons-material/Reply'
 import SendIcon from '@mui/icons-material/Send'
@@ -18,11 +23,14 @@ import OutboxIcon from '@mui/icons-material/Outbox'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
+import { sanitizeHtml } from '@shared/lib/richText'
+import { describeSentGroup, groupSentNotices } from '@shared/lib/personalNotices'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
 import NoticeComposeModal from '../components/NoticeComposeModal'
 import { useToast } from '../components/ToastProvider'
-import { formatDateTime, formatRelative } from '../lib/formatTime'
+import RequestMaterials from '../components/RequestMaterials'
+import { formatDateTime } from '../lib/formatTime'
 
 const FETCH_LIMIT = 50
 
@@ -48,6 +56,7 @@ export default function Messages() {
   }, [schoolId, user, toast])
 
   const unreadCount = useMemo(() => inbox.filter(n => !n.readAt).length, [inbox])
+  const sentGroups = useMemo(() => groupSentNotices(sent), [sent])
 
   const openNotice = (notice, box) => {
     setSelected({ ...notice, _box: box })
@@ -92,20 +101,20 @@ export default function Messages() {
       <SidebarSection
         label="보낸 쪽지"
         icon={OutboxIcon}
-        count={sent.length}
+        count={sentGroups.length}
         open={open.sent}
         onToggle={() => setOpen(o => ({ ...o, sent: !o.sent }))}
       >
-        {sent.length === 0 ? <SidebarEmpty>보낸 쪽지가 없습니다</SidebarEmpty> : sent.map(n => (
+        {sentGroups.length === 0 ? <SidebarEmpty>보낸 쪽지가 없습니다</SidebarEmpty> : sentGroups.map(g => (
           <SidebarItem
-            key={n.id}
-            label={n.title}
-            selected={selected?.id === n.id}
-            onClick={() => openNotice(n, 'sent')}
+            key={g.id}
+            label={g.title}
+            selected={selected?.id === g.id}
+            onClick={() => setSelected({ ...g, _box: 'sent' })}
             chip={<MiniChip
-              label={n.readAt ? '읽음' : '안읽음'}
-              tone={n.readAt ? 'success' : 'neutral'}
-              selected={selected?.id === n.id}
+              label={g.total > 1 ? `${g.readCount}/${g.total}` : (g.readCount ? '읽음' : '안읽음')}
+              tone={g.readCount === g.total ? 'success' : 'neutral'}
+              selected={selected?.id === g.id}
             />}
           />
         ))}
@@ -116,19 +125,22 @@ export default function Messages() {
   return (
     <WorkspaceLayout sidebar={sidebar}>
       {selected ? (
-        <Box sx={{ p: 2.5, maxWidth: 720 }}>
+        <Box sx={{ p: 2.5, maxWidth: 760 }}>
           <Typography variant="h6" fontWeight={800} mb={0.5}>{selected.title}</Typography>
-          <Typography color="text.secondary" fontSize="0.83rem" mb={2.5}>
+          <Typography color="text.secondary" fontSize="0.83rem" mb={2}>
             {selected._box === 'inbox'
               ? selected.senderName
-              : `받는 사람: ${selected.recipientName || '—'}`}
+              : describeSentGroup(selected)}
             {' · '}{formatDateTime(selected.createdAt)}
-            {selected._box === 'sent' && ` · ${selected.readAt ? '읽음' : '아직 안 읽음'}`}
+            {selected._box === 'inbox' && selected.recipientCount > 1
+              && ` · 나 포함 ${selected.recipientCount}명에게`}
           </Typography>
 
-          <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: '0.95rem' }}>
-            {selected.content}
-          </Typography>
+          <NoticeBody notice={selected} />
+
+          {selected._box === 'sent' && selected.total > 1 && (
+            <ReadRoster recipients={selected.recipients} />
+          )}
 
           {selected._box === 'inbox' && (
             <Button
@@ -150,5 +162,63 @@ export default function Messages() {
         onClose={() => setCompose(null)}
       />
     </WorkspaceLayout>
+  )
+}
+
+/** 쪽지 본문 — 서식이 있으면 걸러서 그리고, 옛 쪽지는 평문으로 남는다. */
+function NoticeBody({ notice }) {
+  return (
+    <>
+      {notice.bodyHtml ? (
+        <Box
+          sx={{
+            mb: 2, fontSize: '0.95rem', lineHeight: 1.75,
+            '& img': { maxWidth: '100%', borderRadius: 1, my: 0.5 },
+            '& ul, & ol': { pl: 3, my: 0.5 },
+            '& a': { color: 'primary.main' },
+            '& p': { m: 0 },
+          }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(notice.bodyHtml) }}
+        />
+      ) : (
+        <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: '0.95rem', mb: 2 }}>
+          {notice.content}
+        </Typography>
+      )}
+      <RequestMaterials attachments={notice.attachments} links={notice.links} />
+    </>
+  )
+}
+
+/**
+ * 여럿에게 보낸 쪽지의 읽음 현황.
+ *
+ * 안 읽은 사람을 앞에 둔다. 다 읽은 사람 스무 명을 지나 아래에서 두 명을 찾게 하면
+ * 목록을 안 보게 된다 — 여기서 알고 싶은 것은 "누가 아직 안 봤나" 하나다.
+ */
+function ReadRoster({ recipients }) {
+  const pending = recipients.filter(r => !r.readAt)
+  const done = recipients.filter(r => r.readAt)
+
+  return (
+    <Box sx={{ mt: 3, borderTop: '1px solid', borderColor: 'divider', pt: 1.5 }}>
+      <Typography fontSize="0.83rem" fontWeight={700} mb={1}>
+        읽음 {done.length}/{recipients.length}
+      </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+        {[...pending, ...done].map(r => (
+          <Chip
+            key={r.uid} size="small" variant="outlined" label={r.name}
+            color={r.readAt ? 'success' : 'default'}
+            sx={{ fontSize: '0.76rem', height: 24, opacity: r.readAt ? 0.7 : 1 }}
+          />
+        ))}
+      </Box>
+      {pending.length === 0 && (
+        <Typography fontSize="0.78rem" color="success.main" sx={{ mt: 0.8 }}>
+          모두 읽었습니다.
+        </Typography>
+      )}
+    </Box>
   )
 }

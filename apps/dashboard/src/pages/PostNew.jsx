@@ -202,7 +202,7 @@ export default function PostNew() {
           />
 
           <RichTextEditor
-            requestId={requestId}
+            docId={requestId}
             value={bodyHtml}
             onChange={setBodyHtml}
             onImageUploaded={img => setBodyImages(prev => [...prev, img])}

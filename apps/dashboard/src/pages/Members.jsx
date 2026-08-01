@@ -4,11 +4,20 @@
  * 오른쪽 칸이 상세 영역으로 바뀌면서 명단을 별도 탭으로 옮겼다. 쿨메신저식 조직도 구조는
  * 그대로다 — 사무실·교과·부서가 동시에 최상위 토글로 있고 한 사람이 여러 그룹에 등장한다.
  * 교사들이 이미 그 구조에 익숙해서 학습 비용이 없다.
+ *
+ * 여러 명을 골라 한 번에 쪽지를 보낼 수 있다. 쿨메신저에서 부서를 펼쳐 이름을 하나씩
+ * 찍던 동작 그대로다. 그룹 머리의 '전체'로 부서·교과를 통째로 담을 수 있는데, 실제로
+ * 대상이 되는 단위가 대개 그것이기 때문이다.
+ *
+ * 업무 요청 대상 지정과 다른 점: 이쪽은 조건이 아니라 사람을 직접 고른다. 조건으로
+ * 뽑아야 할 일이면 애초에 쪽지가 아니라 업무 요청으로 보내는 편이 맞다.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
+import Chip from '@mui/material/Chip'
 import InputAdornment from '@mui/material/InputAdornment'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -30,6 +39,9 @@ export default function Members() {
   const [keyword, setKeyword] = useState('')
   const [selected, setSelected] = useState(null)
   const [compose, setCompose] = useState(null)
+  // 여러 명 고르기 — 켜면 이름을 눌러도 상세로 가지 않고 담긴다
+  const [picking, setPicking] = useState(false)
+  const [picked, setPicked] = useState([])   // [{ uid, name }]
 
   // 저장된 펼침 상태가 있으면 그대로, 없으면 '사무실 > 내 사무실'만 편다.
   //
@@ -71,8 +83,40 @@ export default function Members() {
 
   const isOpen = (id) => !!expanded?.has(id)
 
+  const pickedUids = useMemo(() => new Set(picked.map(m => m.uid)), [picked])
+  const isPicked = (uid) => pickedUids.has(uid)
+
+  const togglePick = (m) => {
+    setPicked(prev => prev.some(p => p.uid === m.uid)
+      ? prev.filter(p => p.uid !== m.uid)
+      : [...prev, { uid: m.uid, name: m.name }])
+  }
+
+  /** 그룹 통째로 담고 빼기. 이미 다 담겨 있으면 빼는 쪽으로 동작한다. */
+  const toggleGroup = (members) => {
+    const allIn = members.every(m => pickedUids.has(m.uid))
+    setPicked(prev => allIn
+      ? prev.filter(p => !members.some(m => m.uid === p.uid))
+      : [...prev, ...members.filter(m => !pickedUids.has(m.uid)).map(m => ({ uid: m.uid, name: m.name }))])
+  }
+
+  const stopPicking = () => { setPicking(false); setPicked([]) }
+
+  // 이름을 누르면 — 고르는 중이면 담고, 아니면 상세를 연다
+  const onMemberClick = (m) => (picking ? togglePick(m) : setSelected(m))
+
   const sidebar = (
     <>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.3 }}>
+        <Button
+          size="small"
+          onClick={() => (picking ? stopPicking() : setPicking(true))}
+          sx={{ fontSize: '0.75rem', minWidth: 0, px: 0.8 }}
+        >
+          {picking ? '고르기 끝' : '여러 명 고르기'}
+        </Button>
+      </Box>
+
       <TextField
         value={keyword}
         onChange={e => setKeyword(e.target.value)}
@@ -96,8 +140,9 @@ export default function Members() {
             <SidebarItem
               key={m.uid}
               label={m.name}
-              selected={selected?.uid === m.uid}
-              onClick={() => setSelected(m)}
+              selected={!picking && selected?.uid === m.uid}
+              onClick={() => onMemberClick(m)}
+              chip={picking ? <PickMark on={isPicked(m.uid)} /> : null}
             />
           ))
       ) : tree.map(root => (
@@ -111,17 +156,27 @@ export default function Members() {
             <SidebarSection
               key={g.id}
               label={g.name}
-              count={g.members.length}
+              count={picking ? null : g.members.length}
               open={isOpen(g.id)}
               onToggle={() => toggle(g.id)}
+              action={picking ? (
+                <Button
+                  size="small"
+                  onClick={() => toggleGroup(g.members)}
+                  sx={{ fontSize: '0.7rem', minWidth: 0, px: 0.6, py: 0 }}
+                >
+                  {g.members.every(m => isPicked(m.uid)) ? '해제' : '전체'}
+                </Button>
+              ) : null}
             >
               {g.members.map(m => (
                 <SidebarItem
                   key={`${g.id}:${m.uid}`}
                   label={m.name}
                   indent={1.2}
-                  selected={selected?.uid === m.uid}
-                  onClick={() => setSelected(m)}
+                  selected={!picking && selected?.uid === m.uid}
+                  onClick={() => onMemberClick(m)}
+                  chip={picking ? <PickMark on={isPicked(m.uid)} /> : null}
                 />
               ))}
             </SidebarSection>
@@ -133,7 +188,14 @@ export default function Members() {
 
   return (
     <WorkspaceLayout sidebar={sidebar}>
-      {selected ? (
+      {picking ? (
+        <PickedPanel
+          picked={picked}
+          onRemove={m => togglePick(m)}
+          onClear={() => setPicked([])}
+          onSend={() => setCompose({ recipients: picked })}
+        />
+      ) : selected ? (
         <Box sx={{ p: 2.5, maxWidth: 560 }}>
           <Typography variant="h6" fontWeight={800} mb={0.5}>{selected.name}</Typography>
           <Typography color="text.secondary" fontSize="0.88rem" mb={2.5}>
@@ -160,7 +222,7 @@ export default function Members() {
             <Button
               variant="outlined"
               startIcon={<SendIcon sx={{ fontSize: 16 }} />}
-              onClick={() => setCompose(selected)}
+              onClick={() => setCompose({ recipients: [{ uid: selected.uid, name: selected.name }] })}
             >
               쪽지 보내기
             </Button>
@@ -172,8 +234,11 @@ export default function Members() {
 
       <NoticeComposeModal
         open={!!compose}
-        presetRecipient={compose}
-        onClose={() => setCompose(null)}
+        presetRecipients={compose?.recipients}
+        onClose={() => {
+          setCompose(null)
+          stopPicking()
+        }}
       />
     </WorkspaceLayout>
   )
@@ -188,6 +253,64 @@ function Field({ label, value }) {
       <Typography fontSize="0.85rem" fontWeight={value ? 600 : 400} color={value ? 'text.primary' : 'text.disabled'}>
         {value || '—'}
       </Typography>
+    </Box>
+  )
+}
+
+/** 고른 표시 — 체크박스 하나를 줄 오른쪽에 둔다. 좁은 사이드바라 아이콘 하나가 한계다. */
+function PickMark({ on }) {
+  return (
+    <Checkbox
+      checked={on}
+      size="small"
+      tabIndex={-1}
+      disableRipple
+      sx={{ p: 0, pointerEvents: 'none' }}
+    />
+  )
+}
+
+/**
+ * 고르는 중일 때 오른쪽에 뜨는 담긴 사람들.
+ *
+ * 사이드바에서는 지금 몇 명이 담겼는지 한눈에 안 보인다 — 부서를 접었다 폈다 하면
+ * 체크가 화면 밖으로 나간다. 담은 결과를 따로 보여주고 여기서 빼낼 수 있게 한다.
+ */
+function PickedPanel({ picked, onRemove, onClear, onSend }) {
+  if (picked.length === 0) {
+    return (
+      <DetailPlaceholder
+        emoji="✅"
+        message="왼쪽에서 보낼 분들을 고르세요. 부서 옆 '전체'로 한 번에 담을 수 있습니다."
+      />
+    )
+  }
+
+  return (
+    <Box sx={{ p: 2.5, maxWidth: 640 }}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6, mb: 1.5 }}>
+        <Typography variant="h6" fontWeight={800}>{picked.length}</Typography>
+        <Typography fontSize="0.9rem" color="text.secondary" sx={{ flexGrow: 1 }}>명 선택</Typography>
+        <Button size="small" onClick={onClear} sx={{ fontSize: '0.78rem' }}>모두 해제</Button>
+      </Box>
+
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mb: 2.5 }}>
+        {picked.map(m => (
+          <Chip
+            key={m.uid} size="small" label={m.name}
+            onDelete={() => onRemove(m)}
+            sx={{ fontSize: '0.78rem' }}
+          />
+        ))}
+      </Box>
+
+      <Button
+        variant="contained"
+        startIcon={<SendIcon sx={{ fontSize: 16 }} />}
+        onClick={onSend}
+      >
+        {picked.length}명에게 쪽지 보내기
+      </Button>
     </Box>
   )
 }

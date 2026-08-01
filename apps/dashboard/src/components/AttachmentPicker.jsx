@@ -21,7 +21,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { deleteAttachment, fileKind, formatBytes, uploadAttachment } from '@shared/lib/requestAttachments'
 import { useToast } from './ToastProvider'
 
-export default function AttachmentPicker({ requestId, attachments, links, onChange }) {
+export default function AttachmentPicker({ requestId, folder = 'requests', attachments, links, onChange }) {
   const { schoolId } = useAuth()
   const toast = useToast()
   const fileInput = useRef(null)
@@ -36,7 +36,7 @@ export default function AttachmentPicker({ requestId, attachments, links, onChan
     setUploading(n => n + files.length)
     for (const file of files) {
       try {
-        const uploaded = await uploadAttachment({ schoolId, requestId, file })
+        const uploaded = await uploadAttachment({ schoolId, docId: requestId, folder, file })
         onChange({ attachments: [...attachments, uploaded], links })
       } catch (err) {
         toast.error(`${file.name} 업로드 실패: ${err.message}`, err)

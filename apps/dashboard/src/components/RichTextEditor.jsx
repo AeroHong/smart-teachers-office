@@ -57,7 +57,7 @@ const TOOLS = [
   { cmd: 'insertOrderedList', label: '번호 매기기', Icon: FormatListNumberedIcon },
 ]
 
-export default function RichTextEditor({ requestId, value, onChange, onImageUploaded, placeholder }) {
+export default function RichTextEditor({ docId, folder = 'requests', value, onChange, onImageUploaded, placeholder }) {
   const { schoolId } = useAuth()
   const toast = useToast()
   const editorRef = useRef(null)
@@ -220,7 +220,7 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
   const insertImage = useCallback(async (file) => {
     setUploading(n => n + 1)
     try {
-      const uploaded = await uploadAttachment({ schoolId, requestId, file })
+      const uploaded = await uploadAttachment({ schoolId, docId, folder, file })
       editorRef.current?.focus()
       document.execCommand('insertHTML', false,
         `<img src="${uploaded.url}" alt="${(file.name || '이미지').replace(/"/g, '')}" /><br/>`)
@@ -232,7 +232,7 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
     } finally {
       setUploading(n => n - 1)
     }
-  }, [schoolId, requestId, emit, onImageUploaded, toast])
+  }, [schoolId, docId, folder, emit, onImageUploaded, toast])
 
   const handleFiles = (files) => {
     [...files].filter(isImageFile).forEach(insertImage)

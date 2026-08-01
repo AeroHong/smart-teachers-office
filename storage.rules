@@ -42,6 +42,25 @@ service firebase.storage {
                    && request.resource.size < 20 * 1024 * 1024;
     }
 
+    // 쪽지 첨부·본문 이미지. 폴더 이름은 쪽지 묶음 ID다.
+    //
+    // 업무 요청과 폴더를 갈라둔 이유: 요청 첨부는 모두에게 뿌리는 양식이라 교직원 전체가
+    // 읽어도 되지만, 쪽지는 주고받은 사람의 것이다. 한 폴더에 두면 둘의 읽기 범위를
+    // 다르게 줄 수 없다.
+    //
+    // 다만 여기서 읽기를 좁혀도 완전한 보호는 아니다 — 위 주석대로 다운로드 토큰 URL은
+    // 이 규칙을 지나간다. 받는 사람이 링크를 옮기면 누구나 열 수 있으므로, 쪽지에도
+    // 유출되면 안 되는 파일은 올리지 않는다.
+    //
+    // 읽기를 교직원 전체로 두는 것은 Storage 규칙만으로 "이 묶음의 수신자인가"를 물을 수
+    // 없기 때문이다. 그러려면 Firestore를 가로질러 읽어야 하는데 이 프로젝트에서
+    // firestore.get()이 Storage 규칙에서 동작하지 않았다(위 주석 참고).
+    match /schools/{schoolId}/notices/{batchId}/{fileName} {
+      allow read: if isSuperAdmin() || isMemberOf(schoolId);
+      allow write: if (isSuperAdmin() || isStaffOf(schoolId))
+                   && request.resource.size < 20 * 1024 * 1024;
+    }
+
     // 그 밖의 학교 파일 — 관리자만 쓰기.
     match /schools/{schoolId}/{allPaths=**} {
       allow read: if isSuperAdmin() || isMemberOf(schoolId);
