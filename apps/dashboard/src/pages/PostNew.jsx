@@ -22,10 +22,13 @@ import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
+import Chip from '@mui/material/Chip'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
+import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
@@ -41,6 +44,44 @@ import { useToast } from '../components/ToastProvider'
 import useSchoolMembers from '../lib/useSchoolMembers'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
+
+// 상단 막대 높이. 설정 패널을 화면에 붙일 때 남은 세로 공간을 계산하는 데 쓴다.
+const TOPBAR_HEIGHT = 66
+
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function shiftDays(n) {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  return ymd(d)
+}
+
+/** 다음 금요일. 오늘이 금요일이면 이번 주가 아니라 다음 주를 준다. */
+function comingFriday() {
+  const d = new Date()
+  d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7 || 7))
+  return ymd(d)
+}
+
+const DUE_PRESETS = [
+  { label: '오늘', get: () => shiftDays(0) },
+  { label: '내일', get: () => shiftDays(1) },
+  { label: '금요일', get: comingFriday },
+  { label: '1주 뒤', get: () => shiftDays(7) },
+]
+
+/** 마감일까지 며칠 남았는지. 날짜만 보고는 감이 안 와서 옆에 붙여둔다. */
+function dueLabel(value) {
+  if (!value) return '없음'
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const due = new Date(`${value}T00:00:00`)
+  const days = Math.round((due - today) / 86400000)
+  if (days === 0) return '오늘'
+  if (days < 0) return `${-days}일 지남`
+  return `${days}일 뒤`
+}
 
 export default function PostNew() {
   const { user, userName, schoolId } = useAuth()
@@ -66,6 +107,11 @@ export default function PostNew() {
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
   const canSave = title.trim() && targets.length > 0 && !saving
+
+  // 보내기가 막혀 있으면 왜 막혔는지 단추 바로 위에 적는다
+  const blockReason = !title.trim() ? '제목을 입력해 주세요'
+    : targets.length === 0 ? '조건에 맞는 대상이 없습니다'
+    : null
 
   /**
    * 취소하면 이미 올라간 파일을 지운다.
@@ -157,58 +203,137 @@ export default function PostNew() {
           </Box>
         </Box>
 
-        {/* 오른쪽 — 보낼 설정 */}
+        {/* 오른쪽 — 보낼 설정.
+            설정이 길어져도 보내기 단추는 늘 보여야 한다. 패널을 화면에 붙여두고(sticky)
+            안쪽만 스크롤시킨 뒤, 단추는 스크롤 밖 맨 아래에 고정한다. */}
         <Box sx={{
           flex: '0 1 300px', minWidth: 262,
+          position: 'sticky', top: 0,
+          maxHeight: `calc(100vh - ${TOPBAR_HEIGHT + 32}px)`,
+          display: 'flex', flexDirection: 'column',
           border: '1px solid', borderColor: 'divider', borderRadius: 1.25,
           bgcolor: 'background.default',
-          p: 1.5,
+          overflow: 'hidden',
         }}>
-          {loading
-            ? <Typography color="text.secondary" fontSize="0.85rem">구성원 불러오는 중…</Typography>
-            : <TargetPicker members={members} value={rule} onChange={setRule} />}
+          <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', p: 1.5 }}>
+            {loading
+              ? <Typography color="text.secondary" fontSize="0.85rem">구성원 불러오는 중…</Typography>
+              : <TargetPicker members={members} value={rule} onChange={setRule} />}
 
-          <Divider sx={{ my: 1.75 }} />
+            <Divider sx={{ my: 1.5 }} />
 
-          <FormControlLabel
-            control={<Checkbox size="small" checked={needsCompletion} onChange={e => setNeedsCompletion(e.target.checked)} />}
-            label={<Typography fontSize="0.85rem" fontWeight={700}>완료 확인 받기</Typography>}
-          />
-          <Typography fontSize="0.76rem" color="text.secondary" sx={{ ml: 3.7, mt: -0.5 }}>
-            {needsCompletion
-              ? '받는 분의 할 일 목록에 남고, 누가 했는지 집계됩니다.'
-              : '읽으면 끝나는 안내입니다. 완료를 확인하지 않습니다.'}
-          </Typography>
-
-          {needsCompletion ? (
-            <TextField
-              label="마감일" type="date" size="small" fullWidth
-              InputLabelProps={{ shrink: true }}
-              value={dueDate} onChange={e => setDueDate(e.target.value)}
-              sx={{ mt: 1.5 }}
+            <PanelLabel>보내는 방식</PanelLabel>
+            <SegChoice
+              value={needsCompletion ? 'request' : 'notice'}
+              onChange={v => setNeedsCompletion(v === 'request')}
+              options={[
+                { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
+                { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
+              ]}
             />
-          ) : (
-            <FormControlLabel
-              sx={{ mt: 0.5, display: 'block' }}
-              control={<Checkbox size="small" checked={pinned} onChange={e => setPinned(e.target.checked)} />}
-              label={<Typography fontSize="0.85rem">목록 맨 위에 고정</Typography>}
-            />
-          )}
-
-          <Divider sx={{ my: 1.75 }} />
-
-          <Button fullWidth variant="contained" onClick={handleSave} disabled={!canSave}>
-            {targets.length > 0 ? `${targets.length}명에게 보내기` : '보내기'}
-          </Button>
-          <Button fullWidth onClick={discardAndLeave} sx={{ mt: 0.5 }}>취소</Button>
-
-          {!title.trim() && (
-            <Typography fontSize="0.76rem" color="text.disabled" sx={{ mt: 1, textAlign: 'center' }}>
-              제목을 입력해야 보낼 수 있습니다
+            <Typography fontSize="0.76rem" color="text.secondary" sx={{ mt: 0.7 }}>
+              {needsCompletion
+                ? '받는 분의 할 일 목록에 남고, 누가 했는지 집계됩니다.'
+                : '읽으면 끝나는 안내입니다. 완료를 확인하지 않습니다.'}
             </Typography>
-          )}
+
+            <Divider sx={{ my: 1.5 }} />
+
+            {needsCompletion ? (
+              <>
+                <PanelLabel hint={dueLabel(dueDate)}>마감일</PanelLabel>
+                <TextField
+                  type="date" size="small" fullWidth
+                  value={dueDate} onChange={e => setDueDate(e.target.value)}
+                  inputProps={{ style: { fontSize: '0.85rem' } }}
+                />
+                {/* 학교 마감은 대개 '이번 주 금요일' 같은 말로 정해진다. 달력을 열어
+                    날짜를 세는 대신 바로 찍을 수 있게 둔다. */}
+                <Box sx={{ display: 'flex', gap: 0.5, mt: 0.7, flexWrap: 'wrap' }}>
+                  {DUE_PRESETS.map(p => (
+                    <Chip
+                      key={p.label} size="small" variant="outlined" label={p.label}
+                      onClick={() => setDueDate(p.get())}
+                      sx={{ fontSize: '0.74rem', height: 24 }}
+                    />
+                  ))}
+                  {dueDate && (
+                    <Chip
+                      size="small" variant="outlined" label="지우기"
+                      onClick={() => setDueDate('')}
+                      sx={{ fontSize: '0.74rem', height: 24, color: 'text.secondary' }}
+                    />
+                  )}
+                </Box>
+              </>
+            ) : (
+              <FormControlLabel
+                sx={{ display: 'block', ml: -0.5 }}
+                control={<Checkbox size="small" checked={pinned} onChange={e => setPinned(e.target.checked)} />}
+                label={<Typography fontSize="0.85rem">목록 맨 위에 고정</Typography>}
+              />
+            )}
+          </Box>
+
+          {/* 스크롤 밖 — 늘 보이는 자리 */}
+          <Box sx={{ flexShrink: 0, borderTop: '1px solid', borderColor: 'divider', p: 1.25 }}>
+            {blockReason && (
+              <Typography fontSize="0.76rem" color="text.secondary" sx={{ mb: 0.7, textAlign: 'center' }}>
+                {blockReason}
+              </Typography>
+            )}
+            <Button fullWidth variant="contained" onClick={handleSave} disabled={!canSave}>
+              {targets.length > 0
+                ? `${targets.length}명에게 ${needsCompletion ? '요청' : '안내'} 보내기`
+                : '보내기'}
+            </Button>
+            <Button fullWidth size="small" onClick={discardAndLeave} sx={{ mt: 0.4 }}>취소</Button>
+          </Box>
         </Box>
       </Box>
     </WorkspaceLayout>
+  )
+}
+
+/** 설정 패널의 구역 제목. TargetPicker의 '대상 … 59 명' 머리와 같은 모양으로 맞춘다. */
+function PanelLabel({ children, hint }) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, mb: 0.8 }}>
+      <Typography fontSize="0.85rem" fontWeight={700} sx={{ flexGrow: 1 }}>{children}</Typography>
+      {hint && <Typography fontSize="0.78rem" color="text.secondary">{hint}</Typography>}
+    </Box>
+  )
+}
+
+/**
+ * 둘 중 하나 고르기.
+ *
+ * 체크상자로 두면 "완료 확인 받기"를 껐을 때 무엇이 되는지가 안 보인다. 요청과 안내를
+ * 나란히 놓아 지금 어느 쪽으로 나가는지 한눈에 보이게 한다.
+ */
+function SegChoice({ value, onChange, options }) {
+  return (
+    <Box sx={{ display: 'flex', gap: 0.4, p: 0.4, borderRadius: 1, bgcolor: 'action.hover' }}>
+      {options.map(o => {
+        const on = o.value === value
+        return (
+          <Box
+            key={o.value} component="button" type="button"
+            onClick={() => onChange(o.value)}
+            sx={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5,
+              border: 0, borderRadius: 0.75, py: 0.7, cursor: 'pointer',
+              fontFamily: 'inherit', fontSize: '0.83rem',
+              fontWeight: on ? 700 : 500,
+              bgcolor: on ? 'background.paper' : 'transparent',
+              boxShadow: on ? 1 : 0,
+              color: on ? 'primary.main' : 'text.secondary',
+            }}
+          >
+            <o.Icon sx={{ fontSize: 16 }} />{o.label}
+          </Box>
+        )
+      })}
+    </Box>
   )
 }
