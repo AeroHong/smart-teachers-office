@@ -6,6 +6,7 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firest
 import { httpsCallable } from 'firebase/functions'
 import { auth, db, functions } from '@shared/lib/firebase'
 import { emailToDocId } from '@shared/lib/emailToDocId'
+import { stripTitlePrefix } from '@shared/lib/personName'
 
 const SUPER_ADMIN_EMAIL = 'hckgood@gmail.com'
 
@@ -48,10 +49,15 @@ export function AuthProvider({ children }) {
   const processUser = useCallback(async (firebaseUser) => {
     const email = firebaseUser.email || ''
 
+    // 구글 워크스페이스 표시이름은 "교사강혜련"처럼 직책이 앞에 붙어 있다. 아래에서
+    // 로그인마다 users.name에 동기화하므로, 여기서 떼지 않으면 명단을 한 번 정리해도
+    // 선생님들이 접속하는 대로 하나씩 되돌아간다. (personName.js 참고)
+    const displayName = stripTitlePrefix(firebaseUser.displayName || '')
+
     // ── 슈퍼 어드민 ────────────────────────────────────────────
     if (email.toLowerCase() === SUPER_ADMIN_EMAIL) {
       setUser(firebaseUser)
-      setUserName(firebaseUser.displayName || '')
+      setUserName(displayName || '')
       setRole('super_admin')
       setIsSuperAdmin(true)
       setSchoolId(null)
@@ -85,7 +91,7 @@ export function AuthProvider({ children }) {
             }, { merge: true })
             const schoolData = await fetchSchoolData(regSchoolId)
             setUser(firebaseUser)
-            setUserName(firebaseUser.displayName || data.name || regName || '')
+            setUserName(displayName || data.name || regName || '')
             setRole('student')
             setSchoolId(regSchoolId)
             setSchoolName(schoolData.name || regSchoolId)
@@ -104,8 +110,7 @@ export function AuthProvider({ children }) {
       if (existingSchoolId && !existingSchoolId.startsWith('guest_') && data.role !== 'rejected') {
         const schoolData = await fetchSchoolData(existingSchoolId)
 
-        // displayName 변경 시 업데이트
-        const displayName = firebaseUser.displayName || ''
+        // 표시이름이 바뀌었으면 반영 (개명·오기 수정이 넘어오는 통로)
         if (displayName && displayName !== data.name) {
           updateDoc(userRef, { name: displayName }).catch(() => {})
         }
@@ -133,7 +138,7 @@ export function AuthProvider({ children }) {
       if (regDoc.exists()) {
         const { schoolId: regSchoolId, studentId: regStudentId, name: regName } = regDoc.data()
         await setDoc(userRef, {
-          name: firebaseUser.displayName || regName || '',
+          name: displayName || regName || '',
           email,
           role: 'student',
           schoolId: regSchoolId,
@@ -142,7 +147,7 @@ export function AuthProvider({ children }) {
         })
         const schoolData = await fetchSchoolData(regSchoolId)
         setUser(firebaseUser)
-        setUserName(firebaseUser.displayName || regName || '')
+        setUserName(displayName || regName || '')
         setRole('student')
         setSchoolId(regSchoolId)
         setSchoolName(schoolData.name || regSchoolId)
@@ -169,7 +174,7 @@ export function AuthProvider({ children }) {
           if (preSnap.exists()) {
             const { name: preName, staffType, role: preRole } = preSnap.data()
             await setDoc(userRef, {
-              name: firebaseUser.displayName || preName || '',
+              name: displayName || preName || '',
               email,
               role: preRole || 'teacher',
               schoolId: domainSchoolId,
@@ -178,7 +183,7 @@ export function AuthProvider({ children }) {
             })
             const schoolData = await fetchSchoolData(domainSchoolId)
             setUser(firebaseUser)
-            setUserName(firebaseUser.displayName || preName || '')
+            setUserName(displayName || preName || '')
             setRole(preRole || 'teacher')
             setSchoolId(domainSchoolId)
             setSchoolName(schoolData.name || domainSchoolId)
@@ -196,7 +201,7 @@ export function AuthProvider({ children }) {
 
     // 등록된 학생 아님 → SchoolSetup
     setUser(firebaseUser)
-    setUserName(firebaseUser.displayName || '')
+    setUserName(displayName || '')
     setNeedsSchoolSetup(true)
     setRole(null)
     setSchoolId(null)
