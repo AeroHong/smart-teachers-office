@@ -27,9 +27,25 @@ import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import LinkIcon from '@mui/icons-material/Link'
 import ImageIcon from '@mui/icons-material/Image'
+import FormatColorTextIcon from '@mui/icons-material/FormatColorText'
+import Popover from '@mui/material/Popover'
+import SlashMenu from './SlashMenu'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { isImageFile, uploadAttachment } from '@shared/lib/requestAttachments'
 import { useToast } from './ToastProvider'
+
+/**
+ * 글자색. 자유 선택기 대신 몇 가지만 둔다 — 업무 안내에서 색은 강조 수단이라
+ * 종류가 많을수록 글이 알록달록해지고 정작 중요한 것이 묻힌다.
+ */
+const TEXT_COLORS = [
+  { label: '기본', value: '#1f2937' },
+  { label: '빨강 (중요)', value: '#d32f2f' },
+  { label: '주황 (주의)', value: '#e65100' },
+  { label: '파랑 (참고)', value: '#1565c0' },
+  { label: '초록 (완료)', value: '#2e7d32' },
+  { label: '회색 (보조)', value: '#6b7280' },
+]
 
 const TOOLS = [
   { cmd: 'bold', label: '굵게 (⌘B)', Icon: FormatBoldIcon },
@@ -47,6 +63,9 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(0)
+  const [colorAnchor, setColorAnchor] = useState(null)
+  // '/'를 친 위치와 그 뒤에 이어 친 글자. 메뉴를 고르면 이 구간을 지우고 블록을 넣는다.
+  const [slash, setSlash] = useState(null)
 
   // 부모가 값을 바꿨을 때만 DOM에 밀어 넣는다. 타이핑 중에 덮어쓰면 커서가 맨 앞으로 튄다.
   useEffect(() => {
@@ -58,9 +77,49 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
     onChange(editorRef.current?.innerHTML || '')
   }, [onChange])
 
-  const exec = (cmd) => {
+  const handleInput = () => { emit(); syncSlash() }
+
+  const exec = (cmd, value = null) => {
     editorRef.current?.focus()
-    document.execCommand(cmd, false, null)
+    document.execCommand(cmd, false, value)
+    emit()
+  }
+
+  /** 커서 바로 앞 텍스트에서 '/…' 조각을 찾는다. 줄 처음이나 공백 뒤일 때만 명령으로 본다. */
+  const readSlashQuery = () => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null
+    const node = sel.anchorNode
+    if (!node || node.nodeType !== Node.TEXT_NODE) return null
+    const before = node.textContent.slice(0, sel.anchorOffset)
+    const m = /(?:^|\s)\/([^\s/]*)$/.exec(before)
+    if (!m) return null
+    return { query: m[1], length: m[1].length + 1 }
+  }
+
+  const syncSlash = () => {
+    const found = readSlashQuery()
+    if (!found) return setSlash(null)
+    const rect = window.getSelection().getRangeAt(0).getBoundingClientRect()
+    setSlash({
+      query: found.query,
+      length: found.length,
+      // 빈 텍스트 노드에서는 rect가 0이라 편집기 왼쪽 위를 대신 쓴다
+      rect: rect.width || rect.height ? rect : editorRef.current.getBoundingClientRect(),
+    })
+  }
+
+  /** 메뉴에서 고른 블록을 넣는다. 먼저 '/질문' 글자를 지운다. */
+  const applySlash = (item) => {
+    const el = editorRef.current
+    el?.focus()
+    for (let i = 0; i < (slash?.length || 0); i++) document.execCommand('delete', false, null)
+    setSlash(null)
+
+    if (item.action === 'image') { fileInputRef.current?.click(); return }
+    if (item.cmd) document.execCommand(item.cmd, false, null)
+    else if (item.block) document.execCommand('formatBlock', false, item.block)
+    else if (item.html) document.execCommand('insertHTML', false, item.html)
     emit()
   }
 
@@ -133,6 +192,11 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
           </Tooltip>
         ))}
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.6 }} />
+        <Tooltip title="글자색">
+          <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={e => setColorAnchor(e.currentTarget)}>
+            <FormatColorTextIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="링크">
           <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={addLink}>
             <LinkIcon sx={{ fontSize: 18 }} />
@@ -154,8 +218,10 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
         ref={editorRef}
         contentEditable
         suppressContentEditableWarning
-        onInput={emit}
+        onInput={handleInput}
         onBlur={emit}
+        onKeyUp={syncSlash}
+        onClick={syncSlash}
         onPaste={handlePaste}
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
@@ -172,6 +238,17 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
           '& ul, & ol': { pl: 3, my: 0.5 },
           '& a': { color: 'primary.main' },
           '& p': { m: 0 },
+          '& h2': { fontSize: '1.15rem', fontWeight: 800, m: '0.6em 0 0.2em' },
+          '& h3': { fontSize: '1rem', fontWeight: 700, m: '0.5em 0 0.2em' },
+          '& blockquote': {
+            m: '0.4em 0', pl: 1.5, borderLeft: '3px solid', borderColor: 'divider',
+            color: 'text.secondary',
+          },
+          '& hr': { border: 0, borderTop: '1px solid', borderColor: 'divider', my: 1.5 },
+          '& details': {
+            my: 0.6, p: 1, borderRadius: 1, border: '1px solid', borderColor: 'divider',
+          },
+          '& summary': { cursor: 'pointer', fontWeight: 700 },
         }}
       />
 
@@ -182,6 +259,39 @@ export default function RichTextEditor({ requestId, value, onChange, onImageUplo
         multiple
         hidden
         onChange={e => { handleFiles(e.target.files); e.target.value = '' }}
+      />
+
+      <Popover
+        open={!!colorAnchor}
+        anchorEl={colorAnchor}
+        onClose={() => setColorAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        <Box sx={{ p: 0.5 }}>
+          {TEXT_COLORS.map(c => (
+            <Box
+              key={c.value}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { exec('foreColor', c.value); setColorAnchor(null) }}
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 1,
+                px: 1.2, py: 0.6, cursor: 'pointer', borderRadius: 0.75,
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: c.value, flexShrink: 0 }} />
+              <Typography fontSize="0.83rem">{c.label}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </Popover>
+
+      <SlashMenu
+        open={!!slash}
+        anchorRect={slash?.rect}
+        query={slash?.query}
+        onSelect={applySlash}
+        onClose={() => setSlash(null)}
       />
     </Box>
   )

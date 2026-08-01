@@ -1,0 +1,13 @@
+[
+  {
+    "origin": [
+      "https://smart-school-dashboard.web.app",
+      "https://seonyoo-system.web.app",
+      "https://smart-school-kr.web.app",
+      "http://localhost:5173"
+    ],
+    "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+    "responseHeader": ["Content-Type", "Content-Disposition", "Authorization", "x-goog-*"],
+    "maxAgeSeconds": 3600
+  }
+]

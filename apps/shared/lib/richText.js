@@ -13,14 +13,20 @@ import DOMPurify from 'dompurify'
 /** 본문에 허용하는 태그. 서식 도구가 만들어내는 것과 붙여넣기로 흔히 들어오는 것만 둔다. */
 const ALLOWED_TAGS = [
   'p', 'br', 'div', 'span',
-  'b', 'strong', 'i', 'em', 'u', 's', 'strike',
+  'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'font',
   'ul', 'ol', 'li',
-  'a', 'img',
+  'a', 'img', 'hr',
   'blockquote', 'code', 'pre',
   'h1', 'h2', 'h3',
+  // 토글 — 긴 안내에서 세부 절차를 접어두는 용도. 자바스크립트 없이 브라우저가 여닫는다.
+  'details', 'summary',
 ]
 
-const ALLOWED_ATTR = ['href', 'target', 'rel', 'src', 'alt', 'width', 'height']
+// style을 통째로 허용하지 않고 color만 남긴다. 배경·위치·크기를 자유롭게 두면 남의 글이
+// 화면을 덮거나 다른 요소를 가리게 만들 수 있다.
+const ALLOWED_ATTR = ['href', 'target', 'rel', 'src', 'alt', 'width', 'height', 'color', 'style']
+
+const STYLE_ATTR = /\sstyle="([^"]*)"/gi
 
 /** 화면에 그리기 직전에 거른다. 저장 시점에도 한 번 거르지만 옛 문서는 그 과정을 안 거쳤다. */
 export function sanitizeHtml(html) {
@@ -30,6 +36,10 @@ export function sanitizeHtml(html) {
     ALLOWED_ATTR,
     // data:·javascript: 주소를 막는다. 이미지는 Storage 다운로드 URL만 쓴다.
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:)/i,
+  }).replace(STYLE_ATTR, (match, value) => {
+    // style 안에서도 색만 남긴다 (위 주석 참고)
+    const color = /(^|;)\s*color\s*:\s*([^;]+)/i.exec(value)
+    return color ? ` style="color:${color[2].trim()}"` : ''
   })
 }
 
@@ -41,7 +51,8 @@ export function htmlToText(html) {
   if (!html) return ''
   return html
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h[1-3]|blockquote)>/gi, '\n')
+    .replace(/<hr\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-3]|blockquote|summary|details)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '· ')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')

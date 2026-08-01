@@ -64,11 +64,15 @@ export async function uploadAttachment({ schoolId, requestId, file }) {
   const path = `schools/${schoolId}/requests/${requestId}/${Date.now()}_${safeFileName(file.name)}`
   const objectRef = ref(storage, path)
 
-  await uploadBytes(objectRef, file, {
-    contentType: file.type || 'application/octet-stream',
-    // 브라우저가 hwp를 인라인으로 열려고 하지 않도록 원래 이름으로 내려받게 한다
-    contentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-  })
+  // 본문에 끼우는 이미지에는 Content-Disposition을 붙이지 않는다. attachment가 걸리면
+  // 브라우저가 <img>로 그리지 않고 내려받으려 해서 글 안에서 그림이 안 보인다.
+  // 한글·엑셀 첨부는 반대로 원래 이름 그대로 내려받아야 하므로 그때만 붙인다.
+  const metadata = { contentType: file.type || 'application/octet-stream' }
+  if (!isImageFile(file)) {
+    metadata.contentDisposition = `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`
+  }
+
+  await uploadBytes(objectRef, file, metadata)
 
   return {
     name: file.name,
