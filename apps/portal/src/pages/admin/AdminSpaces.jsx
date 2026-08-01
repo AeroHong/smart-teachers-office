@@ -28,16 +28,16 @@ const CALL_STATUS_STYLE = {
 
 export default function AdminSpaces() {
   const { schoolId } = useAuth()
-  const [tab, setTab] = useState(0) // 0: offices, 1: layout, 2: devices
+  const [tab, setTab] = useState(0) // 0: departments, 1: layout, 2: devices
   const [loading, setLoading] = useState(true)
 
-  const [callOffices, setCallOffices] = useState([])
-  const [pairOffice, setPairOffice] = useState('')
+  const [callDepartments, setCallDepartments] = useState([])
+  const [pairDepartment, setPairDepartment] = useState('')
   const [pairDeviceType, setPairDeviceType] = useState('input')
   const [issuedCode, setIssuedCode] = useState(null)
   const [issuingCode, setIssuingCode] = useState(false)
   const [recentCalls, setRecentCalls] = useState([])
-  const [layoutOffice, setLayoutOffice] = useState('')
+  const [layoutDepartment, setLayoutDepartment] = useState('')
 
   useEffect(() => {
     if (!schoolId) return
@@ -59,26 +59,26 @@ export default function AdminSpaces() {
       )),
     ])
 
-    // 사무실 목록은 별도 컬렉션 없이 교원 배정의 office 값을 그대로 집계
-    const offices = [...new Set(
-      assignSnap.docs.map(d => (d.data().office || '').trim()).filter(Boolean)
+    // 부서 목록은 별도 컬렉션 없이 교원 배정의 department 값을 그대로 집계
+    const departments = [...new Set(
+      assignSnap.docs.map(d => (d.data().department || '').trim()).filter(Boolean)
     )].sort((a, b) => a.localeCompare(b, 'ko'))
 
-    setCallOffices(offices)
-    setPairOffice(prev => (prev && offices.includes(prev)) ? prev : (offices[0] || ''))
-    setLayoutOffice(prev => (prev && offices.includes(prev)) ? prev : (offices[0] || ''))
+    setCallDepartments(departments)
+    setPairDepartment(prev => (prev && departments.includes(prev)) ? prev : (departments[0] || ''))
+    setLayoutDepartment(prev => (prev && departments.includes(prev)) ? prev : (departments[0] || ''))
     setRecentCalls(callSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setLoading(false)
   }
 
   const issuePairingCode = async () => {
-    if (!pairOffice) return
+    if (!pairDepartment) return
     setIssuingCode(true)
     setIssuedCode(null)
     try {
       const gen = httpsCallable(functions, 'generatePairingCode')
-      const { data } = await gen({ schoolId, office: pairOffice, deviceType: pairDeviceType })
-      setIssuedCode({ ...data, office: pairOffice, deviceType: pairDeviceType })
+      const { data } = await gen({ schoolId, department: pairDepartment, deviceType: pairDeviceType })
+      setIssuedCode({ ...data, department: pairDepartment, deviceType: pairDeviceType })
     } catch (err) {
       alert('코드 발급 실패: ' + err.message)
     } finally {
@@ -93,7 +93,7 @@ export default function AdminSpaces() {
       </Typography>
 
       <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tab label="사무실 목록" />
+        <Tab label="부서 목록" />
         <Tab label="자리 배치" />
         <Tab label="호출 기기" />
       </Tabs>
@@ -103,23 +103,23 @@ export default function AdminSpaces() {
           <CircularProgress />
         </Box>
       ) : tab === 0 ? (
-        /* ── 사무실 목록 탭 ── */
+        /* ── 부서 목록 탭 ── */
         <Box>
           <Alert severity="info" sx={{ mb: 3 }}>
-            사무실 목록은 교직원 관리 탭에서 교원별로 사무실을 배정하면 자동으로 수집됩니다.
+            부서 목록은 교직원 관리 탭에서 교원별로 부서를 배정하면 자동으로 수집됩니다.
           </Alert>
 
-          {callOffices.length === 0 ? (
+          {callDepartments.length === 0 ? (
             <Typography color="text.secondary">
-              등록된 사무실이 없습니다. 교직원 관리 탭에서 교원별 사무실을 먼저 입력해 주세요.
+              등록된 부서가 없습니다. 교직원 관리 탭에서 교원별 부서를 먼저 입력해 주세요.
             </Typography>
           ) : (
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 2 }}>
-              {callOffices.map(office => (
-                <Card key={office} variant="outlined">
+              {callDepartments.map(department => (
+                <Card key={department} variant="outlined">
                   <CardContent>
                     <Typography variant="h6" fontWeight={600}>
-                      {office}
+                      {department}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -128,27 +128,27 @@ export default function AdminSpaces() {
           )}
 
           <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-            총 {callOffices.length}개 사무실
+            총 {callDepartments.length}개 부서
           </Typography>
         </Box>
       ) : tab === 1 ? (
         /* ── 자리 배치 탭 ── */
         <Box>
-          {callOffices.length === 0 ? (
+          {callDepartments.length === 0 ? (
             <Alert severity="warning">
-              등록된 사무실이 없습니다. 교직원 관리 탭에서 교원별 사무실을 먼저 입력해 주세요.
+              등록된 부서가 없습니다. 교직원 관리 탭에서 교원별 부서를 먼저 입력해 주세요.
             </Alert>
           ) : (
             <>
               <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
                 <FormControl sx={{ minWidth: 200 }}>
-                  <InputLabel>사무실 선택</InputLabel>
+                  <InputLabel>부서 선택</InputLabel>
                   <Select
-                    value={layoutOffice}
-                    label="사무실 선택"
-                    onChange={e => setLayoutOffice(e.target.value)}
+                    value={layoutDepartment}
+                    label="부서 선택"
+                    onChange={e => setLayoutDepartment(e.target.value)}
                   >
-                    {callOffices.map(o => (
+                    {callDepartments.map(o => (
                       <MenuItem key={o} value={o}>{o}</MenuItem>
                     ))}
                   </Select>
@@ -159,13 +159,13 @@ export default function AdminSpaces() {
                 여기서 맞춘 배치가 학생용 키오스크 화면에 그대로 표시되어, 학생이 선생님 자리를 보고 찾을 수 있습니다.
               </Alert>
 
-              {layoutOffice && (
+              {layoutDepartment && (
                 <OfficeLayoutEditor
                   /* 편집 대상 문서가 바뀌면 에디터를 다시 마운트한다 — key를 문서 ID와 맞춰 둔다 */
-                  key={officeLayoutId(currentSchoolYear(), layoutOffice)}
+                  key={officeLayoutId(currentSchoolYear(), layoutDepartment)}
                   schoolId={schoolId}
                   year={currentSchoolYear()}
-                  office={layoutOffice}
+                  department={layoutDepartment}
                 />
               )}
             </>
@@ -175,7 +175,7 @@ export default function AdminSpaces() {
         /* ── 호출 기기 탭 ── */
         <Box>
           <Alert severity="info" sx={{ mb: 3 }}>
-            사무실 앞 <strong>학생용 입력 기기</strong>와 사무실 내부 <strong>현황판 기기</strong>를 각각 등록합니다.
+            부서 사무실 앞 <strong>학생용 입력 기기</strong>와 사무실 내부 <strong>현황판 기기</strong>를 각각 등록합니다.
             기기에서 호출 사이트를 연 뒤 아래에서 발급한 6자리 코드를 입력하면 등록이 완료되며, 재부팅 후에도 유지됩니다.
           </Alert>
 
@@ -183,21 +183,21 @@ export default function AdminSpaces() {
             기기 등록 코드 발급
           </Typography>
 
-          {callOffices.length === 0 ? (
+          {callDepartments.length === 0 ? (
             <Typography color="text.secondary">
-              등록된 사무실이 없습니다. 교직원 관리 탭에서 교원별 사무실을 먼저 입력해 주세요.
+              등록된 부서가 없습니다. 교직원 관리 탭에서 교원별 부서를 먼저 입력해 주세요.
             </Typography>
           ) : (
             <>
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 3 }}>
                 <FormControl sx={{ minWidth: 150 }}>
-                  <InputLabel>사무실</InputLabel>
+                  <InputLabel>부서</InputLabel>
                   <Select
-                    value={pairOffice}
-                    label="사무실"
-                    onChange={e => setPairOffice(e.target.value)}
+                    value={pairDepartment}
+                    label="부서"
+                    onChange={e => setPairDepartment(e.target.value)}
                   >
-                    {callOffices.map(o => (
+                    {callDepartments.map(o => (
                       <MenuItem key={o} value={o}>{o}</MenuItem>
                     ))}
                   </Select>
@@ -228,7 +228,7 @@ export default function AdminSpaces() {
                 <Card sx={{ maxWidth: 460, bgcolor: '#eff6ff', borderColor: '#bfdbfe', mb: 3 }}>
                   <CardContent>
                     <Typography variant="body2" color="primary.dark" gutterBottom>
-                      {issuedCode.office} · {issuedCode.deviceType === 'display' ? '사무실 현황판' : '학생용 입력 기기'}
+                      {issuedCode.department} · {issuedCode.deviceType === 'display' ? '사무실 현황판' : '학생용 입력 기기'}
                     </Typography>
                     <Typography
                       variant="h2"
@@ -248,7 +248,7 @@ export default function AdminSpaces() {
             </>
           )}
 
-          {callOffices.length > 0 && (
+          {callDepartments.length > 0 && (
             <Box sx={{ mt: 5 }}>
               <Typography variant="h6" fontWeight={600} mb={2}>
                 최근 호출 내역
@@ -261,7 +261,7 @@ export default function AdminSpaces() {
                   <thead>
                     <tr>
                       <th style={styles.th}>시각</th>
-                      <th style={styles.th}>사무실</th>
+                      <th style={styles.th}>부서</th>
                       <th style={styles.th}>학생</th>
                       <th style={styles.th}>호출 대상</th>
                       <th style={styles.th}>상태</th>
@@ -273,7 +273,7 @@ export default function AdminSpaces() {
                         <td style={styles.td}>
                           {c.createdAt?.toDate?.().toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) || '—'}
                         </td>
-                        <td style={styles.td}>{c.office || '—'}</td>
+                        <td style={styles.td}>{c.department || '—'}</td>
                         <td style={styles.td}>{c.grade}-{c.classNo}-{c.number} {c.studentName}</td>
                         <td style={styles.td}>{c.teacherName || '—'}</td>
                         <td style={styles.td}>

@@ -19,14 +19,14 @@ const KioskContext = createContext(null)
 export function KioskProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [device, setDevice] = useState(null)  // { schoolId, office, deviceType }
+  const [device, setDevice] = useState(null)  // { schoolId, department, deviceType }
 
   const readClaims = useCallback(async (user, forceRefresh = false) => {
     const { claims } = await user.getIdTokenResult(forceRefresh)
-    if (claims.kioskSchoolId && claims.kioskOffice) {
+    if (claims.kioskSchoolId && claims.kioskDepartment) {
       setDevice({
         schoolId: claims.kioskSchoolId,
-        office: claims.kioskOffice,
+        department: claims.kioskDepartment,
         deviceType: claims.kioskDeviceType || 'input',
       })
     } else {

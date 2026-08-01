@@ -5,13 +5,13 @@ import DeskIcon from '@shared/components/DeskIcon'
 import { officeLayoutId } from '@shared/lib/officeLayout'
 
 /**
- * 사무실 자리 배치 편집기
+ * 부서 자리 배치 편집기
  *
- * 교원 배정에서 같은 사무실로 지정된 교사들을 카드로 놓고, 드래그해서 실제 책상 배치와
+ * 교원 배정에서 같은 부서로 지정된 교사들을 카드로 놓고, 드래그해서 실제 책상 배치와
  * 같은 모양으로 맞춘다. 좌표는 캔버스 크기에 대한 0~1 비율로 저장하므로 화면 크기가
  * 달라도(관리자 PC ↔ 키오스크 크롬북) 같은 배치로 보인다.
  *
- * 저장 위치: schools/{schoolId}/officeLayouts/{year}__{office}
+ * 저장 위치: schools/{schoolId}/officeLayouts/{year}__{department}
  * 문서 ID 규칙은 @shared/lib/officeLayout.js의 officeLayoutId()를 쓴다.
  */
 
@@ -38,7 +38,7 @@ function snapAxis(value, candidates, threshold) {
   return best
 }
 
-export default function OfficeLayoutEditor({ schoolId, year, office }) {
+export default function OfficeLayoutEditor({ schoolId, year, department }) {
   const [teachers, setTeachers] = useState([])
   const [seats, setSeats] = useState({})          // { uid: { x, y } } — 0~1 비율
   const [loading, setLoading] = useState(true)
@@ -56,7 +56,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
 
   // ── 데이터 로드 ────────────────────────────────────────────
   useEffect(() => {
-    if (!schoolId || !office) return
+    if (!schoolId || !department) return
     let cancelled = false
     setLoading(true)
     setMsg('')
@@ -66,10 +66,10 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
         getDocs(query(
           collection(db, 'schools', schoolId, 'teacherAssignments'),
           where('year', '==', year),
-          where('office', '==', office),
+          where("department", "==", department),
         )),
         getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId))),
-        getDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, office))),
+        getDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, department))),
       ])
       if (cancelled) return
 
@@ -97,7 +97,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
     })
 
     return () => { cancelled = true }
-  }, [schoolId, year, office])
+  }, [schoolId, year, department])
 
   // ── 드래그 ────────────────────────────────────────────────
   const handlePointerDown = (e, uid) => {
@@ -177,7 +177,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
   const placeAll = () => unplaced.forEach(t => placeTeacher(t.uid))
 
   const clearAll = () => {
-    if (!window.confirm('이 사무실의 자리 배치를 모두 지우시겠습니까?')) return
+    if (!window.confirm('이 부서의 자리 배치를 모두 지우시겠습니까?')) return
     setSeats({})
     setDirty(true)
   }
@@ -186,13 +186,13 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
     setSaving(true)
     setMsg('')
     try {
-      // 이 사무실에 없는 교사가 남아 있지 않도록 현재 명단 기준으로 정리 후 저장
+      // 이 부서에 없는 교사가 남아 있지 않도록 현재 명단 기준으로 정리 후 저장
       const validUids = new Set(teachers.map(t => t.uid))
       const cleaned = Object.fromEntries(
         Object.entries(seats).filter(([uid]) => validUids.has(uid))
       )
-      await setDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, office)), {
-        year, office, seats: cleaned, confirmed, updatedAt: serverTimestamp(),
+      await setDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, department)), {
+        year, department, seats: cleaned, confirmed, updatedAt: serverTimestamp(),
       })
       setSeats(cleaned)
       setDirty(false)
@@ -213,8 +213,8 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
       const cleaned = Object.fromEntries(
         Object.entries(seats).filter(([uid]) => validUids.has(uid))
       )
-      await setDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, office)), {
-        year, office, seats: cleaned, confirmed: newConfirmed, updatedAt: serverTimestamp(),
+      await setDoc(doc(db, 'schools', schoolId, 'officeLayouts', officeLayoutId(year, department)), {
+        year, department, seats: cleaned, confirmed: newConfirmed, updatedAt: serverTimestamp(),
       })
       setConfirmed(newConfirmed)
       setMsg(newConfirmed ? '✅ 배치 완료로 확정되었습니다.' : '확정이 해제되었습니다.')
@@ -230,7 +230,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
 
   if (loading) return <p style={{ color: '#888' }}>불러오는 중...</p>
   if (teachers.length === 0) {
-    return <p style={{ color: '#888' }}>이 사무실로 배정된 교원이 없습니다. 교원 배정 탭에서 사무실을 먼저 지정해 주세요.</p>
+    return <p style={{ color: '#888' }}>이 부서로 배정된 교원이 없습니다. 교원 배정 탭에서 부서를 먼저 지정해 주세요.</p>
   }
 
   return (
@@ -279,7 +279,7 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
           position: 'absolute', top: 10, left: 14, fontSize: '0.78rem',
           color: '#94a3b8', pointerEvents: 'none',
         }}>
-          {office} — 출입문 방향을 기준으로 배치하면 학생이 찾기 쉽습니다
+          {department} — 출입문 방향을 기준으로 배치하면 학생이 찾기 쉽습니다
         </span>
 
         {/* 스냅 정렬선 */}

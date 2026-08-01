@@ -6,10 +6,10 @@ const { onSchedule } = require('firebase-functions/v2/scheduler')
 /**
  * 선생님 호출 시스템
  *
- * 키오스크 기기(사무실 앞 입력용 / 사무실 내부 현황판용)는 Firebase 익명 로그인 상태에서
+ * 키오스크 기기(부서 사무실 앞 입력용 / 사무실 내부 현황판용)는 Firebase 익명 로그인 상태에서
  * 관리자가 발급한 6자리 페어링 코드를 1회 입력해 Custom Claims를 부여받는다:
- *   { kioskSchoolId, kioskOffice, kioskDeviceType }
- * 이후 firestore.rules가 이 클레임으로 접근 범위를 사무실 단위까지 좁힌다.
+ *   { kioskSchoolId, kioskDepartment, kioskDeviceType }
+ * 이후 firestore.rules가 이 클레임으로 접근 범위를 부서 단위까지 좁힌다.
  * 페어링되지 않은 익명 계정은 아무것도 읽지 못한다.
  *
  * 학생 명단·교직원 명단 조회는 컬렉션을 통째로 열어주지 않고 콜러블로만 제공한다
@@ -48,13 +48,13 @@ async function requireSchoolAdmin(db, request, schoolId) {
   }
 }
 
-// 페어링된 키오스크 기기만 통과 — 클레임에서 학교/사무실을 읽어 반환
+// 페어링된 키오스크 기기만 통과 — 클레임에서 학교/부서를 읽어 반환
 function requireKiosk(request) {
   const t = request.auth?.token
-  if (!t?.kioskSchoolId || !t?.kioskOffice) {
+  if (!t?.kioskSchoolId || !t?.kioskDepartment) {
     throw new HttpsError('permission-denied', '등록되지 않은 기기입니다. 관리자에게 페어링 코드를 요청하세요.')
   }
-  return { schoolId: t.kioskSchoolId, office: t.kioskOffice, deviceType: t.kioskDeviceType }
+  return { schoolId: t.kioskSchoolId, department: t.kioskDepartment, deviceType: t.kioskDeviceType }
 }
 
 function currentSchoolYear() {
@@ -62,17 +62,17 @@ function currentSchoolYear() {
   return now.getMonth() + 1 <= 2 ? now.getFullYear() - 1 : now.getFullYear()
 }
 
-// 사무실 자리 배치 문서 ID — 관리자 화면(OfficeLayoutEditor.jsx)과 동일한 규칙을 써야 한다
-function officeLayoutId(year, office) {
-  return `${year}__${office.replace(/\//g, '_')}`
+// 부서 자리 배치 문서 ID — 관리자 화면(OfficeLayoutEditor.jsx)과 동일한 규칙을 써야 한다
+function officeLayoutId(year, department) {
+  return `${year}__${department.replace(/\//g, '_')}`
 }
 
-// 해당 사무실 소속 교직원 목록 (연도별 배정 정보 + users 이름 조인)
-async function loadOfficeTeachers(db, schoolId, office) {
+// 해당 부서 소속 교직원 목록 (연도별 배정 정보 + users 이름 조인)
+async function loadDepartmentTeachers(db, schoolId, department) {
   const assignSnap = await db
     .collection('schools').doc(schoolId).collection('teacherAssignments')
     .where('year', '==', currentSchoolYear())
-    .where('office', '==', office)
+    .where('department', '==', department)
     .get()
 
   const assignments = assignSnap.docs.map(d => d.data()).filter(a => a.uid)
@@ -103,9 +103,9 @@ async function loadOfficeTeachers(db, schoolId, office) {
 exports.generatePairingCode = onCall({ region: REGION }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
   const db = getFirestore()
-  const { schoolId, office, deviceType } = request.data || {}
+  const { schoolId, department, deviceType } = request.data || {}
 
-  if (!schoolId || !office) throw new HttpsError('invalid-argument', 'schoolId와 office가 필요합니다.')
+  if (!schoolId || !department) throw new HttpsError('invalid-argument', 'schoolId와 department가 필요합니다.')
   if (!['input', 'display'].includes(deviceType)) {
     throw new HttpsError('invalid-argument', 'deviceType은 input 또는 display여야 합니다.')
   }
@@ -123,7 +123,7 @@ exports.generatePairingCode = onCall({ region: REGION }, async (request) => {
 
   const expiresAt = Timestamp.fromMillis(Date.now() + PAIRING_CODE_TTL_MS)
   await db.collection('kioskPairingCodes').doc(code).set({
-    schoolId, office, deviceType,
+    schoolId, department, deviceType,
     createdBy: request.auth.uid,
     createdAt: FieldValue.serverTimestamp(),
     expiresAt,
@@ -152,28 +152,28 @@ exports.claimKioskDevice = onCall({ region: REGION }, async (request) => {
 
   await getAuth().setCustomUserClaims(request.auth.uid, {
     kioskSchoolId: data.schoolId,
-    kioskOffice: data.office,
+    kioskDepartment: data.department,
     kioskDeviceType: data.deviceType,
   })
   await ref.update({ used: true, usedByUid: request.auth.uid, usedAt: FieldValue.serverTimestamp() })
 
-  return { schoolId: data.schoolId, office: data.office, deviceType: data.deviceType }
+  return { schoolId: data.schoolId, department: data.department, deviceType: data.deviceType }
 })
 
-// ── 3. 이 키오스크 사무실의 교직원 목록 + 자리 배치 ─────────────────────────────
+// ── 3. 이 키오스크 부서의 교직원 목록 + 자리 배치 ─────────────────────────────
 exports.getKioskTeachers = onCall({ region: REGION }, async (request) => {
-  const { schoolId, office } = requireKiosk(request)
+  const { schoolId, department } = requireKiosk(request)
   const db = getFirestore()
 
   const [teachers, layoutSnap] = await Promise.all([
-    loadOfficeTeachers(db, schoolId, office),
+    loadDepartmentTeachers(db, schoolId, department),
     db.collection('schools').doc(schoolId).collection('officeLayouts')
-      .doc(officeLayoutId(currentSchoolYear(), office)).get(),
+      .doc(officeLayoutId(currentSchoolYear(), department)).get(),
   ])
 
   const seats = layoutSnap.exists ? (layoutSnap.data().seats || {}) : {}
   return {
-    office,
+    department,
     // 배치가 저장돼 있으면 키오스크가 실제 자리 배치 그대로 그리고, 없으면 단순 격자로 표시
     hasLayout: Object.keys(seats).length > 0,
     teachers: teachers.map(t => ({ ...t, seat: seats[t.uid] || null })),
@@ -196,7 +196,7 @@ exports.lookupStudentName = onCall({ region: REGION }, async (request) => {
 
 // ── 5. 호출 생성 ──────────────────────────────────────────────────────────────
 exports.submitCallRequest = onCall({ region: REGION }, async (request) => {
-  const { schoolId, office } = requireKiosk(request)
+  const { schoolId, department } = requireKiosk(request)
   const db = getFirestore()
   const teacherUid = String(request.data?.teacherUid || '').trim()
   const studentId = String(request.data?.studentId || '').trim()
@@ -207,10 +207,10 @@ exports.submitCallRequest = onCall({ region: REGION }, async (request) => {
   if (!studentSnap.exists) throw new HttpsError('not-found', '학번을 찾을 수 없습니다.')
   const student = studentSnap.data()
 
-  // 호출 대상 교사가 실제로 이 사무실 소속인지 확인 (다른 사무실 교사 호출 방지)
-  const teachers = await loadOfficeTeachers(db, schoolId, office)
+  // 호출 대상 교사가 실제로 이 부서 소속인지 확인 (다른 부서 교사 호출 방지)
+  const teachers = await loadDepartmentTeachers(db, schoolId, department)
   const teacher = teachers.find(t => t.uid === teacherUid)
-  if (!teacher) throw new HttpsError('failed-precondition', '이 사무실에 배정된 교사가 아닙니다.')
+  if (!teacher) throw new HttpsError('failed-precondition', '이 부서에 배정된 교사가 아닙니다.')
 
   // 수업 중이거나 자리를 비운 교사는 호출 불가 (선택 후 제출 사이에 상태가 바뀌었을 수도 있어 서버에서도 확인)
   const presenceSnap = await db
@@ -236,7 +236,7 @@ exports.submitCallRequest = onCall({ region: REGION }, async (request) => {
   }
 
   const docRef = await db.collection('schools').doc(schoolId).collection('callRequests').add({
-    office,
+    department,
     teacherUid,
     teacherName: teacher.name,          // 호출 시점 스냅샷
     studentId,

@@ -171,7 +171,7 @@ export default function CallInput() {
         display: 'flex', alignItems: 'baseline', gap: 1.5, flexShrink: 0,
       }}>
         <Typography fontWeight={800} fontSize="2rem" lineHeight={1.2} color="#111827">
-          {device.office}
+          {device.department}
         </Typography>
         <Typography fontWeight={700} fontSize="1rem" sx={{ color: '#6366f1' }}>
           선생님 호출
@@ -188,7 +188,7 @@ export default function CallInput() {
           <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
             {teachers.length === 0 ? (
               <Typography color="text.secondary">
-                이 사무실에 배정된 선생님이 없습니다. 관리자에게 문의하세요.
+                이 부서에 배정된 선생님이 없습니다. 관리자에게 문의하세요.
               </Typography>
             ) : hasLayout ? (
               <SeatMap teachers={teachers} presence={presence} selected={teacher} onSelect={setTeacher} />
@@ -417,7 +417,7 @@ function DeskCardText({ teacher, status, blocked }) {
   )
 }
 
-// ── 실제 사무실 배치대로 카드 표시 ────────────────────────────
+// ── 실제 사무실 자리 배치대로 카드 표시 ────────────────────────────
 function SeatMap({ teachers, presence, selected, onSelect }) {
   const placed = teachers.filter(t => t.seat)
   const unplaced = teachers.filter(t => !t.seat)
