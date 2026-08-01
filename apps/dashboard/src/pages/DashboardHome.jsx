@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { collection, doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
+import Skeleton from '@mui/material/Skeleton'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import ToggleButton from '@mui/material/ToggleButton'
@@ -15,7 +16,8 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath, teacherAssignmentId, currentSchoolYear } from '@shared/lib/schema'
 import { MODULE_CATALOG, isModuleVisibleToMe, mergeModuleSettings } from '@shared/lib/dashboardModules'
-import { WidgetBadgeProvider } from '../components/widgetUi'
+import { ListSkeleton, WidgetBadgeProvider } from '../components/widgetUi'
+import ErrorBoundary from '../components/ErrorBoundary'
 import { useToast } from '../components/ToastProvider'
 import DashboardLayout from '../components/DashboardLayout'
 import MyRequestsWidget from '../widgets/MyRequestsWidget'
@@ -130,7 +132,23 @@ export default function DashboardHome() {
   const handleResize = (id, size) => persist(setSize(layout, id, size))
   const resetLayout = () => persist(DEFAULT_LAYOUT.filter(item => visibleWidgetIds.includes(item.id)))
 
-  if (!loaded) return <DashboardLayout><Box /></DashboardLayout>
+  if (!loaded) {
+    return (
+      <DashboardLayout>
+        <Box sx={{ maxWidth: 1680, mx: 'auto' }}>
+          <Skeleton variant="text" width={120} height={32} sx={{ mb: 2 }} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(12, 1fr)' }, gap: 2.5 }}>
+            {[12, 4, 4].map((span, i) => (
+              <Skeleton
+                key={i} variant="rounded" height={220}
+                sx={{ gridColumn: { xs: '1 / -1', md: `span ${span}` }, borderRadius: 3 }}
+              />
+            ))}
+          </Box>
+        </Box>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
@@ -241,9 +259,12 @@ function WidgetFrame({
       {/* 편집 중에는 내용을 접어둔다 — 위젯이 길면 끌어 옮길 때 화면이 크게 튄다 */}
       {!editing && (
         <Box sx={{ p: 2, maxHeight: 460, overflowY: 'auto' }}>
-          <WidgetBadgeProvider onChange={setBadge}>
-            <Component />
-          </WidgetBadgeProvider>
+          {/* 위젯 하나가 터져도 나머지 화면은 살아 있어야 한다 */}
+          <ErrorBoundary label={w.title}>
+            <WidgetBadgeProvider onChange={setBadge}>
+              <Component />
+            </WidgetBadgeProvider>
+          </ErrorBoundary>
         </Box>
       )}
     </Box>

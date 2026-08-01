@@ -19,6 +19,7 @@ import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -29,11 +30,11 @@ import {
 } from '@shared/lib/workRequests'
 import DashboardLayout from '../components/DashboardLayout'
 import RequestMaterials from '../components/RequestMaterials'
-import { ToneChip } from '../components/widgetUi'
+import { ListSkeleton, ToneChip } from '../components/widgetUi'
 import { useToast } from '../components/ToastProvider'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import {
-  buildShareText, recalculateTargets, remindPending,
+  buildShareText, deletePost, recalculateTargets, remindPending,
   setCompletion, setCompletionsBulk, setRequestStatus,
 } from '../lib/requestActions'
 
@@ -97,7 +98,15 @@ export default function RequestDetail() {
     }
   }
 
-  if (!loaded) return <DashboardLayout><Box /></DashboardLayout>
+  if (!loaded) {
+    return (
+      <DashboardLayout>
+        <Box sx={{ maxWidth: 820, mx: 'auto' }}>
+          <ListSkeleton rows={4} />
+        </Box>
+      </DashboardLayout>
+    )
+  }
   if (!request) {
     return (
       <DashboardLayout>
@@ -120,9 +129,26 @@ export default function RequestDetail() {
           <Typography sx={{ fontSize: '1.1rem' }}>
             {POST_KIND[isRequest(request) ? 'request' : 'notice'].emoji}
           </Typography>
-          <Typography variant="h6" fontWeight={800}>{request.title}</Typography>
+          <Typography variant="h6" fontWeight={800} sx={{ flexGrow: 1, minWidth: 0 }}>{request.title}</Typography>
           {due.label && <ToneChip label={due.label} tone={DUE_TONE[due.state]} />}
           {request.status === 'closed' && <Chip size="small" label="마감됨" />}
+          {isOwner && (
+            <Button
+              size="small" color="error" startIcon={<DeleteIcon sx={{ fontSize: 17 }} />}
+              disabled={busy}
+              onClick={() => {
+                // 되돌릴 수 없는 동작이라 확인을 받는다. 첨부와 완료 기록까지 함께 사라진다.
+                const count = request.targetUids?.length || 0
+                if (!window.confirm(`"${request.title}"을(를) 삭제할까요?\n대상 ${count}명의 목록에서도 사라지고, 첨부 파일과 완료 기록도 함께 지워집니다.`)) return
+                run(async () => {
+                  await deletePost({ schoolId, requestId, attachments: request.attachments })
+                  navigate('/requests')
+                }, '삭제했습니다.')
+              }}
+            >
+              삭제
+            </Button>
+          )}
         </Box>
         <Typography color="text.secondary" fontSize="0.82rem" mb={2}>
           {request.createdByName} · 대상 {request.targetRuleText || '전체 교직원'}

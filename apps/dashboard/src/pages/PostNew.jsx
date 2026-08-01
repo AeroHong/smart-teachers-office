@@ -29,6 +29,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { newRequestPayload } from '@shared/lib/workRequests'
+import { deleteAttachment } from '@shared/lib/requestAttachments'
 import DashboardLayout from '../components/DashboardLayout'
 import TargetPicker from '../components/TargetPicker'
 import AttachmentPicker from '../components/AttachmentPicker'
@@ -61,6 +62,19 @@ export default function PostNew() {
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
   const canSave = title.trim() && targets.length > 0 && !saving
+
+  /**
+   * 취소하면 이미 올라간 파일을 지운다.
+   *
+   * 첨부는 문서를 저장하기 전에 업로드된다(경로에 문서 ID가 필요해서). 그래서 쓰다가
+   * 그만두면 아무도 참조하지 않는 파일이 저장소에 남는다. 나가는 길에 치운다.
+   */
+  const discardAndLeave = async () => {
+    const uploaded = [...attachments]
+    setAttachments([])
+    navigate('/requests')
+    await Promise.all(uploaded.map(a => deleteAttachment(a).catch(() => {})))
+  }
 
   const handleSave = async () => {
     if (!canSave) return
@@ -166,7 +180,7 @@ export default function PostNew() {
         </Box>
 
         <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2.5 }}>
-          <Button onClick={() => navigate('/requests')}>취소</Button>
+          <Button onClick={discardAndLeave}>취소</Button>
           <Button variant="contained" onClick={handleSave} disabled={!canSave}>
             {targets.length > 0 ? `${targets.length}명에게 보내기` : '보내기'}
           </Button>

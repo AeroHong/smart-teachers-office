@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from '@shared/components/ProtectedRoute'
 import ToastProvider from './components/ToastProvider'
+import ErrorBoundary from './components/ErrorBoundary'
+import CommandPalette from './components/CommandPalette'
 import Login from './pages/Login'
 import DashboardHome from './pages/DashboardHome'
 import RequestList from './pages/RequestList'
@@ -14,6 +16,9 @@ export default function App() {
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       {/* 저장·전송 실패를 어느 화면에서든 같은 방식으로 알린다 */}
       <ToastProvider>
+        {/* Cmd/Ctrl+K — 어느 화면에서든 뜨도록 라우트 바깥에 둔다 */}
+        <CommandPalette />
+        <ErrorBoundary label="화면">
         <Routes>
           <Route path="/login" element={<Login />} />
           {/* 대시보드 앱에 없는 온보딩/학생 전용 화면은 포털로 이동 */}
@@ -37,6 +42,7 @@ export default function App() {
           {/* 구 경로 — 이제 대시보드 위젯으로 통합됨 */}
           <Route path="/calls" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </ToastProvider>
     </BrowserRouter>
   )

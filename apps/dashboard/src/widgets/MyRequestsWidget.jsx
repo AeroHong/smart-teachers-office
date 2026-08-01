@@ -24,12 +24,14 @@ import { EmptyState, ListRow, RowStack, ToneChip, useWidgetBadge } from '../comp
 import RequestMaterials from '../components/RequestMaterials'
 import { useToast } from '../components/ToastProvider'
 import { setCompletion } from '../lib/requestActions'
+import useSeenPosts from '../lib/useSeenPosts'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
 export default function MyRequestsWidget() {
   const { user, userName, schoolId } = useAuth()
   const toast = useToast()
+  const { isNew, markSeen } = useSeenPosts('request')
   const [requests, setRequests] = useState([])
   const [expandedId, setExpandedId] = useState(null)
   const [busyId, setBusyId] = useState(null)
@@ -54,6 +56,11 @@ export default function MyRequestsWidget() {
     [requests, user],
   )
   useWidgetBadge(pendingCount)
+
+  const newCount = useMemo(() => requests.filter(isNew).length, [requests, isNew])
+  useEffect(() => {
+    if (newCount > 0) markSeen()
+  }, [newCount, markSeen])
 
   const toggle = async (request, done) => {
     setBusyId(request.id)
@@ -83,13 +90,14 @@ export default function MyRequestsWidget() {
         // 담당자가 독촉을 누르면 remindedAt이 찍힌다. 완료한 사람은 애초에 강조 대상이
         // 아니므로 다 한 사람을 다시 귀찮게 하지 않는다.
         const reminded = !done && !!request.remindedAt
+        const fresh = !done && isNew(request)
         const hasMaterials = (request.attachments?.length || 0) + (request.links?.length || 0) > 0
 
         return (
           <ListRow
             key={request.id}
             onClick={() => setExpandedId(expanded ? null : request.id)}
-            highlight={!done && (reminded || due.state === 'overdue' || due.state === 'today')}
+            highlight={!done && (fresh || reminded || due.state === 'overdue' || due.state === 'today')}
             muted={done}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -113,6 +121,7 @@ export default function MyRequestsWidget() {
                   {request.createdByName}
                 </Typography>
               </Box>
+              {fresh && <ToneChip label="새 글" tone="info" />}
               {reminded && <ToneChip label="독촉" tone="danger" />}
               {due.label && <ToneChip label={due.label} tone={DUE_TONE[due.state]} />}
             </Box>

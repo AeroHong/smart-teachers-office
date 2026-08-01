@@ -14,6 +14,7 @@
 import { createContext, useContext, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
+import Skeleton from '@mui/material/Skeleton'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
@@ -156,4 +157,21 @@ export function useWidgetBadge(badge) {
     publish(badge || null)
     return () => publish(null)
   }, [publish, badge])
+}
+
+/**
+ * 불러오는 동안의 자리 표시.
+ *
+ * 예전에는 로딩 중에 아무것도 그리지 않아 화면이 잠깐 텅 비었다. 느린 회선에서는
+ * "고장났나" 싶은 정적이 생기고, 데이터가 도착하는 순간 화면이 크게 튄다.
+ * 들어올 내용과 비슷한 높이를 미리 잡아두면 둘 다 사라진다.
+ */
+export function ListSkeleton({ rows = 3 }) {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} variant="rounded" height={52} sx={{ borderRadius: 2 }} />
+      ))}
+    </Box>
+  )
 }

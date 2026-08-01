@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
@@ -18,17 +18,20 @@ import PushPinIcon from '@mui/icons-material/PushPin'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
-import { EmptyState, ListRow, RowStack } from '../components/widgetUi'
+import { EmptyState, ListRow, RowStack, ToneChip, useWidgetBadge } from '../components/widgetUi'
 import RequestMaterials from '../components/RequestMaterials'
 import { useToast } from '../components/ToastProvider'
 import { formatDateTime } from '../lib/formatTime'
+import useSeenPosts from '../lib/useSeenPosts'
 
 // 위젯은 훑어보는 자리라 접힌 상태로 몇 건만 보여주고 나머지는 더보기로 편다
 const COLLAPSED_COUNT = 5
 
 export default function AnnouncementsWidget() {
   const { user, schoolId } = useAuth()
+  const navigate = useNavigate()
   const toast = useToast()
+  const { isNew, markSeen } = useSeenPosts('notice')
   const [notices, setNotices] = useState([])
   const [expandedId, setExpandedId] = useState(null)
   const [showAll, setShowAll] = useState(false)
@@ -53,6 +56,15 @@ export default function AnnouncementsWidget() {
     return (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)
   }), [notices])
 
+  const newCount = useMemo(() => sorted.filter(isNew).length, [sorted, isNew])
+  useWidgetBadge(newCount)
+
+  // 목록이 화면에 뜬 시점을 '봤다'로 기록한다. 화면의 굵은 표시는 그대로 두므로
+  // 지금 보고 있는 새 글이 눈앞에서 사라지지 않는다.
+  useEffect(() => {
+    if (newCount > 0) markSeen()
+  }, [newCount, markSeen])
+
   const shown = showAll ? sorted : sorted.slice(0, COLLAPSED_COUNT)
 
   if (sorted.length === 0) {
@@ -61,7 +73,7 @@ export default function AnnouncementsWidget() {
         emoji="📢"
         message="등록된 안내가 없습니다."
         actionLabel="안내 쓰기"
-        onAction={() => { window.location.href = '/requests/new' }}
+        onAction={() => navigate('/requests/new')}
       />
     )
   }
@@ -72,13 +84,15 @@ export default function AnnouncementsWidget() {
         {shown.map(item => {
           const expanded = expandedId === item.id
           const hasMaterials = (item.attachments?.length || 0) + (item.links?.length || 0) > 0
+          const fresh = isNew(item)
           return (
-            <ListRow key={item.id} onClick={() => setExpandedId(expanded ? null : item.id)}>
+            <ListRow key={item.id} onClick={() => setExpandedId(expanded ? null : item.id)} highlight={fresh}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {item.pinned && <PushPinIcon sx={{ fontSize: 16, color: 'warning.main' }} />}
-                <Typography fontWeight={600} fontSize="0.95rem" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Typography fontWeight={fresh ? 800 : 600} fontSize="0.95rem" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
                   {item.title}
                 </Typography>
+                {fresh && <ToneChip label="새 글" tone="info" />}
                 <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
                   {item.createdByName}
                 </Typography>

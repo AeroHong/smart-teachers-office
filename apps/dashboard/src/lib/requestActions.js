@@ -5,12 +5,13 @@
  * (시각·비고 상세). 둘이 어긋나면 현황 숫자와 상세가 달라지므로 항상 한 배치로 묶는다.
  */
 import {
-  arrayRemove, arrayUnion, deleteField, doc,
+  arrayRemove, arrayUnion, deleteDoc, deleteField, doc, getDocs, collection,
   serverTimestamp, updateDoc, writeBatch,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { newCompletionPayload } from '@shared/lib/workRequests'
+import { deleteAttachment } from '@shared/lib/requestAttachments'
 
 function requestRef(schoolId, requestId) {
   return doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId)
@@ -138,4 +139,29 @@ export function buildShareText(request, dashboardUrl) {
     `${dashboardUrl}/requests/${request.id}`,
   ]
   return lines.filter(l => l !== null).join('\n')
+}
+
+/** 글 내용 수정. 대상·완료는 건드리지 않는다. */
+export async function updatePostContent({ schoolId, requestId, patch }) {
+  await updateDoc(requestRef(schoolId, requestId), { ...patch, updatedAt: serverTimestamp() })
+}
+
+/**
+ * 글 삭제.
+ *
+ * 첨부 파일과 완료 기록도 같이 지운다. 문서만 지우면 저장소에 파일이, 하위 컬렉션에
+ * 완료 기록이 참조 없이 남는다 (Firestore는 하위 컬렉션을 자동으로 지우지 않는다).
+ */
+export async function deletePost({ schoolId, requestId, attachments = [] }) {
+  const completions = await getDocs(
+    collection(db, ...schoolPath(schoolId, COL.REQUESTS), requestId, COL.REQUEST_COMPLETIONS),
+  )
+  if (!completions.empty) {
+    const batch = writeBatch(db)
+    completions.docs.forEach(d => batch.delete(d.ref))
+    await batch.commit()
+  }
+
+  await Promise.all(attachments.map(a => deleteAttachment(a).catch(() => {})))
+  await deleteDoc(requestRef(schoolId, requestId))
 }

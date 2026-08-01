@@ -19,7 +19,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { POST_KIND, completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
 import DashboardLayout from '../components/DashboardLayout'
-import { EmptyState, ToneChip } from '../components/widgetUi'
+import { EmptyState, ListSkeleton, ToneChip } from '../components/widgetUi'
 import { useToast } from '../components/ToastProvider'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -71,7 +71,7 @@ export default function RequestList() {
           </Tabs>
         )}
 
-        {!loaded ? null : sorted.length === 0 ? (
+        {!loaded ? <ListSkeleton rows={3} /> : sorted.length === 0 ? (
           <EmptyState
             emoji="📤"
             message={showingAll ? '등록된 글이 없습니다.' : '보낸 글이 없습니다.'}
