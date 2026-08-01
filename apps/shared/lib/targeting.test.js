@@ -81,7 +81,13 @@ test('한 조건 안의 여러 값은 OR', () => {
   assert.deepEqual(namesOf(resolveTargets(rule, members)), ['김국어', '박영어', '정체육'])
 })
 
-test('부장교사 지정 — 주간 계획서 요청 같은 경우', () => {
+test('부장 지정 — 주간 계획서 요청 같은 경우', () => {
+  const rule = { conditions: [{ type: 'rank', values: ['부장'] }] }
+  assert.deepEqual(namesOf(resolveTargets(rule, members)), ['김국어', '정체육'])
+})
+
+test('화면에서 없앤 직책 조건도 옛 요청에서는 그대로 판정된다', () => {
+  // 조건을 모른다고 무시하면 대상이 조용히 전체로 넓어진다
   const rule = { conditions: [{ type: 'position', values: ['부장교사'] }] }
   assert.deepEqual(namesOf(resolveTargets(rule, members)), ['김국어', '정체육'])
 })
@@ -129,7 +135,7 @@ test('결과는 이름 가나다순으로 정렬된다', () => {
 test('보기 목록은 실제 데이터에 있는 값만 담는다', () => {
   const facets = collectFacets(members)
   assert.deepEqual(facets.offices, ['1교무실', '2교무실', '행정실'])
-  assert.deepEqual(facets.positions, ['부장교사'])          // 빈 문자열은 빠진다
+  assert.deepEqual(facets.ranks, ['부장', '일반'])          // 직책 없는 사람은 일반
   assert.deepEqual(facets.teachingGrades, [1, 2, 3])
   assert.deepEqual(facets.homeroomGrades, [1, 2])
 })
@@ -171,6 +177,18 @@ test('직책이 없으면 일반 — 교사와 행정직을 이 값으로는 구
   assert.equal(deriveRank('  '), '일반')
 })
 
+test("'기획'이 들어가면 기획", () => {
+  assert.equal(deriveRank('교무기획'), '기획')
+  assert.equal(deriveRank('연구기획'), '기획')
+  assert.equal(deriveRank('인문사회교육기획'), '기획')
+})
+
+test('기획부장은 기획이 아니라 부장 — 위 규칙이 먼저 걸린다', () => {
+  // '교무기획부장'은 기획과 부장을 다 갖고 있다. 부장단 안내에서 빠지면 안 된다
+  assert.equal(deriveRank('교무기획부장'), '부장')
+  assert.equal(deriveRank('연구기획부장'), '부장')
+})
+
 test('부장단 = 직급 하나로 관리자와 부장을 함께 (열두 번 고르지 않아도 된다)', () => {
   const staff = [
     { uid: 'p', name: '교장' }, { uid: 'v', name: '교감' },
@@ -193,15 +211,16 @@ test('부장단 = 직급 하나로 관리자와 부장을 함께 (열두 번 고
   assert.equal(resolveTargets({ conditions: [{ type: 'rank', values: ['부장'] }] }, list).uids.length, 2)
 })
 
-test('직급 보기 목록은 관리자 → 부장 → 일반 순서를 지킨다', () => {
+test('직급 보기 목록은 관리자 → 부장 → 기획 → 일반 순서를 지킨다', () => {
   const list = buildTargetMembers({
-    users: [{ uid: 'a', name: 'A' }, { uid: 'b', name: 'B' }, { uid: 'c', name: 'C' }],
+    users: ['a', 'b', 'c', 'd'].map(uid => ({ uid, name: uid.toUpperCase() })),
     assignments: [
       { uid: 'a', positionLabel: '' },
       { uid: 'b', positionLabel: '교무부장' },
       { uid: 'c', positionLabel: '교감' },
+      { uid: 'd', positionLabel: '연구기획' },
     ],
     teacherSubjects: [], semester: 1,
   })
-  assert.deepEqual(collectFacets(list).ranks, ['관리자', '부장', '일반'])
+  assert.deepEqual(collectFacets(list).ranks, ['관리자', '부장', '기획', '일반'])
 })

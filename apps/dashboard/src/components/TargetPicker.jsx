@@ -33,13 +33,22 @@ import { CONDITION_TYPES, collectFacets, describeRule, resolveTargets } from '@s
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
 
+// 패널이 270px밖에 안 돼 기본 글자 크기(1rem)로는 값 두 개만 넣어도 줄이 넘친다.
+// 입력·태그·펼친 목록을 한 벌로 줄여둔다.
+const COMPACT_FIELD = {
+  '& .MuiInputBase-input': { fontSize: '0.82rem' },
+  '& .MuiInputBase-input::placeholder': { fontSize: '0.82rem' },
+  '& .MuiChip-label': { fontSize: '0.75rem' },
+  '& .MuiChip-root': { height: 22 },
+}
+const COMPACT_LIST = { paper: { sx: { '& li': { fontSize: '0.82rem', minHeight: 34 } } } }
+
 /** 조건 종류별로 고를 수 있는 값 목록을 facets에서 꺼낸다. */
 function optionsFor(type, facets) {
   switch (type) {
     case 'office': return facets.offices
     case 'department': return facets.departments
     case 'subject': return facets.subjects
-    case 'position': return facets.positions
     case 'rank': return facets.ranks
     case 'teachingGrade': return facets.teachingGrades
     default: return []
@@ -117,8 +126,9 @@ export default function TargetPicker({ members, value, onChange }) {
           isOptionEqualToValue={(a, b) => a.uid === b.uid}
           value={pickMembers(rule.includeUids)}
           onChange={(_, next) => patch({ includeUids: next.map(m => m.uid) })}
+          slotProps={COMPACT_LIST}
           renderInput={params => <TextField {...params} label="추가" placeholder="조건에 없는 사람" />}
-          sx={{ mb: 1 }}
+          sx={{ mb: 1, ...COMPACT_FIELD }}
         />
         <Autocomplete
           multiple size="small" options={members}
@@ -126,7 +136,9 @@ export default function TargetPicker({ members, value, onChange }) {
           isOptionEqualToValue={(a, b) => a.uid === b.uid}
           value={pickMembers(rule.excludeUids)}
           onChange={(_, next) => patch({ excludeUids: next.map(m => m.uid) })}
+          slotProps={COMPACT_LIST}
           renderInput={params => <TextField {...params} label="제외" placeholder="빼고 보낼 사람" />}
+          sx={COMPACT_FIELD}
         />
       </Foldout>
 
@@ -227,7 +239,9 @@ function ConditionCard({ condition, facets, onChange, onRemove }) {
               getOptionLabel={g => `${g}학년`}
               value={condition.grades || []}
               onChange={(_, next) => onChange({ ...condition, grades: next })}
+              slotProps={COMPACT_LIST}
               renderInput={params => <TextField {...params} placeholder="전 학년" />}
+              sx={COMPACT_FIELD}
             />
           )}
         </>
@@ -238,9 +252,11 @@ function ConditionCard({ condition, facets, onChange, onRemove }) {
           getOptionLabel={v => (condition.type === 'teachingGrade' ? `${v}학년` : String(v))}
           value={condition.values || []}
           onChange={(_, next) => onChange({ ...condition, values: next })}
+          slotProps={COMPACT_LIST}
           renderInput={params => (
             <TextField {...params} placeholder={options.length === 0 ? '등록된 값이 없습니다' : '값 선택'} />
           )}
+          sx={COMPACT_FIELD}
         />
       )}
     </Box>

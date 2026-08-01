@@ -20,7 +20,6 @@ export const CONDITION_TYPES = {
   department: { label: '부서', field: 'department' },
   subject: { label: '교과', field: 'subject' },
   rank: { label: '직급', field: 'rank' },
-  position: { label: '직책', field: 'positionLabel' },
   teachingGrade: { label: '수업 학년', field: 'teachingGrades' },
   homeroom: { label: '담임 여부' },
 }
@@ -29,23 +28,30 @@ export const CONDITION_TYPES = {
  * 직책 이름에서 직급을 뽑는다.
  *
  * 부장 직책은 학교마다 이름이 다르고(교무부장·연구부장·3학년부장·창의예체교육부장…)
- * 해마다 부서가 바뀌면 값도 바뀐다. 그래서 '직책'으로 부장단을 지정하려면 열 몇 개를
- * 일일이 골라야 하고, 새 부장이 생기면 조용히 빠진다.
+ * 해마다 부서가 바뀌면 값도 바뀐다. 직책 값을 그대로 조건으로 쓰면 부장단을 지정할 때
+ * 열 몇 개를 일일이 골라야 하고, 새 부장이 생기면 조용히 빠진다.
  *
- * '…부장'으로 끝나는지만 보면 이름이 무엇이든 부장으로 묶인다. 부장단 안내에 교감·교장이
- * 늘 따라붙는 것도 직급 두 개를 고르면 끝난다.
+ * 이름에 무엇이 들어 있는지만 보면 표기가 달라도 같은 층으로 묶인다. 부장단 안내에
+ * 교감·교장이 늘 따라붙는 것도 직급 두 개를 고르면 끝난다.
+ *
+ * 순서가 중요하다 — '교무기획부장'은 기획과 부장을 다 갖고 있지만 부장이다.
+ * 위에서부터 먼저 걸리는 쪽이 이긴다.
  *
  * 직책이 없는 사람은 '일반'이다 — 교사와 행정직을 이 값으로는 구분할 수 없어서,
  * 없는 정보를 있는 척하지 않고 그대로 둔다.
  */
-export const RANKS = ['관리자', '부장', '일반']
+export const RANKS = ['관리자', '부장', '기획', '일반']
+
+const RANK_RULES = [
+  { rank: '관리자', keywords: ['교장', '교감'] },
+  { rank: '부장', keywords: ['부장'] },
+  { rank: '기획', keywords: ['기획'] },
+]
 
 export function deriveRank(positionLabel) {
   const label = (positionLabel || '').replace(/\s/g, '')
   if (!label) return '일반'
-  if (label.includes('교장') || label.includes('교감')) return '관리자'
-  if (label.includes('부장')) return '부장'
-  return '일반'
+  return RANK_RULES.find(r => r.keywords.some(k => label.includes(k)))?.rank || '일반'
 }
 
 /**
@@ -99,20 +105,29 @@ export function collectFacets(members = []) {
     members.filter(m => m.isHomeroom && m.homeroomGrade != null).map(m => m.homeroomGrade),
   )].sort((a, b) => a - b)
 
-  // 직급은 데이터에 있는 것만 보여주되 관리자 → 부장 → 일반 순서를 지킨다.
-  // 가나다순이면 '관리자·부장·일반'이 뒤섞여 고르는 순간마다 위치를 다시 찾아야 한다.
+  // 직급은 데이터에 있는 것만 보여주되 관리자 → 부장 → 기획 → 일반 순서를 지킨다.
+  // 가나다순이면 순서가 뒤섞여 고르는 순간마다 위치를 다시 찾아야 한다.
   const ranks = RANKS.filter(r => members.some(m => m.rank === r))
 
   return {
     offices: distinct('office'),
     departments: distinct('department'),
     subjects: distinct('subject'),
-    positions: distinct('positionLabel'),
     ranks,
     teachingGrades: grades,
     homeroomGrades,
   }
 }
+
+/**
+ * 화면에서 없앤 조건 종류.
+ *
+ * 'position'(직책)은 직급과 거의 같은 대상을 뽑으면서 값만 열 몇 개로 흩어져 있어 뺐다.
+ * 다만 이미 저장된 요청의 targetRule에는 남아 있을 수 있는데, 여기서 모르는 종류라고
+ * 무시해버리면 조건 하나가 사라지면서 대상이 조용히 전체로 넓어진다.
+ * 새로 만들 수는 없어도 판정은 예전 그대로 한다.
+ */
+const LEGACY_FIELDS = { position: 'positionLabel' }
 
 function matchesCondition(member, condition) {
   if (!condition || !condition.type) return true
@@ -134,7 +149,7 @@ function matchesCondition(member, condition) {
     return member.teachingGrades.some(g => values.includes(g))
   }
 
-  const field = CONDITION_TYPES[condition.type]?.field
+  const field = CONDITION_TYPES[condition.type]?.field || LEGACY_FIELDS[condition.type]
   if (!field) return true
   return values.includes(member[field])
 }
@@ -207,5 +222,6 @@ function describeCondition(condition) {
 
   if (condition.type === 'teachingGrade') return `${values.join('·')}학년 수업 담당`
   if (condition.type === 'rank') return values.join('·')
+  if (condition.type === 'position') return `직책 ${values.join('·')}`   // 옛 요청 표시용
   return `${CONDITION_TYPES[condition.type]?.label || condition.type} ${values.join('·')}`
 }
