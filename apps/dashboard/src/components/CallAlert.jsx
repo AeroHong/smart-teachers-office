@@ -80,7 +80,7 @@ export default function CallAlert() {
               {current.grade}학년 {current.classNo}반 {current.number}번 {current.studentName}
             </Typography>
             <Typography fontSize="0.9rem" color="text.secondary" mt={0.3}>
-              {current.department}
+              {current.office}
             </Typography>
             <Button
               variant="contained"

@@ -106,7 +106,7 @@ export default function CallBell() {
                     {call.grade}-{call.classNo}-{call.number} {call.studentName}
                   </Typography>
                   <Typography fontSize="0.74rem" color="text.secondary" noWrap>
-                    {call.department}{call.createdAt && ` · ${formatRelative(call.createdAt)}`}
+                    {call.office}{call.createdAt && ` · ${formatRelative(call.createdAt)}`}
                   </Typography>
                 </Box>
                 {call.status === 'pending' ? (

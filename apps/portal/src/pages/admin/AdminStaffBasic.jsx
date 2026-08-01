@@ -21,7 +21,7 @@ import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
 
 /**
- * 교직원 기본 배정(부서/담임/직함) 관리.
+ * 교직원 기본 배정(부서/담임/사무실) 관리.
  * @param {string} schoolId
  * @param {number} assignmentYear 학년도(year). 입학년도(entryYear)가 아니다 — schema.js 참고.
  */
@@ -152,6 +152,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
       isHomeroom: a.isHomeroom || false,
       homeroomGrade: a.homeroomGrade || '',
       homeroomClassNo: a.homeroomClassNo || '',
+      office: a.office || '',
       positionLabel: a.positionLabel || '',
     })
   }
@@ -198,6 +199,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
       positionLabel: { on: false, value: '' },
       department: { on: false, value: '' },
       subject: { on: false, value: '' },
+      office: { on: false, value: '' },
       homeroom: { on: false, isHomeroom: false, grade: '', classNo: '' },
     })
     setBulkEditOpen(true)
@@ -211,6 +213,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
       if (bulkFields.positionLabel.on) payload.positionLabel = bulkFields.positionLabel.value
       if (bulkFields.department.on) payload.department = bulkFields.department.value
       if (bulkFields.subject.on) payload.subject = bulkFields.subject.value
+      if (bulkFields.office.on) payload.office = bulkFields.office.value
       if (bulkFields.homeroom.on) {
         payload.isHomeroom = bulkFields.homeroom.isHomeroom
         payload.homeroomGrade = bulkFields.homeroom.isHomeroom && bulkFields.homeroom.grade ? Number(bulkFields.homeroom.grade) : null
@@ -238,7 +241,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
   }
 
   const downloadAssignmentCsv = () => {
-    const header = ['이메일', '이름', '직함', '부서', '담당교과', '담임학년', '담임반']
+    const header = ['이메일', '이름', '직함', '부서', '담당교과', '담임학년', '담임반', '사무실']
     const rows = assignmentRows.map(row => {
       const a = row.assignment || {}
       return [
@@ -249,6 +252,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
         a.subject || '',
         a.isHomeroom && a.homeroomGrade ? a.homeroomGrade : '',
         a.isHomeroom && a.homeroomClassNo ? a.homeroomClassNo : '',
+        a.office || '',
       ].map(csvCell).join(',')
     })
     const csv = [header.join(','), ...rows].join('\n')
@@ -274,6 +278,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
     const subjectIdx = findIdx(['담당교과', '과목', 'subject'])
     const gradeIdx = findIdx(['담임학년', '학년'])
     const classIdx = findIdx(['담임반', '반'])
+    const officeIdx = findIdx(['사무실', 'office'])
 
     return lines.slice(1).map(line => {
       const cols = line.split(delim).map(v => v.trim())
@@ -287,6 +292,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
         isHomeroom: !!(grade && classNo),
         homeroomGrade: grade ? Number(grade) : null,
         homeroomClassNo: classNo ? Number(classNo) : null,
+        office: officeIdx !== -1 ? cols[officeIdx] || '' : '',
       }
     }).filter(r => r.email && r.email.includes('@'))
   }
@@ -385,6 +391,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                 <th style={table.th}>부서</th>
                 <th style={table.th}>담당 교과</th>
                 <th style={table.th}>담임</th>
+                <th style={table.th}>사무실</th>
                 <th style={table.th}>수정</th>
               </tr>
             </thead>
@@ -415,6 +422,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                     <td style={table.td}>{a?.department || '—'}</td>
                     <td style={table.td}>{a?.subject || '—'}</td>
                     <td style={table.td}>{a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}</td>
+                    <td style={table.td}>{a?.office || '—'}</td>
                     <td style={table.td}>
                       <RowActions>
                         <EditAction
@@ -465,6 +473,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                     <th style={table.th}>부서</th>
                     <th style={table.th}>담당교과</th>
                     <th style={table.th}>담임</th>
+                    <th style={table.th}>사무실</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -475,6 +484,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                       <td style={table.td}>{r.department || '—'}</td>
                       <td style={table.td}>{r.subject || '—'}</td>
                       <td style={table.td}>{r.isHomeroom ? `${r.homeroomGrade}학년 ${r.homeroomClassNo}반` : '—'}</td>
+                      <td style={table.td}>{r.office || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -516,9 +526,8 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
               label="부서"
               value={editingAssignment?.department || ''}
               onChange={e => setEditingAssignment(prev => ({ ...prev, department: e.target.value }))}
-              placeholder="예: 교무기획부"
+              placeholder="예: 교무부"
               fullWidth
-              helperText="업무 요청 대상이자 학생 호출 기준입니다. 자리 배치는 공간 관리 탭에서."
             />
             <TextField
               label="담당 교과"
@@ -563,6 +572,14 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
               </Box>
             )}
 
+            <TextField
+              label="사무실"
+              value={editingAssignment?.office || ''}
+              onChange={e => setEditingAssignment(prev => ({ ...prev, office: e.target.value }))}
+              placeholder="예: 교무실"
+              fullWidth
+              helperText="실제 자리 배치(좌석 위치)는 공간 관리 탭에서 별도로 관리합니다"
+            />
           </Box>
         </DialogContent>
         <DialogActions>
@@ -588,6 +605,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
               { key: 'positionLabel', label: '직함', placeholder: '예: 교무부장' },
               { key: 'department', label: '부서', placeholder: '예: 교무부' },
               { key: 'subject', label: '담당 교과', placeholder: '예: 수학' },
+              { key: 'office', label: '사무실', placeholder: '예: 교무실' },
             ].map(f => (
               <Box key={f.key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Checkbox

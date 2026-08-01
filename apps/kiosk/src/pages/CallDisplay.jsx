@@ -21,10 +21,10 @@ export default function CallDisplay() {
   }, [])
 
   useEffect(() => {
-    // department 필터가 보안 규칙(kioskDepartment 일치)과 맞아야 쿼리가 통과한다
+    // office 필터가 보안 규칙(kioskOffice 일치)과 맞아야 쿼리가 통과한다
     const q = query(
       collection(db, 'schools', device.schoolId, 'callRequests'),
-      where('department', '==', device.department),
+      where('office', '==', device.office),
       orderBy('createdAt', 'desc'),
       limit(100),
     )
@@ -33,7 +33,7 @@ export default function CallDisplay() {
       err => setError(err.message),
     )
     return unsub
-  }, [device.schoolId, device.department])
+  }, [device.schoolId, device.office])
 
   const active = useMemo(
     () => calls.filter(c => ACTIVE_STATUSES.includes(c.status)).reverse(),  // 오래된 호출이 위로
@@ -46,7 +46,7 @@ export default function CallDisplay() {
         px: 4, py: 2.5, display: 'flex', alignItems: 'center', gap: 2,
         borderBottom: '1px solid rgba(255,255,255,0.1)',
       }}>
-        <Typography fontSize="2.1rem" fontWeight={800} lineHeight={1.2}>{device.department}</Typography>
+        <Typography fontSize="2.1rem" fontWeight={800} lineHeight={1.2}>{device.office}</Typography>
         <Typography fontSize="1.15rem" sx={{ color: 'rgba(255,255,255,0.55)' }}>학생 호출 현황</Typography>
         <Box sx={{ ml: 'auto', textAlign: 'right' }}>
           <Typography fontSize="1.6rem" fontWeight={700} sx={{ lineHeight: 1 }}>

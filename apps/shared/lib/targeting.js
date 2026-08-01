@@ -10,8 +10,7 @@
  *
  * 데이터 출처
  *  - users              : uid, name
- *  - teacherAssignments : department, subject, positionLabel, isHomeroom, homeroomGrade
- *                         (office는 부서로 합쳐 더 쓰지 않는다 — 아래 LEGACY_FIELDS 참고)
+ *  - teacherAssignments : office, department, subject, positionLabel, isHomeroom, homeroomGrade
  *  - teacherSubjects    : semester{1,2}Subjects[] 의 grade → 수업에 들어가는 학년
  */
 
@@ -81,7 +80,7 @@ export function buildTargetMembers({ users = [], assignments = [], teacherSubjec
     return {
       uid: u.uid,
       name: u.name || '(이름 없음)',
-      office: (a.office || '').trim(),   // 옛 요청의 사무실 조건 판정용 (신규 입력 없음)
+      office: (a.office || '').trim(),
       department: (a.department || '').trim(),
       subject: (a.subject || '').trim(),
       positionLabel: (a.positionLabel || '').trim(),
@@ -110,7 +109,7 @@ export function collectFacets(members = []) {
   const ranks = RANKS.filter(r => members.some(m => m.rank === r))
 
   return {
-    offices: distinct('office'),   // 옛 데이터용. 조건 선택기와 명단 트리는 더 쓰지 않는다
+    offices: distinct('office'),
     departments: distinct('department'),
     subjects: distinct('subject'),
     ranks,
@@ -123,9 +122,8 @@ export function collectFacets(members = []) {
  * 화면에서 없앤 조건 종류.
  *
  *  - position(직책) : 직급과 거의 같은 대상을 뽑으면서 값만 열 몇 개로 흩어져 있었다.
- *  - office(사무실) : 부서와 같은 것을 두 번 적는 꼴이었다. 선유고에서는 방 하나가
- *    부서 하나여서(2층 교무실=교무기획부) 부서로 합쳤다. 학생 호출·자리 배치도 이제
- *    부서를 기준으로 돈다.
+ *  - office(사무실) : 업무 요청은 조직(부서·직급·교과)으로 나가지 앉은 자리로 나가지
+ *    않는다. 사무실은 구성원 명단(rosterTree)에서 자리 확인·호출 기준으로만 쓴다.
  *
  * 이미 저장된 요청의 targetRule에는 남아 있을 수 있는데, 여기서 모르는 종류라고
  * 무시해버리면 조건 하나가 사라지면서 대상이 조용히 전체로 넓어진다.
@@ -133,7 +131,7 @@ export function collectFacets(members = []) {
  */
 const LEGACY_FIELDS = { position: 'positionLabel', office: 'office' }
 
-/** 옛 요청의 조건을 문장으로 옮길 때 쓸 이름. 없으면 'office 2층 교무실'처럼 샌다. */
+/** 옛 요청의 조건을 문장으로 옮길 때 쓸 이름. 없으면 'office 2층 교무실'처럼 나온다. */
 const LEGACY_LABELS = { position: '직책', office: '사무실' }
 
 function matchesCondition(member, condition) {

@@ -137,30 +137,24 @@ export function teacherSubjectId(year, uid) {
 }
 
 /**
- * 부서 자리 배치 문서 ID.
- * schools/{schoolId}/officeLayouts/{year}__{department}     ← 밑줄 2개 (주의)
+ * 사무실 자리 배치 문서 ID.
+ * schools/{schoolId}/officeLayouts/{year}__{office}     ← 밑줄 2개 (주의)
  *
- * 원래 키가 '사무실'이었다. 사무실과 부서를 따로 입력받았는데 선유고에서는 방 하나가
- * 부서 하나여서(2층 교무실=교무기획부, 2층 연구부=연구부) 같은 걸 두 번 적는 꼴이었고,
- * 한쪽만 채워지면 그 사람이 키오스크에서 사라졌다. 부서로 합쳤다.
- *
- * 컬렉션 이름은 officeLayouts 그대로 둔다. 이름을 바꾸려면 문서·규칙·모든 참조를
- * 함께 옮겨야 하는데 얻는 게 이름뿐이다.
- *
- * 부서 이름은 자유 입력이라 '/'가 들어갈 수 있는데, '/'는 문서 경로 구분자라
- * 그대로 쓰면 경로가 깨진다. 그래서 '_'로 치환한다. 치환 뒤 이름과 연도 사이
- * 구분자가 '_' 하나면 "2026_교무실_2층"처럼 경계가 모호해지므로 '__' 두 개로 둔다.
+ * 사무실 이름은 자유 입력이라 '/'가 들어갈 수 있는데, '/'는 문서 경로
+ * 구분자라 그대로 쓰면 경로가 깨진다. 그래서 '_'로 치환한다.
+ * 치환 뒤 이름과 연도 사이 구분자가 '_' 하나면 "2026_교무실_2층"처럼
+ * 경계가 모호해지므로 구분자를 '__' 두 개로 둔다.
  *
  * ⚠ functions/callSystem.js 의 officeLayoutId() 와 반드시 같아야 한다.
  *    Cloud Functions는 별도 npm 패키지라 이 모듈을 import할 수 없어
  *    같은 함수를 손으로 복제해 두었다. 규칙을 바꾸면 두 곳을 함께 고칠 것.
  *
  * @param {number|string} year 학년도
- * @param {string} department 부서 이름
+ * @param {string} office 사무실 이름
  * @returns {string}
  */
-export function officeLayoutId(year, department) {
-  return `${year}__${department.replace(/\//g, '_')}`
+export function officeLayoutId(year, office) {
+  return `${year}__${office.replace(/\//g, '_')}`
 }
 
 /**

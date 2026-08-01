@@ -2,7 +2,7 @@
  * 구성원 — 조직도 트리와 교사 상세.
  *
  * 오른쪽 칸이 상세 영역으로 바뀌면서 명단을 별도 탭으로 옮겼다. 쿨메신저식 조직도 구조는
- * 그대로다 — 부서·교과가 동시에 최상위 토글로 있고 한 사람이 여러 그룹에 등장한다.
+ * 그대로다 — 사무실·교과·부서가 동시에 최상위 토글로 있고 한 사람이 여러 그룹에 등장한다.
  * 교사들이 이미 그 구조에 익숙해서 학습 비용이 없다.
  */
 import { useEffect, useMemo, useState } from 'react'
@@ -31,11 +31,11 @@ export default function Members() {
   const [selected, setSelected] = useState(null)
   const [compose, setCompose] = useState(null)
 
-  // 저장된 펼침 상태가 있으면 그대로, 없으면 '부서 > 내 부서'만 편다.
+  // 저장된 펼침 상태가 있으면 그대로, 없으면 '사무실 > 내 사무실'만 편다.
   //
-  // 저장된 값이 지금 트리에 하나도 안 맞으면 없는 것으로 친다. 최상위 기준을
-  // 사무실에서 부서로 옮겼을 때 옛 'office/…' ID만 남은 사람은 전부 접힌 빈 화면을
-  // 보게 되는데, 접힌 이유가 화면에 드러나지 않아 고장으로 보인다.
+  // 저장된 값이 지금 트리에 하나도 안 맞으면 없는 것으로 친다. 최상위 기준을 한 번
+  // 바꿔봤을 때(사무실→부서) 옛 ID만 남은 사람은 전부 접힌 빈 화면을 보게 됐는데,
+  // 접힌 이유가 화면에 드러나지 않아 고장으로 보인다.
   useEffect(() => {
     if (!user || members.length === 0 || expanded) return
     let alive = true
@@ -43,10 +43,10 @@ export default function Members() {
       .then(snap => {
         if (!alive) return
         const saved = snap.data()?.rosterExpanded
-        const myDepartment = members.find(m => m.uid === user.uid)?.department || ''
+        const myOffice = members.find(m => m.uid === user.uid)?.office || ''
         const known = new Set(ROOT_GROUPS.map(g => g.key))
         const usable = Array.isArray(saved) && saved.some(id => known.has(String(id).split('/')[0]))
-        setExpanded(new Set(usable ? saved : defaultExpanded(myDepartment)))
+        setExpanded(new Set(usable ? saved : defaultExpanded(myOffice)))
       })
       .catch(() => { if (alive) setExpanded(new Set(defaultExpanded(''))) })
     return () => { alive = false }
@@ -141,6 +141,7 @@ export default function Members() {
           </Typography>
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8, mb: 2.5 }}>
+            <Field label="사무실" value={selected.office} />
             <Field label="교과" value={selected.subject} />
             <Field label="부서" value={selected.department} />
             <Field
