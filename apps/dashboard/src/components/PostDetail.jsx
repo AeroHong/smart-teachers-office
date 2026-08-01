@@ -341,7 +341,7 @@ export default function PostDetail({ requestId, onDeleted }) {
             onClick={() => {
               setConfirmDelete(false)
               run(async () => {
-                await deletePost({ schoolId, requestId, attachments: request.attachments })
+                await deletePost({ schoolId, requestId })
                 onDeleted?.()
               }, '삭제했습니다.')
             }}

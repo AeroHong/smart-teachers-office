@@ -24,6 +24,9 @@ exports.submitCallRequest = callSystem.submitCallRequest
 exports.expireCallRequests = callSystem.expireCallRequests
 
 // 마이그레이션 함수
+const postDeletion = require('./postDeletion')
+exports.deletePostDeep = postDeletion.deletePostDeep
+
 const migrations = require('./migrations/migrateStudentsToWorkspaceId')
 exports.migrateStudentsToWorkspaceId = migrations.migrateStudentsToWorkspaceId
 exports.rollbackStudentsMigration = migrations.rollbackStudentsMigration
