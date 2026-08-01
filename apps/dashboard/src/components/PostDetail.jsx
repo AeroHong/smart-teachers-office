@@ -34,6 +34,7 @@ import { resolveTargets } from '@shared/lib/targeting'
 import {
   POST_KIND, completionStats, dueState, isDoneBy, isRequest, isTargetOf, pendingMembers,
 } from '@shared/lib/workRequests'
+import { sanitizeHtml } from '@shared/lib/richText'
 import RequestMaterials from './RequestMaterials'
 import { ListSkeleton, ToneChip } from './widgetUi'
 import { useToast } from './ToastProvider'
@@ -143,9 +144,21 @@ export default function PostDetail({ requestId, onDeleted }) {
         </Typography>
 
         <Box sx={{ maxWidth: 760 }}>
-          {request.description && (
+          {/* 서식 있는 본문은 항상 걸러서 그린다. 옛 글은 bodyHtml이 없어 평문으로 남는다. */}
+          {request.bodyHtml ? (
+            <Box
+              sx={{
+                mb: 2, fontSize: '0.95rem', lineHeight: 1.75,
+                '& img': { maxWidth: '100%', borderRadius: 1, my: 0.5 },
+                '& ul, & ol': { pl: 3, my: 0.5 },
+                '& a': { color: 'primary.main' },
+                '& p': { m: 0 },
+              }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(request.bodyHtml) }}
+            />
+          ) : request.description ? (
             <Typography sx={{ whiteSpace: 'pre-wrap', mb: 2 }}>{request.description}</Typography>
-          )}
+          ) : null}
           <Box sx={{ mb: 3 }}>
             <RequestMaterials attachments={request.attachments} links={request.links} />
           </Box>

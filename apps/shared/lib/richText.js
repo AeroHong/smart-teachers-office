@@ -1,0 +1,60 @@
+/**
+ * 본문 서식(HTML) 저장·표시 규칙.
+ *
+ * 글 본문이 평문에서 서식 있는 HTML로 바뀌면서 두 가지가 필요해졌다.
+ *  1) 남이 쓴 HTML을 그대로 화면에 그리면 안 된다 — 같은 학교 교직원만 쓰는 도구라도
+ *     한 계정만 뚫리면 전 교직원 화면에서 스크립트가 돈다. 항상 걸러서 그린다.
+ *  2) 목록·검색·알림에는 태그 없는 글이 필요하다.
+ *
+ * 옛 글은 평문이라 bodyHtml이 없다. 그 경우 description을 줄바꿈만 살려 보여준다.
+ */
+import DOMPurify from 'dompurify'
+
+/** 본문에 허용하는 태그. 서식 도구가 만들어내는 것과 붙여넣기로 흔히 들어오는 것만 둔다. */
+const ALLOWED_TAGS = [
+  'p', 'br', 'div', 'span',
+  'b', 'strong', 'i', 'em', 'u', 's', 'strike',
+  'ul', 'ol', 'li',
+  'a', 'img',
+  'blockquote', 'code', 'pre',
+  'h1', 'h2', 'h3',
+]
+
+const ALLOWED_ATTR = ['href', 'target', 'rel', 'src', 'alt', 'width', 'height']
+
+/** 화면에 그리기 직전에 거른다. 저장 시점에도 한 번 거르지만 옛 문서는 그 과정을 안 거쳤다. */
+export function sanitizeHtml(html) {
+  if (!html) return ''
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS,
+    ALLOWED_ATTR,
+    // data:·javascript: 주소를 막는다. 이미지는 Storage 다운로드 URL만 쓴다.
+    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:)/i,
+  })
+}
+
+/**
+ * 태그를 걷어낸 평문. 목록 미리보기와 쿨메신저 안내 문구에 쓴다.
+ * 브라우저 밖(Cloud Functions 등)에서도 부를 수 있게 DOM 없이 동작한다.
+ */
+export function htmlToText(html) {
+  if (!html) return ''
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-3]|blockquote)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '· ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** 내용이 실제로 있는지. 빈 <p><br></p> 같은 껍데기를 걸러낸다. */
+export function isEmptyHtml(html) {
+  if (!html) return true
+  return htmlToText(html).length === 0 && !/<img\b/i.test(html)
+}

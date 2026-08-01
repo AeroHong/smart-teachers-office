@@ -41,7 +41,11 @@ function optionsFor(type, facets) {
   }
 }
 
-export default function TargetPicker({ members, value, onChange }) {
+/**
+ * @param {boolean} [compact] 글쓰기 화면의 오른쪽 설정 칸(300px)처럼 좁은 자리용.
+ *   직접 추가·제외를 두 칸으로 나란히 놓을 폭이 안 나와 세로로 쌓는다.
+ */
+export default function TargetPicker({ members, value, onChange, compact = false }) {
   const rule = value || EMPTY_RULE
   const [showNames, setShowNames] = useState(false)
 
@@ -79,6 +83,7 @@ export default function TargetPicker({ members, value, onChange }) {
             facets={facets}
             onChange={(next) => setCondition(index, next)}
             onRemove={() => removeCondition(index)}
+            compact={compact}
           />
         ))}
       </Box>
@@ -87,7 +92,11 @@ export default function TargetPicker({ members, value, onChange }) {
         조건 추가
       </Button>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 2 }}>
+      <Box sx={{
+        display: 'grid',
+        gridTemplateColumns: compact ? '1fr' : { xs: '1fr', sm: '1fr 1fr' },
+        gap: compact ? 1.2 : 2, mb: 2,
+      }}>
         <Autocomplete
           multiple size="small" options={members}
           getOptionLabel={m => m.name}
@@ -143,12 +152,15 @@ export default function TargetPicker({ members, value, onChange }) {
   )
 }
 
-function ConditionRow({ condition, facets, onChange, onRemove }) {
+function ConditionRow({ condition, facets, onChange, onRemove, compact }) {
   const isHomeroom = condition.type === 'homeroom'
   const options = optionsFor(condition.type, facets)
 
   return (
-    <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+    <Box sx={{
+      display: 'flex', gap: 1, alignItems: 'flex-start',
+      flexWrap: compact ? 'wrap' : 'nowrap',
+    }}>
       <FormControl size="small" sx={{ minWidth: 130, flexShrink: 0 }}>
         <InputLabel>조건</InputLabel>
         <Select

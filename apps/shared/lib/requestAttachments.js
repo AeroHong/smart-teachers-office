@@ -16,6 +16,15 @@ import { storage } from './firebase'
 
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
+/** 본문에 끼워 넣는 이미지. 첨부 목록에는 안 뜨고 글 안에 그림으로 들어간다. */
+export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
+
+export function isImageFile(file) {
+  if (file?.type?.startsWith('image/')) return true
+  const ext = (file?.name || '').split('.').pop()?.toLowerCase() || ''
+  return IMAGE_EXTENSIONS.includes(ext)
+}
+
 /** 확장자별 표시용 아이콘. 한글 파일이 주력이라 눈에 바로 띄게 구분한다. */
 export function fileKind(name = '') {
   const ext = name.split('.').pop()?.toLowerCase() || ''
