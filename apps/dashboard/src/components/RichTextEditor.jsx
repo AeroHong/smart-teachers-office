@@ -187,6 +187,48 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     })
   }
 
+  /** 줄을 감싸는 블록 요소. 편집기 바로 아래 맨 텍스트 노드면 없을 수 있다. */
+  const LINE_BLOCKS = 'p,h1,h2,h3,h4,div,li,blockquote,pre'
+
+  /**
+   * 줄을 제목·인용 같은 블록으로 바꾼다.
+   *
+   * 글자가 있는 줄은 execCommand('formatBlock')이 잘 처리하는데, **빈 줄에서는 아무 일도
+   * 하지 않는다**. '/제목'처럼 슬래시 명령만 친 줄은 명령 글자를 지우고 나면 정확히 그
+   * 빈 줄 상태가 되므로, 첫 줄에서 /제목을 고르면 글자만 사라지고 제목은 안 생겼다.
+   * (편집기가 비어 있을 때는 <p>조차 없이 맨 텍스트 노드라 더 잘 걸린다)
+   *
+   * 그래서 빈 줄일 때는 execCommand에 맡기지 않고 블록을 직접 만들어 바꿔 끼운다.
+   * 안에 <br>을 넣어야 빈 줄로 자리를 차지하고, 커서를 그 안에 두어야 바로 이어서
+   * 쓸 수 있다.
+   */
+  const applyBlock = (tag) => {
+    const el = editorRef.current
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+
+    const node = sel.anchorNode
+    const host = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node
+    const block = host && host !== el ? host.closest(LINE_BLOCKS) : null
+    const lineText = block ? block.textContent : (node?.textContent || '')
+
+    if (lineText.trim()) {
+      document.execCommand('formatBlock', false, tag)
+      return
+    }
+
+    const created = document.createElement(tag)
+    created.appendChild(document.createElement('br'))
+    if (block && block !== el) block.replaceWith(created)
+    else sel.getRangeAt(0).insertNode(created)
+
+    const range = document.createRange()
+    range.setStart(created, 0)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
   /**
    * 메뉴에서 고른 블록을 넣는다. 먼저 '/질문' 글자를 지운다.
    *
@@ -212,7 +254,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
 
     if (item.action === 'image') { fileInputRef.current?.click(); return }
     if (item.cmd) document.execCommand(item.cmd, false, null)
-    else if (item.block) document.execCommand('formatBlock', false, item.block)
+    else if (item.block) applyBlock(item.block)
     else if (item.html) document.execCommand('insertHTML', false, item.html)
     emit()
   }
