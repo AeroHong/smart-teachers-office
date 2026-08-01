@@ -91,19 +91,21 @@ export default function RequestList() {
       </Button>
 
       <SidebarSection
-        label="내가 보낸 글"
+        label="내가 보낸 요청"
+        icon="📤"
         count={sortedMine.length}
         open={open.mine}
         onToggle={() => setOpen(o => ({ ...o, mine: !o.mine }))}
       >
         {sortedMine.length === 0
-          ? <SidebarEmpty>보낸 글이 없습니다</SidebarEmpty>
+          ? <SidebarEmpty>보낸 요청이 없습니다</SidebarEmpty>
           : sortedMine.map(renderItem)}
       </SidebarSection>
 
       {isAdmin && (
         <SidebarSection
           label="학교 전체"
+          icon="🏫"
           count={open.all ? sortedAll.length : null}
           open={open.all}
           onToggle={() => setOpen(o => ({ ...o, all: !o.all }))}
@@ -121,7 +123,7 @@ export default function RequestList() {
       {requestId ? (
         <PostDetail requestId={requestId} onDeleted={() => navigate('/requests')} />
       ) : (
-        <DetailPlaceholder emoji="📋" message="왼쪽에서 글을 선택하면 현황이 열립니다." />
+        <DetailPlaceholder emoji="📋" message="왼쪽에서 요청을 선택하면 현황이 열립니다." />
       )}
     </WorkspaceLayout>
   )

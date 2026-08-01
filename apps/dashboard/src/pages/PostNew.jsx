@@ -144,7 +144,7 @@ export default function PostNew() {
 
         {/* 보내기 설정 — 누구에게, 언제까지 */}
         <Box sx={{
-          mt: 4, p: 2.5, borderRadius: 3,
+          mt: 4, p: 2.5, borderRadius: 1.25,
           border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper',
         }}>
           {loading

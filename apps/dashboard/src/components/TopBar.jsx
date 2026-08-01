@@ -18,6 +18,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { PRESENCE, PRESENCE_ORDER } from '@shared/lib/presence'
 import { openCommandPalette } from './CommandPalette'
+import CallBell from './CallBell'
 import usePresence from '../lib/usePresence'
 
 export default function TopBar() {
@@ -56,7 +57,9 @@ export default function TopBar() {
 
       <Box sx={{ flexGrow: 1 }} />
 
-      <Typography fontSize="0.83rem" fontWeight={600} noWrap>{userName}</Typography>
+      {/* 호출은 지금 학생이 기다린다는 신호라 어느 화면에 있든 눈에 들어와야 한다 */}
+      <CallBell />
+      <Typography fontSize="0.83rem" fontWeight={600} noWrap sx={{ ml: 0.5 }}>{userName}</Typography>
       <Button
         size="small"
         disabled={saving}

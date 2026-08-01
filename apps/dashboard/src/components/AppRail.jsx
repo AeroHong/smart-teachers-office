@@ -35,7 +35,7 @@ function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
         aria-label={label}
         sx={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3,
-          width: 48, py: 0.9, borderRadius: 2,
+          width: 48, py: 0.9, borderRadius: 1,
           border: 0, background: 'none', cursor: 'pointer',
           textDecoration: 'none', position: 'relative',
           color: active ? 'rail.iconActive' : 'rail.icon',
@@ -98,7 +98,7 @@ export default function AppRail() {
       />
       <RailButton
         icon={RequestIcon}
-        label="보낸 글"
+        label="요청 현황"
         to="/requests"
         active={pathname.startsWith('/requests')}
       />

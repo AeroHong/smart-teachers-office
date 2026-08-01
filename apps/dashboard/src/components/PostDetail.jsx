@@ -13,7 +13,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -22,6 +21,9 @@ import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
+import { alpha } from '@mui/material/styles'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
@@ -149,28 +151,43 @@ export default function PostDetail({ requestId, onDeleted }) {
           </Box>
         </Box>
 
-        {/* 대상 교사 — 내 완료 표시 (안내에는 없다) */}
+        {/* 대상 교사 — 내 완료 표시 (안내에는 없다).
+            체크박스 하나를 큰 상자에 넣어두니 오른쪽이 텅 비고 무엇을 눌러야 할지도
+            흐릿했다. 상태는 왼쪽에 문장으로, 할 일은 오른쪽에 버튼 하나로 나눈다. */}
         {isTarget && trackCompletion && (
-          <Box sx={{
-            p: 1.75, mb: 2.5, borderRadius: 1.25, maxWidth: 760,
-            border: '1px solid', borderColor: myDone ? 'success.main' : 'primary.main',
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Checkbox
-                checked={myDone}
-                disabled={busy || request.status === 'closed'}
-                onChange={(e) => run(() => setCompletion({
-                  schoolId, requestId, done: e.target.checked, doneBy: 'self',
-                  member: { uid: user.uid, name: userName },
-                  actor: { uid: user.uid, name: userName },
-                }))}
-              />
-              <Box>
-                <Typography fontWeight={700} fontSize="0.95rem">
-                  {myDone ? '완료했습니다' : '아직 완료하지 않았습니다'}
-                </Typography>
-              </Box>
+          <Box sx={theme => ({
+            display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
+            px: 2, py: 1.5, mb: 2.5, borderRadius: 1.25, maxWidth: 760,
+            border: '1px solid',
+            borderColor: myDone ? 'success.main' : 'primary.main',
+            bgcolor: alpha(myDone ? theme.palette.success.main : theme.palette.primary.main, 0.05),
+          })}>
+            {myDone
+              ? <CheckCircleIcon sx={{ fontSize: 22, color: 'success.main' }} />
+              : <RadioButtonUncheckedIcon sx={{ fontSize: 22, color: 'primary.main' }} />}
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography fontWeight={700} fontSize="0.92rem">
+                {myDone ? '완료했습니다' : '아직 완료하지 않았습니다'}
+              </Typography>
+              <Typography fontSize="0.78rem" color="text.secondary">
+                {myDone
+                  ? '담당자 현황에 반영됐습니다.'
+                  : '끝내셨으면 오른쪽 버튼을 눌러주세요.'}
+              </Typography>
             </Box>
+            <Button
+              variant={myDone ? 'outlined' : 'contained'}
+              color={myDone ? 'inherit' : 'primary'}
+              disabled={busy || request.status === 'closed'}
+              onClick={() => run(() => setCompletion({
+                schoolId, requestId, done: !myDone, doneBy: 'self',
+                member: { uid: user.uid, name: userName },
+                actor: { uid: user.uid, name: userName },
+              }))}
+              sx={{ flexShrink: 0 }}
+            >
+              {myDone ? '완료 취소' : '완료로 표시'}
+            </Button>
           </Box>
         )}
 

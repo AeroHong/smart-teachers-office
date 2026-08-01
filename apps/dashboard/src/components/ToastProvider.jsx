@@ -48,7 +48,7 @@ export default function ToastProvider({ children }) {
           severity={toast?.severity || 'info'}
           variant="filled"
           onClose={() => setToast(null)}
-          sx={{ borderRadius: 2 }}
+          sx={{ borderRadius: 1 }}
         >
           {toast?.message}
         </Alert>

@@ -13,7 +13,7 @@ import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 
 /** 접이식 섹션 머리. 접혀 있어도 건수는 보여야 열지 말지 판단할 수 있다. */
-export function SidebarSection({ label, count, badge, open, onToggle, children }) {
+export function SidebarSection({ label, icon, count, badge, open, onToggle, children }) {
   return (
     <Box sx={{ mb: 0.3 }}>
       <Box
@@ -30,11 +30,15 @@ export function SidebarSection({ label, count, badge, open, onToggle, children }
       >
         <ExpandMoreIcon
           sx={{
-            fontSize: 17, color: 'text.disabled', flexShrink: 0,
+            fontSize: 16, color: 'text.disabled', flexShrink: 0,
             transform: open ? 'none' : 'rotate(-90deg)',
             transition: 'transform .15s ease',
           }}
         />
+        {/* 꺾쇠만 있으면 섹션이 전부 같아 보인다. 무엇에 대한 목록인지 아이콘으로 구분한다. */}
+        {icon && (
+          <Typography sx={{ fontSize: '0.8rem', lineHeight: 1, flexShrink: 0, mr: 0.2 }}>{icon}</Typography>
+        )}
         <Typography
           sx={{ fontSize: '0.73rem', fontWeight: 800, letterSpacing: '.03em', color: 'text.secondary' }}
           noWrap

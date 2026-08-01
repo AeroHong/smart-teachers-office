@@ -135,7 +135,7 @@ function Row({ children, onRemove }) {
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1,
-      px: 1.2, py: 0.8, borderRadius: 2,
+      px: 1.2, py: 0.7, borderRadius: 0.75,
       border: '1px solid', borderColor: 'divider',
     }}>
       {children}

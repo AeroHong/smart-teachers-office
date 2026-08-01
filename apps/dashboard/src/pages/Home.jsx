@@ -18,7 +18,6 @@ import { dueState, isDoneBy, isRequest } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
 import PostDetail from '../components/PostDetail'
-import CallDetail from '../components/CallDetail'
 import EventDetail from '../components/EventDetail'
 import useHomeFeed from '../lib/useHomeFeed'
 import useSeenPosts from '../lib/useSeenPosts'
@@ -29,7 +28,7 @@ export default function Home() {
   const { requestId } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { requests, notices, calls, events } = useHomeFeed()
+  const { requests, notices, events } = useHomeFeed()
   const seenRequests = useSeenPosts('request')
   const seenNotices = useSeenPosts('notice')
 
@@ -37,7 +36,7 @@ export default function Home() {
   const [localSel, setLocalSel] = useState(null)
   // 학사일정도 펴둔다. 접어두면 D-day가 코앞인 일정을 열어봐야만 알 수 있는데,
   // 그건 "놓치지 않게 한다"는 이 화면의 목적과 어긋난다.
-  const [open, setOpen] = useState({ requests: true, notices: true, calls: true, events: true })
+  const [open, setOpen] = useState({ requests: true, notices: true, events: true })
 
   // 글을 고르면 주소가 바뀌므로 화면 안의 선택은 지운다 (양쪽이 동시에 선택돼 보이지 않게)
   useEffect(() => { if (requestId) setLocalSel(null) }, [requestId])
@@ -70,6 +69,7 @@ export default function Home() {
 
       <SidebarSection
         label="요청받은 일"
+        icon="✅"
         badge={pendingCount}
         open={open.requests}
         onToggle={() => setOpen(o => ({ ...o, requests: !o.requests }))}
@@ -98,6 +98,7 @@ export default function Home() {
 
       <SidebarSection
         label="전체 공지"
+        icon="📢"
         count={notices.length}
         badge={newNoticeCount}
         open={open.notices}
@@ -119,29 +120,8 @@ export default function Home() {
       </SidebarSection>
 
       <SidebarSection
-        label="호출 알림"
-        badge={calls.filter(c => c.status === 'pending').length}
-        open={open.calls}
-        onToggle={() => setOpen(o => ({ ...o, calls: !o.calls }))}
-      >
-        {calls.length === 0 ? <SidebarEmpty>대기 중인 호출이 없습니다</SidebarEmpty> : calls.map(c => {
-          const selected = localSel?.type === 'call' && localSel.item.id === c.id
-          return (
-            <SidebarItem
-              key={c.id}
-              label={`${c.grade}-${c.classNo}-${c.number} ${c.studentName}`}
-              selected={selected}
-              strong={c.status === 'pending'}
-              onClick={() => selectLocal('call', c)}
-              chip={c.status === 'acknowledged'
-                ? <MiniChip label="확인함" tone="success" selected={selected} /> : null}
-            />
-          )
-        })}
-      </SidebarSection>
-
-      <SidebarSection
         label="학사일정"
+        icon="🗓"
         count={events.length}
         open={open.events}
         onToggle={() => setOpen(o => ({ ...o, events: !o.events }))}
@@ -166,8 +146,6 @@ export default function Home() {
     <WorkspaceLayout sidebar={sidebar}>
       {requestId ? (
         <PostDetail requestId={requestId} onDeleted={() => navigate('/')} />
-      ) : localSel?.type === 'call' ? (
-        <CallDetail call={localSel.item} />
       ) : localSel?.type === 'event' ? (
         <EventDetail event={localSel.item} />
       ) : (

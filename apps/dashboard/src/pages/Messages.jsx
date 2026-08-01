@@ -69,6 +69,7 @@ export default function Messages() {
 
       <SidebarSection
         label="받은 쪽지"
+        icon="📥"
         count={inbox.length}
         badge={unreadCount}
         open={open.inbox}
@@ -88,6 +89,7 @@ export default function Messages() {
 
       <SidebarSection
         label="보낸 쪽지"
+        icon="📤"
         count={sent.length}
         open={open.sent}
         onToggle={() => setOpen(o => ({ ...o, sent: !o.sent }))}

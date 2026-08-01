@@ -23,7 +23,7 @@ import { POST_KIND, isRequest } from '@shared/lib/workRequests'
 
 const PAGES = [
   { id: 'page:/', label: '홈', hint: '요청·안내·호출·일정', to: '/', emoji: '🏠' },
-  { id: 'page:/requests', label: '안내 · 요청', hint: '내가 보낸 글', to: '/requests', emoji: '📋' },
+  { id: 'page:/requests', label: '요청 현황', hint: '내가 보낸 안내·요청의 진행', to: '/requests', emoji: '📋' },
   { id: 'page:/requests/new', label: '글 쓰기', hint: '안내 또는 요청 만들기', to: '/requests/new', emoji: '✏️' },
   { id: 'page:/messages', label: '쪽지', hint: '받은 쪽지·보낸 쪽지', to: '/messages', emoji: '✉️' },
   { id: 'page:/members', label: '구성원', hint: '조직도·연락', to: '/members', emoji: '👥' },

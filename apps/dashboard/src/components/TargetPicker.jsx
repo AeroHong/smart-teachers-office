@@ -106,7 +106,7 @@ export default function TargetPicker({ members, value, onChange }) {
       </Box>
 
       {/* 결과 확인 — 이 화면의 핵심. 숫자만 보고 보내지 않도록 이름을 펼쳐볼 수 있게 한다 */}
-      <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.default' }}>
+      <Box sx={{ p: 1.5, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'background.default' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           <Typography fontSize="0.9rem" fontWeight={700}>
             대상 {result.uids.length}명
