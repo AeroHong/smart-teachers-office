@@ -60,7 +60,12 @@ function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
         >
           <Icon sx={{ fontSize: 21 }} />
         </Badge>
-        <Typography sx={{ fontSize: '0.62rem', fontWeight: 600, lineHeight: 1.2 }}>
+        {/* 64px 레일에서 '로그아웃' 같은 네 글자가 줄바꿈돼 두 줄로 깨졌다. 줄바꿈을 막고
+            넘치면 자른다 — 아이콘과 툴팁이 이미 뜻을 전달하므로 라벨이 잘려도 읽는 데 지장이 없다 */}
+        <Typography
+          noWrap
+          sx={{ fontSize: '0.62rem', fontWeight: 600, lineHeight: 1.2, maxWidth: 46, textAlign: 'center' }}
+        >
           {label}
         </Typography>
       </Box>

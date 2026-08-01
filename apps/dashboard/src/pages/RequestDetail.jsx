@@ -14,6 +14,10 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
@@ -51,6 +55,7 @@ export default function RequestDetail() {
   const [completions, setCompletions] = useState([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     if (!schoolId || !requestId) return
@@ -136,15 +141,7 @@ export default function RequestDetail() {
             <Button
               size="small" color="error" startIcon={<DeleteIcon sx={{ fontSize: 17 }} />}
               disabled={busy}
-              onClick={() => {
-                // 되돌릴 수 없는 동작이라 확인을 받는다. 첨부와 완료 기록까지 함께 사라진다.
-                const count = request.targetUids?.length || 0
-                if (!window.confirm(`"${request.title}"을(를) 삭제할까요?\n대상 ${count}명의 목록에서도 사라지고, 첨부 파일과 완료 기록도 함께 지워집니다.`)) return
-                run(async () => {
-                  await deletePost({ schoolId, requestId, attachments: request.attachments })
-                  navigate('/requests')
-                }, '삭제했습니다.')
-              }}
+              onClick={() => setConfirmDelete(true)}
             >
               삭제
             </Button>
@@ -298,6 +295,36 @@ export default function RequestDetail() {
           </>
         )}
       </Box>
+
+      {/* 되돌릴 수 없는 동작이라 확인을 받는다. window.confirm은 앱과 모양이 따로 놀고
+          브라우저에 따라 동작이 제각각이라 앱 안의 다이얼로그를 쓴다. */}
+      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>이 글을 삭제할까요?</DialogTitle>
+        <DialogContent>
+          <Typography fontSize="0.9rem">
+            <strong>{request.title}</strong>
+          </Typography>
+          <Typography color="text.secondary" fontSize="0.85rem" sx={{ mt: 1 }}>
+            대상 {request.targetUids?.length || 0}명의 목록에서 사라지고, 첨부 파일과 완료 기록도
+            함께 지워집니다. 되돌릴 수 없습니다.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmDelete(false)}>취소</Button>
+          <Button
+            variant="contained" color="error" disabled={busy}
+            onClick={() => {
+              setConfirmDelete(false)
+              run(async () => {
+                await deletePost({ schoolId, requestId, attachments: request.attachments })
+                navigate('/requests')
+              }, '삭제했습니다.')
+            }}
+          >
+            삭제
+          </Button>
+        </DialogActions>
+      </Dialog>
     </DashboardLayout>
   )
 }
