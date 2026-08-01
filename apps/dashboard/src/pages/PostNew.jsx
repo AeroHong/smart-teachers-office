@@ -166,7 +166,7 @@ export default function PostNew() {
         }}>
           {loading
             ? <Typography color="text.secondary" fontSize="0.85rem">구성원 불러오는 중…</Typography>
-            : <TargetPicker members={members} value={rule} onChange={setRule} compact />}
+            : <TargetPicker members={members} value={rule} onChange={setRule} />}
 
           <Divider sx={{ my: 1.75 }} />
 
