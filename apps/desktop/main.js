@@ -80,7 +80,10 @@ if (!gotLock) {
     // 알림 검증은 반드시 설치본(npm run build:desktop)으로 해야 한다.
     app.setAppUserModelId('kr.seonyoo.smartoffice.desktop')
 
-    app.setLoginItemSettings({ openAtLogin: true })
+    // 설치본에서만 자동시작을 등록한다. dev 실행(electron.exe 직접)에서 등록하면
+    // 레지스트리에 인자 없는 electron.exe 경로가 박혀, 로그인할 때마다 이 앱이 아니라
+    // Electron 기본 앱이 뜬다.
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: true })
 
     // 대시보드 origin에서 알림 권한만 명시적으로 허용, 나머지(카메라·위치 등)는 거부.
     // 요청(requestPermission)과 조회(Notification.permission)가 서로 다른 핸들러를
