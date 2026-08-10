@@ -1,0 +1,35 @@
+{
+  "name": "smart-office-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "선유고 스마트교무실 — 대시보드 데스크톱 트레이 앱",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "kr.seonyoo.smartoffice.desktop",
+    "productName": "스마트교무실",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "perMachine": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3"
+  }
+}

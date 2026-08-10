@@ -1,8 +1,34 @@
 # 대시보드 기능 확장 + Electron 데스크톱 앱 — 계획
 
-> 작성일: 2026-07-31
-> 상태: Phase A 구현·배포 완료. Phase A-2(3분할 셸 + 명단) 설계 확정, 미착수. Phase B 미착수
+> 작성일: 2026-07-31 (2026-08-10 상태 갱신)
+> 상태: Phase A 구현·배포 완료. Phase A-2는 구현 후 재설계됨(아래 "실제 경과" 참고).
+> **Phase B 착수 가능 상태.**
 > 관련 문서: [PLAN_messenger.md](./PLAN_messenger.md) (0단계 Electron 클라이언트·1단계 쪽지 로드맵과 통합)
+
+---
+
+## 진행 상황 갱신 (2026-08-10)
+
+작성일(7/31) 이후 아래 변화가 있었다. Phase B를 다시 논의할 때 이 문서와 실제 코드가
+어긋나 있던 것이 혼란의 원인이었어서, 실제 경과를 남긴다.
+
+- `87ecc09 feat: 대시보드 3분할 셸 · 구성원 명단 · 위젯 그리드`로 Phase A-2가 계획대로
+  일단 구현됐다.
+- 이후 `a243ff6 refactor: 위젯 대시보드를 목록/상세 구조로 교체`,
+  `af9056c style: 곡률·밀도 정리 — Slack 수준의 업무 도구 인상으로`를 거치며 **캔버스형
+  위젯 그리드(12열, S/M/L 리사이즈)는 폐기**되고, **레일(64px) + 사이드바(268px, 조건부)
+  + 상세(가변)** 패턴으로 재설계됐다.
+- **구성원 명단**(쿨메신저식 조직도 토글 트리)은 계획대로 구현되어 살아있다
+  (`apps/dashboard/src/pages/Members.jsx` + `apps/dashboard/src/lib/rosterTree.js`).
+  다만 계획이 말한 "상시 노출되는 우측 고정 패널"이 아니라 `/members` 전용 페이지다.
+- 레일 색상 규칙(어두운 슬레이트 + 밝은 본문, `rail.*` 테마 토큰)은 계획대로 전 화면
+  공통 적용됐다.
+- 계획서에 없던 **채널**(`Channels.jsx`, 업무 글이 모이는 협업 공간)이 새 축으로
+  추가됐다. 계획의 기존 항목(공지/학사일정/쪽지)을 대체한 게 아니라 별도로 병존한다.
+- **Phase B 착수 조건은 충족됨** — 명단(조직도 데이터)은 존재하고, `presence.js`/
+  `usePresence.js`에는 이미 `source: 'desktop'` 필드와 "추후 Electron 클라이언트가
+  자동 갱신"이라는 설계 주석까지 있다. 캔버스형 셸이 아니게 됐다는 사실은 Electron
+  wrapper(URL 로드 + 트레이 + 알림) 착수와 무관하다.
 
 ---
 
@@ -370,8 +396,27 @@ Phase B (착수는 Phase A-2 완료 후):
 - [ ] 코드 서명 — 미서명 시 Windows SmartScreen 경고("추가 정보"를 눌러야 실행 버튼이 나옴).
       교사가 직접 설치하는 방식이라 "이거 바이러스 아니냐" 문의가 반드시 나온다.
       본인 PC 테스트 단계에서는 불필요하고, 전 교직원 배포 직전에 결정한다
-- [ ] Windows 검증 — 개발 PC가 macOS라 트레이 동작·NSIS 인스톨러·SmartScreen은
-      Mac에서 확인이 안 된다. 별도 Windows 검증 단계가 필요
+- [x] Windows 검증(1차 범위) — 창 로드·트레이 아이콘·닫기→트레이 상주·자동시작 등록까지
+      Windows에서 직접 확인 완료(2026-08-10). NSIS 인스톨러·SmartScreen 경고는 아직 미검증
+      (아래 "Phase B 1차 진행 상황" 참고)
+
+### Phase B 1차 진행 상황 (2026-08-10)
+
+**최소 셸 구현·검증 완료.**
+
+- `apps/desktop/` 신설(독립 `package.json`) — `main.js`(BrowserWindow + 트레이 + 자동시작),
+  `preload.js`(`window.smartOfficeDesktop` 마커 노출), `build/icon.ico`
+  (`apps/dashboard/public/favicon.svg` 기반 변환)
+- 루트 `package.json`에 `dev:desktop`/`build:desktop` 스크립트 추가
+- Windows에서 직접 확인됨: 창이 `smart-school-dashboard.web.app`을 로드 / 닫기(X) → 트레이로
+  상주 / 트레이 메뉴 "열기"·"종료" 정상 동작 / Windows 시작 프로그램 자동 등록
+- **네트워크 주의사항**: 학교 네트워크에서 Electron 바이너리(및 electron-builder가 쓰는
+  NSIS 등) 다운로드 호스트(`objects.githubusercontent.com`, `npmmirror.com` 등)가
+  자체 서명 인증서로 가로채져 차단됨 — 일반 웹 접속(`github.com`, `registry.npmjs.org`)은
+  막히지 않았으므로 실행파일 CDN만 선택적으로 차단하는 네트워크 필터로 보인다. 최초 설치는
+  다른 네트워크(가정용 회선 등)에서 한 번 받아두면 이후 로컬 캐시로 재사용 가능
+- **미검증**: `npm run dist`(electron-builder NSIS 설치 파일 생성), 설치 파일의 SmartScreen
+  경고 문구, 실제 인스톨러 실행 후 사용자 단위 설치 여부
 
 **재실 자동 감지 설계 메모** (Phase B 착수 시 참고)
 
@@ -392,6 +437,8 @@ Phase B (착수는 Phase A-2 완료 후):
 
 1. ~~Phase A 데이터 모델 + 웹 위젯~~ — 완료·배포됨
 2. ~~Firestore Rules 권한 규칙~~ — 완료·배포됨
-3. **Phase A-2** — 3분할 셸 + 어두운 레일 + 12열 그리드 + 구성원 명단(재실 없이)
-4. **Phase B** — Electron wrapper. 재실 자동 감지가 붙으면 명단에 점만 켜진다
+3. ~~Phase A-2~~ — 어두운 레일 + 구성원 명단은 구현됨. 12열 캔버스 그리드는 목록/상세
+   구조로 재설계되며 폐기됨(2026-08-10 갱신 참고). Phase B 착수에는 지장 없음
+4. **Phase B (착수 가능)** — Electron wrapper. 1차 범위(URL 로드 + 트레이 + 자동시작)와
+   2차 범위(Firestore 알림 파이프라인 + 재실 자동 감지)로 나눠 진행 예정
 5. 설치 현황 관리자 화면 (Phase B와 함께)

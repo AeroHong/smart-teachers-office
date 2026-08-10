@@ -16,7 +16,9 @@
     "dev:kiosk": "vite --config apps/kiosk/vite.config.js",
     "build:kiosk": "vite build --config apps/kiosk/vite.config.js",
     "deploy:kiosk": "npm run build:kiosk && firebase deploy --only hosting:kiosk",
-    "preview:kiosk": "vite preview --config apps/kiosk/vite.config.js"
+    "preview:kiosk": "vite preview --config apps/kiosk/vite.config.js",
+    "dev:desktop": "npm --prefix apps/desktop run dev",
+    "build:desktop": "npm --prefix apps/desktop run dist"
   },
   "dependencies": {
     "@emotion/react": "^11.11.0",
