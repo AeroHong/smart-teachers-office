@@ -1,6 +1,6 @@
 {
   "name": "smart-office-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "선유고 스마트교무실 — 대시보드 데스크톱 트레이 앱",
   "main": "main.js",
@@ -17,6 +17,9 @@
     "files": [
       "main.js",
       "preload.js",
+      "assets/**"
+    ],
+    "asarUnpack": [
       "assets/**"
     ],
     "win": {

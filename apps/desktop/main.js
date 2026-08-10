@@ -35,6 +35,45 @@ const DASHBOARD_URL = 'https://smart-school-dashboard.web.app'
 // Tray 생성이 실패한다 (dev에서는 파일이 있어 멀쩡히 동작해 눈치채기 어렵다).
 const ICON_PATH = path.join(__dirname, 'assets', 'icon.ico')
 
+// 토스트 알림에 넣는 로고. Windows가 직접 읽는 이미지라 app.asar 안에 있으면 안 되고
+// (package.json의 asarUnpack), ICO는 지원하지 않아 PNG를 쓴다. dev 실행에는 asar 자체가
+// 없으므로 치환이 일어나지 않는다.
+const TOAST_LOGO_URI = 'file:///' + path
+  .join(__dirname, 'assets', 'icon.png')
+  .replace('app.asar', 'app.asar.unpacked')
+  .replace(/\\/g, '/')
+
+function escapeXml(value) {
+  return String(value ?? '').replace(/[<>&'"]/g, (c) => (
+    { '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]
+  ))
+}
+
+/**
+ * Windows 토스트 XML.
+ *
+ * 기본 알림은 제목·본문만 나오고 어느 앱이 보냈는지 흐릿하다. 앱 로고와 출처를 넣어
+ * 교사가 여러 알림 사이에서 바로 알아보게 한다.
+ *
+ * urgent(호출)는 duration="long"으로 약 25초간 띄운다 — 학생이 앞에서 기다리는
+ * 상황이라 기본 5초는 자리를 비운 사이에 지나가버린다.
+ */
+function buildToastXml({ title, body, urgent }) {
+  return `<toast${urgent ? ' duration="long"' : ''}>
+  <visual>
+    <binding template="ToastGeneric">
+      <image placement="appLogoOverride" src="${escapeXml(TOAST_LOGO_URI)}"/>
+      <text>${escapeXml(title)}</text>
+      <text>${escapeXml(body)}</text>
+      <text placement="attribution">스마트교무실</text>
+    </binding>
+  </visual>
+  <actions>
+    <action content="열기" arguments="open" activationType="foreground"/>
+  </actions>
+</toast>`
+}
+
 let mainWindow = null
 let tray = null
 app.isQuitting = false
@@ -169,9 +208,10 @@ if (!gotLock) {
   // GC 대상이 되어, 토스트는 화면에 떠 있는데 클릭해도 click 이벤트가 오지 않는다.
   const liveNotifications = new Set()
 
-  ipcMain.handle('notify', (_event, { title, body, route } = {}) => {
+  ipcMain.handle('notify', (_event, { title, body, route, urgent } = {}) => {
     if (!Notification.isSupported()) return false
-    const n = new Notification({ title, body })
+    // toastXml을 주면 title/body 옵션은 무시된다. 로그와 대조하기 위해 함께 넘긴다.
+    const n = new Notification({ title, body, toastXml: buildToastXml({ title, body, urgent }) })
     liveNotifications.add(n)
     const release = () => liveNotifications.delete(n)
 

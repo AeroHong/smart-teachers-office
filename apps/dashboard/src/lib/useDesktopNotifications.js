@@ -48,7 +48,7 @@ function readNotified() {
 //
 // 포그라운드라 안 띄운 건도 이력에 남긴다 — 화면으로 이미 봤으므로, 나중에 창을
 // 숨겼을 때 그 건이 다시 떠오르면 안 된다.
-function notifyOnce(key, title, body, route) {
+function notifyOnce(key, title, body, route, { urgent = false } = {}) {
   if (!isDesktop()) return
 
   const store = readNotified()
@@ -67,7 +67,7 @@ function notifyOnce(key, title, body, route) {
   }
 
   if (document.hasFocus()) return
-  window.smartOfficeDesktop.notify({ title, body, route })
+  window.smartOfficeDesktop.notify({ title, body, route, urgent })
 }
 
 export default function useDesktopNotifications() {
@@ -102,6 +102,9 @@ export default function useDesktopNotifications() {
             '학생이 찾아왔습니다',
             `${c.grade}학년 ${c.classNo}반 ${c.number}번 ${c.studentName || ''} · ${c.office || ''}`,
             '/',
+            // 학생이 앞에서 기다리는 상황이라 오래 띄운다. 기본 5초는 잠깐 자리를
+            // 비운 사이에 지나가버린다.
+            { urgent: true },
           )
         })
       },
@@ -182,10 +185,13 @@ export default function useDesktopNotifications() {
     const todayKey = new Date().toISOString().slice(0, 10)
     requestsRef.current.forEach((r) => {
       const { state, label } = dueState(r)
-      if (state !== 'today' && state !== 'soon') return
+      if (state !== 'today' && state !== 'soon' && state !== 'overdue') return
+      // 지난 건을 '마감임박'이라 부르면 말이 안 맞는다. 상태 그대로 알린다.
+      // (label은 dueState가 준다 — '오늘까지', 'D-2', '3일 지남')
+      const title = state === 'overdue' ? '마감 지남' : '마감임박'
       // 날짜를 키에 넣어 같은 요청을 하루에 한 번만 알린다
       // (타이머가 반복 실행되고 스냅샷마다 다시 판정하므로 필요)
-      notifyOnce(`due:${r.id}:${todayKey}`, '마감임박', `${r.title || ''} · ${label}`, `/posts/${r.id}`)
+      notifyOnce(`due:${r.id}:${todayKey}`, title, `${r.title || ''} · ${label}`, `/posts/${r.id}`)
     })
   }, [])
 
