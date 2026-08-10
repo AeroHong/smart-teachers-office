@@ -202,6 +202,60 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
    * 안에 <br>을 넣어야 빈 줄로 자리를 차지하고, 커서를 그 안에 두어야 바로 이어서
    * 쓸 수 있다.
    */
+  /** 슬래시 메뉴의 목록 명령 → 만들 태그 */
+  const LIST_TAGS = { insertUnorderedList: 'UL', insertOrderedList: 'OL' }
+
+  /**
+   * 목록을 시작한다.
+   *
+   * 빈 줄에서 execCommand로 목록을 만들면, 바로 위에 다른 종류의 목록이 있을 때
+   * **새 목록을 만드는 대신 위 목록을 통째로 바꾼다** — 글머리 기호로 써둔 줄들이
+   * 번호로 변한다. 슬래시 명령은 '/번호' 글자를 지우고 나면 항상 빈 줄이라 정확히
+   * 이 경우에 걸린다.
+   *
+   * 그래서 빈 줄일 때는 applyBlock과 같은 방식으로 목록을 직접 만들어 끼운다.
+   */
+  const applyList = (cmd) => {
+    const el = editorRef.current
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+
+    const node = sel.anchorNode
+    const host = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node
+    const block = host && host !== el ? host.closest(LINE_BLOCKS) : null
+    const lineText = block ? block.textContent : (node?.textContent || '')
+
+    // 글자가 있는 줄은 execCommand가 그 줄만 정확히 목록으로 바꾼다
+    if (lineText.trim()) {
+      document.execCommand(cmd, false, null)
+      return
+    }
+
+    const list = document.createElement(LIST_TAGS[cmd])
+    const item = document.createElement('li')
+    item.appendChild(document.createElement('br'))
+    list.appendChild(item)
+
+    if (block?.tagName === 'LI') {
+      // 목록 안 빈 줄에서 다른 종류를 고른 경우. 그 자리에 끼우면 목록 안에 목록이
+      // 중첩되므로, 빈 줄은 버리고 새 목록을 원래 목록 뒤에 놓는다.
+      const parentList = block.parentElement
+      block.remove()
+      parentList.after(list)
+      if (!parentList.childElementCount) parentList.remove()
+    } else if (block && block !== el) {
+      block.replaceWith(list)
+    } else {
+      sel.getRangeAt(0).insertNode(list)
+    }
+
+    const range = document.createRange()
+    range.setStart(item, 0)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
   const applyBlock = (tag) => {
     const el = editorRef.current
     const sel = window.getSelection()
@@ -253,7 +307,10 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     setSlash(null)
 
     if (item.action === 'image') { fileInputRef.current?.click(); return }
-    if (item.cmd) document.execCommand(item.cmd, false, null)
+    if (item.cmd) {
+      if (LIST_TAGS[item.cmd]) applyList(item.cmd)
+      else document.execCommand(item.cmd, false, null)
+    }
     else if (item.block) applyBlock(item.block)
     else if (item.html) document.execCommand('insertHTML', false, item.html)
     emit()
