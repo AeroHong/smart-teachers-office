@@ -4,6 +4,11 @@ const path = require('node:path')
 // 대시보드 웹앱을 그대로 로드한다 — UI는 항상 배포된 최신 버전과 동기화된다.
 const DASHBOARD_URL = 'https://smart-school-dashboard.web.app'
 
+// 런타임에 읽는 아이콘은 assets/에 둔다. build/는 electron-builder가 빌드 리소스
+// 전용으로 취급해 앱 패키지(app.asar)에 넣지 않으므로, 거기서 읽으면 설치본에서만
+// Tray 생성이 실패한다 (dev에서는 파일이 있어 멀쩡히 동작해 눈치채기 어렵다).
+const ICON_PATH = path.join(__dirname, 'assets', 'icon.ico')
+
 let mainWindow = null
 let tray = null
 app.isQuitting = false
@@ -24,7 +29,7 @@ if (!gotLock) {
     mainWindow = new BrowserWindow({
       width: 1280,
       height: 860,
-      icon: path.join(__dirname, 'build', 'icon.ico'),
+      icon: ICON_PATH,
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,
@@ -35,8 +40,9 @@ if (!gotLock) {
     mainWindow.loadURL(DASHBOARD_URL)
 
     // 닫기(X)는 종료가 아니라 트레이로 최소화. 완전 종료는 트레이 메뉴에서만.
+    // 단 트레이가 없으면 숨긴 창을 되살릴 수단이 없어 앱이 유령이 되므로 그냥 종료한다.
     mainWindow.on('close', (event) => {
-      if (!app.isQuitting) {
+      if (!app.isQuitting && tray) {
         event.preventDefault()
         mainWindow.hide()
       }
@@ -44,7 +50,7 @@ if (!gotLock) {
   }
 
   function createTray() {
-    tray = new Tray(path.join(__dirname, 'build', 'icon.ico'))
+    tray = new Tray(ICON_PATH)
     tray.setToolTip('스마트교무실')
     tray.setContextMenu(Menu.buildFromTemplate([
       {
@@ -96,7 +102,13 @@ if (!gotLock) {
     ))
 
     createWindow()
-    createTray()
+    // 트레이 실패가 창까지 못 쓰게 만들면 안 된다 — 창은 이미 떠 있으므로 앱은 쓸 수 있고,
+    // 닫기 동작만 '트레이 상주' 대신 '종료'로 떨어진다.
+    try {
+      createTray()
+    } catch (err) {
+      console.error('[main] 트레이 생성 실패 — 닫기가 종료로 동작한다:', err)
+    }
   }).catch((err) => {
     // 여기서 던진 예외는 기본적으로 삼켜져 "창이 안 뜨는데 에러도 없는" 상태가 된다.
     console.error('[main] 초기화 실패:', err)
