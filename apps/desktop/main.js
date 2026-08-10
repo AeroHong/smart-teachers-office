@@ -1,5 +1,31 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, session, Notification } = require('electron')
 const path = require('node:path')
+const fs = require('node:fs')
+
+// 설치본에는 콘솔이 없어서 무슨 일이 일어났는지 볼 방법이 없다. 알림이 안 뜨거나
+// 클릭이 안 먹을 때 증상만 보고 추측하지 않도록 userData에 기록을 남긴다.
+// 경로: %APPDATA%\스마트교무실\desktop.log
+const LOG_MAX_BYTES = 512 * 1024
+let logPath = null
+
+function log(...parts) {
+  try {
+    if (!logPath) logPath = path.join(app.getPath('userData'), 'desktop.log')
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${parts.join(' ')}\n`)
+  } catch {
+    // 기록 실패가 앱 동작을 막을 이유는 없다
+  }
+}
+
+// 상주 앱이라 그냥 두면 계속 커진다 — 시작할 때 커진 로그는 버리고 새로 쓴다.
+function trimLog() {
+  try {
+    logPath = path.join(app.getPath('userData'), 'desktop.log')
+    if (fs.existsSync(logPath) && fs.statSync(logPath).size > LOG_MAX_BYTES) fs.rmSync(logPath)
+  } catch {
+    // 무시
+  }
+}
 
 // 대시보드 웹앱을 그대로 로드한다 — UI는 항상 배포된 최신 버전과 동기화된다.
 const DASHBOARD_URL = 'https://smart-school-dashboard.web.app'
@@ -83,6 +109,8 @@ if (!gotLock) {
   }
 
   app.whenReady().then(() => {
+    trimLog()
+    log(`앱 시작 v${app.getVersion()} packaged=${app.isPackaged} 알림지원=${Notification.isSupported()}`)
     // Windows 토스트 알림은 AppUserModelID로 앱을 식별한다. package.json의 appId와
     // 같은 값이어야 NSIS가 만드는 시작 메뉴 바로가기의 AUMID와 일치한다.
     //
@@ -142,15 +170,22 @@ if (!gotLock) {
     liveNotifications.add(n)
     const release = () => liveNotifications.delete(n)
 
+    log(`notify 수신: "${title}" route=${route || '(없음)'}`)
+
+    n.on('show', () => log('  → show (Windows가 표시함)'))
+    n.on('failed', (_e, err) => { log('  → failed:', err); release() })
+    n.on('close', () => { log('  → close'); release() })
     n.on('click', () => {
+      log('  → click')
       release()
-      if (!mainWindow) return
+      if (!mainWindow) { log('     mainWindow 없음 — 무시'); return }
       mainWindow.show()
       mainWindow.focus()
-      if (route) mainWindow.webContents.send('navigate', route)
+      if (route) {
+        mainWindow.webContents.send('navigate', route)
+        log(`     창 복원 + navigate ${route}`)
+      }
     })
-    n.on('close', release)
-    n.on('failed', release)
 
     n.show()
     return true
