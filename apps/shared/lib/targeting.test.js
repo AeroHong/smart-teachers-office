@@ -231,3 +231,28 @@ test('직급 보기 목록은 관리자 → 부장 → 기획 → 일반 순서�
   })
   assert.deepEqual(collectFacets(list).ranks, ['관리자', '부장', '기획', '일반'])
 })
+
+test('조건 없이 개별 지정만 하면 그 사람들만 대상이다', () => {
+  // 빈 배열의 every()가 참이라 예전에는 전원이 잡혔고, 화면에서 '전체 교직원'을
+  // 해제할 방법이 없었다. 개별 지정이 '전체에 더하기'가 되면 안 된다.
+  const result = resolveTargets({ includeUids: ['u1', 'u2'] }, members)
+  assert.deepEqual(result.uids.sort(), ['u1', 'u2'])
+})
+
+test('조건도 개별 지정도 없으면 전체가 대상이다', () => {
+  const result = resolveTargets({}, members)
+  assert.equal(result.uids.length, members.length)
+  assert.ok(result.warnings.some(w => w.includes('전체 교직원')))
+})
+
+test('조건이 있으면 개별 지정은 거기에 더해진다', () => {
+  const rule = { conditions: [{ type: 'department', values: ['연구부'] }], includeUids: ['u6'] }
+  const result = resolveTargets(rule, members)
+  assert.ok(result.uids.includes('u6'))
+  assert.ok(result.uids.length > 1)
+})
+
+test('조건 없이 개별 지정만 하면 전체 교직원이라고 설명하지 않는다', () => {
+  assert.equal(describeRule({ includeUids: ['u1', 'u2'] }), '개별 지정 2명')
+  assert.equal(describeRule({}), '전체 교직원')
+})

@@ -177,9 +177,14 @@ export function resolveTargets(rule = {}, members = []) {
   const includeUids = new Set(rule.includeUids || [])
   const excludeUids = new Set(rule.excludeUids || [])
 
-  const matched = members.filter(m =>
-    includeUids.has(m.uid) || conditions.every(c => matchesCondition(m, c)),
-  )
+  // 조건이 없으면 전체가 대상이다. 다만 개별 지정만 한 경우에는 그 사람들만이어야 한다.
+  // 빈 배열의 every()는 참이라 예전에는 조건이 없으면 늘 전원이 잡혔고, 개별 지정이
+  // '전체에 더하기'가 되어 전체 교직원을 뺄 방법이 아예 없었다.
+  const matchesAll = conditions.length > 0
+    ? (m) => conditions.every(c => matchesCondition(m, c))
+    : () => includeUids.size === 0
+
+  const matched = members.filter(m => includeUids.has(m.uid) || matchesAll(m))
   const result = matched.filter(m => !excludeUids.has(m.uid))
 
   const warnings = []
@@ -206,11 +211,21 @@ export function resolveTargets(rule = {}, members = []) {
 /** 조건을 사람이 읽는 문장으로. 요청 상세와 감사 기록에 그대로 남긴다. */
 export function describeRule(rule = {}) {
   const parts = (rule.conditions || []).filter(Boolean).map(describeCondition).filter(Boolean)
+  const includeCount = rule.includeUids?.length || 0
+  const excludeCount = rule.excludeUids?.length || 0
+
+  // 조건 없이 개별 지정만 하면 대상은 그 사람들뿐이다(resolveTargets와 같은 규칙).
+  // 여기서 '전체 교직원'이라고 하면 실제 대상과 정반대로 읽힌다.
+  if (parts.length === 0 && includeCount > 0) {
+    const only = `개별 지정 ${includeCount}명`
+    return excludeCount > 0 ? `${only} (제외 ${excludeCount}명)` : only
+  }
+
   const base = parts.length > 0 ? parts.join(' · ') : '전체 교직원'
 
   const extra = []
-  if (rule.includeUids?.length) extra.push(`직접 추가 ${rule.includeUids.length}명`)
-  if (rule.excludeUids?.length) extra.push(`제외 ${rule.excludeUids.length}명`)
+  if (includeCount) extra.push(`직접 추가 ${includeCount}명`)
+  if (excludeCount) extra.push(`제외 ${excludeCount}명`)
 
   return extra.length > 0 ? `${base} (${extra.join(', ')})` : base
 }

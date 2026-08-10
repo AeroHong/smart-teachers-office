@@ -153,6 +153,13 @@ if (!gotLock) {
       },
       { type: 'separator' },
       {
+        // 문제가 생겼을 때 원격으로 봐줄 수단. 기본 메뉴를 없애면서 Ctrl+Shift+I도
+        // 같이 사라지므로 여기 둔다.
+        label: '개발자 도구',
+        click: () => mainWindow?.webContents.openDevTools({ mode: 'detach' }),
+      },
+      { type: 'separator' },
+      {
         label: '종료',
         click: () => {
           app.isQuitting = true
@@ -167,6 +174,11 @@ if (!gotLock) {
   }
 
   app.whenReady().then(() => {
+    // 기본 메뉴(File·Edit·View·Window)를 없앤다. 웹 대시보드를 감싸는 껍데기라
+    // 저 항목들이 하는 일이 없고, 창 위에 남아 있으면 웹앱이 아니라 별개 프로그램처럼
+    // 보인다. 개발자 도구는 트레이 메뉴로 옮겼다(기본 메뉴의 단축키가 사라지므로).
+    Menu.setApplicationMenu(null)
+
     trimLog()
     log(`앱 시작 v${app.getVersion()} packaged=${app.isPackaged} 알림지원=${Notification.isSupported()}`)
     log('argv=', process.argv.join(' '))
