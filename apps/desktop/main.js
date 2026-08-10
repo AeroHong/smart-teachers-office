@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, session } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, session, Notification } = require('electron')
 const path = require('node:path')
 
 // 대시보드 웹앱을 그대로 로드한다 — UI는 항상 배포된 최신 버전과 동기화된다.
@@ -34,6 +34,8 @@ if (!gotLock) {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
+        // 샌드박스 preload는 package.json을 require할 수 없어 버전을 인자로 넘긴다.
+        additionalArguments: [`--app-version=${app.getVersion()}`],
       },
     })
 
@@ -119,6 +121,23 @@ if (!gotLock) {
     if (!mainWindow) return
     mainWindow.show()
     mainWindow.focus()
+  })
+
+  // 알림 표시는 렌더러의 웹 Notification이 아니라 메인 프로세스가 맡는다.
+  // 렌더러 경로는 Notification.permission이 'granted'여도 Windows에서 토스트가
+  // 뜨지 않는 것을 확인했다(show/error 이벤트조차 오지 않음). 메인 프로세스 경로는
+  // 정상 동작하므로, 렌더러는 "언제 알릴지"만 판단하고 표시는 여기에 위임한다.
+  ipcMain.handle('notify', (_event, { title, body, route } = {}) => {
+    if (!Notification.isSupported()) return false
+    const n = new Notification({ title, body })
+    n.on('click', () => {
+      if (!mainWindow) return
+      mainWindow.show()
+      mainWindow.focus()
+      if (route) mainWindow.webContents.send('navigate', route)
+    })
+    n.show()
+    return true
   })
 
   // 창을 전부 닫아도(트레이로 숨겨도) 앱은 계속 상주한다.

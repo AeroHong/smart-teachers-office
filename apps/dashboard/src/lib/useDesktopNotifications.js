@@ -23,11 +23,13 @@ function isDesktop() {
   return typeof window !== 'undefined' && !!window.smartOfficeDesktop
 }
 
-function notify(title, body, onClick) {
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+// 표시는 Electron 메인 프로세스에 맡긴다. 렌더러의 웹 Notification은 권한이
+// 'granted'여도 Windows에서 토스트가 뜨지 않는 것을 확인했다(show/error 이벤트조차
+// 오지 않음). 클릭 시 이동은 route를 넘겨 메인이 창 복원 후 되돌려주는 방식이다.
+function notify(title, body, route) {
+  if (!isDesktop()) return
   if (document.hasFocus()) return
-  const n = new Notification(title, { body })
-  if (onClick) n.onclick = onClick
+  window.smartOfficeDesktop.notify({ title, body, route })
 }
 
 export default function useDesktopNotifications() {
@@ -35,19 +37,13 @@ export default function useDesktopNotifications() {
   const navigate = useNavigate()
   const requestsRef = useRef([])
 
-  const goto = (path) => () => {
-    window.smartOfficeDesktop?.focusWindow?.()
-    navigate(path)
-  }
-
-  // 알림 권한 요청 (데스크톱에서만) — Electron 메인 프로세스가 'notifications'만
-  // 자동 허용하도록 이미 설정돼 있다 (apps/desktop/main.js).
+  // 알림 클릭 → 메인 프로세스가 창을 복원한 뒤 이동할 경로를 돌려준다.
   useEffect(() => {
     if (!isDesktop()) return
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }, [])
+    return window.smartOfficeDesktop.onNavigate?.((route) => {
+      if (route) navigate(route)
+    })
+  }, [navigate])
 
   // 1) 호출 — CallAlert.jsx와 동일 정책: 대기 중인 건 항상 알림(최초 구독분 포함).
   useEffect(() => {
@@ -67,7 +63,7 @@ export default function useDesktopNotifications() {
           notify(
             '학생이 찾아왔습니다',
             `${c.grade}학년 ${c.classNo}반 ${c.number}번 ${c.studentName || ''} · ${c.office || ''}`,
-            goto('/'),
+            '/',
           )
         })
       },
@@ -90,7 +86,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const r = change.doc.data()
-          notify('새 공지', r.title || '', goto(`/posts/${change.doc.id}`))
+          notify('새 공지', r.title || '', `/posts/${change.doc.id}`)
         })
       },
       () => {},
@@ -113,7 +109,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const r = change.doc.data()
-          notify('새 업무 요청', r.title || '', goto(`/posts/${change.doc.id}`))
+          notify('새 업무 요청', r.title || '', `/posts/${change.doc.id}`)
         })
       },
       () => {},
@@ -134,7 +130,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const n = change.doc.data()
-          notify('새 쪽지', `${n.senderName || ''} · ${n.title || ''}`, goto('/messages'))
+          notify('새 쪽지', `${n.senderName || ''} · ${n.title || ''}`, '/messages')
         })
       },
       () => {},
@@ -169,7 +165,7 @@ export default function useDesktopNotifications() {
         const storageKey = `desktopNotifiedDue:${r.id}:${todayKey}`
         if (localStorage.getItem(storageKey)) return
         localStorage.setItem(storageKey, '1')
-        notify('마감임박', `${r.title || ''} · ${label}`, goto(`/posts/${r.id}`))
+        notify('마감임박', `${r.title || ''} · ${label}`, `/posts/${r.id}`)
       })
     }
     checkDueSoon()
