@@ -23,11 +23,48 @@ function isDesktop() {
   return typeof window !== 'undefined' && !!window.smartOfficeDesktop
 }
 
+// 알림 이력 — 같은 건을 두 번 알리지 않기 위해 문서 id를 localStorage에 남긴다.
+//
+// 메모리 Set으로는 부족하다. 창을 트레이로 내리면 렌더러가 조여지면서 Firestore
+// 연결이 끊겼다 붙기를 반복하는데, 그때 대상이 리셋되며 기존 문서가 다시 'added'로
+// 들어온다. first 플래그는 이미 false라 신규로 오인해 같은 쪽지를 30초~1분마다 계속
+// 알리게 된다. 앱을 껐다 켜도 이력이 남아야 하므로 저장소에 둔다.
+const NOTIFIED_STORE_KEY = 'desktopNotified'
+const NOTIFIED_TTL_MS = 14 * 24 * 60 * 60 * 1000
+
+function readNotified() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NOTIFIED_STORE_KEY))
+    return raw && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
 // 표시는 Electron 메인 프로세스에 맡긴다. 렌더러의 웹 Notification은 권한이
 // 'granted'여도 Windows에서 토스트가 뜨지 않는 것을 확인했다(show/error 이벤트조차
 // 오지 않음). 클릭 시 이동은 route를 넘겨 메인이 창 복원 후 되돌려주는 방식이다.
-function notify(title, body, route) {
+//
+// 포그라운드라 안 띄운 건도 이력에 남긴다 — 화면으로 이미 봤으므로, 나중에 창을
+// 숨겼을 때 그 건이 다시 떠오르면 안 된다.
+function notifyOnce(key, title, body, route) {
   if (!isDesktop()) return
+
+  const store = readNotified()
+  if (store[key]) return
+
+  const now = Date.now()
+  store[key] = now
+  // 상주 앱이라 두면 계속 쌓인다 — 오래된 이력은 버린다.
+  Object.entries(store).forEach(([k, at]) => {
+    if (now - at > NOTIFIED_TTL_MS) delete store[k]
+  })
+  try {
+    localStorage.setItem(NOTIFIED_STORE_KEY, JSON.stringify(store))
+  } catch {
+    // 용량 초과 등은 알림을 막을 이유가 못 된다
+  }
+
   if (document.hasFocus()) return
   window.smartOfficeDesktop.notify({ title, body, route })
 }
@@ -46,9 +83,10 @@ export default function useDesktopNotifications() {
   }, [navigate])
 
   // 1) 호출 — CallAlert.jsx와 동일 정책: 대기 중인 건 항상 알림(최초 구독분 포함).
+  // 자리를 비운 사이 온 호출도 알려야 해서 첫 스냅샷을 건너뛰지 않는다. 대신 알림
+  // 이력으로 중복을 막는다.
   useEffect(() => {
     if (!isDesktop() || !schoolId || !user) return
-    const seen = new Set()
     return onSnapshot(
       query(
         collection(db, 'schools', schoolId, 'callRequests'),
@@ -57,10 +95,9 @@ export default function useDesktopNotifications() {
       ),
       (snap) => {
         snap.docs.forEach((d) => {
-          if (seen.has(d.id)) return
-          seen.add(d.id)
           const c = d.data()
-          notify(
+          notifyOnce(
+            `call:${d.id}`,
             '학생이 찾아왔습니다',
             `${c.grade}학년 ${c.classNo}반 ${c.number}번 ${c.studentName || ''} · ${c.office || ''}`,
             '/',
@@ -86,7 +123,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const r = change.doc.data()
-          notify('새 공지', r.title || '', `/posts/${change.doc.id}`)
+          notifyOnce(`notice:${change.doc.id}`, '새 공지', r.title || '', `/posts/${change.doc.id}`)
         })
       },
       () => {},
@@ -109,7 +146,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const r = change.doc.data()
-          notify('새 업무 요청', r.title || '', `/posts/${change.doc.id}`)
+          notifyOnce(`request:${change.doc.id}`, '새 업무 요청', r.title || '', `/posts/${change.doc.id}`)
         })
       },
       () => {},
@@ -130,7 +167,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const n = change.doc.data()
-          notify('새 쪽지', `${n.senderName || ''} · ${n.title || ''}`, '/messages')
+          notifyOnce(`message:${change.doc.id}`, '새 쪽지', `${n.senderName || ''} · ${n.title || ''}`, '/messages')
         })
       },
       () => {},
@@ -161,11 +198,9 @@ export default function useDesktopNotifications() {
       requestsRef.current.forEach((r) => {
         const { state, label } = dueState(r)
         if (state !== 'today' && state !== 'soon') return
-        // 같은 요청을 하루에 한 번만 알림 (30분 간격 타이머가 반복 실행되므로 필요)
-        const storageKey = `desktopNotifiedDue:${r.id}:${todayKey}`
-        if (localStorage.getItem(storageKey)) return
-        localStorage.setItem(storageKey, '1')
-        notify('마감임박', `${r.title || ''} · ${label}`, `/posts/${r.id}`)
+        // 날짜를 키에 넣어 같은 요청을 하루에 한 번만 알린다
+        // (30분 간격 타이머가 반복 실행되므로 필요)
+        notifyOnce(`due:${r.id}:${todayKey}`, '마감임박', `${r.title || ''} · ${label}`, `/posts/${r.id}`)
       })
     }
     checkDueSoon()

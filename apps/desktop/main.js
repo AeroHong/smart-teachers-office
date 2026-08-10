@@ -36,6 +36,11 @@ if (!gotLock) {
         nodeIntegration: false,
         // 샌드박스 preload는 package.json을 require할 수 없어 버전을 인자로 넘긴다.
         additionalArguments: [`--app-version=${app.getVersion()}`],
+        // 트레이로 숨겨진 동안에도 렌더러가 온전히 돌아야 한다. 기본값(true)이면 숨김
+        // 상태에서 처리가 조여지고, 그 여파로 Firestore 연결이 끊겼다 붙기를 반복하며
+        // 알림이 늦거나 같은 문서가 다시 흘러들어온다. 알림을 받으려고 상주시키는
+        // 앱이라 여기서 아끼면 목적 자체가 없어진다.
+        backgroundThrottling: false,
       },
     })
 
