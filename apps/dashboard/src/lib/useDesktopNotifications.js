@@ -9,7 +9,7 @@
  * 중복 알림이 된다. 재사용: 신규 판정은 CallAlert.jsx의 seenRef 패턴, 마감임박
  * 판정은 workRequests.js의 dueState()를 그대로 쓴다.
  */
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
@@ -176,7 +176,18 @@ export default function useDesktopNotifications() {
 
   // 5) 마감임박 — 문서 추가 이벤트가 아니라 "시간이 지나며 성립하는 상태"라 타이머로 점검.
   // 열린 요청 목록은 3)과 같은 쿼리로 최신 상태를 유지만 해두고(알림은 안 띄움),
-  // 점검 타이머에서 dueState()로 판정한다.
+  // dueState()로 판정한다.
+  const checkDueSoon = useCallback(() => {
+    const todayKey = new Date().toISOString().slice(0, 10)
+    requestsRef.current.forEach((r) => {
+      const { state, label } = dueState(r)
+      if (state !== 'today' && state !== 'soon') return
+      // 날짜를 키에 넣어 같은 요청을 하루에 한 번만 알린다
+      // (타이머가 반복 실행되고 스냅샷마다 다시 판정하므로 필요)
+      notifyOnce(`due:${r.id}:${todayKey}`, '마감임박', `${r.title || ''} · ${label}`, `/posts/${r.id}`)
+    })
+  }, [])
+
   useEffect(() => {
     if (!isDesktop() || !schoolId || !user) return
     return onSnapshot(
@@ -186,25 +197,21 @@ export default function useDesktopNotifications() {
         where('kind', '==', 'request'),
         where('status', '==', 'open'),
       ),
-      (snap) => { requestsRef.current = snap.docs.map((d) => ({ id: d.id, ...d.data() })) },
+      (snap) => {
+        requestsRef.current = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        // 목록이 도착한 직후에 판정한다. 타이머에만 맡기면 앱을 켠 뒤 30분 동안은
+        // 오늘 마감인 요청이 있어도 알림이 안 나간다 — 최초 점검이 구독 응답보다
+        // 먼저 끝나기 때문이다. 중복은 알림 이력이 막아준다.
+        checkDueSoon()
+      },
       () => {},
     )
-  }, [schoolId, user])
+  }, [schoolId, user, checkDueSoon])
 
+  // 날짜가 넘어가거나 마감이 다가오는 것은 문서 변경 없이 성립하므로 타이머도 함께 둔다.
   useEffect(() => {
     if (!isDesktop()) return
-    const checkDueSoon = () => {
-      const todayKey = new Date().toISOString().slice(0, 10)
-      requestsRef.current.forEach((r) => {
-        const { state, label } = dueState(r)
-        if (state !== 'today' && state !== 'soon') return
-        // 날짜를 키에 넣어 같은 요청을 하루에 한 번만 알린다
-        // (30분 간격 타이머가 반복 실행되므로 필요)
-        notifyOnce(`due:${r.id}:${todayKey}`, '마감임박', `${r.title || ''} · ${label}`, `/posts/${r.id}`)
-      })
-    }
-    checkDueSoon()
     const timer = setInterval(checkDueSoon, DUE_CHECK_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [])
+  }, [checkDueSoon])
 }
