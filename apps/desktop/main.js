@@ -39,6 +39,17 @@ let mainWindow = null
 let tray = null
 app.isQuitting = false
 
+// Windows 토스트 알림은 AppUserModelID로 앱을 식별한다. package.json의 appId와 같은
+// 값이어야 NSIS가 만드는 시작 메뉴 바로가기의 AUMID와 일치한다.
+//
+// whenReady 안이 아니라 여기서 부른다 — Chromium이 알림 표시기를 초기화할 때 AUMID를
+// 캐시하므로, 준비 이후에 바꾸면 이미 굳은 값이 쓰일 수 있다.
+//
+// 주의: Windows는 시작 메뉴에 같은 AUMID 바로가기가 있는 앱의 알림만 표시한다.
+// 그래서 npm run dev:desktop(패키징 없이 electron.exe 직접 실행)에서는 알림이 뜨지
+// 않는다. 알림 검증은 반드시 설치본(npm run build:desktop)으로 해야 한다.
+app.setAppUserModelId('kr.seonyoo.smartoffice')
+
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
@@ -114,19 +125,6 @@ if (!gotLock) {
     trimLog()
     log(`앱 시작 v${app.getVersion()} packaged=${app.isPackaged} 알림지원=${Notification.isSupported()}`)
     log('argv=', process.argv.join(' '))
-    // Windows 토스트 알림은 AppUserModelID로 앱을 식별한다. package.json의 appId와
-    // 같은 값이어야 NSIS가 만드는 시작 메뉴 바로가기의 AUMID와 일치한다.
-    //
-    // 주의: Windows는 "시작 메뉴에 같은 AUMID 바로가기가 있는 앱"의 알림만 표시한다.
-    // 그래서 `npm run dev:desktop`(패키징 없이 electron.exe 직접 실행)에서는 이 값을
-    // 지정해도 알림이 뜨지 않고 Notification의 error 이벤트만 발생한다
-    // (Notification.permission은 'granted'로 나오므로 권한 문제로 오인하기 쉽다).
-    // 알림 검증은 반드시 설치본(npm run build:desktop)으로 해야 한다.
-    //
-    // package.json의 appId와 반드시 같아야 한다 — NSIS가 이 값으로 바로가기의 AUMID를
-    // 쓰고, Windows는 그 둘이 일치할 때만 알림을 표시한다. 값을 바꾸면 Windows 입장에서
-    // 완전히 다른 앱이 되므로 알림 이력·활성화 등록도 새로 시작된다.
-    app.setAppUserModelId('kr.seonyoo.smartoffice')
 
     // 설치본에서만 자동시작을 등록한다. dev 실행(electron.exe 직접)에서 등록하면
     // 레지스트리에 인자 없는 electron.exe 경로가 박혀, 로그인할 때마다 이 앱이 아니라
