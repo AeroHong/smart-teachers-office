@@ -167,7 +167,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const n = change.doc.data()
-          notifyOnce(`message:${change.doc.id}`, '새 쪽지', `${n.senderName || ''} · ${n.title || ''}`, '/messages')
+          notifyOnce(`message:${change.doc.id}`, '새 쪽지', `${n.senderName || ''} · ${n.title || ''}`, `/messages/${change.doc.id}`)
         })
       },
       () => {},

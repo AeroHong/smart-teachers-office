@@ -46,6 +46,8 @@ export default function App() {
           <Route path="/channels/:channelId/:requestId" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
 
           <Route path="/messages" element={<ProtectedRoute anyUser><Messages /></ProtectedRoute>} />
+          {/* 데스크톱 알림 클릭 → 해당 쪽지가 바로 열리도록 (목록만 뜨면 어느 게 새 건지 못 찾는다) */}
+          <Route path="/messages/:noticeId" element={<ProtectedRoute anyUser><Messages /></ProtectedRoute>} />
           {/* 구성원 — 오른쪽 칸이 상세 영역이 되면서 명단을 별도 탭으로 옮겼다 */}
           <Route path="/members" element={<ProtectedRoute anyUser><Members /></ProtectedRoute>} />
           {/* 구 경로 — 관리자 업무 현황은 업무 요청 목록의 '전체'로 통합됐다 */}

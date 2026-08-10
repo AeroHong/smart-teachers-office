@@ -8,7 +8,8 @@
  * (personalNotices.js 참고) 그대로 두면 같은 제목이 사람 수만큼 늘어서 목록을 못 쓴다.
  * 접은 줄에는 "5명 · 3명 읽음"을 붙여 다시 챙길지 판단할 수 있게 한다.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import {
   collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from 'firebase/firestore'
@@ -36,6 +37,7 @@ const FETCH_LIMIT = 50
 
 export default function Messages() {
   const { user, schoolId } = useAuth()
+  const { noticeId } = useParams()
   const toast = useToast()
   const [inbox, setInbox] = useState([])
   const [sent, setSent] = useState([])
@@ -54,6 +56,17 @@ export default function Messages() {
     const unsubs = [subscribe('recipientUid', setInbox), subscribe('senderUid', setSent)]
     return () => unsubs.forEach(u => u())
   }, [schoolId, user, toast])
+
+  // /messages/:noticeId — 데스크톱 알림을 클릭했을 때 그 쪽지가 바로 열리게 한다.
+  // 목록에서 다른 쪽지를 골라도 다시 끌려오지 않도록 id마다 한 번씩만 적용한다.
+  const appliedIdRef = useRef(null)
+  useEffect(() => {
+    if (!noticeId || appliedIdRef.current === noticeId || !user) return
+    const found = inbox.find(n => n.id === noticeId) || sent.find(n => n.id === noticeId)
+    if (!found) return
+    appliedIdRef.current = noticeId
+    openNotice(found, found.recipientUid === user.uid ? 'inbox' : 'sent')
+  }, [noticeId, inbox, sent, user])
 
   const unreadCount = useMemo(() => inbox.filter(n => !n.readAt).length, [inbox])
   const sentGroups = useMemo(() => groupSentNotices(sent), [sent])
