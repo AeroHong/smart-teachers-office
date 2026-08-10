@@ -2,7 +2,9 @@
 
 > 작성일: 2026-07-31 (2026-08-10 상태 갱신)
 > 상태: Phase A 구현·배포 완료. Phase A-2는 구현 후 재설계됨(아래 "실제 경과" 참고).
-> **Phase B 착수 가능 상태.**
+> **Phase B 1차(트레이 셸)·2차(OS 알림) 완료 — Windows 실동작 검증됨.**
+> 다음은 3차 재실 자동 감지. 알림이 안 뜨던 원인 6가지는
+> "알림이 안 뜨던 원인 6가지" 절에 정리돼 있다 — 데스크톱 쪽을 다시 만질 때 먼저 읽을 것.
 > 관련 문서: [PLAN_messenger.md](./PLAN_messenger.md) (0단계 Electron 클라이언트·1단계 쪽지 로드맵과 통합)
 
 ---
@@ -372,19 +374,50 @@ L = 12열   내 업무, 전체 공지
 `tasks`/`announcements` 컬렉션은 존재하지 않는다. `academicCalendar` D-day 알림은
 이번 범위에서 제외했다(요청받지 않음).
 
-**실제 구현 (Phase B-2, 2026-08-10)**:
+**실제 구현 (Phase B-2, 2026-08-10) — Windows 실동작 검증 완료**:
 - `apps/dashboard/src/lib/useDesktopNotifications.js` — `window.smartOfficeDesktop`이
   있을 때만 동작(일반 브라우저 사용자에게는 완전히 no-op). 5개 트리거:
   호출(`callRequests`), 새 공지·새 요청(`requests` + `kind`), 새 쪽지(`personalNotices`),
-  마감임박(`workRequests.js`의 `dueState()`를 30분 간격 타이머로 재평가, `localStorage`로
-  하루 1회 중복 방지). 창이 포그라운드일 때는 안 띄움(`document.hasFocus()`).
+  마감임박(`workRequests.js`의 `dueState()`를 30분 간격 타이머로 재평가).
+  창이 포그라운드일 때는 안 띄움(`document.hasFocus()`).
 - `apps/dashboard/src/components/DesktopNotifications.jsx` — 위 훅을 마운트만 하는
   컴포넌트, `App.jsx`에 `<CommandPalette />`와 같은 자리(라우트 밖)에 둠.
-- `apps/desktop/preload.js` — `window.smartOfficeDesktop.focusWindow()` 추가.
-- `apps/desktop/main.js` — `ipcMain.on('focus-window', ...)`, 알림 권한만 명시적으로
-  허용하는 `session.setPermissionRequestHandler` 추가.
-- **알려진 한계**: 알림 클릭 시 딥링크가 가능한 건 `/posts/:requestId`(공지·요청)뿐이다.
-  호출·쪽지는 전용 상세 라우트가 없어 각각 `/`, `/messages`(목록)로만 이동한다.
+- **표시는 메인 프로세스가 한다.** 렌더러의 웹 `Notification`은 권한이 `granted`여도
+  Windows에서 토스트가 뜨지 않았다(`show`/`error` 이벤트조차 오지 않음. 권한 핸들러
+  유무와 무관하게 재현). 렌더러는 "언제 알릴지"만 판단하고
+  `window.smartOfficeDesktop.notify({title, body, route})`로 넘긴다.
+- 알림 클릭 → 메인이 창을 복원하고 `route`를 렌더러로 돌려줘(`navigate` IPC) 이동한다.
+- 딥링크: 공지·요청 `/posts/:requestId`, 쪽지 `/messages/:noticeId`(이번에 신설 —
+  목록으로만 가면 직전에 보던 쪽지가 선택돼 있어 새 것을 다시 찾아야 했다).
+  호출은 전용 상세 라우트가 없어 `/`로 간다.
+
+#### 알림이 안 뜨던 원인 6가지 (2026-08-10, 전부 실측으로 확인)
+
+하나가 아니라 여섯이 겹쳐 있었다. **각각이 독립적으로 알림을 완전히 죽이는 것들**이라
+하나를 고쳐도 증상이 그대로여서 원인 판단이 계속 어긋났다.
+
+| 원인 | 왜 못 잡았나 |
+|---|---|
+| preload가 `require('./package.json')`으로 로드 실패 → `window.smartOfficeDesktop` 미주입 → 훅 전체 no-op | Electron 20+ 렌더러는 기본 샌드박스라 preload의 `require`가 제한된다. 콘솔에 `Unable to load preload script` 한 줄만 남는다 |
+| 렌더러 웹 `Notification`이 Windows에서 표시 안 됨 | `Notification.permission`은 `granted`로 나와 권한 문제로 오인하기 쉽다 |
+| `index.html`이 1시간 캐시(Firebase 기본 `max-age=3600`) | 배포해도 옛 번들이 로드된다. Electron은 HTTP 캐시가 userData에 남아 재설치해도 유지돼 증상이 길게 간다 |
+| 설치본에 트레이 아이콘 미포함(`build/`는 app.asar에 안 들어감) | dev에서는 파일이 디스크에 있어 정상 동작. 설치본에서만 `new Tray()`가 죽고, 트레이가 없으니 X가 종료처럼 보인다 |
+| 트레이 상주 중 Firestore 재연결 시 기존 문서가 다시 `added`로 유입 | 포그라운드에서는 연결이 안정적이라 재현되지 않는다. 같은 쪽지가 30초~1분마다 반복 |
+| `setAppUserModelId`를 `whenReady()` 안에서 호출 | Chromium이 알림 표시기 초기화 때 AUMID를 캐시하므로 이미 늦다. **이게 마지막 원인이었고, 모듈 최상단으로 옮기자 즉시 동작했다** |
+
+부수적으로 `Notification` 객체를 지역 변수로만 두면 GC돼서 토스트는 떠 있는데 `click`
+이벤트가 오지 않는 문제도 있었다(메인에서 `Set`으로 참조 유지).
+
+**핵심 교훈 — 설치본에 로그부터 넣을 것.** 설치본은 콘솔이 안 보여서 위 원인들을 증상만
+보고 추측했고, 그 과정에서 진단용으로 저장소의 `electron.exe`를 같은 AUMID로 실행해
+Windows의 토스트 활성화 등록(`HKCU\Software\Classes\CLSID`)까지 오염시켰다. 알림을
+클릭하면 Electron 기본 앱이 뜨는 엉뚱한 증상이 여기서 나왔다. `%APPDATA%\smart-office-desktop\desktop.log`를
+넣은 뒤로는 매번 한 번에 판정됐다.
+
+**AUMID 취급 주의**: `package.json`의 `appId`와 `main.js`의 `setAppUserModelId`는 반드시
+같아야 하고(NSIS가 그 값으로 바로가기 AUMID를 쓴다), **패키징 없이 실행하는
+`npm run dev:desktop`으로 알림을 검증할 수 없다** — Windows는 시작 메뉴에 같은 AUMID
+바로가기가 있는 앱의 알림만 표시한다. 진단 스크립트에도 실제 AUMID를 쓰면 안 된다.
 
 ---
 
@@ -417,10 +450,15 @@ Phase B (착수는 Phase A-2 완료 후):
       학교 PC 설치 권한 문제를 피한다
 - [ ] 코드 서명 — 미서명 시 Windows SmartScreen 경고("추가 정보"를 눌러야 실행 버튼이 나옴).
       교사가 직접 설치하는 방식이라 "이거 바이러스 아니냐" 문의가 반드시 나온다.
-      본인 PC 테스트 단계에서는 불필요하고, 전 교직원 배포 직전에 결정한다
-- [x] Windows 검증(1차 범위) — 창 로드·트레이 아이콘·닫기→트레이 상주·자동시작 등록까지
-      Windows에서 직접 확인 완료(2026-08-10). NSIS 인스톨러·SmartScreen 경고는 아직 미검증
-      (아래 "Phase B 1차 진행 상황" 참고)
+      **다만 2026-08-10 본인 PC 설치에서는 경고가 뜨지 않았다** — 다른 PC에서도 그런지
+      확인이 필요하다(같은 파일이라도 평판이 쌓이지 않은 PC에서는 뜰 수 있다).
+      전 교직원 배포 직전에 결정한다
+- [x] Windows 검증 — 창 로드·트레이 상주·자동시작·**NSIS 인스톨러 생성·설치·알림 수신·
+      알림 클릭**까지 전부 확인 완료(2026-08-10)
+- [x] 설치 형태 — **사용자 단위 설치로 할 것**(설치 마법사에서 "현재 사용자만" 선택).
+      전체 사용자로 깔면 `C:\Program Files`에 들어가고 시작 메뉴 바로가기가
+      ProgramData에도 생기는데, 그 바로가기에는 `ToastActivatorCLSID`가 없어서 같은
+      AUMID를 가진 바로가기가 둘이 되고 알림 클릭이 동작하지 않을 수 있다
 
 ### Phase B 1차 진행 상황 (2026-08-10)
 
@@ -437,8 +475,12 @@ Phase B (착수는 Phase A-2 완료 후):
   자체 서명 인증서로 가로채져 차단됨 — 일반 웹 접속(`github.com`, `registry.npmjs.org`)은
   막히지 않았으므로 실행파일 CDN만 선택적으로 차단하는 네트워크 필터로 보인다. 최초 설치는
   다른 네트워크(가정용 회선 등)에서 한 번 받아두면 이후 로컬 캐시로 재사용 가능
-- **미검증**: `npm run dist`(electron-builder NSIS 설치 파일 생성), 설치 파일의 SmartScreen
-  경고 문구, 실제 인스톨러 실행 후 사용자 단위 설치 여부
+- ~~**미검증**: `npm run dist`~~ — 2026-08-10 검증 완료. NSIS 인스톨러(약 95MB) 생성,
+  사용자 단위 설치(`%LOCALAPPDATA%\Programs\smart-office-desktop\`), 자동시작 등록까지
+  정상. electron·NSIS·7zip 다운로드도 이날은 차단되지 않았다
+- **빌드 시 주의**: 백신이 `dist/win-unpacked/resources/app.asar`을 잡고 있으면
+  `EBUSY`로 실패한다. `electron-builder --config.directories.output=dist-new`처럼 다른
+  출력 폴더를 쓰면 우회된다(`.gitignore`에 `dist-*/` 있음)
 
 **재실 자동 감지 설계 메모** (Phase B 착수 시 참고)
 
@@ -463,7 +505,18 @@ Phase B (착수는 Phase A-2 완료 후):
    구조로 재설계되며 폐기됨(2026-08-10 갱신 참고). Phase B 착수에는 지장 없음
 4. **Phase B** — Electron wrapper.
    - ~~1차: URL 로드 + 트레이 + 자동시작~~ — 완료·Windows 검증됨(2026-08-10)
-   - ~~2차: Firestore 알림 파이프라인~~ — 완료(2026-08-10, 위 "알림 파이프라인" 참고).
-     아직 안 한 것: 실제 Windows에서 알림 수신·클릭 동작 확인, `npm run dist` 설치 파일 검증
+   - ~~2차: Firestore 알림 파이프라인~~ — **완료·실동작 검증됨**(2026-08-10).
+     쪽지 알림 수신 → 클릭 → 창 복원 → 해당 쪽지 열림까지 확인. `npm run dist` 검증 완료
    - 3차: 재실 자동 감지(`powerMonitor`) — 미착수. 아래 "재실 자동 감지 설계 메모" 참고
 5. 설치 현황 관리자 화면 (Phase B와 함께)
+
+### Phase B-2 이후 남은 확인·작업 (2026-08-10 기준)
+
+- [ ] **나머지 트리거 실동작 확인** — 검증된 것은 쪽지뿐이다. 호출·새 공지·새 업무 요청·
+      마감임박은 아직 실제로 안 떠봤다. 특히 호출은 "대기 중인 건 항상 알림"이라 첫
+      스냅샷도 알리는 정책이어서 동작이 다르다(중복은 알림 이력으로 막는다)
+- [ ] **알림 디자인** — 현재는 제목·본문뿐이다. `toastXml`로 앱 아이콘, "열기" 버튼,
+      큰 이미지까지 넣을 수 있다. 색·폰트·레이아웃을 자유롭게 바꾸는 것은 불가능
+      (원하면 테두리 없는 항상-위 `BrowserWindow`를 직접 그려야 하는데, 알림 센터 기록과
+      방해 금지 존중 등 OS 통합을 잃는다)
+- [ ] 다른 PC에서 설치·알림 검증 — SmartScreen 경고 여부 포함
