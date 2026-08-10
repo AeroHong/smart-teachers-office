@@ -11,12 +11,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import {
-  collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
+  collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
 import Typography from '@mui/material/Typography'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ReplyIcon from '@mui/icons-material/Reply'
 import SendIcon from '@mui/icons-material/Send'
 import InboxIcon from '@mui/icons-material/Inbox'
@@ -44,17 +49,25 @@ export default function Messages() {
   const [sent, setSent] = useState([])
   const [selected, setSelected] = useState(null)
   const [compose, setCompose] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [open, setOpen] = useState({ inbox: true, sent: false })
 
   useEffect(() => {
     if (!schoolId || !user) return
     const base = collection(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES))
-    const subscribe = (field, setter) => onSnapshot(
+    // 삭제는 각자 숨기기다 — 내가 지워도 상대는 그대로 갖고 있다. 그래서 문서를 지우지
+    // 않고 내 쪽 표시만 남기고(deletedBy*At) 여기서 걸러낸다.
+    const subscribe = (field, hiddenField, setter) => onSnapshot(
       query(base, where(field, '==', user.uid), orderBy('createdAt', 'desc'), limit(FETCH_LIMIT)),
-      snap => setter(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      snap => setter(snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(n => !n[hiddenField])),
       e => toast.error('쪽지를 불러오지 못했습니다.', e),
     )
-    const unsubs = [subscribe('recipientUid', setInbox), subscribe('senderUid', setSent)]
+    const unsubs = [
+      subscribe('recipientUid', 'deletedByRecipientAt', setInbox),
+      subscribe('senderUid', 'deletedBySenderAt', setSent),
+    ]
     return () => unsubs.forEach(u => u())
   }, [schoolId, user, toast])
 
@@ -85,6 +98,29 @@ export default function Messages() {
       updateDoc(doc(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES), notice.id), {
         readAt: serverTimestamp(),
       }).catch(e => toast.error('읽음 처리에 실패했습니다.', e))
+    }
+  }
+
+  /**
+   * 내 목록에서만 지운다. 보낸 묶음은 여러 명에게 보낸 문서 전부를 한 번에 숨긴다
+   * (보낸함에서는 한 줄로 보이므로 한 건만 지우면 줄이 안 사라진다).
+   */
+  const removeSelected = async () => {
+    const isInbox = selected._box === 'inbox'
+    const field = isInbox ? 'deletedByRecipientAt' : 'deletedBySenderAt'
+    const ids = isInbox ? [selected.id] : (selected.notices || []).map(n => n.id)
+
+    try {
+      const batch = writeBatch(db)
+      ids.forEach(id => batch.update(
+        doc(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES), id),
+        { [field]: serverTimestamp() },
+      ))
+      await batch.commit()
+      setSelected(null)
+      setConfirmDelete(false)
+    } catch (e) {
+      toast.error('쪽지를 삭제하지 못했습니다.', e)
     }
   }
 
@@ -162,15 +198,24 @@ export default function Messages() {
             <ReadRoster recipients={selected.recipients} />
           )}
 
-          {selected._box === 'inbox' && (
+          <Box sx={{ display: 'flex', gap: 1, mt: 2.5 }}>
+            {selected._box === 'inbox' && (
+              <Button
+                startIcon={<ReplyIcon sx={{ fontSize: 17 }} />}
+                onClick={() => setCompose({ replyTo: selected })}
+              >
+                답장
+              </Button>
+            )}
             <Button
-              startIcon={<ReplyIcon sx={{ fontSize: 17 }} />}
-              onClick={() => setCompose({ replyTo: selected })}
-              sx={{ mt: 2.5 }}
+              color="inherit"
+              startIcon={<DeleteOutlineIcon sx={{ fontSize: 17 }} />}
+              onClick={() => setConfirmDelete(true)}
+              sx={{ color: 'text.secondary' }}
             >
-              답장
+              삭제
             </Button>
-          )}
+          </Box>
         </Box>
       ) : (
         <DetailPlaceholder emoji="✉️" message="왼쪽에서 쪽지를 선택하세요." />
@@ -181,6 +226,22 @@ export default function Messages() {
         replyTo={compose?.replyTo}
         onClose={() => setCompose(null)}
       />
+
+      {/* 되돌릴 화면이 없으므로 한 번 묻는다 */}
+      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>쪽지를 삭제할까요?</DialogTitle>
+        <DialogContent>
+          <Typography fontSize="0.9rem" color="text.secondary">
+            내 목록에서만 사라집니다.
+            {selected?._box === 'inbox' ? ' 보낸 사람에게는 그대로 남습니다.' : ' 받은 사람에게는 그대로 남습니다.'}
+            {selected?._box === 'sent' && selected?.total > 1 && ` (${selected.total}명에게 보낸 쪽지)`}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button color="inherit" onClick={() => setConfirmDelete(false)}>취소</Button>
+          <Button color="error" variant="contained" onClick={removeSelected}>삭제</Button>
+        </DialogActions>
+      </Dialog>
     </WorkspaceLayout>
   )
 }

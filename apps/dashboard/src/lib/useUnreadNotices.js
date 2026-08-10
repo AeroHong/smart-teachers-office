@@ -22,7 +22,11 @@ export default function useUnreadNotices() {
         collection(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES)),
         where('recipientUid', '==', user.uid),
       ),
-      snap => setCount(snap.docs.filter(d => !d.data().readAt).length),
+      // 내가 지운 쪽지는 목록에 없으므로 배지에서도 빼야 한다 (Messages.jsx와 같은 기준)
+      snap => setCount(snap.docs.filter(d => {
+        const n = d.data()
+        return !n.readAt && !n.deletedByRecipientAt
+      }).length),
       () => setCount(0),
     )
   }, [schoolId, user])
