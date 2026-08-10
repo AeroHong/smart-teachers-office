@@ -49,7 +49,10 @@ export default function Messages() {
   const [sent, setSent] = useState([])
   const [selected, setSelected] = useState(null)
   const [compose, setCompose] = useState(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  // 삭제 확인 대기 중인 대상. [{ box, id }] 형태로, 단건이든 일괄이든 같은 경로를 탄다.
+  const [pendingDelete, setPendingDelete] = useState(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [checked, setChecked] = useState(() => new Set())
   const [open, setOpen] = useState({ inbox: true, sent: false })
 
   useEffect(() => {
@@ -101,24 +104,43 @@ export default function Messages() {
     }
   }
 
+  const toggleChecked = (box, id) => setChecked(prev => {
+    const next = new Set(prev)
+    const key = `${box}:${id}`
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
+
+  const leaveSelectMode = () => { setSelectMode(false); setChecked(new Set()) }
+
   /**
    * 내 목록에서만 지운다. 보낸 묶음은 여러 명에게 보낸 문서 전부를 한 번에 숨긴다
    * (보낸함에서는 한 줄로 보이므로 한 건만 지우면 줄이 안 사라진다).
    */
-  const removeSelected = async () => {
-    const isInbox = selected._box === 'inbox'
-    const field = isInbox ? 'deletedByRecipientAt' : 'deletedBySenderAt'
-    const ids = isInbox ? [selected.id] : (selected.notices || []).map(n => n.id)
+  const runDelete = async () => {
+    const writes = []
+    pendingDelete.forEach(({ box, id }) => {
+      if (box === 'inbox') {
+        writes.push({ id, field: 'deletedByRecipientAt' })
+        return
+      }
+      const group = sentGroups.find(g => g.id === id)
+      ;(group?.notices || []).forEach(n => writes.push({ id: n.id, field: 'deletedBySenderAt' }))
+    })
 
     try {
       const batch = writeBatch(db)
-      ids.forEach(id => batch.update(
+      writes.forEach(({ id, field }) => batch.update(
         doc(db, ...schoolPath(schoolId, COL.PERSONAL_NOTICES), id),
         { [field]: serverTimestamp() },
       ))
       await batch.commit()
-      setSelected(null)
-      setConfirmDelete(false)
+
+      // 펼쳐둔 쪽지가 지워졌으면 상세도 비운다
+      if (selected && pendingDelete.some(t => t.id === selected.id)) setSelected(null)
+      setPendingDelete(null)
+      leaveSelectMode()
     } catch (e) {
       toast.error('쪽지를 삭제하지 못했습니다.', e)
     }
@@ -134,6 +156,36 @@ export default function Messages() {
         쪽지 보내기
       </Button>
 
+      {/* 평소에는 조용히 있다가, 누르면 목록이 체크 목록으로 바뀐다.
+          쪽지를 고르는 것과 지울 것을 고르는 것은 다른 일이라 모드를 나눈다. */}
+      {selectMode ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+          <Typography sx={{ fontSize: '0.78rem', color: 'text.secondary', flexGrow: 1, pl: 0.6 }}>
+            {checked.size}개 선택
+          </Typography>
+          <Button
+            size="small" color="error" disabled={checked.size === 0}
+            onClick={() => setPendingDelete([...checked].map(key => {
+              const at = key.indexOf(':')
+              return { box: key.slice(0, at), id: key.slice(at + 1) }
+            }))}
+          >
+            삭제
+          </Button>
+          <Button size="small" color="inherit" onClick={leaveSelectMode}>취소</Button>
+        </Box>
+      ) : (
+        <Button
+          size="small" color="inherit"
+          startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />}
+          onClick={() => setSelectMode(true)}
+          disabled={inbox.length === 0 && sentGroups.length === 0}
+          sx={{ mb: 1, color: 'text.secondary', justifyContent: 'flex-start' }}
+        >
+          여러 개 선택
+        </Button>
+      )}
+
       <SidebarSection
         label="받은 쪽지"
         icon={InboxIcon}
@@ -146,10 +198,11 @@ export default function Messages() {
           <SidebarItem
             key={n.id}
             label={n.title}
-            selected={selected?.id === n.id}
+            selected={!selectMode && selected?.id === n.id}
             strong={!n.readAt}
-            onClick={() => openNotice(n, 'inbox')}
-            chip={<MiniChip label={n.senderName} selected={selected?.id === n.id} />}
+            checked={selectMode ? checked.has(`inbox:${n.id}`) : undefined}
+            onClick={() => (selectMode ? toggleChecked('inbox', n.id) : openNotice(n, 'inbox'))}
+            chip={<MiniChip label={n.senderName} selected={!selectMode && selected?.id === n.id} />}
           />
         ))}
       </SidebarSection>
@@ -165,12 +218,15 @@ export default function Messages() {
           <SidebarItem
             key={g.id}
             label={g.title}
-            selected={selected?.id === g.id}
-            onClick={() => setSelected({ ...g, _box: 'sent' })}
+            selected={!selectMode && selected?.id === g.id}
+            checked={selectMode ? checked.has(`sent:${g.id}`) : undefined}
+            onClick={() => (selectMode
+              ? toggleChecked('sent', g.id)
+              : setSelected({ ...g, _box: 'sent' }))}
             chip={<MiniChip
               label={g.total > 1 ? `${g.readCount}/${g.total}` : (g.readCount ? '읽음' : '안읽음')}
               tone={g.readCount === g.total ? 'success' : 'neutral'}
-              selected={selected?.id === g.id}
+              selected={!selectMode && selected?.id === g.id}
             />}
           />
         ))}
@@ -210,7 +266,7 @@ export default function Messages() {
             <Button
               color="inherit"
               startIcon={<DeleteOutlineIcon sx={{ fontSize: 17 }} />}
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => setPendingDelete([{ box: selected._box, id: selected.id }])}
               sx={{ color: 'text.secondary' }}
             >
               삭제
@@ -228,18 +284,18 @@ export default function Messages() {
       />
 
       {/* 되돌릴 화면이 없으므로 한 번 묻는다 */}
-      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 800 }}>쪽지를 삭제할까요?</DialogTitle>
+      <Dialog open={!!pendingDelete} onClose={() => setPendingDelete(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>
+          {pendingDelete?.length > 1 ? `쪽지 ${pendingDelete.length}개를 삭제할까요?` : '쪽지를 삭제할까요?'}
+        </DialogTitle>
         <DialogContent>
           <Typography fontSize="0.9rem" color="text.secondary">
-            내 목록에서만 사라집니다.
-            {selected?._box === 'inbox' ? ' 보낸 사람에게는 그대로 남습니다.' : ' 받은 사람에게는 그대로 남습니다.'}
-            {selected?._box === 'sent' && selected?.total > 1 && ` (${selected.total}명에게 보낸 쪽지)`}
+            내 목록에서만 사라지고, 상대에게는 그대로 남습니다.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button color="inherit" onClick={() => setConfirmDelete(false)}>취소</Button>
-          <Button color="error" variant="contained" onClick={removeSelected}>삭제</Button>
+          <Button color="inherit" onClick={() => setPendingDelete(null)}>취소</Button>
+          <Button color="error" variant="contained" onClick={runDelete}>삭제</Button>
         </DialogActions>
       </Dialog>
     </WorkspaceLayout>

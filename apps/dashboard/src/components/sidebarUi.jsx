@@ -11,6 +11,8 @@ import Box from '@mui/material/Box'
 import Collapse from '@mui/material/Collapse'
 import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import CheckBoxIcon from '@mui/icons-material/CheckBox'
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 
 /**
  * 접이식 섹션 머리. 접혀 있어도 건수는 보여야 열지 말지 판단할 수 있다.
@@ -90,8 +92,11 @@ export function SidebarSection({ label, icon: Icon, count, badge, open, onToggle
  * @param {boolean} selected 지금 오른쪽에 펼쳐져 있는 항목
  * @param {boolean} strong   아직 안 본 것 — 굵게
  * @param {boolean} muted    이미 끝낸 것 — 흐리게
+ * @param {boolean} [checked] 선택 모드일 때만 준다. 줄 자체가 버튼이라 체크박스를 따로
+ *   두면 버튼 안에 버튼이 되므로, 표시만 그리고 토글은 줄 클릭(onClick)이 맡는다.
  */
-export function SidebarItem({ label, chip, selected, strong, muted, onClick, indent = 0 }) {
+export function SidebarItem({ label, chip, selected, strong, muted, onClick, indent = 0, checked }) {
+  const CheckIcon = checked ? CheckBoxIcon : CheckBoxOutlineBlankIcon
   return (
     <Box
       component="button"
@@ -107,6 +112,12 @@ export function SidebarItem({ label, chip, selected, strong, muted, onClick, ind
         '&:hover': { bgcolor: selected ? 'primary.main' : 'action.hover' },
       }}
     >
+      {checked !== undefined && (
+        <CheckIcon sx={{
+          fontSize: 17, flexShrink: 0, ml: -0.9,
+          color: checked ? 'primary.main' : 'text.disabled',
+        }} />
+      )}
       <Typography
         noWrap
         sx={{
