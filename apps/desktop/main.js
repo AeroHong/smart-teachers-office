@@ -132,15 +132,26 @@ if (!gotLock) {
   // 렌더러 경로는 Notification.permission이 'granted'여도 Windows에서 토스트가
   // 뜨지 않는 것을 확인했다(show/error 이벤트조차 오지 않음). 메인 프로세스 경로는
   // 정상 동작하므로, 렌더러는 "언제 알릴지"만 판단하고 표시는 여기에 위임한다.
+  // 표시 중인 알림의 참조를 붙들어 둔다. 지역 변수로만 두면 핸들러가 반환된 뒤
+  // GC 대상이 되어, 토스트는 화면에 떠 있는데 클릭해도 click 이벤트가 오지 않는다.
+  const liveNotifications = new Set()
+
   ipcMain.handle('notify', (_event, { title, body, route } = {}) => {
     if (!Notification.isSupported()) return false
     const n = new Notification({ title, body })
+    liveNotifications.add(n)
+    const release = () => liveNotifications.delete(n)
+
     n.on('click', () => {
+      release()
       if (!mainWindow) return
       mainWindow.show()
       mainWindow.focus()
       if (route) mainWindow.webContents.send('navigate', route)
     })
+    n.on('close', release)
+    n.on('failed', release)
+
     n.show()
     return true
   })
