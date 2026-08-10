@@ -43,7 +43,9 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    // 알림 클릭 시 Windows가 exe를 새로 띄우면 여기로 들어온다(단일 인스턴스 락).
+    log('second-instance argv=', argv.join(' '))
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
@@ -111,6 +113,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     trimLog()
     log(`앱 시작 v${app.getVersion()} packaged=${app.isPackaged} 알림지원=${Notification.isSupported()}`)
+    log('argv=', process.argv.join(' '))
     // Windows 토스트 알림은 AppUserModelID로 앱을 식별한다. package.json의 appId와
     // 같은 값이어야 NSIS가 만드는 시작 메뉴 바로가기의 AUMID와 일치한다.
     //
