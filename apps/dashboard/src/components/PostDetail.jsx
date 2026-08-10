@@ -239,10 +239,10 @@ export default function PostDetail({ requestId, onDeleted }) {
                 disabled={busy || pending.length === 0}
                 onClick={() => run(
                   () => remindPending({ schoolId, requestId }),
-                  `미완료 ${pending.length}명의 할 일 목록에서 이 요청이 강조됩니다.`,
+                  `미완료 ${pending.length}명에게 알렸습니다.`,
                 )}
               >
-                미완료 {pending.length}명에게 독촉
+                미완료 {pending.length}명에게 다시 알림
               </Button>
               <Button
                 size="small"

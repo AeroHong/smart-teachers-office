@@ -1,5 +1,6 @@
 /**
- * 데스크톱(Electron) 전용 OS 알림 파이프라인 — 호출·새 공지·새 요청·새 쪽지·마감임박.
+ * 데스크톱(Electron) 전용 OS 알림 파이프라인
+ * — 호출·새 공지·새 요청·새 쪽지·마감임박·다시 알림.
  *
  * window.smartOfficeDesktop(apps/desktop/preload.js가 노출)이 있을 때만 동작한다.
  * apps/dashboard는 일반 브라우저에서도 열리는 공용 웹앱이라, 이 마커가 없으면
@@ -188,8 +189,11 @@ export default function useDesktopNotifications() {
     })
   }, [])
 
+  // 6) 다시 알림 — 담당자가 미완료자에게 다시 알리면 요청에 remindedAt이 찍힌다
+  // (requestActions.js의 remindPending). 그 변경을 보고 알린다. 같은 구독을 쓴다.
   useEffect(() => {
     if (!isDesktop() || !schoolId || !user) return
+    let first = true
     return onSnapshot(
       query(
         collection(db, ...schoolPath(schoolId, COL.REQUESTS)),
@@ -199,6 +203,21 @@ export default function useDesktopNotifications() {
       ),
       (snap) => {
         requestsRef.current = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+
+        // 최초 스냅샷은 건너뛴다 — 예전에 받은 '다시 알림'이 앱을 켤 때마다 되살아나면 안 된다.
+        if (!first) {
+          snap.docChanges().forEach((change) => {
+            if (change.type !== 'modified') return
+            const r = change.doc.data()
+            // 시각을 키에 넣어 새로 누른 건만 알린다. 다른 이유로 문서가 바뀐 경우엔
+            // remindedAt이 그대로라 키가 같아 이력에 막힌다.
+            const at = r.remindedAt?.toMillis?.()
+            if (!at) return
+            notifyOnce(`remind:${change.doc.id}:${at}`, '다시 알림', r.title || '', `/posts/${change.doc.id}`)
+          })
+        }
+        first = false
+
         // 목록이 도착한 직후에 판정한다. 타이머에만 맡기면 앱을 켠 뒤 30분 동안은
         // 오늘 마감인 요청이 있어도 알림이 안 나간다 — 최초 점검이 구독 응답보다
         // 먼저 끝나기 때문이다. 중복은 알림 이력이 막아준다.

@@ -132,7 +132,7 @@ export function SidebarEmpty({ children }) {
   )
 }
 
-/** 사이드바용 작은 칩 — 목록 줄 오른쪽의 D-3, 독촉 같은 표시. */
+/** 사이드바용 작은 칩 — 목록 줄 오른쪽의 D-3, 다시 알림 같은 표시. */
 export function MiniChip({ label, tone = 'neutral', selected }) {
   const toneColor = {
     danger: 'error.main',

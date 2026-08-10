@@ -91,7 +91,7 @@ export default function Home() {
               onClick={() => selectPost(r.id)}
               chip={
                 !done && (r.remindedAt
-                  ? <MiniChip label="독촉" tone="danger" selected={selected} />
+                  ? <MiniChip label="다시 알림" tone="warning" selected={selected} />
                   : due.label ? <MiniChip label={due.label} tone={DUE_TONE[due.state]} selected={selected} /> : null)
               }
             />
