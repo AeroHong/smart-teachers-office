@@ -70,15 +70,33 @@ if (!gotLock) {
   }
 
   app.whenReady().then(() => {
+    // Windows 토스트 알림은 AppUserModelID로 앱을 식별한다. package.json의 appId와
+    // 같은 값이어야 NSIS가 만드는 시작 메뉴 바로가기의 AUMID와 일치한다.
+    //
+    // 주의: Windows는 "시작 메뉴에 같은 AUMID 바로가기가 있는 앱"의 알림만 표시한다.
+    // 그래서 `npm run dev:desktop`(패키징 없이 electron.exe 직접 실행)에서는 이 값을
+    // 지정해도 알림이 뜨지 않고 Notification의 error 이벤트만 발생한다
+    // (Notification.permission은 'granted'로 나오므로 권한 문제로 오인하기 쉽다).
+    // 알림 검증은 반드시 설치본(npm run build:desktop)으로 해야 한다.
+    app.setAppUserModelId('kr.seonyoo.smartoffice.desktop')
+
     app.setLoginItemSettings({ openAtLogin: true })
 
     // 대시보드 origin에서 알림 권한만 명시적으로 허용, 나머지(카메라·위치 등)는 거부.
+    // 요청(requestPermission)과 조회(Notification.permission)가 서로 다른 핸들러를
+    // 타므로 둘 다 둔다 — 조회 쪽이 없으면 'denied'가 나와 알림 코드가 첫 줄에서 멈춘다.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(permission === 'notifications')
     })
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => (
+      permission === 'notifications'
+    ))
 
     createWindow()
     createTray()
+  }).catch((err) => {
+    // 여기서 던진 예외는 기본적으로 삼켜져 "창이 안 뜨는데 에러도 없는" 상태가 된다.
+    console.error('[main] 초기화 실패:', err)
   })
 
   // 알림 클릭(useDesktopNotifications.js) → 트레이로 숨겨진 창을 다시 보여준다.
