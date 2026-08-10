@@ -35,7 +35,7 @@ import {
   collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy, query, where, getDocs, arrayUnion, limit,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
-import { openProcessChecklistPrint, openResultChecklistPrint } from './asaChecklistPrint'
+import { openProcessChecklistPrint, openResultChecklistPrint, openBulkChecklistPrint } from './asaChecklistPrint'
 import { cleanTeacherName } from '../../utils/nameUtils'
 import { getFixedCategory, parseNeisTeacherSubjectFile } from './asaUtils'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -171,6 +171,11 @@ export default function AsaChecklistAdmin() {
   const [filterSemester, setFilterSemester] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
 
+  // 교감 확인란 서명 적용용 — 서명 문제로 draft에 멈춘 건은 교감 본인 페이지(제출완료만
+  // 보임)에서 접근할 수 없어, 저장된 교감 서명을 관리자 화면에서 상태 무관하게 적용한다
+  const [principalSig, setPrincipalSig] = useState(null)
+  const [proxySigning, setProxySigning] = useState(false)
+
 
   // 등록된 교사 목록 (picker용)
   const [teachers, setTeachers] = useState([])
@@ -254,6 +259,19 @@ export default function AsaChecklistAdmin() {
       setLoadingSubmissions(false)
     })
     return unsub
+  }, [schoolId])
+
+  // ── Firestore 조회: 교감 서명 (가장 최근 저장분) — 교사 서명 대체용 ──
+  useEffect(() => {
+    if (!schoolId) return
+    const q = query(
+      collection(db, 'schools', schoolId, 'asaPrincipalSignature'),
+      orderBy('savedAt', 'desc'),
+      limit(1),
+    )
+    getDocs(q)
+      .then((snap) => setPrincipalSig(snap.empty ? null : snap.docs[0].data()))
+      .catch(() => setPrincipalSig(null))
   }, [schoolId])
 
   // ── 과목 추가/수정 Dialog 열기 ──────────────────────────
@@ -741,6 +759,49 @@ export default function AsaChecklistAdmin() {
     }
   }
 
+  // ── 상태 강제 변경 (관리자/교감 — 서명 완료 여부와 무관하게 언제든 가능) ──
+  const handleChangeStatus = async (submission, newStatus) => {
+    if (submission.status === newStatus) return
+    if (!window.confirm(`상태를 "${STATUS_LABELS[newStatus]}"(으)로 변경할까요?`)) return
+    try {
+      await updateDoc(doc(db, 'schools', schoolId, 'asaSubmissions', submission.id), {
+        status: newStatus,
+        updatedAt: serverTimestamp(),
+      })
+    } catch (err) {
+      setError(`상태 변경 실패: ${err.message}`)
+    }
+  }
+
+  // ── 교감 확인란에 저장된 교감 서명 적용 ──────────────────────
+  // AsaChecklistPrincipal.jsx의 "일괄 서명"과 동일한 필드 구조(principalSignature)를
+  // 그대로 쓰지만, 그 페이지는 status가 submitted/locked인 문서만 보여줘서 서명 문제로
+  // draft에 멈춰있는 건은 교감이 직접 접근할 수 없다 — 관리자 화면에서 상태 무관하게
+  // 적용할 수 있게 한다.
+  const handleApplyPrincipalSignature = async (submission) => {
+    if (!principalSig?.dataUrl) {
+      setError('등록된 교감 서명이 없습니다. 교감 계정으로 로그인해 서명을 먼저 저장해주세요.')
+      return
+    }
+    if (!window.confirm('저장된 교감 서명을 이 문서의 확인란에 적용할까요?')) return
+    setProxySigning(true)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId, 'asaSubmissions', submission.id), {
+        principalSignature: {
+          dataUrl: principalSig.dataUrl,
+          signedAt: serverTimestamp(),
+          name: principalSig.name,
+        },
+        updatedAt: serverTimestamp(),
+      })
+      setSnackbar('교감 서명이 적용됐습니다.')
+    } catch (err) {
+      setError(`서명 적용 실패: ${err.message}`)
+    } finally {
+      setProxySigning(false)
+    }
+  }
+
   // ── 체크리스트 현황 필터링 (삭제된 과목의 submission 제외) ──────
   const filteredSubmissions = submissions.filter((s) => {
     if (!subjects.some((sub) => sub.id === s.subjectId)) return false  // 과목 삭제됨
@@ -972,7 +1033,55 @@ export default function AsaChecklistAdmin() {
                   onClick={() => {
                     const targets = filteredSubmissions.filter((s) => s.status === 'submitted')
                     if (!targets.length) { setError('제출완료 상태의 항목이 없습니다.'); return }
-                    targets.forEach((sub) => openPrint(sub))
+                    const nameMap = Object.fromEntries(teachers.map((t) => [t.email, t.name]))
+                    const items = targets.map((sub) => ({
+                      submission: sub,
+                      subject: subjects.find((s) => s.id === sub.subjectId),
+                      teacherNameMap: nameMap,
+                      checklistType: sub.checklistType === 'result' ? 'result' : 'process',
+                    }))
+
+                    // 붙임1(과정)은 학년 단위로 묶고, 붙임2(결과)는 학년-과목별로 따로 인쇄한다
+                    // (붙임2는 과목별 종합 분석 의견이 들어가 과목마다 별도 문서로 철해야 함).
+                    const groups = new Map()
+                    items.forEach((item) => {
+                      const grade = item.subject?.grade ?? '기타'
+                      const isResult = item.checklistType === 'result'
+                      const subjectKey = item.subject?.id ?? item.submission.subjectId ?? '미상'
+                      const key = isResult ? `${grade}-result-${subjectKey}` : `${grade}-process`
+                      if (!groups.has(key)) {
+                        groups.set(key, {
+                          grade,
+                          type: item.checklistType,
+                          subjectName: item.subject?.name || item.submission.subjectName || '',
+                          items: [],
+                        })
+                      }
+                      groups.get(key).items.push(item)
+                    })
+
+                    const sortedGroups = [...groups.values()].sort((a, b) => {
+                      const gradeDiff = (Number(a.grade) || 0) - (Number(b.grade) || 0)
+                      if (gradeDiff !== 0) return gradeDiff
+                      if (a.type !== b.type) return a.type === 'result' ? 1 : -1
+                      return (a.subjectName || '').localeCompare(b.subjectName || '', 'ko')
+                    })
+
+                    // 창을 여러 개 열 때는 브라우저 팝업 차단에 걸리기 쉽다 — 막힌 개수를 세서
+                    // "팝업을 허용해달라"고 명확히 안내한다(조용히 실패하면 인쇄 누락을 못 알아챔).
+                    let blockedCount = 0
+                    sortedGroups.forEach(({ grade, type, subjectName, items: groupItems }) => {
+                      const sorted = [...groupItems].sort((a, b) =>
+                        (a.subject?.name || '').localeCompare(b.subject?.name || '', 'ko'))
+                      const title = type === 'result'
+                        ? `${grade}학년 ${subjectName} 붙임2 운영 결과 점검 체크리스트`
+                        : `${grade}학년 붙임1 운영 과정 점검 체크리스트`
+                      const opened = openBulkChecklistPrint(sorted, title)
+                      if (!opened) blockedCount += 1
+                    })
+                    if (blockedCount > 0) {
+                      setError(`${sortedGroups.length}개 중 ${blockedCount}개 인쇄 창이 브라우저 팝업 차단으로 열리지 않았습니다. 주소창의 팝업 차단 아이콘을 눌러 이 사이트의 팝업을 허용한 뒤 다시 시도해주세요.`)
+                    }
                   }}
                 >
                   제출완료 전체 인쇄
@@ -1022,19 +1131,39 @@ export default function AsaChecklistAdmin() {
                               : '-'}
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={STATUS_LABELS[sub.status] ?? sub.status ?? '-'}
-                            color={STATUS_COLORS[sub.status] ?? 'default'}
-                            size="small"
-                          />
+                          {sub.status === 'locked' ? (
+                            <Chip label={STATUS_LABELS.locked} color={STATUS_COLORS.locked} size="small" />
+                          ) : (
+                            <Select
+                              value={sub.status || 'draft'}
+                              size="small"
+                              variant="standard"
+                              disableUnderline
+                              onChange={(e) => handleChangeStatus(sub, e.target.value)}
+                              sx={{ fontSize: '0.8rem' }}
+                            >
+                              <MenuItem value="draft">작성중</MenuItem>
+                              <MenuItem value="submitted">제출완료</MenuItem>
+                            </Select>
+                          )}
                         </TableCell>
                         <TableCell>
                           {sigTotal > 0 ? `${sigDone}/${sigTotal}명` : '-'}
                         </TableCell>
                         <TableCell>
-                          {sub.principalSignature?.dataUrl
-                            ? <Chip label="완료" color="success" size="small" />
-                            : <Chip label="미완" size="small" />}
+                          {sub.principalSignature?.dataUrl ? (
+                            <Chip label="완료" color="success" size="small" />
+                          ) : (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={proxySigning || !principalSig?.dataUrl}
+                              onClick={() => handleApplyPrincipalSignature(sub)}
+                              sx={{ fontSize: '0.72rem', py: 0.25 }}
+                            >
+                              저장된 서명 적용
+                            </Button>
+                          )}
                         </TableCell>
                         <TableCell>{fmtDate(sub.updatedAt)}</TableCell>
                         <TableCell>
