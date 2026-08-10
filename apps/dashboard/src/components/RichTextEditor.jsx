@@ -205,6 +205,75 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
   /** 슬래시 메뉴의 목록 명령 → 만들 태그 */
   const LIST_TAGS = { insertUnorderedList: 'UL', insertOrderedList: 'OL' }
 
+  /** 커서가 있는 줄과 그 줄이 비었는지. 슬래시 명령은 글자를 지우고 나면 늘 빈 줄이다. */
+  const readLine = () => {
+    const el = editorRef.current
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return null
+
+    const node = sel.anchorNode
+    const host = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node
+    const block = host && host !== el ? host.closest(LINE_BLOCKS) : null
+    const text = block ? block.textContent : (node?.textContent || '')
+    return { sel, block, isEmpty: !text.trim() }
+  }
+
+  /**
+   * 빈 줄 자리에 새 블록을 끼운다.
+   *
+   * 목록 안이면 목록 **밖으로** 내보낸다. 목록 항목 자리에 그대로 넣으면 넣은 것도
+   * 목록에 딸리고, 그 뒤에 쓰는 내용까지 계속 같은 목록으로 이어져 번호가 다시 붙는다.
+   * (구분선을 넣고 제목을 쓴 다음 엔터를 치면 번호가 이어지던 문제)
+   */
+  const placeAtEmptyLine = (block, nodes) => {
+    const el = editorRef.current
+    const sel = window.getSelection()
+
+    if (block?.tagName === 'LI') {
+      const list = block.parentElement
+      block.remove()
+      list.after(nodes)
+      if (!list.childElementCount) list.remove()
+    } else if (block && block !== el) {
+      block.replaceWith(nodes)
+    } else {
+      sel.getRangeAt(0).insertNode(nodes)
+    }
+  }
+
+  /** 새로 만든 블록 안으로 커서를 옮긴다. 바로 이어서 쓸 수 있어야 한다. */
+  const putCaretIn = (target) => {
+    const sel = window.getSelection()
+    const range = document.createRange()
+    range.setStart(target, 0)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
+  /**
+   * 구분선·토글처럼 통째로 끼우는 HTML.
+   *
+   * 빈 줄에서 execCommand('insertHTML')를 쓰면 커서가 목록 안에 있을 때 그 안에 박힌다.
+   * 그래서 직접 만들어 넣고, 커서는 뒤따라오는 빈 문단에 둔다.
+   */
+  const applyHtml = (html) => {
+    const line = readLine()
+    if (!line) return
+    if (!line.isEmpty) {
+      document.execCommand('insertHTML', false, html)
+      return
+    }
+
+    const template = document.createElement('template')
+    template.innerHTML = html
+    const inserted = [...template.content.children]
+    const last = inserted[inserted.length - 1]
+
+    placeAtEmptyLine(line.block, template.content)
+    if (last) putCaretIn(last)
+  }
+
   /**
    * 목록을 시작한다.
    *
@@ -216,17 +285,11 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
    * 그래서 빈 줄일 때는 applyBlock과 같은 방식으로 목록을 직접 만들어 끼운다.
    */
   const applyList = (cmd) => {
-    const el = editorRef.current
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0) return
-
-    const node = sel.anchorNode
-    const host = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node
-    const block = host && host !== el ? host.closest(LINE_BLOCKS) : null
-    const lineText = block ? block.textContent : (node?.textContent || '')
+    const line = readLine()
+    if (!line) return
 
     // 글자가 있는 줄은 execCommand가 그 줄만 정확히 목록으로 바꾼다
-    if (lineText.trim()) {
+    if (!line.isEmpty) {
       document.execCommand(cmd, false, null)
       return
     }
@@ -236,51 +299,24 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     item.appendChild(document.createElement('br'))
     list.appendChild(item)
 
-    if (block?.tagName === 'LI') {
-      // 목록 안 빈 줄에서 다른 종류를 고른 경우. 그 자리에 끼우면 목록 안에 목록이
-      // 중첩되므로, 빈 줄은 버리고 새 목록을 원래 목록 뒤에 놓는다.
-      const parentList = block.parentElement
-      block.remove()
-      parentList.after(list)
-      if (!parentList.childElementCount) parentList.remove()
-    } else if (block && block !== el) {
-      block.replaceWith(list)
-    } else {
-      sel.getRangeAt(0).insertNode(list)
-    }
-
-    const range = document.createRange()
-    range.setStart(item, 0)
-    range.collapse(true)
-    sel.removeAllRanges()
-    sel.addRange(range)
+    placeAtEmptyLine(line.block, list)
+    putCaretIn(item)
   }
 
   const applyBlock = (tag) => {
-    const el = editorRef.current
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0) return
+    const line = readLine()
+    if (!line) return
 
-    const node = sel.anchorNode
-    const host = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node
-    const block = host && host !== el ? host.closest(LINE_BLOCKS) : null
-    const lineText = block ? block.textContent : (node?.textContent || '')
-
-    if (lineText.trim()) {
+    if (!line.isEmpty) {
       document.execCommand('formatBlock', false, tag)
       return
     }
 
     const created = document.createElement(tag)
     created.appendChild(document.createElement('br'))
-    if (block && block !== el) block.replaceWith(created)
-    else sel.getRangeAt(0).insertNode(created)
 
-    const range = document.createRange()
-    range.setStart(created, 0)
-    range.collapse(true)
-    sel.removeAllRanges()
-    sel.addRange(range)
+    placeAtEmptyLine(line.block, created)
+    putCaretIn(created)
   }
 
   /**
@@ -312,7 +348,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
       else document.execCommand(item.cmd, false, null)
     }
     else if (item.block) applyBlock(item.block)
-    else if (item.html) document.execCommand('insertHTML', false, item.html)
+    else if (item.html) applyHtml(item.html)
     emit()
   }
 
