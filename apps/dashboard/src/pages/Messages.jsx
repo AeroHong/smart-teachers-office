@@ -9,7 +9,7 @@
  * 접은 줄에는 "5명 · 3명 읽음"을 붙여 다시 챙길지 판단할 수 있게 한다.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import {
   collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from 'firebase/firestore'
@@ -38,6 +38,7 @@ const FETCH_LIMIT = 50
 export default function Messages() {
   const { user, schoolId } = useAuth()
   const { noticeId } = useParams()
+  const [searchParams] = useSearchParams()
   const toast = useToast()
   const [inbox, setInbox] = useState([])
   const [sent, setSent] = useState([])
@@ -65,8 +66,14 @@ export default function Messages() {
     const found = inbox.find(n => n.id === noticeId) || sent.find(n => n.id === noticeId)
     if (!found) return
     appliedIdRef.current = noticeId
-    openNotice(found, found.recipientUid === user.uid ? 'inbox' : 'sent')
-  }, [noticeId, inbox, sent, user])
+    const box = found.recipientUid === user.uid ? 'inbox' : 'sent'
+    openNotice(found, box)
+    // 알림의 '답장' 버튼으로 들어온 경우 작성창까지 바로 연다.
+    // 받은 쪽지에만 해당한다 — 내가 보낸 쪽지에 답장할 대상은 나 자신이다.
+    if (searchParams.get('reply') === '1' && box === 'inbox') {
+      setCompose({ replyTo: { ...found, _box: box } })
+    }
+  }, [noticeId, inbox, sent, user, searchParams])
 
   const unreadCount = useMemo(() => inbox.filter(n => !n.readAt).length, [inbox])
   const sentGroups = useMemo(() => groupSentNotices(sent), [sent])

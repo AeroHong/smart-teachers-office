@@ -58,18 +58,24 @@ function escapeXml(value) {
  * urgent(호출)는 duration="long"으로 약 25초간 띄운다 — 학생이 앞에서 기다리는
  * 상황이라 기본 5초는 자리를 비운 사이에 지나가버린다.
  */
-function buildToastXml({ title, body, urgent }) {
+function buildToastXml({ title, body, detail, category, actionLabel, urgent }) {
+  // 본문은 최대 두 줄. 쪽지는 보낸 사람과 내용 앞부분을 나눠 보여준다.
+  const lines = [body, detail]
+    .filter(Boolean)
+    .map((line) => `      <text>${escapeXml(line)}</text>`)
+    .join('\n')
+
   return `<toast${urgent ? ' duration="long"' : ''}>
   <visual>
     <binding template="ToastGeneric">
       <image placement="appLogoOverride" src="${escapeXml(TOAST_LOGO_URI)}"/>
       <text>${escapeXml(title)}</text>
-      <text>${escapeXml(body)}</text>
-      <text placement="attribution">스마트교무실</text>
+${lines}
+      <text placement="attribution">${escapeXml(category ? `스마트교무실 · ${category}` : '스마트교무실')}</text>
     </binding>
   </visual>
   <actions>
-    <action content="열기" arguments="open" activationType="foreground"/>
+    <action content="${escapeXml(actionLabel || '열기')}" arguments="open" activationType="foreground"/>
   </actions>
 </toast>`
 }
@@ -208,10 +214,11 @@ if (!gotLock) {
   // GC 대상이 되어, 토스트는 화면에 떠 있는데 클릭해도 click 이벤트가 오지 않는다.
   const liveNotifications = new Set()
 
-  ipcMain.handle('notify', (_event, { title, body, route, urgent } = {}) => {
+  ipcMain.handle('notify', (_event, opts = {}) => {
     if (!Notification.isSupported()) return false
+    const { title, body, route } = opts
     // toastXml을 주면 title/body 옵션은 무시된다. 로그와 대조하기 위해 함께 넘긴다.
-    const n = new Notification({ title, body, toastXml: buildToastXml({ title, body, urgent }) })
+    const n = new Notification({ title, body, toastXml: buildToastXml(opts) })
     liveNotifications.add(n)
     const release = () => liveNotifications.delete(n)
 

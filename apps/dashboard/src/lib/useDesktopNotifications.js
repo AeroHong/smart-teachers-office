@@ -17,6 +17,7 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { dueState } from '@shared/lib/workRequests'
+import { htmlToText } from '@shared/lib/richText'
 
 const DUE_CHECK_INTERVAL_MS = 30 * 60 * 1000
 
@@ -48,7 +49,13 @@ function readNotified() {
 //
 // 포그라운드라 안 띄운 건도 이력에 남긴다 — 화면으로 이미 봤으므로, 나중에 창을
 // 숨겼을 때 그 건이 다시 떠오르면 안 된다.
-function notifyOnce(key, title, body, route, { urgent = false } = {}) {
+/** 알림 본문에 넣을 내용 앞부분. 서식을 걷어내고 한 줄로 줄인다. */
+function previewText(html, max = 80) {
+  const text = htmlToText(html).replace(/\s+/g, ' ').trim()
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+function notifyOnce(key, title, body, route, { urgent = false, detail, category, actionLabel } = {}) {
   if (!isDesktop()) return
 
   const store = readNotified()
@@ -67,7 +74,7 @@ function notifyOnce(key, title, body, route, { urgent = false } = {}) {
   }
 
   if (document.hasFocus()) return
-  window.smartOfficeDesktop.notify({ title, body, route, urgent })
+  window.smartOfficeDesktop.notify({ title, body, detail, category, actionLabel, route, urgent })
 }
 
 export default function useDesktopNotifications() {
@@ -171,7 +178,17 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const n = change.doc.data()
-          notifyOnce(`message:${change.doc.id}`, '새 쪽지', `${n.senderName || ''} · ${n.title || ''}`, `/messages/${change.doc.id}`)
+          // 제목·보낸 사람·내용 앞부분을 나눠 보여준다. 어떤 쪽지인지 알림만 보고
+          // 판단할 수 있어야 앱을 열지 말지 정할 수 있다.
+          // 버튼을 누르든 본문을 누르든 답장 작성창까지 데려간다 — Electron이 어느
+          // 버튼을 눌렀는지 알려주지 않아 둘을 구분할 수 없다(click 이벤트 하나뿐).
+          notifyOnce(
+            `message:${change.doc.id}`,
+            n.title || '새 쪽지',
+            `${n.senderName || ''} 선생님`,
+            `/messages/${change.doc.id}?reply=1`,
+            { category: '쪽지', detail: previewText(n.content), actionLabel: '답장' },
+          )
         })
       },
       () => {},

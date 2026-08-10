@@ -18,8 +18,17 @@ contextBridge.exposeInMainWorld('smartOfficeDesktop', {
 
   // OS 알림 표시. 렌더러의 웹 Notification은 권한이 granted여도 Windows에서 표시되지
   // 않아(main.js의 'notify' 핸들러 주석 참고) 메인 프로세스에 위임한다.
-  // route를 주면 알림 클릭 시 창을 복원하고 그 경로로 이동한다.
-  notify: ({ title, body, route }) => ipcRenderer.invoke('notify', { title, body, route }),
+  //
+  // 필드를 하나씩 옮겨 적으므로 새 옵션을 추가할 때 여기도 같이 고쳐야 한다.
+  // (urgent를 여기 안 넣어서 호출 알림의 긴 표시 시간이 조용히 무시된 적이 있다.)
+  //  - title/body/detail: 토스트 본문 세 줄
+  //  - category: 출처 줄에 "스마트교무실 · 쪽지"처럼 덧붙는다
+  //  - actionLabel: 버튼 문구
+  //  - route: 클릭 시 이동할 경로
+  //  - urgent: 오래 띄운다(호출)
+  notify: ({ title, body, detail, category, actionLabel, route, urgent }) => ipcRenderer.invoke(
+    'notify', { title, body, detail, category, actionLabel, route, urgent },
+  ),
 
   // 알림 클릭으로 메인이 요청한 화면 이동을 받는다. 해제 함수를 돌려준다.
   onNavigate: (handler) => {
