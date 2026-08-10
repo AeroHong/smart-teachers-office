@@ -180,6 +180,24 @@ exports.getKioskTeachers = onCall({ region: REGION }, async (request) => {
   }
 })
 
+/**
+ * 5자리 학번으로 학생 문서를 찾는다. 없으면 null.
+ *
+ * migrateStudentsToWorkspaceId 마이그레이션으로 문서 ID가 학번에서 workspaceUserId로
+ * 바뀌었고, 학번은 studentId 필드에 남는다. 그래서 필드로 조회해야 한다.
+ * 문서 ID 조회는 아직 마이그레이션하지 않은 학교를 위한 대비책으로만 남긴다
+ * (멀티테넌트라 학교마다 시점이 다를 수 있다).
+ */
+async function findStudentByStudentId(db, schoolId, studentId) {
+  const studentsRef = db.collection('schools').doc(schoolId).collection('students')
+
+  const bySnap = await studentsRef.where('studentId', '==', studentId).limit(1).get()
+  if (!bySnap.empty) return bySnap.docs[0]
+
+  const legacySnap = await studentsRef.doc(studentId).get()
+  return legacySnap.exists ? legacySnap : null
+}
+
 // ── 4. 학번으로 학생 이름 확인 (본인 확인용, 이름만 반환) ───────────────────────
 exports.lookupStudentName = onCall({ region: REGION }, async (request) => {
   const { schoolId } = requireKiosk(request)
@@ -187,8 +205,8 @@ exports.lookupStudentName = onCall({ region: REGION }, async (request) => {
   const studentId = String(request.data?.studentId || '').trim()
   if (!studentId) throw new HttpsError('invalid-argument', '학번을 입력하세요.')
 
-  const snap = await db.collection('schools').doc(schoolId).collection('students').doc(studentId).get()
-  if (!snap.exists) return { found: false }
+  const snap = await findStudentByStudentId(db, schoolId, studentId)
+  if (!snap) return { found: false }
 
   const s = snap.data()
   return { found: true, name: s.name || '', grade: s.grade ?? null, classNo: s.class ?? null, number: s.number ?? null }
@@ -203,8 +221,8 @@ exports.submitCallRequest = onCall({ region: REGION }, async (request) => {
   if (!teacherUid || !studentId) throw new HttpsError('invalid-argument', '교사와 학번을 선택하세요.')
 
   // 학생 실재 확인 — 없는 학번으로는 호출 불가
-  const studentSnap = await db.collection('schools').doc(schoolId).collection('students').doc(studentId).get()
-  if (!studentSnap.exists) throw new HttpsError('not-found', '학번을 찾을 수 없습니다.')
+  const studentSnap = await findStudentByStudentId(db, schoolId, studentId)
+  if (!studentSnap) throw new HttpsError('not-found', '학번을 찾을 수 없습니다.')
   const student = studentSnap.data()
 
   // 호출 대상 교사가 실제로 이 사무실 소속인지 확인 (다른 사무실 교사 호출 방지)

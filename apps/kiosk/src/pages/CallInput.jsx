@@ -117,7 +117,9 @@ export default function CallInput() {
     setChecking(true)
     httpsCallable(functions, 'lookupStudentName')({ studentId })
       .then(({ data }) => { if (!cancelled) setStudent(data) })
-      .catch(() => { if (!cancelled) setStudent({ found: false }) })
+      // 조회 실패와 "없는 학번"을 구분한다. 같은 문구로 뭉개면 서버 쪽 문제가 나도
+      // 학생은 학번을 잘못 눌렀다고 생각하고, 화면만 봐서는 원인을 알 수 없다.
+      .catch((e) => { if (!cancelled) setStudent({ found: false, error: e?.message || '조회 실패' }) })
       .finally(() => { if (!cancelled) setChecking(false) })
     return () => { cancelled = true }
   }, [studentId])
@@ -285,7 +287,9 @@ export default function CallInput() {
               </>
             )}
             {!checking && student && !student.found && (
-              <Typography color="error" fontWeight={600}>학번을 찾을 수 없습니다</Typography>
+              <Typography color="error" fontWeight={600}>
+                {student.error ? '조회에 실패했습니다. 잠시 후 다시 시도해주세요' : '학번을 찾을 수 없습니다'}
+              </Typography>
             )}
           </Box>
 
