@@ -38,6 +38,7 @@ import { sanitizeHtml } from '@shared/lib/richText'
 import PostComments from './PostComments'
 import RequestMaterials from './RequestMaterials'
 import { ListSkeleton, ToneChip } from './widgetUi'
+import { RICH_TEXT_SX } from './richTextStyles'
 import { useToast } from './ToastProvider'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import {
@@ -150,10 +151,7 @@ export default function PostDetail({ requestId, onDeleted }) {
             <Box
               sx={{
                 mb: 2, fontSize: '0.95rem', lineHeight: 1.75,
-                '& img': { maxWidth: '100%', borderRadius: 1, my: 0.5 },
-                '& ul, & ol': { pl: 3, my: 0.5 },
-                '& a': { color: 'primary.main' },
-                '& p': { m: 0 },
+                ...RICH_TEXT_SX,
               }}
               dangerouslySetInnerHTML={{ __html: sanitizeHtml(request.bodyHtml) }}
             />

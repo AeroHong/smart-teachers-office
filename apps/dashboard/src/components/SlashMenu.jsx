@@ -16,6 +16,7 @@ import TitleIcon from '@mui/icons-material/Title'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
+import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
 import ExpandCircleDownIcon from '@mui/icons-material/ExpandCircleDown'
 import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
 import ImageIcon from '@mui/icons-material/Image'
@@ -33,6 +34,7 @@ export const SLASH_ITEMS = [
   { id: 'ul', label: '글머리 기호', hint: '· 목록', keywords: 'ㄱㅁㄹ 글머리 목록 bullet list', Icon: FormatListBulletedIcon, cmd: 'insertUnorderedList' },
   { id: 'ol', label: '번호 매기기', hint: '1. 2. 3. 목록', keywords: 'ㅂㅎ 번호 순서 number ordered list', Icon: FormatListNumberedIcon, cmd: 'insertOrderedList' },
   { id: 'quote', label: '인용', hint: '들여쓴 인용문', keywords: 'ㅇㅇ 인용 quote', Icon: FormatQuoteIcon, block: 'BLOCKQUOTE' },
+  { id: 'callout', label: '콜아웃', hint: '꼭 봐야 할 안내 상자', keywords: 'ㅋㅇㅅ 콜아웃 강조 안내 주의 callout note', Icon: LightbulbOutlinedIcon, html: '<aside>💡 꼭 확인해주세요</aside><p><br></p>' },
   { id: 'toggle', label: '토글', hint: '접었다 펴는 상세 내용', keywords: 'ㅌㄱ 토글 접기 details toggle', Icon: ExpandCircleDownIcon, html: '<details><summary>제목</summary><div>내용</div></details><p><br></p>' },
   { id: 'hr', label: '구분선', hint: '가로 줄로 나누기', keywords: 'ㄱㅂㅅ 구분선 divider hr line', Icon: HorizontalRuleIcon, html: '<hr/><p><br></p>' },
   { id: 'image', label: '이미지', hint: '파일에서 고르기', keywords: 'ㅇㅁㅈ 이미지 사진 그림 image photo', Icon: ImageIcon, action: 'image' },

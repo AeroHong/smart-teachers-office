@@ -33,6 +33,7 @@ import { sanitizeHtml } from '@shared/lib/richText'
 import { describeSentGroup, groupSentNotices } from '@shared/lib/personalNotices'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
+import { RICH_TEXT_SX } from '../components/richTextStyles'
 import NoticeComposeModal from '../components/NoticeComposeModal'
 import { useToast } from '../components/ToastProvider'
 import RequestMaterials from '../components/RequestMaterials'
@@ -310,10 +311,7 @@ function NoticeBody({ notice }) {
         <Box
           sx={{
             mb: 2, fontSize: '0.95rem', lineHeight: 1.75,
-            '& img': { maxWidth: '100%', borderRadius: 1, my: 0.5 },
-            '& ul, & ol': { pl: 3, my: 0.5 },
-            '& a': { color: 'primary.main' },
-            '& p': { m: 0 },
+            ...RICH_TEXT_SX,
           }}
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(notice.bodyHtml) }}
         />

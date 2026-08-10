@@ -20,6 +20,9 @@ const ALLOWED_TAGS = [
   'h1', 'h2', 'h3',
   // 토글 — 긴 안내에서 세부 절차를 접어두는 용도. 자바스크립트 없이 브라우저가 여닫는다.
   'details', 'summary',
+  // 콜아웃 — 꼭 봐야 할 한 문단. class는 걸러지므로 태그 자체가 서식 표시다
+  // (richTextStyles.js가 aside를 꾸민다).
+  'aside',
 ]
 
 // style을 통째로 허용하지 않고 color만 남긴다. 배경·위치·크기를 자유롭게 두면 남의 글이

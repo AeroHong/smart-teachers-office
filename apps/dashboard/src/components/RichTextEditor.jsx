@@ -33,6 +33,7 @@ import SlashMenu from './SlashMenu'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { isImageFile, uploadAttachment } from '@shared/lib/requestAttachments'
 import { useToast } from './ToastProvider'
+import { RICH_TEXT_SX } from './richTextStyles'
 
 /**
  * 글자색. 자유 선택기 대신 몇 가지만 둔다 — 업무 안내에서 색은 강조 수단이라
@@ -190,18 +191,6 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
   /** 줄을 감싸는 블록 요소. 편집기 바로 아래 맨 텍스트 노드면 없을 수 있다. */
   const LINE_BLOCKS = 'p,h1,h2,h3,h4,div,li,blockquote,pre'
 
-  /**
-   * 줄을 제목·인용 같은 블록으로 바꾼다.
-   *
-   * 글자가 있는 줄은 execCommand('formatBlock')이 잘 처리하는데, **빈 줄에서는 아무 일도
-   * 하지 않는다**. '/제목'처럼 슬래시 명령만 친 줄은 명령 글자를 지우고 나면 정확히 그
-   * 빈 줄 상태가 되므로, 첫 줄에서 /제목을 고르면 글자만 사라지고 제목은 안 생겼다.
-   * (편집기가 비어 있을 때는 <p>조차 없이 맨 텍스트 노드라 더 잘 걸린다)
-   *
-   * 그래서 빈 줄일 때는 execCommand에 맡기지 않고 블록을 직접 만들어 바꿔 끼운다.
-   * 안에 <br>을 넣어야 빈 줄로 자리를 차지하고, 커서를 그 안에 두어야 바로 이어서
-   * 쓸 수 있다.
-   */
   /** 슬래시 메뉴의 목록 명령 → 만들 태그 */
   const LIST_TAGS = { insertUnorderedList: 'UL', insertOrderedList: 'OL' }
 
@@ -303,6 +292,13 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     putCaretIn(item)
   }
 
+  /**
+   * 줄을 제목·인용 같은 블록으로 바꾼다.
+   *
+   * 글자가 있는 줄은 execCommand('formatBlock')이 잘 처리하는데, **빈 줄에서는 아무 일도
+   * 하지 않는다**. '/제목'처럼 슬래시 명령만 친 줄은 명령 글자를 지우고 나면 정확히 그
+   * 빈 줄 상태가 되므로, 첫 줄에서 /제목을 고르면 글자만 사라지고 제목은 안 생겼다.
+   */
   const applyBlock = (tag) => {
     const line = readLine()
     if (!line) return
@@ -317,6 +313,39 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
 
     placeAtEmptyLine(line.block, created)
     putCaretIn(created)
+  }
+
+  /** 엔터를 치면 본문으로 돌아와야 하는 블록. 목록은 이어지는 게 맞으므로 뺀다. */
+  const EXIT_ON_ENTER = 'h1,h2,h3,h4,blockquote'
+
+  /**
+   * 제목·인용에서 엔터를 치면 다음 줄은 본문으로 시작한다.
+   *
+   * 브라우저 기본 동작은 같은 블록을 이어서 만든다 — 제목을 쓰고 엔터를 치면 다음 줄도
+   * 제목이고, 인용에서는 계속 인용이라 빠져나올 방법이 백스페이스밖에 없다. 제목이나
+   * 인용을 두 줄 연달아 쓰는 일은 드물어서, 본문으로 돌아오는 쪽이 기대에 맞는다.
+   *
+   * 줄 끝에서 친 경우만 처리한다. 중간에서 치는 것은 줄을 나누려는 뜻이므로 그대로 둔다.
+   */
+  const handleKeyDown = (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+
+    const line = readLine()
+    const block = line?.block?.closest(EXIT_ON_ENTER)
+    if (!block) return
+
+    const sel = window.getSelection()
+    const rest = document.createRange()
+    rest.selectNodeContents(block)
+    rest.setStart(sel.anchorNode, sel.anchorOffset)
+    if (rest.toString().trim()) return
+
+    const paragraph = document.createElement('p')
+    paragraph.appendChild(document.createElement('br'))
+    block.after(paragraph)
+    putCaretIn(paragraph)
+    e.preventDefault()
+    emit()
   }
 
   /**
@@ -449,6 +478,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
         suppressContentEditableWarning
         onInput={handleInput}
         onBlur={emit}
+        onKeyDown={handleKeyDown}
         onKeyUp={syncSlash}
         onClick={handleEditorClick}
         onCompositionEnd={syncSlash}
@@ -464,21 +494,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
             content: 'attr(data-placeholder)',
             color: 'text.disabled',
           },
-          '& img': { maxWidth: '100%', borderRadius: 1, my: 0.5 },
-          '& ul, & ol': { pl: 3, my: 0.5 },
-          '& a': { color: 'primary.main' },
-          '& p': { m: 0 },
-          '& h2': { fontSize: '1.15rem', fontWeight: 800, m: '0.6em 0 0.2em' },
-          '& h3': { fontSize: '1rem', fontWeight: 700, m: '0.5em 0 0.2em' },
-          '& blockquote': {
-            m: '0.4em 0', pl: 1.5, borderLeft: '3px solid', borderColor: 'divider',
-            color: 'text.secondary',
-          },
-          '& hr': { border: 0, borderTop: '1px solid', borderColor: 'divider', my: 1.5 },
-          '& details': {
-            my: 0.6, p: 1, borderRadius: 1, border: '1px solid', borderColor: 'divider',
-          },
-          '& summary': { cursor: 'pointer', fontWeight: 700 },
+          ...RICH_TEXT_SX,
         }}
       />
 
