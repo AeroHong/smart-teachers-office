@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, session } = require('electron')
 const path = require('node:path')
 
 // 대시보드 웹앱을 그대로 로드한다 — UI는 항상 배포된 최신 버전과 동기화된다.
@@ -71,8 +71,21 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     app.setLoginItemSettings({ openAtLogin: true })
+
+    // 대시보드 origin에서 알림 권한만 명시적으로 허용, 나머지(카메라·위치 등)는 거부.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === 'notifications')
+    })
+
     createWindow()
     createTray()
+  })
+
+  // 알림 클릭(useDesktopNotifications.js) → 트레이로 숨겨진 창을 다시 보여준다.
+  ipcMain.on('focus-window', () => {
+    if (!mainWindow) return
+    mainWindow.show()
+    mainWindow.focus()
   })
 
   // 창을 전부 닫아도(트레이로 숨겨도) 앱은 계속 상주한다.

@@ -3,6 +3,7 @@ import ProtectedRoute from '@shared/components/ProtectedRoute'
 import ToastProvider from './components/ToastProvider'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
+import DesktopNotifications from './components/DesktopNotifications'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import RequestList from './pages/RequestList'
@@ -19,6 +20,8 @@ export default function App() {
       <ToastProvider>
         {/* Cmd/Ctrl+K — 어느 화면에서든 뜨도록 라우트 바깥에 둔다 */}
         <CommandPalette />
+        {/* Electron 트레이 알림 — window.smartOfficeDesktop 없으면 완전히 no-op */}
+        <DesktopNotifications />
         <ErrorBoundary label="화면">
         <Routes>
           <Route path="/login" element={<Login />} />

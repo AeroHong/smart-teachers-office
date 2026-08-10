@@ -353,16 +353,38 @@ L = 12열   내 업무, 전체 공지
 - 메인 프로세스 역할은 최소한으로:
   - 트레이 아이콘 (창 닫기 → 트레이로 최소화, 완전 종료는 트레이 메뉴에서만)
   - Windows 시작 프로그램 자동 등록 (`app.setLoginItemSettings`)
-  - Firestore `onSnapshot` 구독 (`callRequests`, `tasks` 마감임박, `announcements` 신규,
-    `academicCalendar` D-day, `personalNotices` 신규) → OS 네이티브 `Notification` 발송
+  - IPC로 렌더러가 요청하면 숨겨진 창을 다시 보여주기(`focus-window`) — 알림 클릭 시 사용
 - Firebase Auth 세션은 Electron의 Chromium에 그대로 유지되므로 재로그인 부담 적음
 - 패키징: `electron-builder`, Windows 전용 NSIS 인스톨러
 
-### 알림 파이프라인 (Phase A 위젯과 공유)
+### 알림 파이프라인 — 정정: 메인 프로세스가 아니라 렌더러(웹앱)가 구독한다 (2026-08-10)
 
-렌더러(웹 UI)와 메인 프로세스가 같은 `onSnapshot` 로직을 쓰게 되므로,
-알림 판단 로직(신규/마감임박 여부 계산)은 `apps/shared/lib/`에 두고
-웹 위젯과 Electron 메인 프로세스 양쪽에서 재사용한다.
+착수 전에는 "메인 프로세스가 Firestore를 구독한다"고 적혀 있었는데, 실제로는 불가능하다 —
+메인 프로세스는 로그인 세션이 없고, `BrowserWindow`가 원격 URL을 그대로 로드하므로 메인
+프로세스 쪽에 별도로 Firebase 인증을 심을 수도 없다. **이미 로그인돼 있는 렌더러
+(=apps/dashboard 웹앱 코드)가 구독하고 `Notification` API를 직접 호출**하는 구조로
+구현했다 — 재실 자동 감지 설계 메모가 애초에 이렇게 하기로 했던 것과 같은 이유(아래
+"재실 자동 감지 설계 메모" 참고)다.
+
+또한 착수 전 문서가 언급한 `tasks`/`announcements`/`academicCalendar` D-day는 실제
+스키마와 다르다: 안내(공지)와 업무 요청은 `requests` 컬렉션 하나에 `kind`
+(`'notice'`|`'request'`) 필드로 통합돼 있고(`apps/shared/lib/schema.js`), 별도
+`tasks`/`announcements` 컬렉션은 존재하지 않는다. `academicCalendar` D-day 알림은
+이번 범위에서 제외했다(요청받지 않음).
+
+**실제 구현 (Phase B-2, 2026-08-10)**:
+- `apps/dashboard/src/lib/useDesktopNotifications.js` — `window.smartOfficeDesktop`이
+  있을 때만 동작(일반 브라우저 사용자에게는 완전히 no-op). 5개 트리거:
+  호출(`callRequests`), 새 공지·새 요청(`requests` + `kind`), 새 쪽지(`personalNotices`),
+  마감임박(`workRequests.js`의 `dueState()`를 30분 간격 타이머로 재평가, `localStorage`로
+  하루 1회 중복 방지). 창이 포그라운드일 때는 안 띄움(`document.hasFocus()`).
+- `apps/dashboard/src/components/DesktopNotifications.jsx` — 위 훅을 마운트만 하는
+  컴포넌트, `App.jsx`에 `<CommandPalette />`와 같은 자리(라우트 밖)에 둠.
+- `apps/desktop/preload.js` — `window.smartOfficeDesktop.focusWindow()` 추가.
+- `apps/desktop/main.js` — `ipcMain.on('focus-window', ...)`, 알림 권한만 명시적으로
+  허용하는 `session.setPermissionRequestHandler` 추가.
+- **알려진 한계**: 알림 클릭 시 딥링크가 가능한 건 `/posts/:requestId`(공지·요청)뿐이다.
+  호출·쪽지는 전용 상세 라우트가 없어 각각 `/`, `/messages`(목록)로만 이동한다.
 
 ---
 
@@ -439,6 +461,9 @@ Phase B (착수는 Phase A-2 완료 후):
 2. ~~Firestore Rules 권한 규칙~~ — 완료·배포됨
 3. ~~Phase A-2~~ — 어두운 레일 + 구성원 명단은 구현됨. 12열 캔버스 그리드는 목록/상세
    구조로 재설계되며 폐기됨(2026-08-10 갱신 참고). Phase B 착수에는 지장 없음
-4. **Phase B (착수 가능)** — Electron wrapper. 1차 범위(URL 로드 + 트레이 + 자동시작)와
-   2차 범위(Firestore 알림 파이프라인 + 재실 자동 감지)로 나눠 진행 예정
+4. **Phase B** — Electron wrapper.
+   - ~~1차: URL 로드 + 트레이 + 자동시작~~ — 완료·Windows 검증됨(2026-08-10)
+   - ~~2차: Firestore 알림 파이프라인~~ — 완료(2026-08-10, 위 "알림 파이프라인" 참고).
+     아직 안 한 것: 실제 Windows에서 알림 수신·클릭 동작 확인, `npm run dist` 설치 파일 검증
+   - 3차: 재실 자동 감지(`powerMonitor`) — 미착수. 아래 "재실 자동 감지 설계 메모" 참고
 5. 설치 현황 관리자 화면 (Phase B와 함께)
