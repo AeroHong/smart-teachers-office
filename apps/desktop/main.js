@@ -122,7 +122,11 @@ if (!gotLock) {
     // 지정해도 알림이 뜨지 않고 Notification의 error 이벤트만 발생한다
     // (Notification.permission은 'granted'로 나오므로 권한 문제로 오인하기 쉽다).
     // 알림 검증은 반드시 설치본(npm run build:desktop)으로 해야 한다.
-    app.setAppUserModelId('kr.seonyoo.smartoffice.desktop')
+    //
+    // package.json의 appId와 반드시 같아야 한다 — NSIS가 이 값으로 바로가기의 AUMID를
+    // 쓰고, Windows는 그 둘이 일치할 때만 알림을 표시한다. 값을 바꾸면 Windows 입장에서
+    // 완전히 다른 앱이 되므로 알림 이력·활성화 등록도 새로 시작된다.
+    app.setAppUserModelId('kr.seonyoo.smartoffice')
 
     // 설치본에서만 자동시작을 등록한다. dev 실행(electron.exe 직접)에서 등록하면
     // 레지스트리에 인자 없는 electron.exe 경로가 박혀, 로그인할 때마다 이 앱이 아니라

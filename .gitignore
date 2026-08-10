@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# electron-builder 산출물. 백신이 dist/를 잠그면 --config.directories.output으로
+# 다른 이름에 빌드하게 되는데, 그때도 저장소에 들어오지 않게 한다
+dist-*/
 .env
 
 .firebase/
