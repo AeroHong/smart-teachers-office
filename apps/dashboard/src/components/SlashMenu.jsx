@@ -27,6 +27,12 @@ const MENU_MAX_HEIGHT = 300
 /**
  * 넣을 수 있는 블록들.
  * keywords에 한글·영문을 함께 둬서 '제목'으로도 'h1'으로도 찾을 수 있게 한다.
+ *
+ * caret은 넣은 다음 커서가 갈 자리다. 콜아웃·토글처럼 상자를 만드는 것은 그 **안에서**
+ * 쓰기 시작해야 한다 — 없으면 커서가 상자 뒤 빈 문단으로 가서 다시 올라가야 했다.
+ *
+ * 콜아웃 안에 문단(`<p>`)을 한 겹 두는 이유: 상자에 글을 직접 담으면 그 안에서 제목 서식을
+ * 고를 때 execCommand가 `<aside>`를 통째로 `<h2>`로 갈아치워 회색 배경이 사라진다.
  */
 export const SLASH_ITEMS = [
   { id: 'h1', label: '큰 제목', hint: '문단을 나누는 제목', keywords: 'ㅈㅁ 제목 큰제목 h1 title', Icon: TitleIcon, block: 'H2' },
@@ -34,8 +40,8 @@ export const SLASH_ITEMS = [
   { id: 'ul', label: '글머리 기호', hint: '· 목록', keywords: 'ㄱㅁㄹ 글머리 목록 bullet list', Icon: FormatListBulletedIcon, cmd: 'insertUnorderedList' },
   { id: 'ol', label: '번호 매기기', hint: '1. 2. 3. 목록', keywords: 'ㅂㅎ 번호 순서 number ordered list', Icon: FormatListNumberedIcon, cmd: 'insertOrderedList' },
   { id: 'quote', label: '인용', hint: '들여쓴 인용문', keywords: 'ㅇㅇ 인용 quote', Icon: FormatQuoteIcon, block: 'BLOCKQUOTE' },
-  { id: 'callout', label: '콜아웃', hint: '꼭 봐야 할 안내 상자', keywords: 'ㅋㅇㅅ 콜아웃 강조 안내 주의 callout note', Icon: LightbulbOutlinedIcon, html: '<aside>💡 꼭 확인해주세요</aside><p><br></p>' },
-  { id: 'toggle', label: '토글', hint: '접었다 펴는 상세 내용', keywords: 'ㅌㄱ 토글 접기 details toggle', Icon: ExpandCircleDownIcon, html: '<details><summary>제목</summary><div>내용</div></details><p><br></p>' },
+  { id: 'callout', label: '콜아웃', hint: '꼭 봐야 할 안내 상자', keywords: 'ㅋㅇㅅ 콜아웃 강조 안내 주의 callout note', Icon: LightbulbOutlinedIcon, html: '<aside><p>💡 꼭 확인해주세요</p></aside><p><br></p>', caret: 'aside p' },
+  { id: 'toggle', label: '토글', hint: '접었다 펴는 상세 내용', keywords: 'ㅌㄱ 토글 접기 details toggle', Icon: ExpandCircleDownIcon, html: '<details><summary>제목</summary><div>내용</div></details><p><br></p>', caret: 'summary' },
   { id: 'hr', label: '구분선', hint: '가로 줄로 나누기', keywords: 'ㄱㅂㅅ 구분선 divider hr line', Icon: HorizontalRuleIcon, html: '<hr/><p><br></p>' },
   { id: 'image', label: '이미지', hint: '파일에서 고르기', keywords: 'ㅇㅁㅈ 이미지 사진 그림 image photo', Icon: ImageIcon, action: 'image' },
 ]

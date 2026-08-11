@@ -69,6 +69,8 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
   const [picked, setPicked] = useState(null)   // { el, rect }
   // '/'를 친 위치와 그 뒤에 이어 친 글자. 메뉴를 고르면 이 구간을 지우고 블록을 넣는다.
   const [slash, setSlash] = useState(null)
+  // 우클릭으로 연 서식 메뉴의 자리. 항목은 '/' 메뉴와 같고 여는 방법만 다르다.
+  const [menuRect, setMenuRect] = useState(null)
 
   // 부모가 값을 바꿨을 때만 DOM에 밀어 넣는다. 타이핑 중에 덮어쓰면 커서가 맨 앞으로 튄다.
   useEffect(() => {
@@ -80,23 +82,40 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     onChange(editorRef.current?.innerHTML || '')
   }, [onChange])
 
-  const handleInput = () => { emit(); syncSlash() }
+  // 글을 고치면 이미지가 밀리므로 손잡이도 따라가야 한다 (measure가 위치를 다시 잰다).
+  // 우클릭 메뉴는 글을 치기 시작하면 닫는다 — '/'와 달리 쳐서 좁힐 수 있는 메뉴가 아니다.
+  const handleInput = () => { emit(); syncSlash(); measure(); setMenuRect(null) }
+
+  // 편집기는 내용이 넘치면 잘라내므로(overflow: auto), 테두리와 손잡이도 같은 범위 안에서만
+  // 그려야 한다. 안 그러면 이미지는 잘리는데 테두리만 화면을 가로질러 남는다.
+  const clipRect = useCallback(() => editorRef.current?.getBoundingClientRect() || null, [])
 
   /** 고른 이미지의 화면 위치를 다시 잰다 — 스크롤·창 크기·크기 조절 후 손잡이를 따라 붙인다. */
   const measure = useCallback(() => {
-    setPicked(prev => (prev?.el ? {
-      el: prev.el,
-      rect: prev.el.getBoundingClientRect(),
-      // 편집기는 내용이 넘치면 잘라내므로(overflow: auto), 테두리와 손잡이도 같은 범위
-      // 안에서만 그려야 한다. 안 그러면 이미지는 잘리는데 테두리만 화면을 가로질러 남는다.
-      clip: editorRef.current?.getBoundingClientRect() || null,
-    } : null))
-  }, [])
+    setPicked(prev => {
+      // 이미지를 지우거나 부모가 본문을 통째로 바꾸면 참조가 문서에서 떨어져 나간다.
+      // 그대로 두면 사라진 이미지 자리에 손잡이만 남는다.
+      if (!prev?.el?.isConnected) return null
+      return { el: prev.el, rect: prev.el.getBoundingClientRect(), clip: clipRect() }
+    })
+  }, [clipRect])
+
+  /**
+   * 이미지를 고른다.
+   *
+   * clip까지 같이 재는 것이 중요하다 — 손잡이는 clip이 있을 때만 그려지는데, 예전에는
+   * el과 rect만 넣어둬서 스크롤이나 창 크기 변경으로 measure가 한 번 돌기 전에는 손잡이가
+   * 아예 나타나지 않았다. 붙여넣은 직후에는 이미지가 로드되며 생긴 스크롤 덕에 우연히
+   * 보였고, 엔터를 친 뒤 다시 클릭하면 그 우연이 없어 크기를 못 바꾸던 증상이 이것이다.
+   */
+  const pickImage = (img) => {
+    setPicked({ el: img, rect: img.getBoundingClientRect(), clip: clipRect() })
+  }
 
   // 이미지를 누르면 고르고, 다른 곳을 누르면 푼다
   const handleEditorClick = (e) => {
     if (e.target?.tagName === 'IMG') {
-      setPicked({ el: e.target, rect: e.target.getBoundingClientRect() })
+      pickImage(e.target)
     } else {
       setPicked(null)
       syncSlash()
@@ -189,7 +208,17 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
   }
 
   /** 줄을 감싸는 블록 요소. 편집기 바로 아래 맨 텍스트 노드면 없을 수 있다. */
-  const LINE_BLOCKS = 'p,h1,h2,h3,h4,div,li,blockquote,pre'
+  const LINE_BLOCKS = 'p,h1,h2,h3,h4,div,li,blockquote,pre,aside,summary'
+
+  /**
+   * '상자'인 블록 — 안에 든 줄을 바꿔야지 상자 자체를 바꾸면 안 된다.
+   *
+   * execCommand('formatBlock')은 커서가 든 가장 가까운 블록을 통째로 갈아치운다. 콜아웃
+   * 안에서 제목을 고르면 `<aside>`가 `<h2>`로 바뀌어 회색 배경이 통째로 사라졌다.
+   * 지금 만드는 콜아웃은 안에 문단을 두므로 이 경우에 걸리지 않지만, 그 전에 쓴 글은
+   * aside에 글이 직접 들어 있어 여기서 지켜야 한다.
+   */
+  const BOX_BLOCKS = 'aside'
 
   /** 슬래시 메뉴의 목록 명령 → 만들 태그 */
   const LIST_TAGS = { insertUnorderedList: 'UL', insertOrderedList: 'OL' }
@@ -230,12 +259,15 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     }
   }
 
-  /** 새로 만든 블록 안으로 커서를 옮긴다. 바로 이어서 쓸 수 있어야 한다. */
-  const putCaretIn = (target) => {
+  /**
+   * 새로 만든 블록 안으로 커서를 옮긴다. 바로 이어서 쓸 수 있어야 한다.
+   * 콜아웃처럼 기본 문구가 들어 있는 블록은 끝(atEnd)에 둬야 문구 앞에 글이 끼지 않는다.
+   */
+  const putCaretIn = (target, atEnd = false) => {
     const sel = window.getSelection()
     const range = document.createRange()
-    range.setStart(target, 0)
-    range.collapse(true)
+    range.selectNodeContents(target)
+    range.collapse(!atEnd)
     sel.removeAllRanges()
     sel.addRange(range)
   }
@@ -246,21 +278,30 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
    * 빈 줄에서 execCommand('insertHTML')를 쓰면 커서가 목록 안에 있을 때 그 안에 박힌다.
    * 그래서 직접 만들어 넣고, 커서는 뒤따라오는 빈 문단에 둔다.
    */
-  const applyHtml = (html) => {
+  const applyHtml = (html, caret) => {
     const line = readLine()
     if (!line) return
+
+    const template = document.createElement('template')
+    template.innerHTML = html
+    // 콜아웃·토글은 상자 안에서 글을 쓰기 시작해야 한다. caret이 그 자리를 가리킨다 —
+    // 없으면 커서가 상자 **뒤**의 빈 문단으로 가서, 방금 만든 상자에 쓰려면 다시 올라가야 했다.
+    const inner = caret ? template.content.querySelector(caret) : null
+    const blocks = [...template.content.children]
+    const last = blocks[blocks.length - 1]
+
     if (!line.isEmpty) {
+      // 고른 글이 있으면 선택을 먼저 푼다. insertHTML은 선택 구간을 **대체**하므로,
+      // 우클릭으로 글을 고른 채 콜아웃이나 구분선을 넣으면 고른 글이 통째로 사라진다.
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) sel.collapseToEnd()
       document.execCommand('insertHTML', false, html)
       return
     }
 
-    const template = document.createElement('template')
-    template.innerHTML = html
-    const inserted = [...template.content.children]
-    const last = inserted[inserted.length - 1]
-
     placeAtEmptyLine(line.block, template.content)
-    if (last) putCaretIn(last)
+    const target = inner || last
+    if (target) putCaretIn(target, !!inner)
   }
 
   /**
@@ -302,6 +343,17 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
   const applyBlock = (tag) => {
     const line = readLine()
     if (!line) return
+
+    // 콜아웃 안이면 상자는 남기고 그 안의 내용만 바꾼다 (BOX_BLOCKS 설명 참고)
+    const box = line.block?.matches?.(BOX_BLOCKS) ? line.block : null
+    if (box) {
+      const created = document.createElement(tag)
+      created.append(...box.childNodes)
+      if (!created.hasChildNodes()) created.appendChild(document.createElement('br'))
+      box.appendChild(created)
+      putCaretIn(created, true)
+      return
+    }
 
     if (!line.isEmpty) {
       document.execCommand('formatBlock', false, tag)
@@ -359,6 +411,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     const el = editorRef.current
     el?.focus()
 
+    // '/'로 열었을 때만 지울 명령 글자가 있다. 우클릭으로 연 메뉴에는 없다.
     const found = readSlashQuery()
     if (found) {
       const sel = window.getSelection()
@@ -370,6 +423,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
       sel.addRange(range)
     }
     setSlash(null)
+    setMenuRect(null)
 
     if (item.action === 'image') { fileInputRef.current?.click(); return }
     if (item.cmd) {
@@ -377,9 +431,30 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
       else document.execCommand(item.cmd, false, null)
     }
     else if (item.block) applyBlock(item.block)
-    else if (item.html) applyHtml(item.html)
+    else if (item.html) applyHtml(item.html, item.caret)
     emit()
   }
+
+  /**
+   * 우클릭 — 고른 글의 서식을 바꾼다.
+   *
+   * '/'는 새 줄에 블록을 넣는 것이라, 이미 쓴 글을 제목이나 목록으로 바꾸려면 도구 막대에
+   * 있는 몇 개만 쓸 수 있었다. 같은 메뉴를 우클릭에 달아 고른 글에 그대로 건다.
+   */
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    setSlash(null)
+    // 마우스 자리를 폭 없는 사각형으로 넘긴다 — 메뉴가 이 바로 아래에 붙는다
+    setMenuRect({ top: e.clientY, bottom: e.clientY, left: e.clientX, right: e.clientX, width: 0, height: 0 })
+  }
+
+  // 메뉴 밖을 누르면 닫는다. 항목 선택은 mousedown에서 끝나므로 click이 올 때는 이미 처리됐다.
+  useEffect(() => {
+    if (!menuRect) return
+    const close = () => setMenuRect(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [menuRect])
 
   const insertImage = useCallback(async (file) => {
     setUploading(n => n + 1)
@@ -481,6 +556,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
         onKeyDown={handleKeyDown}
         onKeyUp={syncSlash}
         onClick={handleEditorClick}
+        onContextMenu={handleContextMenu}
         onCompositionEnd={syncSlash}
         onPaste={handlePaste}
         onDrop={handleDrop}
@@ -584,12 +660,13 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
         </Box>
       )}
 
+      {/* '/'로 열든 우클릭으로 열든 같은 메뉴다. 우클릭에는 거를 질문이 없어 전부 보인다. */}
       <SlashMenu
-        open={!!slash}
-        anchorRect={slash?.rect}
+        open={!!slash || !!menuRect}
+        anchorRect={slash?.rect || menuRect}
         query={slash?.query}
         onSelect={applySlash}
-        onClose={() => setSlash(null)}
+        onClose={() => { setSlash(null); setMenuRect(null) }}
       />
     </Box>
   )

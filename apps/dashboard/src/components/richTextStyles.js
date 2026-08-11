@@ -29,4 +29,8 @@ export const RICH_TEXT_SX = {
     my: 0.8, p: 1.2, borderRadius: 1,
     bgcolor: 'action.hover', borderLeft: '3px solid', borderColor: 'primary.main',
   },
+  // 상자 안에서는 줄이 갖고 온 여백을 무시하고 간격을 직접 준다. 콜아웃 첫 줄에 제목을
+  // 넣으면 제목의 위 여백 때문에 상자가 위아래로 벌어져 보이기 때문이다.
+  '& aside > *': { marginTop: 0, marginBottom: 0 },
+  '& aside > * + *': { marginTop: '0.45em' },
 }

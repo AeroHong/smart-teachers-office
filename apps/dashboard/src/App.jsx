@@ -39,6 +39,9 @@ export default function App() {
           <Route path="/requests" element={<ProtectedRoute anyUser><RequestList /></ProtectedRoute>} />
           <Route path="/requests/new" element={<ProtectedRoute anyUser><PostNew /></ProtectedRoute>} />
           <Route path="/requests/:requestId" element={<ProtectedRoute anyUser><RequestList /></ProtectedRoute>} />
+          {/* 고치기 — 쓰기와 같은 화면을 쓴다. 글을 지우고 다시 쓰면 주소가 바뀌어
+              쿨메신저에 뿌린 링크가 죽고 완료 기록도 함께 날아간다 */}
+          <Route path="/requests/:requestId/edit" element={<ProtectedRoute anyUser><PostNew /></ProtectedRoute>} />
           {/* 쪽지 — 위젯이 아니라 전용 탭. 쿨메신저를 대체하지 않고 병행하는 보조 수단이라
               매일 보는 대시보드의 자리를 차지하지 않는다 */}
           <Route path="/channels" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />

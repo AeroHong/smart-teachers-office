@@ -10,6 +10,7 @@
  * 셸(레일·사이드바)은 바깥이 담당하므로 여기서는 내용만 그린다.
  */
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -26,6 +27,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import EditIcon from '@mui/icons-material/EditOutlined'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -50,6 +52,7 @@ const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 
 
 export default function PostDetail({ requestId, onDeleted }) {
   const { user, userName, schoolId } = useAuth()
+  const navigate = useNavigate()
   const toast = useToast()
   const { members } = useSchoolMembers()
 
@@ -133,6 +136,15 @@ export default function PostDetail({ requestId, onDeleted }) {
           {request.status === 'closed' && <Chip size="small" label="마감됨" />}
           {isOwner && (
             <Button
+              size="small" startIcon={<EditIcon sx={{ fontSize: 17 }} />}
+              disabled={busy}
+              onClick={() => navigate(`/requests/${requestId}/edit`)}
+            >
+              수정
+            </Button>
+          )}
+          {isOwner && (
+            <Button
               size="small" color="error" startIcon={<DeleteIcon sx={{ fontSize: 17 }} />}
               disabled={busy}
               onClick={() => setConfirmDelete(true)}
@@ -164,42 +176,60 @@ export default function PostDetail({ requestId, onDeleted }) {
         </Box>
 
         {/* 대상 교사 — 내 완료 표시 (안내에는 없다).
-            체크박스 하나를 큰 상자에 넣어두니 오른쪽이 텅 비고 무엇을 눌러야 할지도
-            흐릿했다. 상태는 왼쪽에 문장으로, 할 일은 오른쪽에 버튼 하나로 나눈다. */}
+            상자 전체가 버튼이다. 예전에는 왼쪽 동그라미가 그림일 뿐이라 눌러도 아무 일이
+            없었고, 실제 버튼은 760px 건너편 오른쪽 끝에 있었다. 체크 표시를 누르려는 것이
+            자연스러운 동작이므로 어디를 눌러도 같게 만든다. */}
         {isTarget && trackCompletion && (
-          <Box sx={theme => ({
-            display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
-            px: 2, py: 1.5, mb: 2.5, borderRadius: 1.25, maxWidth: 760,
-            border: '1px solid',
-            borderColor: myDone ? 'success.main' : 'primary.main',
-            bgcolor: alpha(myDone ? theme.palette.success.main : theme.palette.primary.main, 0.05),
-          })}>
+          <Box
+            component="button"
+            type="button"
+            disabled={busy || request.status === 'closed'}
+            onClick={() => run(() => setCompletion({
+              schoolId, requestId, done: !myDone, doneBy: 'self',
+              member: { uid: user.uid, name: userName },
+              actor: { uid: user.uid, name: userName },
+            }))}
+            sx={theme => {
+              const tone = myDone ? theme.palette.success.main : theme.palette.primary.main
+              return {
+                display: 'flex', alignItems: 'center', gap: 1.5, textAlign: 'left',
+                width: '100%', maxWidth: 760, px: 2, py: 1.5, mb: 2.5,
+                borderRadius: 1.25, border: '1px solid', borderColor: tone,
+                bgcolor: alpha(tone, 0.05),
+                fontFamily: 'inherit', cursor: 'pointer',
+                transition: 'background-color .12s ease',
+                '&:hover': { bgcolor: alpha(tone, 0.13) },
+                '&:disabled': { cursor: 'default', opacity: 0.55, '&:hover': { bgcolor: alpha(tone, 0.05) } },
+              }
+            }}
+          >
             {myDone
-              ? <CheckCircleIcon sx={{ fontSize: 22, color: 'success.main' }} />
-              : <RadioButtonUncheckedIcon sx={{ fontSize: 22, color: 'primary.main' }} />}
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography fontWeight={700} fontSize="0.92rem">
+              ? <CheckCircleIcon sx={{ fontSize: 26, color: 'success.main', flexShrink: 0 }} />
+              : <RadioButtonUncheckedIcon sx={{ fontSize: 26, color: 'primary.main', flexShrink: 0 }} />}
+            <Box component="span" sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography component="span" sx={{ display: 'block' }} fontWeight={700} fontSize="0.92rem">
                 {myDone ? '완료했습니다' : '아직 완료하지 않았습니다'}
               </Typography>
-              <Typography fontSize="0.78rem" color="text.secondary">
-                {myDone
-                  ? '담당자 현황에 반영됐습니다.'
-                  : '끝내셨으면 오른쪽 버튼을 눌러주세요.'}
+              <Typography component="span" sx={{ display: 'block' }} fontSize="0.78rem" color="text.secondary">
+                {request.status === 'closed'
+                  ? '마감된 요청이라 바꿀 수 없습니다.'
+                  : myDone
+                    ? '담당자 현황에 반영됐습니다. 취소하려면 누르세요.'
+                    : '끝내셨으면 눌러주세요.'}
               </Typography>
             </Box>
-            <Button
-              variant={myDone ? 'outlined' : 'contained'}
-              color={myDone ? 'inherit' : 'primary'}
-              disabled={busy || request.status === 'closed'}
-              onClick={() => run(() => setCompletion({
-                schoolId, requestId, done: !myDone, doneBy: 'self',
-                member: { uid: user.uid, name: userName },
-                actor: { uid: user.uid, name: userName },
-              }))}
-              sx={{ flexShrink: 0 }}
+            {/* 상자가 곧 버튼이라 이건 눌러야 할 곳이 아니라 지금 무엇이 되는지를 알리는 표다 */}
+            <Box
+              component="span"
+              sx={{
+                flexShrink: 0, px: 1.4, py: 0.5, borderRadius: 5,
+                fontSize: '0.8rem', fontWeight: 700,
+                color: myDone ? 'text.secondary' : 'primary.contrastText',
+                bgcolor: myDone ? 'action.hover' : 'primary.main',
+              }}
             >
               {myDone ? '완료 취소' : '완료로 표시'}
-            </Button>
+            </Box>
           </Box>
         )}
 

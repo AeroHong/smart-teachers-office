@@ -21,7 +21,12 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { deleteAttachment, fileKind, formatBytes, uploadAttachment } from '@shared/lib/requestAttachments'
 import { useToast } from './ToastProvider'
 
-export default function AttachmentPicker({ requestId, folder = 'requests', attachments, links, onChange }) {
+/**
+ * @param {boolean} [deferRemove] 뺀 파일을 바로 지우지 않는다. 이미 올라간 글을 고치는
+ *   중에는 저장하기 전까지 원본이 그대로 살아 있어야 하므로(빼고 나가면 멀쩡한 글의 첨부가
+ *   깨진다), 실제 삭제는 저장 시점에 부모가 한다.
+ */
+export default function AttachmentPicker({ requestId, folder = 'requests', attachments, links, onChange, deferRemove = false }) {
   const { schoolId } = useAuth()
   const toast = useToast()
   const fileInput = useRef(null)
@@ -48,6 +53,7 @@ export default function AttachmentPicker({ requestId, folder = 'requests', attac
 
   const removeFile = async (attachment) => {
     onChange({ attachments: attachments.filter(a => a.path !== attachment.path), links })
+    if (deferRemove) return
     try {
       await deleteAttachment(attachment)
     } catch (err) {
