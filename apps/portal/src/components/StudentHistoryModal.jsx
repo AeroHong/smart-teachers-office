@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { doc, getDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { useStudentHistory } from '../hooks/useStudentHistory'
@@ -30,8 +30,11 @@ export default function StudentHistoryModal({ student, schoolId, onClose }) {
 
   useEffect(() => {
     if (student.email || !schoolId || !student.studentId) return
-    getDoc(doc(db, 'schools', schoolId, 'students', student.studentId))
-      .then(snap => { if (snap.exists()) setStudentEmail(snap.data().email || '') })
+    // students 문서 ID는 Workspace User ID(마이그레이션 후)라 학번과 다를 수 있어 필드로 조회
+    getDocs(query(
+      collection(db, 'schools', schoolId, 'students'),
+      where('studentId', '==', student.studentId)
+    )).then(snap => { if (!snap.empty) setStudentEmail(snap.docs[0].data().email || '') })
   }, [student.studentId, schoolId])
 
   const filteredLogs = useMemo(() => {

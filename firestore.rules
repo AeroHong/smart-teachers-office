@@ -333,8 +333,10 @@ service cloud.firestore {
       // 학생 — 소속 학교 구성원만 ──────────────────────────────────
       match /students/{studentId} {
         // 학생 본인도 자신의 학생 정보를 읽을 수 있음 (QR 체크인용)
+        // 문서 ID는 Workspace User ID(마이그레이션 후) 또는 학번(레거시)이라 학번과
+        // 항상 일치한다고 볼 수 없다. resource.data.studentId 필드로 비교해야 한다.
         allow read: if isSuperAdmin() || isTeacher(schoolId) ||
-          (isStudent(schoolId) && getUserData().studentId == studentId);
+          (isStudent(schoolId) && resource.data.studentId == getUserData().studentId);
         allow write: if isSuperAdmin() || isTeacher(schoolId);
       }
 

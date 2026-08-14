@@ -91,6 +91,19 @@ function buildLogId(event, studentId) {
   return studentId
 }
 
+// students 문서 ID는 마이그레이션 이후 Workspace User ID(21자리)라 학번과 다르다.
+// studentId 필드로 조회하고, 아직 마이그레이션 전인 학교(문서 ID = 학번)는 폴백으로 찾는다.
+async function findStudentByStudentId(schoolId, studentId) {
+  const bySnap = await getDocs(query(
+    collection(db, 'schools', schoolId, 'students'),
+    where('studentId', '==', studentId)
+  ))
+  if (!bySnap.empty) return bySnap.docs[0].data()
+
+  const legacyDoc = await getDoc(doc(db, 'schools', schoolId, 'students', studentId))
+  return legacyDoc.exists() ? legacyDoc.data() : null
+}
+
 export default function StudentCheckin() {
   const { schoolId, eventId } = useParams()
   const [searchParams] = useSearchParams()
@@ -163,10 +176,9 @@ export default function StudentCheckin() {
     }
 
     try {
-      const studentDoc = await getDoc(doc(db, 'schools', schoolId, 'students', studentId))
-      if (!studentDoc.exists()) { setState(STATE.NOT_IN_LIST); return }
+      const student = await findStudentByStudentId(schoolId, studentId)
+      if (!student) { setState(STATE.NOT_IN_LIST); return }
 
-      const student = studentDoc.data()
       setStudentInfo(student)
 
       // 중복 체크인 확인
