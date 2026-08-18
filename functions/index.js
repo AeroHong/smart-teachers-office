@@ -1,10 +1,13 @@
 const { initializeApp } = require('firebase-admin/app')
 const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const { getAuth } = require('firebase-admin/auth')
+const { getStorage } = require('firebase-admin/storage')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { setGlobalOptions } = require('firebase-functions/v2')
 const { defineString } = require('firebase-functions/params')
+const evaluationPlanParser = require('./evaluationPlanParser')
+const evaluationPlanSync = require('./evaluationPlanSync')
 
 initializeApp()
 setGlobalOptions({ region: 'asia-northeast3', maxInstances: 10 })
@@ -38,6 +41,9 @@ exports.migrateStudentGroups = groupMigrations.migrateStudentGroups
 const userClaims = require('./userClaims')
 exports.syncUserClaims = userClaims.syncUserClaims
 exports.refreshMyClaims = userClaims.refreshMyClaims
+
+// 평가 운영 계획 확정 → 교직원 관리(기본배정·과목배정) 자동 반영
+exports.syncEvaluationPlanToStaff = evaluationPlanSync.syncEvaluationPlanToStaff
 
 /**
  * superAdmin Custom Claims 초기 부여 (1회 실행용)
@@ -470,6 +476,68 @@ exports.generateAsaChecklistPdf = onCall(
     } finally {
       await browser.close()
     }
+  }
+)
+
+// ── 교수학습 및 평가 운영 계획 hwpx 파싱 ──────────────────────
+//
+// storagePath는 프런트에서 uploadAttachment()로 이미 올린 Storage 객체 경로
+// (schools/{schoolId}/evaluationPlans/{planId}/{timestamp}_{파일명}) — 이 시점에는
+// evaluationPlans Firestore 문서가 아직 없다. 파싱 결과를 폼에 보여주고 교사가
+// 확인·수정한 뒤 확정할 때 비로소 문서를 생성한다(클라이언트에서 addDoc).
+exports.parseEvaluationPlan = onCall(
+  { region: 'asia-northeast3', memory: '512MiB', timeoutSeconds: 60 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
+
+    const { schoolId, storagePath, fileName } = request.data
+    if (!schoolId || !storagePath) {
+      throw new HttpsError('invalid-argument', 'schoolId와 storagePath가 필요합니다.')
+    }
+    if (!/\.hwpx$/i.test(fileName || storagePath)) {
+      throw new HttpsError(
+        'invalid-argument',
+        'hwpx 파일만 업로드할 수 있습니다. 한글(HWP)에서 "다른 이름으로 저장" → 파일 형식을 ' +
+        '"한글 표준 문서(*.hwpx)"로 선택해 다시 저장한 뒤 업로드해주세요.',
+      )
+    }
+
+    const db = getFirestore()
+    const userDoc = await db.collection('users').doc(request.auth.uid).get()
+    if (!userDoc.exists || userDoc.data().schoolId !== schoolId) {
+      throw new HttpsError('permission-denied', '해당 학교 접근 권한이 없습니다.')
+    }
+
+    // 본인이 방금 올린 evaluationPlans 폴더 안의 파일인지만 확인 (다른 학교/다른 폴더 파일을
+    // storagePath로 지정해 임의로 읽어가는 것을 막는다 — Storage 규칙과는 별개의 방어)
+    const expectedPrefix = `schools/${schoolId}/evaluationPlans/`
+    if (!storagePath.startsWith(expectedPrefix)) {
+      throw new HttpsError('permission-denied', '잘못된 파일 경로입니다.')
+    }
+
+    const bucket = getStorage().bucket()
+    let buffer
+    try {
+      ;[buffer] = await bucket.file(storagePath).download()
+    } catch (err) {
+      throw new HttpsError('not-found', `파일을 찾을 수 없습니다: ${err.message}`)
+    }
+
+    let extracted
+    try {
+      extracted = evaluationPlanParser.extractFromHwpx(buffer, fileName)
+    } catch (err) {
+      // adm-zip이 zip이 아닌 파일(구버전 .hwp 바이너리를 확장자만 바꿔치기한 경우 포함)을
+      // 열려고 하면 여기서 실패한다. section*.xml이 없는 경우도 동일하게 처리.
+      console.error('[parseEvaluationPlan] parse error', err)
+      throw new HttpsError(
+        'invalid-argument',
+        '유효한 hwpx 파일이 아니거나 손상되었습니다. 한글(HWP)에서 "다른 이름으로 저장" → ' +
+        '"한글 표준 문서(*.hwpx)"로 선택해 다시 저장한 뒤 업로드해주세요.',
+      )
+    }
+
+    return { extracted }
   }
 )
 

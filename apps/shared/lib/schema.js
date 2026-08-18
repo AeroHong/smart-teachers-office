@@ -94,6 +94,10 @@ export const COL = {
   ASA_NEIS_IMPORTS: 'asaNeisImports',
   ASA_PRINCIPAL_SIGNATURE: 'asaPrincipalSignature',
   MIN_ACHIEVEMENT_RESULTS: 'minAchievementResults',
+
+  // 교수학습 및 평가 운영 계획
+  EVALUATION_PLANS: 'evaluationPlans',                 // auto-ID
+  EVALUATION_PLAN_MANAGERS: 'evaluationPlanManagers',  // ID: uid (학교 전체 단일 담당자 목록)
 }
 
 /**

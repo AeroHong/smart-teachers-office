@@ -18,6 +18,7 @@ const MENU_ITEMS = [
   { path: '/admin/spaces', label: '공간 관리', icon: '🏢' },
   { path: '/admin/academic-calendar', label: '학사일정', icon: '📅' },
   { path: '/admin/dashboard-modules', label: '대시보드 모듈', icon: '🧩' },
+  { path: '/admin/evaluation-plan-managers', label: '평가계획 담당자', icon: '📐' },
   { path: '/admin/asa-cutoffs', label: '분할점수 기준', icon: '📊' },
   { path: '/admin/asa-checklist', label: 'ASA 체크리스트', icon: '✅' },
   { path: '/admin/training-presets', label: '연수 명단', icon: '📋' },

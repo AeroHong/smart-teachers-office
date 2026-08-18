@@ -61,6 +61,15 @@ service firebase.storage {
                    && request.resource.size < 20 * 1024 * 1024;
     }
 
+    // 교수학습 및 평가 운영 계획 원본(hwpx). 폴더 = evaluationPlans 문서 ID.
+    // 업로드는 교직원 전체(제출 주체가 교사), 실질적인 조회 범위 통제는 Firestore
+    // evaluationPlans 문서의 읽기 규칙(제출자 본인 + 업무 담당자 + 관리자)이 담당한다.
+    match /schools/{schoolId}/evaluationPlans/{planId}/{fileName} {
+      allow read: if isSuperAdmin() || isMemberOf(schoolId);
+      allow write: if (isSuperAdmin() || isStaffOf(schoolId))
+                   && request.resource.size < 20 * 1024 * 1024;
+    }
+
     // 그 밖의 학교 파일 — 관리자만 쓰기.
     match /schools/{schoolId}/{allPaths=**} {
       allow read: if isSuperAdmin() || isMemberOf(schoolId);

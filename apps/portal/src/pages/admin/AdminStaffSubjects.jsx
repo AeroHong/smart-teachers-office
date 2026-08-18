@@ -102,7 +102,7 @@ function SubjectChip({ subject, catalogIndex }) {
   const linked = !!matchCatalogSubject(catalogIndex, subject)
   return (
     <Chip
-      label={`${subject.subjectName} (${subject.grade}-${subject.classes.join(',')}) ${subject.hoursPerWeek}시간`}
+      label={`${subject.subjectName} (${subject.grade}학년) ${subject.hoursPerWeek}시간`}
       size="small"
       color={linked ? 'default' : 'warning'}
       variant={linked ? 'filled' : 'outlined'}
@@ -213,7 +213,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
       ...prev,
       [field]: [
         ...prev[field],
-        { subjectId: '', subjectCode: '', subjectName: '', grade: '', classes: [], studentRange: '', hoursPerWeek: '' }
+        { subjectId: '', subjectCode: '', subjectName: '', grade: '', studentRange: '', hoursPerWeek: '' }
       ]
     }))
   }
@@ -266,7 +266,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
 
       // 유효성 검사 + 카탈로그 참조 보정
       const normalize = (rows) => rows
-        .filter(s => s.subjectName && s.grade && s.classes.length > 0)
+        .filter(s => s.subjectName && s.grade)
         .map(s => {
           // 저장 시점에 한 번 더 카탈로그와 맞춰본다.
           // 코드/이름만 손으로 고친 행도 참조를 되찾을 수 있다.
@@ -276,7 +276,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
             subjectCode: matched?.subjectCode || s.subjectCode || '',
             subjectName: matched?.name || s.subjectName,
             grade: Number(s.grade),
-            classes: s.classes.map(c => Number(c)),
             studentRange: s.studentRange || '',
             hoursPerWeek: Number(s.hoursPerWeek) || 0
           }
@@ -341,7 +340,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
           subjectCode: matched?.subjectCode || '',
           subjectName: matched?.name || data.name || '',
           grade: data.grade || 0,
-          classes: [],          // ASA에 반 정보가 없다 — 가져온 뒤 직접 입력해야 한다
           studentRange: '',
           hoursPerWeek: 0
         }
@@ -381,9 +379,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
 
       alert(
         `✅ ${imported}명의 ${asaSemester}학기 과목을 ASA에서 가져왔습니다.` +
-        // ASA에는 반 정보가 없어 반 칸이 비어 있다. 이 상태로 편집 화면에서 저장하면
-        // 유효성 검사(반 1개 이상)에 걸려 행이 사라지므로 미리 알린다.
-        `\n\n📝 가져온 과목은 담당 "반"이 비어 있습니다. 각 교사의 과목 배정을 수정해 반을 입력하세요. 반을 채우지 않은 채 저장하면 해당 과목은 저장되지 않습니다.` +
         (unmatched > 0 ? `\n\n⚠️ ${unmatched}개 과목은 교육과정 과목 목록에서 찾지 못해 이름만 저장했습니다. 과목 관리에서 등록 여부를 확인하세요.` : '') +
         (legacySubjects.size > 0 ? `\n\n⚠️ ${legacySubjects.size}개 과목은 담당 교사가 아직 이메일로만 저장돼 있어 이메일로 매칭했습니다. 성취평가제 과목 관리에서 "담당 교사 uid 연결"을 실행하세요.` : '') +
         (unresolvedEmails.size > 0 ? `\n\n❌ 계정을 찾지 못한 담당 교사 이메일 ${unresolvedEmails.size}건 — 이 교사들의 과목은 가져오지 못했습니다:\n${[...unresolvedEmails].join('\n')}` : '')
@@ -403,7 +398,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
       return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
     }
 
-    const header = ['이메일', '이름', '학기', '과목코드', '과목명', '학년', '반(쉼표구분)', '학생범위', '시수']
+    const header = ['이메일', '이름', '학기', '과목코드', '과목명', '학년', '학생범위', '시수']
     const rows = []
 
     subjectAssignments.forEach(assignment => {
@@ -416,7 +411,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
           subject.subjectCode || '',
           subject.subjectName || '',
           subject.grade || '',
-          subject.classes?.join(',') || '',
           subject.studentRange || '',
           subject.hoursPerWeek || ''
         ].map(csvCell).join(','))
@@ -428,7 +422,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
           subject.subjectCode || '',
           subject.subjectName || '',
           subject.grade || '',
-          subject.classes?.join(',') || '',
           subject.studentRange || '',
           subject.hoursPerWeek || ''
         ].map(csvCell).join(','))
@@ -457,7 +450,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
     const codeIdx = findIdx(['과목코드', 'code'])
     const nameIdx = findIdx(['과목명', '과목', 'subject'])
     const gradeIdx = findIdx(['학년', 'grade'])
-    const classIdx = findIdx(['반', 'class', '반(쉼표구분)'])
     const rangeIdx = findIdx(['학생범위', 'range', 'studentrange'])
     const hoursIdx = findIdx(['시수', 'hours'])
 
@@ -471,11 +463,10 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
         subjectCode: codeIdx !== -1 ? cols[codeIdx] || '' : '',
         subjectName: cols[nameIdx] || '',
         grade: gradeIdx !== -1 ? cols[gradeIdx] : '',
-        classes: classIdx !== -1 ? (cols[classIdx] || '').split(',').map(c => c.trim()).filter(Boolean) : [],
         studentRange: rangeIdx !== -1 ? cols[rangeIdx] || '' : '',
         hoursPerWeek: hoursIdx !== -1 ? Number(cols[hoursIdx]) || 0 : 0
       }
-    }).filter(r => r.email && r.subjectName && r.grade && r.classes.length > 0)
+    }).filter(r => r.email && r.subjectName && r.grade)
   }
 
   const handleCsvUpload = async (e) => {
@@ -533,7 +524,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
           subjectCode: matched?.subjectCode || row.subjectCode,
           subjectName: matched?.name || row.subjectName,
           grade: Number(row.grade),
-          classes: row.classes.map(c => Number(c)),
           studentRange: row.studentRange,
           hoursPerWeek: row.hoursPerWeek
         }
@@ -777,13 +767,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                             />
                           )}
                           sx={{ flex: 1 }}
-                        />
-                        <TextField
-                          label="반(쉼표)"
-                          value={subject.classes?.join(',') || ''}
-                          onChange={e => updateSubjectRow(semester, idx, 'classes', e.target.value.split(',').map(c => c.trim()).filter(Boolean))}
-                          size="small"
-                          sx={{ width: 100 }}
                         />
                         <TextField
                           label="학생범위"

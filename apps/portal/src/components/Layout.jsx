@@ -47,6 +47,19 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    key: 'evalplan',
+    label: '평가 운영 계획',
+    icon: '📐',
+    prefix: '/evalplan',
+    items: [
+      { label: '내 제출 목록', path: '/evalplan', icon: '◈', exact: true },
+      { label: '새로 제출', path: '/evalplan/new', icon: '◈' },
+    ],
+    managerItems: [
+      { label: '전체 현황', path: '/evalplan/all', icon: '◈' },
+    ],
+  },
+  {
     key: 'training',
     label: '연수 서명부',
     icon: '✍️',
@@ -98,6 +111,9 @@ const PAGE_TITLES = {
   '/cover': '보강 목록',
   '/cover/mypage': '내 현황',
   '/cover/status': '현황판',
+  '/evalplan': '내 제출 목록',
+  '/evalplan/new': '새로 제출',
+  '/evalplan/all': '전체 현황',
   '/training': '연수 목록',
   '/training/new': '연수 만들기',
   '/tools': '도구모음',
@@ -117,6 +133,8 @@ function getPageTitle(pathname) {
   if (pathname.match(/\/training\/[^/]+/)) return '연수 상세'
   if (pathname.match(/\/tools\/asa-checklist\/[^/]+\/process/)) return '과정 체크리스트 작성'
   if (pathname.match(/\/tools\/asa-checklist\/[^/]+/)) return '체크리스트 작성'
+  if (pathname.match(/\/evalplan\/[^/]+\/edit/)) return '제출 내용 수정'
+  if (pathname.match(/\/evalplan\/[^/]+/)) return '제출 상세'
   return ''
 }
 
@@ -124,6 +142,7 @@ function getSectionLabel(pathname) {
   if (pathname.startsWith('/admin')) return '관리자 페이지'
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return '스마트 출결'
   if (pathname.startsWith('/cover')) return '보강 신청'
+  if (pathname.startsWith('/evalplan')) return '평가 운영 계획'
   if (pathname.startsWith('/training')) return '연수 서명부'
   if (pathname.startsWith('/tools/asa-checklist')) return '성취평가제 체크리스트'
   if (pathname.startsWith('/tools')) return '도구모음'
@@ -135,6 +154,7 @@ function getActiveSectionKey(pathname) {
   if (pathname.startsWith('/admin')) return 'admin'
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return 'attendance'
   if (pathname.startsWith('/cover')) return 'cover'
+  if (pathname.startsWith('/evalplan')) return 'evalplan'
   if (pathname.startsWith('/training')) return 'training'
   if (pathname.startsWith('/tools/asa-checklist')) return 'asa-checklist'
   if (pathname.startsWith('/tools')) return 'tools'
@@ -152,6 +172,7 @@ export default function Layout({ children, wide = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
   const [pendingCount, setPendingCount] = useState(0)
   const [logoUrl, setLogoUrl] = useState(null)
+  const [isEvalPlanManager, setIsEvalPlanManager] = useState(false)
   // 사이드바 섹션 아코디언: 도구모음은 기본 펼침 + 현재 페이지가 속한 섹션은 자동 펼침
   const [openSections, setOpenSections] = useState(() => new Set([getActiveSectionKey(location.pathname)]))
 
@@ -184,6 +205,18 @@ export default function Layout({ children, wide = false }) {
     const unsub = onSnapshot(q, (snap) => setPendingCount(snap.size))
     return unsub
   }, [role])
+
+  // 평가 운영 계획 "업무 담당자" 여부 — role이 아니라 evaluationPlanManagers/{uid}
+  // 문서 존재 여부로 판정하므로 별도로 조회한다 (관리자는 이미 전체 접근 권한이 있음)
+  useEffect(() => {
+    if (!user?.uid || !schoolId || role === 'admin' || role === 'school_admin') {
+      setIsEvalPlanManager(false)
+      return
+    }
+    getDoc(doc(db, 'schools', schoolId, 'evaluationPlanManagers', user.uid))
+      .then(snap => setIsEvalPlanManager(snap.exists()))
+      .catch(() => setIsEvalPlanManager(false))
+  }, [user?.uid, schoolId, role])
 
   const handleLogout = async () => {
     setAnchorEl(null)
@@ -291,9 +324,11 @@ export default function Layout({ children, wide = false }) {
         {/* 네비 섹션들 */}
         <Box sx={{ flex: 1, py: 1.5 }}>
           {NAV_SECTIONS.map((section) => {
+            const canSeeManagerItems = isEvalPlanManager || role === 'admin' || role === 'school_admin'
             const items = [
               ...section.items,
               ...(section.principalItems && role === 'principal' ? section.principalItems : []),
+              ...(section.managerItems && canSeeManagerItems ? section.managerItems : []),
             ]
 
             const open = openSections.has(section.key)

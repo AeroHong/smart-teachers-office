@@ -24,6 +24,13 @@ const AttendanceDashboard = lazy(() => import('./pages/attendance/AttendanceDash
 const StatsDashboard      = lazy(() => import('./pages/attendance/StatsDashboard'))
 const StudentCheckin      = lazy(() => import('./pages/attendance/StudentCheckin'))
 
+// 교수학습 및 평가 운영 계획 - lazy load
+const EvalPlanHome             = lazy(() => import('./pages/evalplan/EvalPlanHome'))
+const EvalPlanSubmit           = lazy(() => import('./pages/evalplan/EvalPlanSubmit'))
+const EvalPlanDetail           = lazy(() => import('./pages/evalplan/EvalPlanDetail'))
+const EvalPlanEdit             = lazy(() => import('./pages/evalplan/EvalPlanEdit'))
+const EvalPlanManagerDashboard = lazy(() => import('./pages/evalplan/EvalPlanManagerDashboard'))
+
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
 const TrainingCreate  = lazy(() => import('./pages/training/TrainingCreate'))
@@ -50,6 +57,7 @@ const AdminSubjects = lazy(() => import('./pages/admin/AdminSubjects'))
 const AdminSpaces = lazy(() => import('./pages/admin/AdminSpaces'))
 const AdminAcademicCalendar = lazy(() => import('./pages/admin/AdminAcademicCalendar'))
 const AdminDashboardModules = lazy(() => import('./pages/admin/AdminDashboardModules'))
+const AdminEvalPlanManagers = lazy(() => import('./pages/admin/AdminEvalPlanManagers'))
 
 // 도구모음 - lazy load
 const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
@@ -92,6 +100,13 @@ export default function App() {
           <Route path="/cover/mypage"  element={<ProtectedRoute anyUser><CoverMypage /></ProtectedRoute>} />
           <Route path="/cover/status"  element={<ProtectedRoute anyUser><CoverStatus /></ProtectedRoute>} />
 
+          {/* ── 교수학습 및 평가 운영 계획 (로그인만 하면 접근, 조회 범위는 컴포넌트 내부에서 판정) ── */}
+          <Route path="/evalplan"              element={<ProtectedRoute anyUser><EvalPlanHome /></ProtectedRoute>} />
+          <Route path="/evalplan/new"          element={<ProtectedRoute anyUser><EvalPlanSubmit /></ProtectedRoute>} />
+          <Route path="/evalplan/all"          element={<ProtectedRoute anyUser><EvalPlanManagerDashboard /></ProtectedRoute>} />
+          <Route path="/evalplan/:planId"      element={<ProtectedRoute anyUser><EvalPlanDetail /></ProtectedRoute>} />
+          <Route path="/evalplan/:planId/edit" element={<ProtectedRoute anyUser><EvalPlanEdit /></ProtectedRoute>} />
+
           {/* ── 출결 (교사 승인 필요) ── */}
           <Route path="/attendance"                       element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
           <Route path="/attendance/students"              element={<ProtectedRoute><StudentList /></ProtectedRoute>} />
@@ -116,6 +131,7 @@ export default function App() {
             <Route path="spaces" element={<AdminSpaces />} />
             <Route path="academic-calendar" element={<AdminAcademicCalendar />} />
             <Route path="dashboard-modules" element={<AdminDashboardModules />} />
+            <Route path="evaluation-plan-managers" element={<AdminEvalPlanManagers />} />
 
             {/* 기존 도구 페이지들 */}
             <Route path="asa-cutoffs" element={<AsaSupportCutoffs />} />

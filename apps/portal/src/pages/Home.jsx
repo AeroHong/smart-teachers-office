@@ -64,6 +64,16 @@ const SERVICES = [
     statusColor: 'warning',
   },
   {
+    icon: '📐',
+    title: '교수학습 및 평가 운영 계획',
+    description: '학기별 평가 운영 계획서(hwpx)를 업로드하면 정기시험/수행평가 비율·성적산출방법을 자동 추출해 확인·수정 후 제출합니다.',
+    path: '/evalplan',
+    color: '#7c3aed',
+    bgColor: '#f5f3ff',
+    status: '시범운영중',
+    statusColor: 'warning',
+  },
+  {
     icon: '✈️',
     title: '교무 교과서 배정 업무',
     description: '교과서 선정 및 배부 업무 시스템입니다.',
@@ -79,6 +89,15 @@ const SERVICES = [
 // ── 개발 로그 ──────────────────────────────────────────────
 // 버전 규칙: 새 업무시스템 추가 → 메이저(v1→v2), 기능개선/버그픽스 → 마이너(v2.0→v2.1)
 const CHANGELOG = [
+  {
+    version: 'v4.0',
+    date: '2026.08.18',
+    type: 'major',
+    items: [
+      '교수학습 및 평가 운영 계획 제출 시스템 추가 — hwpx 계획서 업로드 시 정기시험/수행평가 비율·성적산출방법 자동 추출, 확인·수정 후 제출',
+      '업무 담당자 지정 기능 — 관리자가 지정한 담당자는 전체 교과 제출 현황 조회 가능',
+    ],
+  },
   {
     version: 'v3.2',
     date: '2026.07.15',

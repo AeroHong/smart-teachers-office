@@ -80,6 +80,13 @@ service cloud.firestore {
              request.auth.token.email in subject.get('teacherEmails', []);
     }
 
+    // 교수학습 및 평가 운영 계획 "업무 담당자" — 학교 전체 단일 목록. 존재 여부만으로
+    // 담당자인지 판정하므로 uid를 문서 ID로 쓴다(evaluationPlanManagers/{uid}).
+    function isEvaluationPlanManager(schoolId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/schools/$(schoolId)/evaluationPlanManagers/$(request.auth.uid));
+    }
+
     // ── /studentRegistrations — 학생 자동 등록용 이메일 색인 ───────
     match /studentRegistrations/{email} {
       allow get: if isSignedIn() && email == request.auth.token.email;
@@ -529,6 +536,45 @@ service cloud.firestore {
           (isTeacher(schoolId) && resultId.matches(request.auth.uid + '_.*'));
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && resultId.matches(request.auth.uid + '_.*'));
+      }
+
+      // ── 교수학습 및 평가 운영 계획 제출 ────────────────────────
+      // 업무 담당자 지정 목록 — 학교 전체 단일 목록. 존재 여부만으로 담당자인지 판정하므로
+      // uid를 문서 ID로 쓴다. 읽기를 소속 교사 전체로 여는 이유: "담당자에게 문의하세요"
+      // 안내를 프론트에서 보여주려면 담당자 이름 정도는 모든 교사가 조회할 수 있어야 한다.
+      match /evaluationPlanManagers/{uid} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 제출물 — 제출자 본인 + 매칭된 공동 지도교사 + 업무 담당자 + 관리자만 조회.
+      // hwpx meta.teachers(teacherNames)는 표시용 원문 텍스트일 뿐 권한 판정에 못 쓰지만,
+      // matchedTeacherUids는 그 이름들을 실제 계정과 매칭해 만든 uid 평면 배열이라 배열
+      // 필드 규칙(array-contains 상당)으로 판정할 수 있다 — 제출은 한 명이 해도 공동
+      // 지도교사 전원이 본인 담당 과목의 계획을 볼 수 있어야 한다는 요구에 따른 것.
+      // 쓰기 권한(update/delete)은 여전히 소유자(uploaderUid)에게만 둔다.
+      match /evaluationPlans/{planId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          isEvaluationPlanManager(schoolId) ||
+          (isTeacher(schoolId) &&
+           (resource.data.uploaderUid == request.auth.uid ||
+            request.auth.uid in resource.data.get('matchedTeacherUids', [])));
+
+        allow create: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) &&
+           request.resource.data.uploaderUid == request.auth.uid &&
+           request.resource.data.year is int &&
+           request.resource.data.semester in [1, 2] &&
+           request.resource.data.status in ['draft', 'confirmed']);
+
+        // 소유자(uploaderUid) 변경은 금지 — 데이터 수정, draft→confirmed 전환은 자유롭게 허용.
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) &&
+           resource.data.uploaderUid == request.auth.uid &&
+           request.resource.data.uploaderUid == resource.data.uploaderUid);
+
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.uploaderUid == request.auth.uid);
       }
     }
   }
