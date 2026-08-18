@@ -133,7 +133,10 @@ const RATIO_CHECK_GROUPS = [
  * 정기시험·수행평가 반영비율을 검증한다.
  * - 행 단위: 서·논술형 + 그 외 유형 == 소계
  * - 전체: 중간 소계 + 기말 소계 + 수행 소계 == 100
- * 값이 비어 있는(null) 항목은 아직 미기재로 보고 검증 대상에서 제외한다(오탐 방지).
+ *
+ * 중간고사 없이 기말고사만 보는 과목처럼, 한 그룹 전체(서논술형·그외·소계 모두)가 비어
+ * 있으면 "해당 시험이 없다"는 뜻이라 0으로 보고 합계에 포함한다. 반대로 일부 값만 채워진
+ * 그룹(작성 중)이 있으면 아직 판정할 수 없으니 합계 자체를 보류한다.
  */
 export function checkExamRatio(examRatio) {
   const rows = RATIO_CHECK_GROUPS.map(({ key, label, otherKey }) => {
@@ -141,13 +144,14 @@ export function checkExamRatio(examRatio) {
     const essay = group.essayType?.ratio ?? null
     const other = group[otherKey]?.ratio ?? null
     const total = group.total?.ratio ?? null
+    const isEmpty = essay == null && other == null && total == null
     const expected = (essay != null && other != null) ? essay + other : null
     const ok = expected == null || total == null || expected === total
-    return { key, label, essay, other, total, expected, ok }
+    return { key, label, essay, other, total, expected, ok, isEmpty }
   })
 
-  const totals = rows.map((r) => r.total)
-  const sum = totals.every((t) => t != null) ? totals.reduce((a, b) => a + b, 0) : null
+  const stillEditing = rows.some((r) => !r.isEmpty && r.total == null)
+  const sum = stillEditing ? null : rows.reduce((acc, r) => acc + (r.isEmpty ? 0 : r.total), 0)
 
   return { rows, sum, sumOk: sum == null || sum === 100 }
 }
