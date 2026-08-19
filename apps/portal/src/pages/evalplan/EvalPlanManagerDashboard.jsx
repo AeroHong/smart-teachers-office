@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, query, where, orderBy, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import FormControl from '@mui/material/FormControl'
@@ -23,7 +23,8 @@ import Alert from '@mui/material/Alert'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { currentSchoolYear } from '@shared/lib/schema'
+import { currentSchoolYear, entryYearFor } from '@shared/lib/schema'
+import { loadSubjects } from '@shared/lib/subjectData'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './EvalPlanSection'
 import { STATUS_LABELS, GRADE_OPTIONS } from './evalPlanUtils'
@@ -35,7 +36,6 @@ const tableHeadSx = {
 const rowSx = { '& td': { borderBottom: '1px solid #f1f5f9', color: '#334155' }, '&:last-of-type td': { borderBottom: 0 } }
 
 const YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
-const SEMESTER_FIELD = { 1: 'semester1Subjects', 2: 'semester2Subjects' }
 
 function pct(cell) { return cell?.ratio ?? null }
 
@@ -69,31 +69,31 @@ function buildRows(plans) {
   return rows
 }
 
-// 교직원 관리 > 과목배정(teacherSubjects) 데이터를 "이 학기에 계획서를 내야 하는 교사×과목" 목록으로 편다.
-function buildExpectedRows(teacherSubjectsDocs, semester) {
-  const field = SEMESTER_FIELD[semester]
-  const rows = []
-  teacherSubjectsDocs.forEach((d) => {
-    ;(d[field] || []).forEach((s, i) => {
-      if (!s.subjectName) return
-      rows.push({
-        id: `${d.teacherUid}_${s.subjectName}_${s.grade}_${i}`,
-        teacherUid: d.teacherUid,
-        teacherName: d.teacherName || '',
-        subjectName: s.subjectName,
-        grade: s.grade || null,
-        hoursPerWeek: s.hoursPerWeek || null,
-      })
-    })
-  })
-  return rows
+// 관리자 페이지 > 과목 관리(subjects) 데이터를 "이 학년도·학기에 계획서를 내야 하는 과목" 목록으로 편다.
+// subjects는 학년도가 아니라 입학년도(entryYear)로 스코프되므로, 선택한 학년도 기준으로
+// 학년별 해당 입학년도를 역산해 걸러낸다(AdminSubjects.jsx의 "학년도 기준 보기"와 동일한 방식).
+// 교직원 관리 > 과목배정(teacherSubjects)은 담당자가 학기별로 직접 입력해야 해 2학기 데이터가
+// 비어 있는 경우가 많았다 — 과목 관리는 교육청 배당표 기준이라 학기 편성이 항상 채워져 있다.
+function buildExpectedRows(subjects, year, semester) {
+  return subjects
+    .filter((s) => s.grade && s.entryYear === entryYearFor(year, s.grade))
+    .filter((s) => s.semester === semester || s.semester === 'both')
+    .map((s) => ({
+      id: s.id,
+      subjectId: s.id,
+      subjectName: s.name || '',
+      subjectGroup: s.subjectGroup || '',
+      grade: s.grade,
+      credits: s.credits ?? null,
+    }))
 }
 
-// 과목배정 항목 하나가 실제 제출된 계획서(본인 제출 또는 공동 지도교사로 매칭)로 커버되는지 판정.
+// 과목 하나가 실제 제출된 계획서로 커버되는지 판정 — 과목명·학년으로 매칭한다.
+// 한 계획서는 여러 명의 공동 지도교사를 포함할 수 있어 교사 단위가 아니라 과목 단위로 센다.
 function findCoveringPlan(row, plans) {
   return plans.find((p) => (
     (p.subject || '').trim() === row.subjectName.trim() &&
-    (p.uploaderUid === row.teacherUid || (p.matchedTeacherUids || []).includes(row.teacherUid))
+    (p.grades || []).includes(row.grade)
   )) || null
 }
 
@@ -129,9 +129,9 @@ async function downloadCoverageXlsx(coverageRows, year, semester) {
   const XLSX = await import('xlsx')
   const sheetRows = coverageRows.map((r) => ({
     '학년': r.grade ? `${r.grade}학년` : '-',
+    '교과(군)': r.subjectGroup,
     '과목': r.subjectName,
-    '담당교사': r.teacherName,
-    '학점(주당시수)': r.hoursPerWeek ?? '',
+    '학점': r.credits ?? '',
     '제출여부': r.submitted ? '제출완료' : '미제출',
     '제출자': r.plan?.uploaderName || '',
   }))
@@ -157,7 +157,7 @@ export default function EvalPlanManagerDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const [teacherSubjectDocs, setTeacherSubjectDocs] = useState([])
+  const [subjectCatalog, setSubjectCatalog] = useState([])
   const [coverageLoading, setCoverageLoading] = useState(true)
 
   useEffect(() => {
@@ -189,15 +189,16 @@ export default function EvalPlanManagerDashboard() {
     return unsub
   }, [allowed, schoolId, year, semester])
 
-  // 과목배정(교직원 관리)은 실시간 구독까지는 필요 없어 학년도 바뀔 때만 다시 읽는다.
+  // 과목 관리(subjects)는 entryYear 기준이라 학년도가 바뀌어도 다시 읽을 필요가 없다 —
+  // 전체를 한 번만 읽고 학년도·학기 필터는 아래 useMemo에서 클라이언트로 처리한다.
   useEffect(() => {
     if (!allowed || !schoolId) return
     setCoverageLoading(true)
-    getDocs(query(collection(db, 'schools', schoolId, 'teacherSubjects'), where('year', '==', year)))
-      .then((snap) => setTeacherSubjectDocs(snap.docs.map((d) => d.data())))
-      .catch((err) => console.error('[EvalPlanManagerDashboard] 과목배정 조회 실패:', err))
+    loadSubjects(schoolId)
+      .then(setSubjectCatalog)
+      .catch((err) => console.error('[EvalPlanManagerDashboard] 과목 목록 조회 실패:', err))
       .finally(() => setCoverageLoading(false))
-  }, [allowed, schoolId, year])
+  }, [allowed, schoolId])
 
   const rowsByGrade = useMemo(() => {
     const rows = buildRows(plans)
@@ -208,14 +209,14 @@ export default function EvalPlanManagerDashboard() {
   }, [plans])
 
   const coverageRows = useMemo(() => {
-    const expected = buildExpectedRows(teacherSubjectDocs, semester)
+    const expected = buildExpectedRows(subjectCatalog, year, semester)
     return expected
       .map((row) => {
         const plan = findCoveringPlan(row, plans)
         return { ...row, submitted: !!plan, plan }
       })
-      .sort((a, b) => (a.grade || 0) - (b.grade || 0) || a.teacherName.localeCompare(b.teacherName, 'ko'))
-  }, [teacherSubjectDocs, semester, plans])
+      .sort((a, b) => (a.grade || 0) - (b.grade || 0) || a.subjectName.localeCompare(b.subjectName, 'ko'))
+  }, [subjectCatalog, year, semester, plans])
 
   const coverageByGrade = useMemo(() => {
     const byGrade = {}
@@ -390,7 +391,7 @@ export default function EvalPlanManagerDashboard() {
           <Box sx={{ textAlign: 'center', py: 6, borderRadius: '14px', border: '1px dashed #e2e8f0', bgcolor: '#f8fafc' }}>
             <Typography sx={{ fontSize: '2rem', mb: 1 }}>🧑‍🏫</Typography>
             <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
-              교직원 관리 &gt; 과목배정에 {year}학년도 {semester}학기 배정 데이터가 없습니다.
+              관리자 페이지 &gt; 과목 관리에 {year}학년도 {semester}학기 개설된 과목이 없습니다.
             </Typography>
           </Box>
         ) : (
@@ -408,7 +409,7 @@ export default function EvalPlanManagerDashboard() {
                     {submittedCount} / {totalCount}건 제출
                   </Typography>
                   <Typography sx={{ fontSize: '0.76rem', color: '#94a3b8' }}>
-                    교직원 관리 &gt; 과목배정의 {semester}학기 배정 기준
+                    관리자 페이지 &gt; 과목 관리의 {semester}학기 개설 과목 기준
                   </Typography>
                 </Box>
               </Box>
@@ -431,8 +432,8 @@ export default function EvalPlanManagerDashboard() {
                   <Table size="small">
                     <TableHead sx={tableHeadSx}>
                       <TableRow>
+                        <TableCell>교과(군)</TableCell>
                         <TableCell>과목</TableCell>
-                        <TableCell>담당교사</TableCell>
                         <TableCell align="center">학점</TableCell>
                         <TableCell>제출여부</TableCell>
                         <TableCell>제출자</TableCell>
@@ -445,9 +446,9 @@ export default function EvalPlanManagerDashboard() {
                           onClick={() => r.plan && navigate(`/evalplan/${r.plan.id}`)}
                           sx={{ cursor: r.plan ? 'pointer' : 'default', ...rowSx }}
                         >
+                          <TableCell sx={{ fontWeight: 600 }}>{r.subjectGroup || '-'}</TableCell>
                           <TableCell sx={{ fontWeight: 600, color: '#1e293b' }}>{r.subjectName}</TableCell>
-                          <TableCell>{r.teacherName || '-'}</TableCell>
-                          <TableCell align="center">{r.hoursPerWeek ?? '-'}</TableCell>
+                          <TableCell align="center">{r.credits ?? '-'}</TableCell>
                           <TableCell>
                             <Chip
                               size="small"
