@@ -25,6 +25,7 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { currentSchoolYear, entryYearFor } from '@shared/lib/schema'
 import { loadSubjects } from '@shared/lib/subjectData'
+import { useTableSort } from '@shared/hooks/useTableSort'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './EvalPlanSection'
 import { STATUS_LABELS, GRADE_OPTIONS } from './evalPlanUtils'
@@ -34,8 +35,32 @@ const tableHeadSx = {
   '& th': { bgcolor: '#f8fafc', color: '#475569', fontWeight: 700, fontSize: '0.74rem', borderBottom: '1px solid #e2e8f0' },
 }
 const rowSx = { '& td': { borderBottom: '1px solid #f1f5f9', color: '#334155' }, '&:last-of-type td': { borderBottom: 0 } }
+const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
 
 const YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
+
+// 교과군만으로 정렬하면 같은 교과군 안에서 순서가 뒤죽박죽이라, 과목명을 2차 정렬 기준으로 묶는다.
+const PLAN_SORT_GETTERS = {
+  subjectGroup: (r) => `${r.subjectGroup || ''}_${r.subject || ''}`,
+  subject: (r) => r.subject || '',
+  weeklyHours: (r) => Number(r.weeklyHours) || 0,
+  perfEssay: (r) => Number(r.perfEssay) || 0,
+  perfOther: (r) => Number(r.perfOther) || 0,
+  midEssay: (r) => Number(r.midEssay) || 0,
+  midOther: (r) => Number(r.midOther) || 0,
+  finEssay: (r) => Number(r.finEssay) || 0,
+  finOther: (r) => Number(r.finOther) || 0,
+  uploaderName: (r) => r.uploaderName || '',
+  status: (r) => r.status || '',
+}
+
+const COVERAGE_SORT_GETTERS = {
+  subjectGroup: (r) => `${r.subjectGroup || ''}_${r.subjectName || ''}`,
+  subjectName: (r) => r.subjectName || '',
+  credits: (r) => Number(r.credits) || 0,
+  submitted: (r) => (r.submitted ? 1 : 0),
+  uploaderName: (r) => r.plan?.uploaderName || '',
+}
 
 function pct(cell) { return cell?.ratio ?? null }
 
@@ -159,6 +184,9 @@ export default function EvalPlanManagerDashboard() {
 
   const [subjectCatalog, setSubjectCatalog] = useState([])
   const [coverageLoading, setCoverageLoading] = useState(true)
+
+  const planSort = useTableSort()
+  const coverageSort = useTableSort()
 
   useEffect(() => {
     if (isAdmin) { setAllowed(true); setCheckingAccess(false); return }
@@ -322,7 +350,7 @@ export default function EvalPlanManagerDashboard() {
           </Box>
         ) : (
           GRADE_OPTIONS.map((grade) => {
-            const rows = rowsByGrade[grade]
+            const rows = planSort.sortData(rowsByGrade[grade], PLAN_SORT_GETTERS)
             if (!rows.length) return null
             return (
               <Box key={grade} sx={{ mb: 2.5, overflowX: 'auto', borderRadius: '14px', border: '1px solid #e2e8f0', bgcolor: '#fff' }}>
@@ -334,22 +362,22 @@ export default function EvalPlanManagerDashboard() {
                 <Table size="small">
                   <TableHead sx={tableHeadSx}>
                     <TableRow>
-                      <TableCell rowSpan={2}>교과(군)</TableCell>
-                      <TableCell rowSpan={2}>과목</TableCell>
-                      <TableCell rowSpan={2} align="center">학점</TableCell>
+                      <TableCell rowSpan={2} sx={thSortSx} onClick={() => planSort.toggle('subjectGroup')}>교과(군){planSort.Ind('subjectGroup')}</TableCell>
+                      <TableCell rowSpan={2} sx={thSortSx} onClick={() => planSort.toggle('subject')}>과목{planSort.Ind('subject')}</TableCell>
+                      <TableCell rowSpan={2} align="center" sx={thSortSx} onClick={() => planSort.toggle('weeklyHours')}>학점{planSort.Ind('weeklyHours')}</TableCell>
                       <TableCell align="center" colSpan={2}>수행평가(%)</TableCell>
                       <TableCell align="center" colSpan={2}>정기시험-중간(%)</TableCell>
                       <TableCell align="center" colSpan={2}>정기시험-기말(%)</TableCell>
-                      <TableCell rowSpan={2}>제출자</TableCell>
-                      <TableCell rowSpan={2}>상태</TableCell>
+                      <TableCell rowSpan={2} sx={thSortSx} onClick={() => planSort.toggle('uploaderName')}>제출자{planSort.Ind('uploaderName')}</TableCell>
+                      <TableCell rowSpan={2} sx={thSortSx} onClick={() => planSort.toggle('status')}>상태{planSort.Ind('status')}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell align="center">서논술</TableCell>
-                      <TableCell align="center">그외</TableCell>
-                      <TableCell align="center">서논술</TableCell>
-                      <TableCell align="center">그외</TableCell>
-                      <TableCell align="center">서논술</TableCell>
-                      <TableCell align="center">그외</TableCell>
+                      <TableCell align="center" sx={thSortSx} onClick={() => planSort.toggle('perfEssay')}>서논술{planSort.Ind('perfEssay')}</TableCell>
+                      <TableCell align="center" sx={thSortSx} onClick={() => planSort.toggle('perfOther')}>그외{planSort.Ind('perfOther')}</TableCell>
+                      <TableCell align="center" sx={thSortSx} onClick={() => planSort.toggle('midEssay')}>서논술{planSort.Ind('midEssay')}</TableCell>
+                      <TableCell align="center" sx={thSortSx} onClick={() => planSort.toggle('midOther')}>그외{planSort.Ind('midOther')}</TableCell>
+                      <TableCell align="center" sx={thSortSx} onClick={() => planSort.toggle('finEssay')}>서논술{planSort.Ind('finEssay')}</TableCell>
+                      <TableCell align="center" sx={thSortSx} onClick={() => planSort.toggle('finOther')}>그외{planSort.Ind('finOther')}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -420,7 +448,7 @@ export default function EvalPlanManagerDashboard() {
             </Box>
 
             {GRADE_OPTIONS.map((grade) => {
-              const rows = coverageByGrade[grade]
+              const rows = coverageSort.sortData(coverageByGrade[grade], COVERAGE_SORT_GETTERS)
               if (!rows.length) return null
               return (
                 <Box key={grade} sx={{ mb: 2.5, overflowX: 'auto', borderRadius: '14px', border: '1px solid #e2e8f0', bgcolor: '#fff' }}>
@@ -432,11 +460,11 @@ export default function EvalPlanManagerDashboard() {
                   <Table size="small">
                     <TableHead sx={tableHeadSx}>
                       <TableRow>
-                        <TableCell>교과(군)</TableCell>
-                        <TableCell>과목</TableCell>
-                        <TableCell align="center">학점</TableCell>
-                        <TableCell>제출여부</TableCell>
-                        <TableCell>제출자</TableCell>
+                        <TableCell sx={thSortSx} onClick={() => coverageSort.toggle('subjectGroup')}>교과(군){coverageSort.Ind('subjectGroup')}</TableCell>
+                        <TableCell sx={thSortSx} onClick={() => coverageSort.toggle('subjectName')}>과목{coverageSort.Ind('subjectName')}</TableCell>
+                        <TableCell align="center" sx={thSortSx} onClick={() => coverageSort.toggle('credits')}>학점{coverageSort.Ind('credits')}</TableCell>
+                        <TableCell sx={thSortSx} onClick={() => coverageSort.toggle('submitted')}>제출여부{coverageSort.Ind('submitted')}</TableCell>
+                        <TableCell sx={thSortSx} onClick={() => coverageSort.toggle('uploaderName')}>제출자{coverageSort.Ind('uploaderName')}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
