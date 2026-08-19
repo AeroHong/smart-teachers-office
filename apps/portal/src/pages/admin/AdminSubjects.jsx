@@ -764,7 +764,8 @@ export default function AdminSubjects() {
     }),
     {
       category: (s) => s.category || '',
-      subjectGroup: (s) => s.subjectGroup || '',
+      // 교과군만으로 정렬하면 같은 교과군 안에서 순서가 뒤죽박죽이라, 과목명을 2차 정렬 기준으로 묶는다.
+      subjectGroup: (s) => `${s.subjectGroup || ''}_${s.name || ''}`,
       courseType: (s) => s.courseType || '',
       name: (s) => s.name || '',
       semester: (s) => (s.semester === 'both' ? 3 : Number(s.semester) || 0),
