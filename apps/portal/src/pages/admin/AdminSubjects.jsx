@@ -185,11 +185,12 @@ function parseEducationExcel(arrayBuffer, targetGrade) {
     }
     if (!bc || !cr) continue
 
-    // 학교지정 과목은 학년-학기 칸에 적힌 배당을 모두 수집한다.
-    // 첫 칸에서 멈추면 1·2학기에 걸친 과목의 2학기 배당이 유실된다.
+    // 학교지정·학생선택 과목 모두 학년-학기 칸에 적힌 배당을 모두 수집한다.
+    // 첫 칸에서 멈추면 1·2학기에 걸친 과목의 2학기 배당(또는 택N 표시)이 유실된다.
     const schedules = []
     let selBlock = null
     const desc = g(c, descCol)
+    const blockMatches = []
 
     for (let off = 0; off < _GS_COLS.length; off++) {
       const [grade, sem] = _GS_COLS[off]
@@ -200,13 +201,25 @@ function parseEducationExcel(arrayBuffer, targetGrade) {
         const key = `${grade}:${sem}`
         if (!bt[key]) bt[key] = { val, num: 1 }
         else if (bt[key].val !== val) bt[key] = { val, num: bt[key].num + 1 }
-        selBlock = { grade, semester: sem, pickCount: parseInt(m[1]), blockNumber: bt[key].num }
-        curSb = selBlock
-        break
+        blockMatches.push({ grade, semester: sem, pickCount: parseInt(m[1]), blockNumber: bt[key].num })
+        continue
       }
       if (curCat === '학교지정' && /^[\d.]+$/.test(val)) {
         schedules.push({ targetGrade: grade, semester: sem })
       }
+    }
+
+    // 학생선택 과목이 같은 학년의 1·2학기 칸에 모두 택N 표시가 있으면 '양학기' 과목으로 합친다.
+    if (blockMatches.length) {
+      const grade = blockMatches[0].grade
+      const semesters = [...new Set(blockMatches.map((b) => b.semester))]
+      selBlock = {
+        grade,
+        semester: semesters.length > 1 ? 'both' : semesters[0],
+        pickCount: blockMatches[0].pickCount,
+        blockNumber: blockMatches[0].blockNumber,
+      }
+      curSb = selBlock
     }
 
     const base = {
