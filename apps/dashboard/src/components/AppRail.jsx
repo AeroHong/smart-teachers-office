@@ -14,6 +14,7 @@ import RequestIcon from '@mui/icons-material/PlaylistAddCheck'
 import TagIcon from '@mui/icons-material/Tag'
 import MailIcon from '@mui/icons-material/MailOutline'
 import PeopleIcon from '@mui/icons-material/Groups'
+import DevicesIcon from '@mui/icons-material/DevicesOther'
 import LaunchIcon from '@mui/icons-material/Launch'
 import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -74,7 +75,7 @@ function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
 }
 
 export default function AppRail() {
-  const { userName, logout } = useAuth()
+  const { userName, logout, isAdmin } = useAuth()
   const { pathname } = useLocation()
   const unreadNotices = useUnreadNotices()
 
@@ -122,6 +123,16 @@ export default function AppRail() {
         to="/members"
         active={pathname.startsWith('/members')}
       />
+
+      {/* 데스크톱 설치 현황 — 배포·지원용이라 관리자에게만 보인다 */}
+      {isAdmin && (
+        <RailButton
+          icon={DevicesIcon}
+          label="설치 현황"
+          to="/admin/desktop"
+          active={pathname.startsWith('/admin/desktop')}
+        />
+      )}
 
       <Box sx={{ flexGrow: 1 }} />
 

@@ -95,6 +95,11 @@ export const COL = {
   ASA_PRINCIPAL_SIGNATURE: 'asaPrincipalSignature',
   MIN_ACHIEVEMENT_RESULTS: 'minAchievementResults',
 
+  // 데스크톱 클라이언트 설치 현황 — ID: uid.
+  // 재실(presence)과 문서를 나눈 이유: 재실은 4시간 TTL로 신뢰도가 죽는 "지금" 값이지만
+  // 설치 현황은 마지막 목격 시점을 계속 보존해야 하고, 열람 범위도 관리자로 좁다.
+  DESKTOP_CLIENTS: 'desktopClients',
+
   // 교수학습 및 평가 운영 계획
   EVALUATION_PLANS: 'evaluationPlans',                 // auto-ID
   EVALUATION_PLAN_MANAGERS: 'evaluationPlanManagers',  // ID: uid (학교 전체 단일 담당자 목록)

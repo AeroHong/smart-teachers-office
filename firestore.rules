@@ -373,6 +373,15 @@ service cloud.firestore {
           (isTeacher(schoolId) && request.auth.uid == uid);
       }
 
+      // 데스크톱 클라이언트 설치 현황 — 본인만 쓰고, 관리자만 읽는다.
+      // 누가 몇 버전을 쓰는지는 배포·지원용 정보라 교사 전체에 열 이유가 없다
+      // (0.1.5 이하는 자동 업데이트가 없어 수동 재설치 안내 대상을 골라내는 데 쓴다).
+      match /desktopClients/{uid} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow write: if isSuperAdmin() ||
+          (isTeacher(schoolId) && request.auth.uid == uid);
+      }
+
       // 사무실 자리 배치 (교사 카드 좌표) — 조회는 소속 교사, 편집은 관리자만.
       // 키오스크는 getKioskTeachers 콜러블을 통해 받으므로 직접 읽기 권한은 주지 않는다.
       match /officeLayouts/{layoutId} {

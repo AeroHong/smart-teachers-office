@@ -13,7 +13,8 @@
 /auditLogs/{logId}
 
 /schools/{schoolId}              ← 모든 학교 데이터는 이 아래로 파티션된다
-  ├─ 구성원   students · archivedStudents · studentGroups · preApproved · presence
+  ├─ 구성원   students · archivedStudents · studentGroups · preApproved · presence ·
+  │           desktopClients
   ├─ 배정     teacherAssignments · teacherSubjects · officeLayouts   (학년도 스코프)
   ├─ 교육과정 subjects (입학년도 스코프) · courses
   ├─ 출결     events/{id}/attendanceLogs · notices/{id}/confirmations
@@ -433,8 +434,9 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 **필드:** (쓰기: `apps/dashboard/src/widgets/PresenceWidget.jsx:36`)
 - `uid` (string)
 - `status` (string) - **`available` (재실) / `busy` (수업 중) / `away` (자리 비움)**
-- `source` (string) - `manual` / `desktop` (Electron 클라이언트 자동 판정, 현재 미구현)
-- `lastActiveAt` (timestamp | null) - desktop 클라이언트만 기록 (현재 미구현)
+- `source` (string) - `manual` / `desktop` (Electron 클라이언트가 OS 유휴시간·화면 잠금으로 자동 판정.
+  2026-08-21 구현 — `apps/dashboard/src/lib/useDesktopPresence.js`. 사람이 직접 고른 `busy`는 덮어쓰지 않는다)
+- `lastActiveAt` (timestamp | null) - desktop 클라이언트만 기록
 - `updatedAt` (timestamp)
 
 > ⚠️ **문서 정정**: 이전 문서의 `in` / `teaching` / `out`은 코드에 존재하지 않는 값이다.
@@ -443,6 +445,30 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 
 **접근 권한:**
 - Read: 슈퍼 어드민, 소속 교사, 키오스크 기기
+- Write: 슈퍼 어드민, 본인만
+
+---
+
+#### `/schools/{schoolId}/desktopClients/{uid}`
+데스크톱 앱 설치 현황. 정의: `apps/shared/lib/desktopClients.js`
+
+**필드:** (쓰기: `apps/dashboard/src/lib/useDesktopClientReport.js`)
+- `uid` (string)
+- `version` (string) - 실행 중인 앱 버전 (예: `0.1.7`). preload가 노출하는 값
+- `platform` (string) - `navigator.platform` (예: `Win32`)
+- `firstSeenAt` (timestamp) - 처음 보고한 시점. **이후 갱신하지 않는다**
+- `lastSeenAt` (timestamp) - 마지막 보고 시점 (앱 실행 중 6시간 주기)
+- `updatedAt` (timestamp)
+
+재실(`presence`)과 문서를 나눈 이유는 수명주기가 달라서다 — 재실은 4시간 TTL로 신뢰도가
+죽는 "지금" 값이지만, 설치 현황은 마지막 목격 시점을 계속 보존해야 한다.
+
+> **왜 필요한가**: 자동 업데이트(`electron-updater`)는 **0.1.7부터** 들어갔다. 그 미만은
+> 업데이트를 확인하러 가지도 않으므로 영원히 옛 버전에 머문다 — 수동 재설치 안내 대상을
+> 골라내려면 누가 몇 버전인지 알아야 한다. 조회 화면: `/admin/desktop` (관리자 전용)
+
+**접근 권한:**
+- Read: 슈퍼 어드민, 학교 관리자 (배포·지원용 정보라 교사 전체에 열지 않는다)
 - Write: 슈퍼 어드민, 본인만
 
 ---
@@ -1136,6 +1162,7 @@ students 문서 ID를 바꾸자 **문서 ID를 학번으로 가정하던 코드�
 | `officeLayouts` | `` `${year}__${office}` `` | **밑줄 2개** |
 | `preApproved` | `emailToDocId(email)` | |
 | `presence` | `uid` | |
+| `desktopClients` | `uid` | |
 | `asaPrincipalSignature` | `uid` | |
 | `asaCutoffs` | `` `${year}_${semester}_${grade}_${subjectName}` `` | AsaSupport.jsx만 다른 규칙 사용 (버그) |
 | `asaResults` | `encodeURIComponent(`${uid}_${grade}_${subjectName}`)` | |

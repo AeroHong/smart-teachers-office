@@ -5,6 +5,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import DesktopNotifications from './components/DesktopNotifications'
 import DesktopPresence from './components/DesktopPresence'
+import DesktopClientReport from './components/DesktopClientReport'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import RequestList from './pages/RequestList'
@@ -12,6 +13,7 @@ import PostNew from './pages/PostNew'
 import Channels from './pages/Channels'
 import Messages from './pages/Messages'
 import Members from './pages/Members'
+import AdminDesktop from './pages/AdminDesktop'
 import RedirectToPortal from './pages/RedirectToPortal'
 
 export default function App() {
@@ -25,6 +27,9 @@ export default function App() {
         <DesktopNotifications />
         {/* 재실 자동 감지 — 위와 같은 이유로 일반 브라우저에서는 완전히 no-op */}
         <DesktopPresence />
+        {/* 설치 현황 보고 — 구버전(0.1.7 미만) 사용자를 찾아내기 위한 것이라
+            자동 업데이트가 없던 0.1.5도 잡히도록 version만 보고 판정한다 */}
+        <DesktopClientReport />
         <ErrorBoundary label="화면">
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -57,6 +62,8 @@ export default function App() {
           {/* 구성원 — 오른쪽 칸이 상세 영역이 되면서 명단을 별도 탭으로 옮겼다 */}
           <Route path="/members" element={<ProtectedRoute anyUser><Members /></ProtectedRoute>} />
           {/* 구 경로 — 관리자 업무 현황은 업무 요청 목록의 '전체'로 통합됐다 */}
+          {/* 데스크톱 설치 현황 — 배포·지원용이라 관리자만 본다 */}
+          <Route path="/admin/desktop" element={<ProtectedRoute adminOnly><AdminDesktop /></ProtectedRoute>} />
           <Route path="/admin" element={<Navigate to="/requests" replace />} />
 
           {/* 구 경로 — 이제 대시보드 위젯으로 통합됨 */}

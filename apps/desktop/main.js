@@ -4,7 +4,7 @@ const fs = require('node:fs')
 
 // 설치본에는 콘솔이 없어서 무슨 일이 일어났는지 볼 방법이 없다. 알림이 안 뜨거나
 // 클릭이 안 먹을 때 증상만 보고 추측하지 않도록 userData에 기록을 남긴다.
-// 경로: %APPDATA%\스마트교무실\desktop.log
+// 경로: %APPDATA%\smart-office-desktop\desktop.log  (앱 이름이 아니라 패키지 이름 기준)
 const LOG_MAX_BYTES = 512 * 1024
 let logPath = null
 
