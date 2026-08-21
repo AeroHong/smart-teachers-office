@@ -16,6 +16,9 @@
         ],
         "kiosk": [
           "smart-school-kiosk"
+        ],
+        "desktop-updates": [
+          "smart-school-updates"
         ]
       }
     }

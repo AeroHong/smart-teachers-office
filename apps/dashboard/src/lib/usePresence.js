@@ -3,9 +3,10 @@
  *
  * 위젯이던 것이 상단바 드롭다운으로 옮겨가면서, 화면과 분리해 훅으로 뺐다.
  *
- * 지금은 교사가 직접 고르는 수동 방식이다. 웹은 브라우저 밖의 활동을 감지할 수 없어서다.
- * 추후 데스크톱 클라이언트가 OS 유휴시간으로 같은 문서를 자동 갱신하면 source만
- * 'desktop'으로 바뀌고 이 화면은 그대로 둔다.
+ * 이 훅은 교사가 직접 고르는 수동 변경만 다룬다(source: 'manual'). 웹은 브라우저 밖의
+ * 활동을 감지할 수 없어서다. Electron 데스크톱 클라이언트는 별도 훅(useDesktopPresence.js)
+ * 이 OS 유휴시간으로 같은 문서를 source: 'desktop'으로 자동 갱신한다 — 이 화면은
+ * onSnapshot으로 그 결과를 그대로 받아 보여줄 뿐, 자동 갱신 로직과는 무관하다.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'

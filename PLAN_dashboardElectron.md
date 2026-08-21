@@ -495,6 +495,32 @@ Phase B (착수는 Phase A-2 완료 후):
 - 사용자가 직접 고른 '수업 중'은 자동 갱신이 덮어쓰지 않는다 (자동은 재실↔자리 비움만)
 - 상태가 바뀔 때만 쓰고, TTL이 만료되지 않도록 10분 간격 하트비트를 더한다
 
+### Phase B-3 진행 상황 (2026-08-21)
+
+설계 메모대로 구현. 메인은 판정만, 쓰기는 렌더러만 — 알림 파이프라인과 같은 원칙.
+
+- `apps/desktop/main.js` — `powerMonitor.getSystemIdleState(300)`(5분 임계값)를 1분마다
+  폴링 + `lock-screen`/`unlock-screen` 이벤트 즉시 반영. `active` 외(idle/locked/unknown)는
+  전부 자리 비움으로 판정. `did-finish-load`에서도 즉시 한 번 보내 렌더러가 다음 폴링까지
+  기다리지 않게 함
+- `apps/desktop/preload.js` — `onPresenceStatus(handler)` 추가(`onNavigate`와 같은 구독/해제 패턴)
+- `apps/dashboard/src/lib/useDesktopPresence.js` 신설 — `presence/{uid}` 문서를 `onSnapshot`으로
+  구독해 현재 `status`를 추적하고, `status === 'busy'`(수동 지정)면 자동 갱신을 건너뜀.
+  상태가 바뀌었거나 마지막 쓰기 후 10분이 지났을 때만 `setDoc(merge)`로 `source: 'desktop'`
+  기록. `useDesktopNotifications.js`와 같은 `window.smartOfficeDesktop` 마커 가드
+- `apps/dashboard/src/components/DesktopPresence.jsx` 신설, `App.jsx`에 `<DesktopNotifications />`
+  옆에 마운트
+- `apps/dashboard` 웹 배포 완료(`smart-school-dashboard.web.app`) — 데스크톱 마커 없는
+  일반 브라우저 사용자에게는 완전히 no-op이라 설치본 갱신 전에 먼저 배포해도 안전
+- `apps/desktop/package.json` 버전 0.1.5 → 0.1.6 (main.js/preload.js 변경 — 재설치 필요한
+  "껍데기" 변경)
+- **미완료**: `npm run build:desktop` 설치 파일 빌드가 학교 네트워크에서 막힘 — `electron`/
+  `nsis`는 8/11 빌드 때 로컬 캐시(`%LOCALAPPDATA%\electron-builder\Cache`)가 남아 있어
+  통과했지만, `winCodeSign`은 캐시에 없어 새로 받아야 하는데 "네트워크 주의" 절의 그
+  인증서 가로채기로 실패(`self-signed certificate in certificate chain`). 다른 네트워크에서
+  한 번 `npm run build:desktop`을 돌려 캐시를 채운 뒤 재시도 필요. 그 전까지는 설치본
+  실동작(유휴 → 자리 비움 전환, 잠금 즉시 반영, '수업 중' 보호) 미검증 상태
+
 ---
 
 ## 학사일정 — 구글 캘린더 연동 (2026-08-11 결정, 미착수)
@@ -530,7 +556,7 @@ Phase B (착수는 Phase A-2 완료 후):
 
 ---
 
-## 업데이트를 어떻게 전달할 것인가 (2026-08-11 논의, 미착수)
+## 업데이트를 어떻게 전달할 것인가 (2026-08-11 논의, 2026-08-21 껍데기 자동 업데이트 구조 구현)
 
 이 앱은 **껍데기(Electron)와 내용(웹 대시보드)이 분리**돼 있어 업데이트 성격이 둘로 갈린다.
 
@@ -555,10 +581,71 @@ Phase B (착수는 Phase A-2 완료 후):
       사용자에게도 똑같이 이롭다. **효과 대비 비용이 가장 낮아 먼저 한다**
 - [ ] **설치 현황 관리자 화면** — 앱이 자기 버전을 Firestore에 기록하면 누가 몇 버전을 쓰는지
       보인다. 자동 업데이트를 붙이기 전 단계로도 쓸모가 있다(기존 항목과 같은 작업)
-- [ ] **껍데기 자동 업데이트(`electron-updater`) + 코드 서명** — 전 교직원 배포 직전에.
-      업데이트 파일을 올려둘 곳(GitHub Releases 등)이 필요하고, 서명이 없으면 경고가 또 난다.
-      "1차에는 자동 업데이트 없음"이라는 기존 판단은 사용자가 한 명일 때만 유효하다 —
-      40명에게 "다시 깔아주세요"는 현실적으로 불가능하다
+- [x] **껍데기 자동 업데이트(`electron-updater`) 구조** (2026-08-21) — 구현 완료,
+      **설치본 실동작(실제 업데이트 감지→다운로드→설치) 미검증**. 아래 상세 참고.
+      코드 서명은 여전히 미정 — 서명 없이도 설치·업데이트 자체는 되지만, 매번 SmartScreen
+      경고를 볼 수 있다(전 교직원 배포 전 결정 필요, "다른 PC 검증" 항목과 연결됨)
+
+### `electron-updater` 구현 상세 (2026-08-21)
+
+**GitHub Releases 대신 Firebase Hosting 신규 사이트**(`smart-school-updates.web.app`,
+호스팅 타겟 `desktop-updates`)를 업데이트 배포처로 택했다. 학교 네트워크가 GitHub 릴리스
+CDN(`objects.githubusercontent.com`)을 자체 서명 인증서로 가로채는 것을 이 세션의
+`npm run build:desktop` 첫 시도에서 직접 겪었다(`winCodeSign` 다운로드 실패, 재시도했더니
+통과 — 간헐적 차단으로 보인다). 빌드 도구조차 이런데, 설치된 앱이 교사 PC에서 매번
+백그라운드로 GitHub CDN에 업데이트를 확인하러 가면 같은 차단을 상시 겪을 위험이 있다.
+Firebase `.web.app` 도메인은 대시보드·포털이 이미 이 네트워크에서 검증된 경로라 그 위험이
+없다. (참고로 저장소 origin이 이미 GitHub PAT를 포함한 URL이라 push 자체는 문제없이
+가능했다 — 그 자체가 별도로 짚어야 할 보안 이슈다.)
+
+**구성**
+- `firebase hosting:sites:create smart-school-updates` + `firebase target:apply hosting
+  desktop-updates smart-school-updates` — `.firebaserc`/`firebase.json`에 새 호스팅
+  타겟 추가(SPA 리라이트 없음, 정적 파일만, `Cache-Control: no-cache`로 `latest.yml`이
+  안 묵도록)
+- `apps/desktop/package.json` — `electron-updater` 런타임 의존성 추가,
+  `build.publish = { provider: 'generic', url: 'https://smart-school-updates.web.app/' }`,
+  `files`에 `node_modules/**` 추가(런타임 의존성이 처음 생겨서 필요 — electron-builder는
+  `dependencies`만 자동으로 골라 담고 `devDependencies`(electron 등)는 알아서 뺀다),
+  `release` 스크립트(`electron-builder && node scripts/copy-release.js`) 신설
+- `apps/desktop/scripts/copy-release.js` 신설 — generic provider는 업로드를 대신해주지
+  않으므로, `dist/`의 최신 버전 설치 exe·blockmap·`latest.yml`만(버전 문자열로 필터링 —
+  `dist/`가 이전 빌드 잔여물을 안 지우므로 다 긁으면 옛 파일까지 같이 올라간다) 리포지토리
+  루트 `desktop-updates/`로 복사. 이 디렉터리는 `.gitignore` 처리(설치 exe만 수십~백MB라
+  커밋하면 저장소가 영구히 불어난다 — portal/dashboard의 index.html과 달리 diff로 볼
+  이유도 없다)
+- 루트 `package.json`에 `release:desktop` 스크립트 — 위 복사 + `firebase deploy --only
+  hosting:desktop-updates`
+- `apps/desktop/main.js` — `setupAutoUpdater()`. `require('electron-updater')`를 모듈
+  최상단이 아니라 이 함수 안(= 설치본 + `whenReady` 이후에만 호출됨)으로 미뤘다 — require되는
+  순간 내부적으로 `electron.app`을 읽는 `NsisUpdater`를 바로 만들기 때문에, 최상단에 두면
+  dev 실행에서도 매번 그 과정을 탄다. 실패해도 try/catch로 흡수해 자동 업데이트만 꺼지고
+  창·트레이·알림·재실 등 기존 기능은 그대로 살아 있게 했다(이번에 처음 들어온 런타임
+  의존성이라 패키징 설정이 잘못될 위험이 상대적으로 큼).
+  - 시작 30초 후 1회 확인, 이후 4시간 간격
+  - `autoDownload: true`, `autoInstallOnAppQuit: true`
+  - 다운로드 완료 시 OS 토스트(`buildToastXml` 재사용) — 클릭하면 즉시
+    `autoUpdater.quitAndInstall()`. 트레이 상주라 자연스러운 완전 종료가 드물어 클릭
+    경로를 같이 뒀다
+  - 이 토스트도 `notify` IPC 핸들러와 같은 GC 함정이 있어(지역 변수만으로는 핸들러 반환 후
+    수거돼 클릭이 안 먹음) 모듈 스코프 변수(`updateNotification`)로 참조를 붙잡아 둔다
+
+**검증 상태 (2026-08-21, 실제 설치본으로 종단 검증 완료)**: v0.1.6 설치본이 이미 이 PC에서
+돌고 있는 상태에서 v0.1.7을 빌드·배포하고, 앱을 재시작하지 않고 그냥 둔 채(4시간 주기
+자동 확인이 자연스럽게 걸리도록) `desktop.log`를 지켜봤다.
+
+- 재실 감지(Phase B-3)도 같은 로그에서 함께 확인됨 — `available ↔ away`가 실제로
+  여러 시간에 걸쳐 정확히 오갔다(설치 후 4시간 동안 자연 발생한 이벤트, 인위적 테스트 아님)
+- `05:58:27` 자동 확인 → `Found version 0.1.7` → 다운로드 시작 → **차등(블록맵 diff)
+  다운로드 시도가 old blockmap 404로 실패 → "fallback to full download"로 자동 복구** →
+  25초 만에 전체 다운로드 완료 → `update-downloaded` 핸들러(`다운로드 완료: v0.1.7` 로그) 발화
+- 차등 다운로드가 실패한 원인은 버그가 아니라 `copy-release.js`가 매 배포마다 이전 버전
+  파일을 지웠기 때문(직전 버전 blockmap이 서버에 없어야 할 이유가 없었다) — **수정 완료**:
+  이제 최신 2개 버전(현재+직전)을 남겨, 다음 업데이트부터는 차등 다운로드가 정상 동작할
+  것으로 기대(수십~백MB 매번 전체 다운로드 대신 변경분만 — 전 교직원 규모에서 학교
+  네트워크 부하 차이가 큼). 재검증은 다음 버전 배포 때 자연히 확인됨
+- **미확인**: 실제 Windows 토스트가 화면에 떴는지, 클릭 시 `quitAndInstall()`로 재시작·
+  설치까지 이어지는지는 사용자 확인 대기 중(로그상 `n.show()`까지는 호출됨)
 
 ---
 
@@ -595,7 +682,8 @@ Phase B (착수는 Phase A-2 완료 후):
    - ~~1차: URL 로드 + 트레이 + 자동시작~~ — 완료·Windows 검증됨(2026-08-10)
    - ~~2차: Firestore 알림 파이프라인~~ — **완료·실동작 검증됨**(2026-08-10).
      쪽지 알림 수신 → 클릭 → 창 복원 → 해당 쪽지 열림까지 확인. `npm run dist` 검증 완료
-   - 3차: 재실 자동 감지(`powerMonitor`) — 미착수. 아래 "재실 자동 감지 설계 메모" 참고
+   - 3차: 재실 자동 감지(`powerMonitor`) — **코드 구현·웹 배포 완료(2026-08-21), 설치본
+     실동작 검증 대기.** 아래 "Phase B-3 진행 상황" 참고
 5. 설치 현황 관리자 화면 (Phase B와 함께)
 6. **학사일정 — 구글 캘린더 읽기 전용 동기화 + 홈 화면 달력** (위 절 참고)
 7. **쪽지 → 업무 요청 전환** (위 절 참고)

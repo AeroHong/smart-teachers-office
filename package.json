@@ -18,7 +18,8 @@
     "deploy:kiosk": "npm run build:kiosk && firebase deploy --only hosting:kiosk",
     "preview:kiosk": "vite preview --config apps/kiosk/vite.config.js",
     "dev:desktop": "npm --prefix apps/desktop run dev",
-    "build:desktop": "npm --prefix apps/desktop run dist"
+    "build:desktop": "npm --prefix apps/desktop run dist",
+    "release:desktop": "npm --prefix apps/desktop run release && firebase deploy --only hosting:desktop-updates"
   },
   "dependencies": {
     "@emotion/react": "^11.11.0",
