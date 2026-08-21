@@ -93,8 +93,7 @@ v3.0에서 멀티테넌트 구조로 전환하여 학교별 데이터가 완전�
 ├── Firebase Firestore         — 멀티테넌트 실시간 DB (/schools/{schoolId}/...)
 ├── Firebase Hosting           — SPA 배포 (https://seonyoo-system.web.app)
 └── Firebase Cloud Functions
-    ├── autoCloseAttendance    — 매일 자정: 미출석 자동 기록
-    └── autoManageLiveSessions — 1분 주기: QR 자동 마감 · 세션 관리
+    └── autoManageLiveSessions — KST 06~22시 1분 주기: QR 자동 마감 · 세션 관리
 ```
 
 ### Firestore 컬렉션

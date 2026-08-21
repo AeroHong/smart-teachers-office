@@ -4,6 +4,7 @@ import ToastProvider from './components/ToastProvider'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import DesktopNotifications from './components/DesktopNotifications'
+import DesktopPresence from './components/DesktopPresence'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import RequestList from './pages/RequestList'
@@ -22,6 +23,8 @@ export default function App() {
         <CommandPalette />
         {/* Electron 트레이 알림 — window.smartOfficeDesktop 없으면 완전히 no-op */}
         <DesktopNotifications />
+        {/* 재실 자동 감지 — 위와 같은 이유로 일반 브라우저에서는 완전히 no-op */}
+        <DesktopPresence />
         <ErrorBoundary label="화면">
         <Routes>
           <Route path="/login" element={<Login />} />

@@ -7,9 +7,11 @@
  *   lastActiveAt: timestamp | null // desktop 클라이언트만 기록
  *   updatedAt: timestamp
  *
- * 웹만으로는 브라우저 밖(다른 프로그램)의 입력을 감지할 수 없어 자동 판정이 불가능하다.
- * 지금은 교사가 직접 고르는 수동 방식이고, 추후 Electron 데스크톱 클라이언트가
- * powerMonitor.getSystemIdleTime()으로 같은 문서를 자동 갱신하도록 설계했다.
+ * 웹만으로는 브라우저 밖(다른 프로그램)의 입력을 감지할 수 없다. 기본은 교사가 직접
+ * 고르는 수동 방식이고, Electron 데스크톱 클라이언트가 설치돼 있으면 OS 유휴시간·화면
+ * 잠금으로 이 문서를 자동 갱신한다(apps/dashboard/src/lib/useDesktopPresence.js). 단
+ * 사람이 직접 고른 '수업 중'(busy)은 자동 갱신이 덮어쓰지 않는다 — 자동은 재실↔자리
+ * 비움만 오간다.
  */
 
 // 마지막 갱신이 이만큼 지나면 신뢰하지 않는다 (퇴근 후 '재실'로 남는 것 방지)

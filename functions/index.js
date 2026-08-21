@@ -66,151 +66,14 @@ exports.bootstrapSuperAdmin = onCall(
   }
 )
 
-/**
- * 5분마다 실행 — 종료 시간이 지난 이벤트의 미출석 학생을 자동 결석 처리
- *
- * 처리 조건:
- *  - 단일 이벤트: endTime 경과
- *  - 반복 이벤트: 오늘이 반복 요일 + 오늘 recurringTimeEnd 경과 + recurringEndDate 이내
- *
- * 중복 방지: attendLogId / absentLogId 가 이미 존재하면 skip
- * liveOpenedAt 이 설정된 이벤트는 autoManageLiveSessions 에서 처리하므로 skip
- */
-exports.autoCloseAttendance = onSchedule(
-  { schedule: 'every 5 minutes', region: 'asia-northeast3' },
-  async () => {
-    const db = getFirestore()
-    const now = new Date()
-    const todayStr = now.toISOString().slice(0, 10)   // "2026-04-08"
-    const todayDay = now.getDay()                      // 0=일 ... 6=토
-
-    const schoolsSnap = await db.collection('schools').get()
-
-    for (const schoolDoc of schoolsSnap.docs) {
-      const schoolId = schoolDoc.id
-      const eventsSnap = await db
-        .collection('schools').doc(schoolId)
-        .collection('events').get()
-
-      for (const eventDoc of eventsSnap.docs) {
-        const ev = eventDoc.data()
-
-        // 보관함 이벤트 / 그룹 없는 이벤트 제외
-        if (ev.archived) continue
-        if (!ev.studentGroupId) continue
-
-        // 라이브 세션이 열린 이벤트는 autoManageLiveSessions 에서 처리
-        if (ev.liveOpenedAt) continue
-
-        // ── 종료 여부 판단 ──────────────────────────────────────
-        let isEnded = false
-        let logDatePrefix = null   // 반복 이벤트는 날짜 prefix 사용
-
-        if (ev.isRecurring) {
-          // 오늘이 반복 요일인지
-          if (!ev.recurringDays?.includes(todayDay)) continue
-
-          // 반복 종료일 지났는지
-          const recurEnd = ev.recurringEndDate?.toDate?.() ?? new Date(ev.recurringEndDate)
-          if (now > recurEnd) continue
-
-          // 오늘 종료 시간 지났는지
-          const [endH, endM] = ev.recurringTimeEnd.split(':').map(Number)
-          const todayEnd = new Date(now)
-          todayEnd.setHours(endH, endM, 0, 0)
-
-          if (now > todayEnd) {
-            isEnded = true
-            logDatePrefix = todayStr
-          }
-        } else {
-          const end = ev.endTime?.toDate?.() ?? new Date(ev.endTime)
-          if (now > end) isEnded = true
-        }
-
-        if (!isEnded) continue
-
-        // ── 학생 그룹 로드 ─────────────────────────────────────
-        const groupDoc = await db
-          .collection('schools').doc(schoolId)
-          .collection('studentGroups').doc(ev.studentGroupId).get()
-        if (!groupDoc.exists) continue
-
-        const groupData = groupDoc.data()
-        // 새 구조(workspaceUserIds) 우선, 구 구조(studentIds) 하위 호환
-        const workspaceUserIds = groupData.workspaceUserIds || groupData.studentIds || []
-        if (!workspaceUserIds.length) continue
-
-        // ── 기존 출결 로그 조회 ────────────────────────────────
-        const logsSnap = await db
-          .collection('schools').doc(schoolId)
-          .collection('events').doc(eventDoc.id)
-          .collection('attendanceLogs').get()
-        const existingIds = new Set(logsSnap.docs.map(d => d.id))
-
-        // ── 학생 정보 맵 (workspaceUserId → student data) ──────
-        const studentsSnap = await db
-          .collection('schools').doc(schoolId)
-          .collection('students').get()
-        const studentsMap = {}
-        studentsSnap.docs.forEach(d => {
-          // 문서 ID = workspaceUserId (새 구조) 또는 studentId (구 구조)
-          studentsMap[d.id] = d.data()
-        })
-
-        // ── 미출석자 일괄 결석 처리 ────────────────────────────
-        const batch = db.batch()
-        let count = 0
-
-        for (const wId of workspaceUserIds) {
-          const student = studentsMap[wId]
-          if (!student) continue
-
-          // 로그 ID는 studentId 사용 (UI 호환성)
-          const studentId = student.studentId
-          const attendLogId = logDatePrefix
-            ? `${logDatePrefix}-${studentId}`
-            : studentId
-          const absentLogId = logDatePrefix
-            ? `${logDatePrefix}-${studentId}-absent`
-            : `${studentId}-absent`
-
-          // 이미 출석 or 결석 로그가 있으면 skip
-          if (existingIds.has(attendLogId) || existingIds.has(absentLogId)) continue
-
-          const ref = db
-            .collection('schools').doc(schoolId)
-            .collection('events').doc(eventDoc.id)
-            .collection('attendanceLogs').doc(absentLogId)
-
-          batch.set(ref, {
-            studentId,
-            studentName: student.name,
-            grade: student.grade,
-            class: student.class,
-            number: student.number,
-            method: 'absent',
-            reason: '미출석 자동처리',
-            recordedAt: Timestamp.now(),
-            qrToken: ev.qrToken,
-          })
-          count++
-        }
-
-        if (count > 0) {
-          await batch.commit()
-          console.log(
-            `[${schoolId}] 자동결석 ${count}명 처리 — 이벤트: ${eventDoc.id}` +
-            (logDatePrefix ? ` (${logDatePrefix})` : '')
-          )
-        }
-      }
-    }
-  }
-)
+// Functions 런타임은 UTC로 동작한다. toISOString()을 그대로 쓰면 KST 00~09시에
+// 날짜가 하루 밀리므로(예: KST 8/20 07:00 → UTC 8/19), 항상 이 함수로 KST 날짜를 얻는다.
+function kstDateStr(date = new Date()) {
+  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
 
 /**
- * 1분마다 실행 — 라이브 세션 자동 관리
+ * 라이브 세션 자동 관리 — KST 06:00~21:59, 1분 주기
  *
  * liveLateCutoff 도달 시:
  *   - liveToken null (QR 마감)
@@ -220,48 +83,60 @@ exports.autoCloseAttendance = onSchedule(
  * liveClosesAt 도달 시:
  *   - 미복귀 외출 자동 마감 (returnAt 기록, 1/3 초과 시 outingOverLimit 기록)
  *   - 세션 필드 전체 초기화 (liveToken, liveOpenedAt, liveLateCutoff, liveClosesAt, lateWindowProcessed)
+ *
+ * 조회 대상은 collectionGroup + liveOpenedAt 필터로 좁힌다. 예전에는 schools → events
+ * 전체를 순회하며 JS에서 걸러냈는데, 진행 중인 세션이 하나도 없는 시간대에도 매분
+ * 모든 이벤트를 읽어 Firestore 무료 할당량(읽기 5만/일)을 하루 종일 소모했다.
+ * 필터를 쿼리로 내리면 세션이 없는 동안 읽기가 0건이다.
+ *
+ * 22시 이후 수동으로 연 세션은 교사가 "출석 마감"으로 닫고, 닫지 않은 채 남으면
+ * 다음 날 06:00 첫 실행의 "전날 세션 강제 초기화"가 정리한다.
  */
 exports.autoManageLiveSessions = onSchedule(
-  { schedule: 'every 1 minutes', region: 'asia-northeast3' },
+  {
+    schedule: '*/1 6-21 * * *',
+    timeZone: 'Asia/Seoul',
+    region: 'asia-northeast3',
+  },
   async () => {
     const db = getFirestore()
     const now = new Date()
-    const todayStr = now.toISOString().slice(0, 10)
+    const todayStr = kstDateStr(now)
 
-    const schoolsSnap = await db.collection('schools').get()
+    // liveOpenedAt이 Timestamp인 문서만 매칭된다.
+    // 세션 종료 시 null로 덮어쓰므로(processSessionClose) 닫힌 세션은 자동 제외된다.
+    const activeSnap = await db.collectionGroup('events')
+      .where('liveOpenedAt', '>', new Date(0))
+      .get()
 
-    for (const schoolDoc of schoolsSnap.docs) {
-      const schoolId = schoolDoc.id
-      const eventsSnap = await db
-        .collection('schools').doc(schoolId)
-        .collection('events').get()
+    for (const eventDoc of activeSnap.docs) {
+      const ev = eventDoc.data()
+      if (ev.archived) continue
 
-      for (const eventDoc of eventsSnap.docs) {
-        const ev = eventDoc.data()
-        if (ev.archived || !ev.liveOpenedAt) continue
+      // /schools/{schoolId}/events/{eventId} → 상위 학교 문서 ID
+      const schoolId = eventDoc.ref.parent.parent.id
 
-        const liveLateCutoff = ev.liveLateCutoff?.toDate?.()
-        const liveClosesAt = ev.liveClosesAt?.toDate?.()
+      const liveLateCutoff = ev.liveLateCutoff?.toDate?.()
+      const liveClosesAt = ev.liveClosesAt?.toDate?.()
 
-        // 전날(또는 그 이전) 세션이 남아있으면 즉시 강제 초기화
-        // (Cloud Function 오류 등으로 processSessionClose가 실행되지 못한 경우)
-        const openedAt = ev.liveOpenedAt?.toDate?.() ?? new Date(ev.liveOpenedAt)
-        const openedDateStr = openedAt.toISOString().slice(0, 10)
-        if (openedDateStr < todayStr) {
-          console.log(`[${schoolId}] 전날 세션 강제 초기화 — 이벤트: ${eventDoc.id} (세션 날짜: ${openedDateStr})`)
-          await processSessionClose(db, schoolId, eventDoc.id, ev)
-          continue
-        }
+      // 전날(또는 그 이전) 세션이 남아있으면 즉시 강제 초기화
+      // (Cloud Function 오류 등으로 processSessionClose가 실행되지 못한 경우)
+      const openedAt = ev.liveOpenedAt?.toDate?.() ?? new Date(ev.liveOpenedAt)
+      const openedDateStr = kstDateStr(openedAt)
+      if (openedDateStr < todayStr) {
+        console.log(`[${schoolId}] 전날 세션 강제 초기화 — 이벤트: ${eventDoc.id} (세션 날짜: ${openedDateStr})`)
+        await processSessionClose(db, schoolId, eventDoc.id, ev)
+        continue
+      }
 
-        // 1/3 지점 자동 처리 (미처리 + 시간 경과)
-        if (!ev.lateWindowProcessed && liveLateCutoff && now >= liveLateCutoff) {
-          await processLateCutoff(db, schoolId, eventDoc.id, ev)
-        }
+      // 1/3 지점 자동 처리 (미처리 + 시간 경과)
+      if (!ev.lateWindowProcessed && liveLateCutoff && now >= liveLateCutoff) {
+        await processLateCutoff(db, schoolId, eventDoc.id, ev)
+      }
 
-        // 수업 종료 처리
-        if (liveClosesAt && now >= liveClosesAt) {
-          await processSessionClose(db, schoolId, eventDoc.id, ev)
-        }
+      // 수업 종료 처리
+      if (liveClosesAt && now >= liveClosesAt) {
+        await processSessionClose(db, schoolId, eventDoc.id, ev)
       }
     }
   }
@@ -307,8 +182,8 @@ async function processLateCutoff(db, schoolId, eventId, ev) {
     studentsMap[d.id] = d.data()
   })
 
-  // 반복 이벤트는 오늘 날짜 prefix 사용
-  const todayStr = new Date().toISOString().slice(0, 10)
+  // 반복 이벤트는 오늘 날짜 prefix 사용 (클라이언트와 동일하게 KST 기준)
+  const todayStr = kstDateStr()
   const isRecurring = ev.isRecurring || false
 
   const batch = db.batch()

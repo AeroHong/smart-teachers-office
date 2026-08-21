@@ -366,7 +366,7 @@ service cloud.firestore {
       }
 
       // 교사 재실 상태 — 본인만 쓰고, 소속 교사와 키오스크(자리 표시용)가 읽는다.
-      // 추후 Electron 데스크톱 클라이언트도 본인 문서를 자동 갱신한다.
+      // Electron 데스크톱 클라이언트도 같은 규칙으로 본인 문서를 자동 갱신한다(source: 'desktop').
       match /presence/{uid} {
         allow read: if isSuperAdmin() || isTeacher(schoolId) || isKioskDevice(schoolId);
         allow write: if isSuperAdmin() ||

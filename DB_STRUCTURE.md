@@ -1012,8 +1012,9 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 
 ### `functions/index.js` (진입점 — 대부분 재export)
 - **bootstrapSuperAdmin** (onCall) - 최초 슈퍼 어드민 Custom Claim 부여
-- **autoCloseAttendance** (onSchedule) - 조회형 이벤트 자동 마감 + 미체크인 결석 처리
-- **autoManageLiveSessions** (onSchedule) - 라이브 세션 지각 마감(`liveToken: null`) 및 세션 종료 시 필드 초기화
+- **autoManageLiveSessions** (onSchedule) - 라이브 세션 지각 마감(`liveToken: null`) 및 세션 종료 시 필드 초기화.
+  KST 06:00~21:59 1분 주기이며, `collectionGroup('events')` + `liveOpenedAt` 필터로 진행 중인 세션만 읽는다
+  (전체 스캔 시 읽기 할당량 소진 — 2026-08-20)
 - **generateAsaChecklistPdf** (onCall) - 성취평가제 체크리스트 PDF 생성 (Puppeteer, 1GiB)
 - **parseEvaluationPlan** (onCall) - 업로드한 hwpx 계획서에서 반영비율·성적산출방법 표 추출
   (`functions/evaluationPlanParser.js`)

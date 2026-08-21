@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, session, Notification } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, session, Notification, powerMonitor } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 
@@ -83,6 +83,100 @@ ${lines}
 let mainWindow = null
 let tray = null
 app.isQuitting = false
+// 업데이트 준비 알림의 참조. 지역 변수로만 두면 핸들러가 반환된 뒤 GC 대상이 되어
+// 토스트는 떠 있는데 클릭이 씹힌다 — notify IPC 핸들러(liveNotifications)에서 이미
+// 확인된 문제라 여기도 같은 방식으로 붙잡아 둔다.
+let updateNotification = null
+
+// 재실 자동 감지 — OS 유휴시간·화면 잠금을 판정해 렌더러(웹 대시보드)에 IPC로 알려준다.
+// Firestore 쓰기는 메인이 아니라 렌더러가 한다(useDesktopPresence.js) — 메인 프로세스는
+// 로그인 세션이 없어 직접 쓸 수 없다(알림 파이프라인의 notify 핸들러와 같은 이유).
+// 임계값 5분은 자동은 '재실'↔'자리 비움'만 오가게 하는 설계(수업 중은 사람이 직접 고른다)에서
+// 너무 짧으면 자리에 앉아 화면만 보는 중에도 깜빡여 신뢰를 잃는다.
+const PRESENCE_IDLE_THRESHOLD_SEC = 5 * 60
+const PRESENCE_POLL_INTERVAL_MS = 60 * 1000
+let lastPresenceStatus = null
+
+function broadcastPresence() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const idleState = powerMonitor.getSystemIdleState(PRESENCE_IDLE_THRESHOLD_SEC)
+  // 'active' 외(idle/locked/unknown)는 전부 자리 비움으로 취급 — 알 수 없으면 있다고
+  // 우기지 않는 쪽이 안전하다.
+  const status = idleState === 'active' ? 'available' : 'away'
+  if (status !== lastPresenceStatus) {
+    log(`재실 상태 변경: ${lastPresenceStatus || '(초기)'} → ${status} (idleState=${idleState})`)
+    lastPresenceStatus = status
+  }
+  mainWindow.webContents.send('presence-status', { status })
+}
+
+// 자동 업데이트 — "껍데기"(main.js/preload.js) 변경은 웹과 달리 재설치해야 반영되는데,
+// 교사 수십 명에게 "다시 깔아주세요"는 현실적으로 불가능하다. GitHub Releases 대신
+// Firebase Hosting(desktop-updates 타겟, apps/desktop/scripts/copy-release.js가 올림)을
+// 쓴다 — 학교 네트워크가 GitHub 릴리스 CDN(objects.githubusercontent.com)을 자체 서명
+// 인증서로 가로채는 것을 이미 빌드 단계에서 확인했고, 같은 차단이 설치된 앱의 백그라운드
+// 업데이트 확인에서도 재현되면 정작 필요한 순간에 조용히 실패한다. Firebase 도메인은
+// 대시보드·포털이 이미 이 네트워크에서 검증된 경로다.
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
+// 코드 서명 여부는 아직 미정이다(PLAN_dashboardElectron.md 참고) — 미서명이어도 설치는
+// 되므로 구조부터 만든다. 다만 실제 자동 설치(quitAndInstall)는 서명 없이 어떻게
+// 동작하는지 이 세션에서는 검증하지 못했다(빌드 자체가 네트워크로 막힘).
+function setupAutoUpdater() {
+  // require를 여기(실제 packaged 실행 + whenReady 이후)까지 미룬다. electron-updater는
+  // require되는 순간 내부적으로 NsisUpdater를 만들며 electron.app을 바로 읽으므로,
+  // 모듈 최상단에서 미리 불러두면 dev 실행에서도 매번 그 과정을 타게 된다.
+  // 이번에 새로 들어온 런타임 의존성이라 패키징 설정(files의 node_modules/** 포함 여부)이
+  // 잘못돼도 창·트레이·알림 등 기존에 검증된 기능은 그대로 살아 있어야 한다 — 그래서
+  // 실패를 여기서 흡수하고 자동 업데이트만 조용히 꺼진다.
+  let autoUpdater
+  try {
+    ;({ autoUpdater } = require('electron-updater'))
+  } catch (err) {
+    log('[updater] electron-updater 로드 실패 — 자동 업데이트 비활성화:', err?.message || String(err))
+    return
+  }
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  // 설치본은 콘솔이 없다 — 알림·재실과 같은 이유로 파일 로그를 남긴다.
+  autoUpdater.logger = {
+    info: (msg) => log('[updater]', msg),
+    warn: (msg) => log('[updater] warn:', msg),
+    error: (msg) => log('[updater] error:', msg),
+  }
+
+  autoUpdater.on('error', (err) => log('[updater] 오류:', err?.message || String(err)))
+  autoUpdater.on('update-available', (info) => log(`[updater] 새 버전 발견: v${info.version}`))
+  autoUpdater.on('update-downloaded', (info) => {
+    log(`[updater] 다운로드 완료: v${info.version}`)
+    if (!Notification.isSupported()) return
+    // 트레이 상주 앱이라 완전 종료(autoInstallOnAppQuit이 실행될 시점)가 드물다 —
+    // 알림을 눌러 바로 재시작·적용하는 경로를 함께 준다.
+    const n = new Notification({
+      title: '업데이트 준비됨',
+      toastXml: buildToastXml({
+        title: '업데이트 준비됨',
+        body: `v${info.version} · 클릭하면 지금 다시 시작해 적용합니다`,
+        category: '업데이트',
+        actionLabel: '지금 재시작',
+      }),
+    })
+    updateNotification = n
+    n.on('click', () => {
+      log('[updater] 알림 클릭 → 재시작 후 설치')
+      app.isQuitting = true
+      autoUpdater.quitAndInstall()
+    })
+    n.show()
+  })
+
+  const checkForUpdates = () => {
+    autoUpdater.checkForUpdates().catch((err) => log('[updater] 확인 실패:', err?.message || String(err)))
+  }
+  // 시작 직후엔 창 로드·트레이 생성이 우선이라 30초 늦춘다.
+  setTimeout(checkForUpdates, 30 * 1000)
+  setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS)
+}
 
 // Windows 토스트 알림은 AppUserModelID로 앱을 식별한다. package.json의 appId와 같은
 // 값이어야 NSIS가 만드는 시작 메뉴 바로가기의 AUMID와 일치한다.
@@ -206,6 +300,19 @@ if (!gotLock) {
     } catch (err) {
       console.error('[main] 트레이 생성 실패 — 닫기가 종료로 동작한다:', err)
     }
+
+    // 페이지가 (재)로드될 때마다 렌더러의 재실 훅이 새로 마운트되므로, 다음 1분 폴링을
+    // 기다리지 않고 현재 상태를 바로 알려준다.
+    mainWindow.webContents.on('did-finish-load', broadcastPresence)
+    setInterval(broadcastPresence, PRESENCE_POLL_INTERVAL_MS)
+    // 잠금/해제는 폴링(최대 1분 지연)보다 먼저 즉시 반영한다 — 자리를 뜨며 잠그는 동작은
+    // 유휴시간보다 확실한 신호다.
+    powerMonitor.on('lock-screen', broadcastPresence)
+    powerMonitor.on('unlock-screen', broadcastPresence)
+
+    // dev 실행(electron.exe 직접)에서는 app-update.yml이 없어 electron-updater가 곧바로
+    // 에러를 낸다 — 설치본에서만 켠다.
+    if (app.isPackaged) setupAutoUpdater()
   }).catch((err) => {
     // 여기서 던진 예외는 기본적으로 삼켜져 "창이 안 뜨는데 에러도 없는" 상태가 된다.
     console.error('[main] 초기화 실패:', err)

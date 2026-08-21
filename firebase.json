@@ -120,6 +120,19 @@
           "destination": "/index.html"
         }
       ]
+    },
+    {
+      "target": "desktop-updates",
+      "public": "desktop-updates",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "headers": [
+        {
+          "source": "/**",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-cache, max-age=0" }
+          ]
+        }
+      ]
     }
   ],
   "firestore": {

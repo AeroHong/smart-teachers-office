@@ -36,4 +36,13 @@ contextBridge.exposeInMainWorld('smartOfficeDesktop', {
     ipcRenderer.on('navigate', listener)
     return () => ipcRenderer.removeListener('navigate', listener)
   },
+
+  // 재실 자동 감지. 메인이 OS 유휴시간·화면 잠금으로 판정한 상태('available'|'away')를
+  // 약 1분 간격(+ 잠금/해제 즉시)으로 보낸다. Firestore 쓰기는 렌더러가 한다
+  // (useDesktopPresence.js) — 메인에는 로그인 세션이 없다.
+  onPresenceStatus: (handler) => {
+    const listener = (_event, payload) => handler(payload)
+    ipcRenderer.on('presence-status', listener)
+    return () => ipcRenderer.removeListener('presence-status', listener)
+  },
 })
