@@ -1,7 +1,66 @@
 # 선유고 스마트 교무실 - 데이터베이스 구조
 
 > **작성 원칙**: 이 문서의 필드명·타입은 실제 read/write 코드에서 확인한 값만 적는다.
-> 코드에서 확인하지 못한 항목은 `확인 필요`로 표시한다. (최종 대조: 2026-07-31)
+> 코드에서 확인하지 못한 항목은 `확인 필요`로 표시한다. (최종 대조: 2026-08-19)
+
+## 한눈에 보는 구조
+
+```
+/users/{uid}                     ← 계정. schoolId·role의 단일 소스(source of truth)
+/studentRegistrations/{email}    ← 학생 자동 등록 색인
+/schoolDomains/{domain}          ← 도메인 → 학교 매핑
+/kioskPairingCodes/{code}        ← 키오스크 페어링 (Admin SDK 전용)
+/auditLogs/{logId}
+
+/schools/{schoolId}              ← 모든 학교 데이터는 이 아래로 파티션된다
+  ├─ 구성원   students · archivedStudents · studentGroups · preApproved · presence
+  ├─ 배정     teacherAssignments · teacherSubjects · officeLayouts   (학년도 스코프)
+  ├─ 교육과정 subjects (입학년도 스코프) · courses
+  ├─ 출결     events/{id}/attendanceLogs · notices/{id}/confirmations
+  ├─ 보강     coverRequests
+  ├─ 연수     trainings/{id}/signatures · trainingPresets
+  ├─ 호출     callRequests
+  ├─ 업무     requests/{id}/{completions,comments} · channels · personalNotices
+  ├─ 대시보드 academicCalendar · dashboardModules
+  ├─ 성취평가 asaSubjects · asaSubmissions · asaResults · asaCutoffs ·
+  │           asaNeisImports · asaPrincipalSignature · minAchievementResults
+  └─ 평가계획 evaluationPlans · evaluationPlanManagers
+```
+
+**설계 원칙 3가지**
+1. **학교 파티션** — 학교 스코프 데이터는 예외 없이 `/schools/{schoolId}/...` 아래에 둔다.
+   모듈이 늘어도 경로 패턴과 보안 규칙 헬퍼(`isTeacher(schoolId)` 등)를 그대로 재사용한다.
+2. **계정은 최상위** — `/users/{uid}`만 학교 밖에 둔다. 로그인 시점에는 아직 소속이 없고,
+   `schoolId`·`role`이 여기 한 곳에만 있어야 모든 모듈이 같은 값을 본다.
+3. **경로·문서 ID는 코드로 강제** — `apps/shared/lib/schema.js`가 컬렉션 이름과 문서 ID
+   규칙의 단일 소스다. 문자열 조합을 금지한다(밑줄 개수 차이로 데이터가 사라져 보였던 사례).
+
+---
+
+## 이대부고 컨설팅(2026-07-07) 이후 DB 구조 변경 이력
+
+컨설팅 기록: [docs/컨설팅기록_이대부고_20260707.md](./docs/컨설팅기록_이대부고_20260707.md)
+
+| 날짜 | 커밋 | 변경 내용 |
+|------|------|-----------|
+| 07-30 | `d719495` | **Phase 1A — students 문서 ID 마이그레이션**: 5자리 학번 → 21자리 Workspace User ID. `studentGroups`에 `workspaceUserIds` 추가(하위호환 `studentIds` 유지). 백업: `_migrated_students_backup` |
+| 07-30 | `fa13502` | Google Workspace Directory 동기화 도입 → `preApproved`·`students`·`archivedStudents`에 `source: 'workspaceSync'` 계보 필드 추가 |
+| 07-30~31 | `4072c27`, `87ecc09` | 대시보드 신설 — `academicCalendar`, `dashboardModules`, `personalNotices` 추가 |
+| 07-31 | `d66dedb`, `36b244e` | **업무 요청 데이터 모델** — `requests` + 하위 `completions` 신설. 기존 `tasks` 컬렉션 폐지(규칙·코드에서 제거) |
+| 07-31 | `c831ea3` | **스키마 규칙 모듈화** — `apps/shared/lib/schema.js` 도입. `teacherSubjects` ↔ `subjects` `subjectId` 참조 연결, `asaSubjects` 담당교사를 이메일 → uid 기준으로 전환 |
+| 07-31 | `e4289cf` | `subjects` 스코프를 학년도(`year`)가 아닌 **입학년도(`entryYear`)** 로 확정. `students.electiveSubjects`를 문자열 배열 → `{subjectId, subjectName, classNo, semester}` 객체 배열로 확장 |
+| 08-01 | `e85a39a` | 전체 공지를 업무 글로 통합 — 별도 공지 컬렉션 없이 `requests.kind: 'notice'` 로 표현 |
+| 08-01 | `88d03dd` | **Custom Claims에 `schoolId`/`staff`/`admin` 주입**(`functions/userClaims.js`). Storage 규칙이 Firestore를 읽지 않고 토큰만 보도록 변경 |
+| 08-02 | `c4b51e4`, `6e3a97e` | `channels` 신설(`requests.channelId`로 연결), `requests/{id}/comments` 하위 컬렉션 추가 |
+| 08-02 | `d9b1aad` | 글 삭제를 Cloud Function(`deletePostDeep`)으로 이관 — 하위 컬렉션·Storage 첨부까지 정리 |
+| 08-10 | `ed7918c` | 키오스크 학번 조회를 문서 ID가 아닌 `studentId` 필드 기준으로 수정 (Phase 1A 마이그레이션 후속) |
+| 08-11 | `87042b4` | 쪽지 삭제를 문서 삭제가 아닌 각자 숨김(`deletedBySenderAt`/`deletedByRecipientAt`)으로 |
+| 08-14 | `9f2d60e` | `students` 읽기 규칙을 문서 ID 비교 → `resource.data.studentId` 비교로 수정 (마이그레이션 후속) |
+| 08-18 | `58d6f69` | **교수학습 및 평가 운영 계획** — `evaluationPlans`, `evaluationPlanManagers` 신설 + 확정 시 `teacherAssignments`/`teacherSubjects` 자동 반영 트리거 |
+
+> 관통하는 방향: **① 사람을 가리키는 키를 이름·학번 같은 표시값에서 불변 ID(uid, Workspace User ID)로 옮기고,
+> ② 경로·문서 ID 규칙을 코드 한 곳(`schema.js`)으로 모으고, ③ 새 모듈은 컬렉션을 늘리기 전에
+> 기존 구조(`requests`의 `kind`, `channels`의 이름표)로 표현할 수 있는지 먼저 본다.**
 
 ## Firestore 컬렉션 전체 구조
 
@@ -158,7 +217,13 @@
 - `emailHistory` (array<{ email, year }>) - 진급으로 이메일이 바뀐 이력
 - `source` (string) - `workspaceSync` (동기화가 만든 문서만 아카이브 대상)
 - `nameEditedManually` (boolean, 선택) - true면 동기화가 이름을 덮어쓰지 않음
-- `electiveSubjects` (array<string>) - 선택과목 **이름 문자열 배열** (subjects 문서 ID 참조가 아님)
+- `electiveSubjects` (array<object>) - 선택과목. **2026-07-31부터 객체 배열**
+  (표준형은 `apps/shared/lib/subjectData.js`의 `normalizeElective()`가 정의한다)
+  - `subjectId` (string) - `subjects` 문서 ID. 매칭 실패 시 `''`
+  - `subjectName` (string), `classNo` (string) - 분반, `semester` (1|2)
+  - 구형 데이터(문자열 배열)도 읽는 쪽에서
+    `{subjectId:'', subjectName, classNo:'', semester:1}`로 자동 변환된다.
+    2·3학년은 과목마다 분반이 달라 이름만으로는 명단을 만들 수 없어 확장했다.
 - `electiveSubjectsUpdatedAt` (timestamp)
 - `createdAt`, `updatedAt` (timestamp)
 
@@ -563,38 +628,262 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 
 ---
 
-#### `/schools/{schoolId}/tasks/{taskId}`
-업무 관리
-
-**필드:** (쓰기: `apps/dashboard/src/components/TaskModal.jsx:56`, `MyTasksWidget.jsx:48`)
-- `title` (string), `description` (string | null)
-- `createdBy` (string), `createdByName` (string)
-- `assignees` (array<string>) - 담당자 UID
-- `assigneeNames` (array<string>) - 담당자 이름 스냅샷
-- `dueDate` (Date)
-- `priority` (string | null)
-- `status` (string) - `진행중` 등 (한글)
-- `visibility` (string) - `전체공개` / `담당자만`
-- `sourceModule` (string | null) - 다른 모듈에서 생성된 업무 표시용 (현재 항상 null)
-- `createdAt`, `updatedAt` (timestamp)
-
-**접근 권한:**
-- Read: 슈퍼 어드민, 학교 관리자, 전체공개 또는 생성자/담당자
-- Create: 슈퍼 어드민, 학교 관리자, 소속 교사 (본인 생성)
-- Update: 슈퍼 어드민, 학교 관리자, 생성자, 담당자
-- Delete: 슈퍼 어드민, 학교 관리자
+#### `/schools/{schoolId}/tasks/{taskId}` — **폐지됨**
+업무 관리 시험판. `36b244e`(2026-07-31)에서 `requests`로 대체되며 코드·firestore.rules
+양쪽에서 제거됐다. 남아 있는 문서가 있다면 규칙이 없어 클라이언트에서 접근되지 않는다.
 
 ---
 
-#### 성취평가제(ASA) 관련 컬렉션
+### 업무 · 소통 컬렉션 (대시보드 앱)
 
-##### `/schools/{schoolId}/asaSubjects/{subjectId}`
+#### `/schools/{schoolId}/requests/{requestId}`
+**업무 글** — 안내(공지)와 요청을 한 컬렉션에 담는다. 정의: `apps/shared/lib/workRequests.js`
+
+> 컬렉션을 나누지 않은 이유: 제목·내용·자료·대상까지 똑같고 다른 것은 "완료 확인을 받느냐"
+> 하나뿐이다. 작성 화면·목록·상세를 한 벌만 유지하면 되고, 쓰는 사람도 "공지냐 요청이냐"가
+> 아니라 "이거 확인받아야 하나"만 판단하면 된다.
+
+**필드:** (쓰기: `apps/dashboard/src/pages/PostNew.jsx:257, 270`,
+`apps/dashboard/src/components/NoticeComposeModal.jsx:123`, `apps/dashboard/src/lib/requestActions.js`)
+- `kind` (string) - `'notice'`(안내) / `'request'`(요청). **없는 문서는 요청으로 본다**(구형)
+- `title` (string), `description` (string) - 목록·미리보기용 **평문**
+- `bodyHtml` (string) - 서식 본문. 저장 전 `sanitizeHtml()`, 그릴 때 한 번 더 통과시킨다
+- `dueDate` (Date | null) - 요청만. 안내는 항상 null
+- `pinned` (boolean) - 안내만. 요청은 항상 false
+- `status` (string) - `'open'` / `'closed'`
+- `attachments` (array<{ name, size, path, url, uploadedAt }>) - Storage 첨부
+- `links` (array)
+- `targetRule` (object) - `{ conditions[], includeUids[], excludeUids[] }` (재계산·감사용)
+- `targetRuleText` (string) - 조건을 사람이 읽는 문장으로
+- `targetUids` (array<string>) - **발송 시점에 고정된 대상 명단**
+- `targetNames` (array<string>) - 이름 스냅샷 (계정이 지워져도 누구였는지 남는다)
+- `completedUids` (array<string>) - 완료자 uid (요청만)
+- `channelId` (string | null) - `channels` 문서 참조
+- `remindedAt` (timestamp) - '다시 알림'을 누른 시각
+- `createdBy`, `createdByName` (string), `createdAt`, `updatedAt` (timestamp)
+
+> `completedUids`를 문서에 함께 두는 이유는 "요청받은 일" 위젯 때문이다. 없으면 요청마다
+> 완료 문서를 한 번씩 더 읽어야 한다. 대신 규칙에서 **본인 uid만** 넣고 뺄 수 있게 막는다
+> (`selfOnlyUidChange()` 헬퍼).
+
+**대상 조건(`targetRule.conditions`)** — `apps/shared/lib/targeting.js`
+`department`(부서) / `subject`(교과) / `rank`(직급) / `teachingGrade`(수업 학년).
+값은 `teacherAssignments`·`teacherSubjects`에서 조인해 판정한다.
+조건은 저장만 하고 **자동 재계산하지 않는다** — 마감이 지난 요청에 사람이 조용히 추가되면
+받은 적도 없는데 미완료로 찍히기 때문. 재계산은 작성자가 명시적으로 실행한다.
+
+**인덱스:**
+- `targetUids` CONTAINS + `status` + `dueDate`
+- `targetUids` CONTAINS + `kind` + `status`
+- `targetUids` CONTAINS + `kind`
+- `createdBy` + `createdAt DESC`
+
+**접근 권한:** (`firestore.rules:269`)
+- Read: 슈퍼 어드민, 소속 교사 전체
+- Create: 소속 교사 누구나 (단 `createdBy`가 본인, `completedUids`는 빈 배열이어야 함)
+- Update: 슈퍼 어드민, 학교 관리자, 작성자 —
+  **대상 교사는 `completedUids`·`updatedAt`만, 그 안에서도 자기 uid만** 넣고 뺄 수 있다
+- Delete: 슈퍼 어드민, 학교 관리자, 작성자
+
+---
+
+##### `/schools/{schoolId}/requests/{requestId}/completions/{uid}`
+완료 상세. **문서 ID = uid**
+
+**필드:** (`workRequests.js`의 `newCompletionPayload()`, `requestActions.js:45`)
+- `uid`, `name` (string)
+- `doneBy` (string) - `'self'`(본인 체크) / `'manager'`(담당자가 대신 체크)
+- `markedByUid`, `markedByName` (string) - 실제로 누른 사람
+- `note` (string)
+- `doneAt` (timestamp) - 해제 시 `deleteField()`로 지운다
+- `updatedAt` (timestamp)
+
+**접근 권한:** Read - 소속 교사 전체 / Write - 슈퍼 어드민, 학교 관리자,
+문서 ID가 본인 uid인 교사, 그리고 **그 요청을 만든 사람**(완료 버튼을 안 누르는 사람이 반드시 있다)
+
+---
+
+##### `/schools/{schoolId}/requests/{requestId}/comments/{commentId}`
+업무 글 댓글 (auto-ID). 정의: `apps/shared/lib/comments.js`
+
+**필드:**
+- `body` (string) - **평문**. HTML이 아니다 (최대 1000자)
+- `authorUid` (string) - 삭제 권한 판정 근거
+- `authorName` (string) - 작성 시점 스냅샷
+- `createdAt` (timestamp)
+
+> 본문을 평문으로 둔 이유: 서식을 허용하면 편집기·정화기·저장 형식이 한 벌 더 늘고,
+> `sanitizeHtml`을 한 군데라도 빠뜨리면 그대로 XSS가 된다. 한두 줄짜리 되묻기라
+> 굵게·목록·이미지를 넣을 이유가 없다.
+
+**접근 권한:**
+- Read: 소속 교사 전체 / Create: 본인 이름으로, 빈 본문 금지
+- **Update: 금지(`allow update: if false`)** — 편집 화면이 없다. 규칙이 코드보다 넓으면
+  나중에 콘솔이나 SDK로 남의 눈에 안 띄게 말을 바꿔놓을 수 있다
+- Delete: 슈퍼 어드민, 학교 관리자, 댓글 작성자 (**글쓴이에게는 주지 않는다** —
+  자기 글에 달린 불편한 질문을 지울 수 있으면 "답을 모두가 함께 본다"가 깨진다)
+
+---
+
+#### `/schools/{schoolId}/channels/{channelId}`
+**채널** — 업무 글이 모이는 곳. 정의: `apps/shared/lib/channels.js`
+
+> 새 글 종류가 아니라 **기존 글에 붙는 이름표**다. 요청·안내는 그대로 두고
+> (`requests.channelId`로 연결) 한 줄로 모아 볼 뿐이라, 별도 글 컬렉션을 두지 않았다.
+
+**필드:**
+- `name` (string, ≤24자), `description` (string, ≤120자)
+- `memberRule` (object) - `requests.targetRule`과 **같은 형식**(targeting.js를 공유한다)
+- `memberRuleText` (string)
+- `memberUids` (array<string>) - "내가 속한 채널"을 `array-contains`로 뽑기 위한 평면 배열
+- `leftUids` (array<string>) - 나간 사람. **명단 수정과 나가기를 규칙에서 가르려고 별도 필드로 둔다**
+  (`memberUids`에서 자기를 빼는 방식이면 나갈 수 있는 사람은 남을 내보낼 수도 있게 된다)
+- `archived` (boolean)
+- `createdBy`, `createdByName` (string), `updatedAt` (timestamp)
+
+**접근 권한:** (`firestore.rules:241`)
+- Read: 소속 교사 전체 (참여자만 읽게 하면 채널 이름조차 못 봐서 "넣어달라"는 말을 꺼낼 수 없다)
+- Create: 소속 교사 (본인이 `createdBy`, `leftUids`는 비어 있어야 함)
+- Update: 슈퍼 어드민, 학교 관리자, 만든 사람 — **그 외 교사는 `leftUids`에서 자기만** 넣고 뺀다
+- Delete: 슈퍼 어드민, 학교 관리자, 만든 사람
+
+---
+
+#### `/schools/{schoolId}/personalNotices/{noticeId}`
+**쪽지** — 교사 사이의 1:1 전달. 정의: `apps/shared/lib/personalNotices.js`
+
+> **받는 사람 한 명당 문서 하나**를 만들고 `batchId`로 묶는다. 한 문서에 수신자 배열을 담으면
+> 읽음 하나를 바꿀 때마다 남의 읽음까지 든 문서를 통째로 쓰게 되고, 받는 사람 전원이 서로의
+> 쪽지 내용·읽음 상태를 볼 수 있어 1:1이라는 전제가 깨진다.
+
+**필드:**
+- `batchId` (string) - 같이 보낸 쪽지 묶음 (한 명에게 보내도 채운다)
+- `senderUid`, `senderName` (string)
+- `recipientUid`, `recipientName` (string)
+- `recipientCount` (number) - 명단을 통째로 넣으면 쪽지 하나가 수신자 명부가 되므로 **인원수만** 남긴다
+- `title` (string, ≤100자), `bodyHtml` (string), `content` (string) - 목록·미리보기용 평문
+- `attachments` (array) - Storage `schools/{schoolId}/notices/{batchId}/...`
+- `readAt` (timestamp | null)
+- `deletedBySenderAt`, `deletedByRecipientAt` (timestamp | null) - **각자 숨김**.
+  문서 하나를 양쪽이 함께 보므로, 진짜 지우면 받은 사람이 보낸 사람의 기록까지 없앤다
+- `createdAt` (timestamp)
+
+**인덱스:** `recipientUid` + `createdAt DESC` / `senderUid` + `createdAt DESC`
+
+**접근 권한:** (`firestore.rules:198`)
+- Read: 발신자·수신자 본인만
+- Create: 본인을 `senderUid`로
+- Update: 발신자는 전체 / **수신자는 `readAt`·`deletedByRecipientAt`만**
+  (열어두면 받은 쪽지의 제목·본문을 고쳐놓을 수 있고, 그 값이 보낸함에도 그대로 보인다)
+- Delete: 발신자만
+
+---
+
+#### `/schools/{schoolId}/academicCalendar/{eventId}`
+학사일정 (관리자 작성, auto-ID)
+
+**필드:** (쓰기: `apps/portal/src/pages/admin/AdminAcademicCalendar.jsx:90, 95`)
+- `title` (string), `type` (string)
+- `date` (Date), `endDate` (Date | null)
+- `authorUid` (string), `createdAt`, `updatedAt` (timestamp)
+
+**접근 권한:** Read - 슈퍼 어드민, 소속 교사 / Write - 슈퍼 어드민, 학교 관리자
+
+---
+
+#### `/schools/{schoolId}/dashboardModules/{componentKey}`
+대시보드 위젯 노출 제어. **문서 ID = 위젯 키**(`announcements`, `calendar`).
+카탈로그: `apps/shared/lib/dashboardModules.js`의 `MODULE_CATALOG`
+
+**필드:** (쓰기: `apps/portal/src/pages/admin/AdminDashboardModules.jsx:50`, `{ merge: true }`)
+- `enabled` (boolean)
+- `visibility` (string) - `'all'` / `'department'` / `'individual'`
+- `targetDepartments` (array<string>), `targetTeacherUids` (array<string>)
+
+> 문서가 없으면 `defaultModuleSettings()`의 기본값으로 동작한다. 새 위젯을 배포했는데
+> 관리자가 켜기 전까지 아무에게도 안 보이면 "배포됐는데 화면이 그대로"인 것처럼 보이기 때문.
+
+**접근 권한:** Read - 소속 교사 / Write - 슈퍼 어드민, 학교 관리자
+(대상 여부 판정은 클라이언트가 하고, 서버는 `enabled`만 강제한다)
+
+---
+
+### 교수학습 및 평가 운영 계획 (2026-08-18 신설)
+
+#### `/schools/{schoolId}/evaluationPlans/{planId}`
+hwpx 계획서 업로드 → 파싱 → 검토 → 확정 흐름의 제출물 (auto-ID)
+
+**필드:** (쓰기: `apps/portal/src/pages/evalplan/EvalPlanSubmit.jsx:186`)
+- `year` (number), `semester` (1|2)
+- `grades` (array<number>), `gradeRaw` (string) - 파싱 원문
+- `subjectGroup` (string) - 교과(군). 12개 고정 목록(`evalPlanUtils.js`의 `SUBJECT_GROUPS`)
+- `subject` (string), `weeklyHours` (number | null), `classes`
+- `teacherNames` (array<string>) - hwpx에 적힌 이름 원문
+- `teacherMatches` (array<{ name, status, uid, ... }>) - 이름 → 계정 매칭 결과
+- `matchedTeacherUids` (array<string>) - **매칭된 uid만 뽑은 평면 배열.**
+  Firestore 규칙은 배열 안 객체의 필드를 조회하지 못해, "공동 지도교사도 열람 가능"을
+  판정하려면 이 형태가 필요하다
+- `uploaderUid`, `uploaderName` (string)
+- `status` (string) - `'draft'`(임시저장) / `'confirmed'`(확정)
+- `confirmedAt` (timestamp | null)
+- `sourceFile` (object) - Storage에 올린 원본 hwpx
+- `extractedRaw` (object) - 파서 원출력
+- `data` (object) - 사람이 검토·수정한 값 (`evalPlanUtils.js`의 `buildInitialData()`)
+  - `examRatio` - `{ midterm, final, performance }`, 각 `{ essayType, objectiveType|otherType, total }`,
+    셀은 `{ ratio, maxScore }`
+  - `performanceAreas` (array)
+  - `gradeMethod` - `rankGrade` / `achievementLevel5` / `cutScoreEstimated` /
+    `cutScoreFixed` / `achievementLevel3` / `passFailOnly`, 각 `{ label, enabled }`
+  - `minAchievementPlan.additionalStudy` - `{ credits, extraStudyHours,
+    preventionHoursRecognized, creditRecognitionHours }`
+- `createdAt`, `updatedAt` (timestamp)
+
+**인덱스:**
+- `uploaderUid` + `createdAt DESC`
+- `matchedTeacherUids` CONTAINS + `createdAt DESC`
+- `year` + `semester` + `createdAt DESC`
+
+**접근 권한:** (`firestore.rules:556`)
+- Read: 슈퍼 어드민, 학교 관리자, **업무 담당자**(`evaluationPlanManagers`에 문서가 있으면),
+  제출자 본인, `matchedTeacherUids`에 든 공동 지도교사
+- Create: 본인을 `uploaderUid`로, `year`는 int, `semester`는 1|2, `status`는 draft|confirmed
+- Update: 관리자 또는 제출자 본인 — **`uploaderUid` 변경 금지**
+- Delete: 슈퍼 어드민, 학교 관리자, 제출자 본인
+
+**연계 트리거:** `functions/evaluationPlanSync.js`의 `syncEvaluationPlanToStaff`
+(`onDocumentWritten`). `status === 'confirmed'`가 되면 매칭된 교사 전원의
+`teacherAssignments/{year}_{uid}.subject`와
+`teacherSubjects/{year}_{uid}.semester{N}Subjects`에 자동 반영한다.
+이 두 컬렉션은 규칙상 관리자만 쓸 수 있어 **Admin SDK 서버 트리거로 우회**한다.
+
+---
+
+#### `/schools/{schoolId}/evaluationPlanManagers/{uid}`
+평가 운영 계획 업무 담당자. **문서 ID = uid, 존재 여부만으로 담당자인지 판정한다**
+
+**필드:** (쓰기: `apps/portal/src/pages/admin/AdminEvalPlanManagers.jsx:57`)
+- `uid`, `name`, `email` (string)
+- `addedBy`, `addedByName` (string), `addedAt` (timestamp)
+
+**접근 권한:** Read - 소속 교사 전체 ("담당자에게 문의하세요"를 보여주려면 이름 조회가 필요)
+/ Write - 슈퍼 어드민, 학교 관리자
+
+---
+
+### 성취평가제(ASA) 관련 컬렉션
+
+#### `/schools/{schoolId}/asaSubjects/{subjectId}`
 성취평가제 체크리스트의 **제출 단위** (학년 × 학기 × 과목명)
 
 **필드:** (쓰기: `apps/portal/src/pages/tools/AsaChecklistAdmin.jsx:323, 335, 430, 498, 628`)
 - `name` (string) - 과목명
 - `grade` (number), `semester` (number)
 - `teacherEmails` (array<string>) - 배정 교사 이메일 (권한 판정의 실시간 소스)
+- `teacherUids` (array<string>) - 배정 교사 uid. `c831ea3`(2026-07-31)에서 추가.
+  **비파괴적 전환** — `teacherEmails`는 지우지 않고 함께 저장하며, 읽을 때는 uid가 있으면
+  그것을, 없으면 이메일로 폴백한다. 담당 여부 판정은 둘의 합집합
+  (`apps/shared/lib/asaTeacherRefs.js`). 이메일 문자열 매칭은 계정 이메일이 바뀌거나
+  대소문자가 다르면 아무 에러 없이 끊기기 때문
 - `achievementLevel` (number) - `5` 또는 `3` (성취도 단계)
 - `createdAt`, `updatedAt` (timestamp)
 
@@ -606,7 +895,7 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 
 ---
 
-##### `/schools/{schoolId}/asaSubmissions/{submissionId}`
+#### `/schools/{schoolId}/asaSubmissions/{submissionId}`
 ASA 체크리스트 제출물
 
 **필드:** (쓰기: `AsaChecklistForm.jsx:116`, `AsaChecklistFormResult.jsx:145`)
@@ -630,7 +919,7 @@ ASA 체크리스트 제출물
 
 ---
 
-##### `/schools/{schoolId}/asaPrincipalSignature/{uid}`
+#### `/schools/{schoolId}/asaPrincipalSignature/{uid}`
 교감 서명 재사용 저장소
 
 **필드:** (쓰기: `AsaChecklistPrincipal.jsx:135`)
@@ -644,7 +933,7 @@ ASA 체크리스트 제출물
 
 ---
 
-##### `/schools/{schoolId}/asaCutoffs/{cutoffId}`
+#### `/schools/{schoolId}/asaCutoffs/{cutoffId}`
 분할점수 기준
 
 **필드:** (쓰기: `AsaSupportCutoffs.jsx:118, 145, 182`)
@@ -666,7 +955,7 @@ ASA 체크리스트 제출물
 
 ---
 
-##### `/schools/{schoolId}/asaResults/{resultId}`
+#### `/schools/{schoolId}/asaResults/{resultId}`
 ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`)`
 
 **필드:** (쓰기: `AsaSupport.jsx:125`)
@@ -687,7 +976,7 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 
 ---
 
-##### `/schools/{schoolId}/minAchievementResults/{resultId}`
+#### `/schools/{schoolId}/minAchievementResults/{resultId}`
 최소성취수준 보장지도 결과. 문서 ID = `` `${uid}_1_${subjectName}` `` (rules가 `{uid}_*` 패턴을 검사)
 
 **필드:** (쓰기: `apps/portal/src/pages/tools/MinAchievement.jsx:236, 270`)
@@ -703,7 +992,7 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 
 ---
 
-##### `/schools/{schoolId}/asaNeisImports/{importId}`
+#### `/schools/{schoolId}/asaNeisImports/{importId}`
 나이스 담당과목 업로드 이력
 
 **필드:** (쓰기: `AsaChecklistAdmin.jsx:562, 635`)
@@ -726,6 +1015,8 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 - **autoCloseAttendance** (onSchedule) - 조회형 이벤트 자동 마감 + 미체크인 결석 처리
 - **autoManageLiveSessions** (onSchedule) - 라이브 세션 지각 마감(`liveToken: null`) 및 세션 종료 시 필드 초기화
 - **generateAsaChecklistPdf** (onCall) - 성취평가제 체크리스트 PDF 생성 (Puppeteer, 1GiB)
+- **parseEvaluationPlan** (onCall) - 업로드한 hwpx 계획서에서 반영비율·성적산출방법 표 추출
+  (`functions/evaluationPlanParser.js`)
 
 ### `functions/workspaceSync.js`
 - **syncWorkspaceDirectory** (onSchedule) - Google Workspace Directory 정기 동기화
@@ -741,10 +1032,49 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 - **submitCallRequest** (onCall) - 선생님 호출 요청 생성 (1분 재호출 쿨다운, 재실 상태 검사)
 - **expireCallRequests** (onSchedule, 1분) - 5분 미확인 호출 자동 `expired` 처리
 
+### `functions/userClaims.js`
+- **syncUserClaims** (onDocumentWritten `users/{uid}`) - `schoolId`/`staff`/`admin`을 Custom Claims에 심는다
+- **refreshMyClaims** (onCall) - 본인 클레임 재발급
+  > Storage 규칙 안의 `firestore.get()`이 이 프로젝트에서 동작하지 않아 업로드가 전부 거부됐다.
+  > 토큰에 값을 심으면 규칙이 외부를 읽지 않고 `request.auth.token`만 보면 된다.
+  > `setCustomUserClaims`는 기존 클레임을 통째로 갈아치우므로 항상 병합해서 쓴다
+  > (안 그러면 슈퍼 어드민·키오스크 클레임이 조용히 사라진다).
+
+### `functions/evaluationPlanSync.js`
+- **syncEvaluationPlanToStaff** (onDocumentWritten `schools/{schoolId}/evaluationPlans/{planId}`)
+  - `status === 'confirmed'`가 되면 매칭된 교사 전원의 `teacherAssignments`·`teacherSubjects`에 반영
+  - 두 컬렉션은 규칙상 관리자만 쓸 수 있어 Admin SDK로 우회한다
+
+### `functions/postDeletion.js`
+- **deletePostDeep** (onCall) - 업무 글 삭제. 하위 `completions`·`comments`와
+  Storage 첨부까지 함께 지운다 (클라이언트에서는 하위 컬렉션을 완전히 지울 수 없다)
+
 ### `functions/migrations/`
 - **migrateStudentsToWorkspaceId** (onCall) - 학생 문서 ID 마이그레이션 (학번 → Workspace User ID)
 - **rollbackStudentsMigration** (onCall) - 마이그레이션 롤백 (`_migrated_students_backup` 복원)
 - **migrateStudentGroups** (onCall) - 학생 그룹에 `workspaceUserIds` 필드 추가
+
+---
+
+## Cloud Storage 구조
+
+규칙: `storage.rules`. 소속·직군은 **Firestore가 아니라 인증 토큰(Custom Claims)** 에서 읽는다.
+
+| 경로 | 용도 | 쓰기 | 읽기 |
+|------|------|------|------|
+| `schools/{schoolId}/requests/{requestId}/{file}` | 업무 글 첨부·본문 이미지 | 소속 교직원 (20MB 이하) | 소속 구성원 |
+| `schools/{schoolId}/notices/{batchId}/{file}` | 쪽지 첨부 (폴더 = 쪽지 묶음 ID) | 소속 교직원 (20MB 이하) | 소속 구성원 |
+| `schools/{schoolId}/evaluationPlans/{planId}/{file}` | 평가 운영 계획 원본 hwpx | 소속 교직원 (20MB 이하) | 소속 구성원 |
+| `schools/{schoolId}/**` | 그 밖의 학교 파일 | 학교 관리자만 | 소속 구성원 |
+| 그 외 전체 | — | 금지 | 금지 |
+
+> ⚠️ **다운로드 토큰 URL은 이 규칙을 우회한다.** `getDownloadURL()`이 돌려주는
+> `?alt=media&token=...` 주소는 링크를 가진 사람이면 누구나 열 수 있다. 위 규칙은 SDK 접근과
+> 목록 열람만 막을 뿐이므로, **고사 원안처럼 유출되면 안 되는 파일은 여기 올리지 않는다.**
+
+> 파일 형식을 제한하지 않는 이유: 학교 주력이 한글(.hwp)인데 브라우저가 붙이는 contentType이
+> `application/x-hwp`, `application/haansofthwp`, `application/octet-stream` 등 환경마다 달라
+> 형식으로 거르면 정상 파일이 막힌다. 크기만 제한한다.
 
 ---
 
@@ -756,10 +1086,42 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 - **마이그레이션 결과**: 598/620명 성공, 42개 그룹 100% 완료
 - **백업**: `/schools/seonyoo-hs/_migrated_students_backup`
 
+### 문서 ID 마이그레이션의 후속 여파 (기록해 둘 것)
+students 문서 ID를 바꾸자 **문서 ID를 학번으로 가정하던 코드가 뒤늦게 하나씩 터졌다.**
+- `ed7918c` (08-10) 키오스크 호출에서 학번으로 학생을 못 찾음
+- `9f2d60e` (08-14) 학생 QR 체크인이 "명단에 없는 학생"으로 거부됨
+  — firestore.rules가 문서 ID와 `users.studentId`를 비교하고 있었다.
+    `resource.data.studentId` 비교로 고침
+
+> 교훈: **문서 ID를 값으로 쓰지 말 것.** 조회 키가 필요하면 같은 값을 필드로도 저장하고,
+> 규칙과 쿼리는 필드를 본다.
+
 ### teacherSubjects ↔ subjects 연결 (2026-07)
 - `semester1Subjects` / `semester2Subjects` 배열 원소에 `subjectId` 추가
 - 기존 자유 입력 데이터는 화면/저장 시점에 `matchCatalogSubject()`가 코드·이름으로 자동 보정
 - 매칭 실패 시 `subjectId: ''`로 남고 UI에서 주황색 Chip으로 표시
+
+---
+
+## 학년도(year) vs 입학년도(entryYear)
+
+이름이 비슷하지만 완전히 다른 값이다. 정의와 변환 함수는 `apps/shared/lib/schema.js`에 있다.
+
+| | `year` (학년도) | `entryYear` (입학년도 = 학번) |
+|---|---|---|
+| 뜻 | 교육과정이 운영되는 해. 3월~다음 해 2월 | 학생이 입학한 해. 코호트에 고정되어 안 바뀐다 |
+| 예 | 2026학년도 = 2026-03-01 ~ 2027-02-28 | 2024년 입학생은 졸업할 때까지 2024 |
+| 붙는 데이터 | "올해는 이렇게 운영한다" | "이 코호트의 교육과정은 이렇다" |
+| 사용 컬렉션 | `teacherAssignments`, `teacherSubjects`, `officeLayouts`, `trainingPresets`, `asaCutoffs` | `subjects` |
+
+변환: `entryYearFor(year, grade)` / `gradeFor(entryYear, year)`.
+예) 2026학년도 1학년 = 2026학번, 2026학년도 3학년 = 2024학번.
+
+오늘 기준 값은 `currentYearSemester()` / `currentSchoolYear()`를 쓴다
+(1~2월은 아직 전년도 학년도, 3~8월이 1학기).
+
+> 교육과정 편제는 입학 코호트 단위로 고정되므로 `subjects`만 `entryYear`로 스코프한다.
+> 이걸 `year`로 두면 학년이 올라갈 때마다 편제표를 복제해야 하고, 어느 쪽이 정본인지 흐려진다.
 
 ---
 
@@ -781,6 +1143,16 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 | `kioskPairingCodes` | 6자리 숫자 코드 | |
 | `studentRegistrations` | 이메일 원문 | |
 | `schoolDomains` | 도메인 문자열 | |
+| `requests/{id}/completions` | `uid` | 문서 ID가 곧 완료자 |
+| `dashboardModules` | 위젯 키 (`announcements`, `calendar`) | 코드의 `MODULE_CATALOG` 키와 일치 |
+| `evaluationPlanManagers` | `uid` | 문서 존재 여부 = 담당자 |
+| `requests` / `channels` / `personalNotices` / `academicCalendar` / `evaluationPlans` | auto-ID | |
+
+> 이 규칙들은 주석이 아니라 **`apps/shared/lib/schema.js`의 함수로 강제한다.**
+> `teacherAssignmentId()` · `teacherSubjectId()` · `officeLayoutId()` · `asaCutoffId()` ·
+> `schoolPath()` 를 쓰고, 경로 문자열을 직접 조합하지 않는다.
+> (`functions/callSystem.js`만 별도 npm 패키지라 `officeLayoutId()`를 손으로 복제해 두었다 —
+> 규칙을 바꾸면 두 곳을 함께 고칠 것.)
 
 ---
 
@@ -797,10 +1169,21 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 | asaResults | createdBy ASC + createdAt DESC |
 | teacherAssignments | year ASC + office ASC |
 | callRequests | office ASC + createdAt DESC<br>teacherUid ASC + createdAt DESC<br>teacherUid ASC + status ASC<br>studentId ASC + createdAt ASC<br>status ASC + createdAt ASC |
+| personalNotices | recipientUid ASC + createdAt DESC<br>senderUid ASC + createdAt DESC |
+| requests | targetUids CONTAINS + status ASC + dueDate ASC<br>targetUids CONTAINS + kind ASC + status ASC<br>targetUids CONTAINS + kind ASC<br>createdBy ASC + createdAt DESC |
+| evaluationPlans | uploaderUid ASC + createdAt DESC<br>matchedTeacherUids CONTAINS + createdAt DESC<br>year ASC + semester ASC + createdAt DESC |
 
 ---
 
 ## 보안 규칙 요약
+
+### 권한의 출처 두 가지
+- **Firestore 규칙** — `/users/{uid}` 문서를 `get()`으로 읽어 `role`·`schoolId`를 확인한다
+  (`isTeacher(schoolId)` 등 공통 헬퍼). 모든 모듈이 같은 헬퍼를 쓴다.
+- **Custom Claims** — `superAdmin`, 키오스크(`kioskSchoolId`/`kioskOffice`/`kioskDeviceType`),
+  그리고 `schoolId`/`staff`/`admin`(`functions/userClaims.js`가 users 문서에 맞춰 유지).
+  **Storage 규칙은 토큰만 본다** — 규칙 안 `firestore.get()`이 동작하지 않았기 때문.
+  클레임이 갱신돼도 이미 발급된 토큰에는 최대 1시간까지 반영되지 않는다(`getIdToken(true)` 필요).
 
 ### 역할별 권한
 - **슈퍼 어드민** (`superAdmin: true` Custom Claim): 모든 컬렉션 전체 권한
@@ -819,3 +1202,8 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 - **관리자 전용 쓰기**: subjects, teacherSubjects, teacherAssignments, officeLayouts
 - **교사 전체 쓰기 허용**: courses, events, studentGroups
 - **rules 없음(Admin SDK 전용)**: archivedStudents, _migrated_students_backup
+- **필드 단위 제한**: `diff().affectedKeys().hasOnly([...])`로 바뀔 수 있는 필드를 못 박고,
+  `selfOnlyUidChange(field)` 헬퍼로 배열에서 **자기 uid만** 넣고 뺄 수 있게 한다.
+  - requests `completedUids` (완료 체크) / channels `leftUids` (채널 나가기) /
+    personalNotices `readAt`·`deletedByRecipientAt` (읽음·숨김)
+  - 이게 없으면 대상 교사가 남의 완료를 대신 체크하거나, 남을 채널에서 내보낼 수 있다
