@@ -46,9 +46,10 @@ node functions/migrations/moveOrphanPostsToAllStaff.js --school=seonyoo-hs --app
 사이드바 목록 쿼리가 `memberUids array-contains me`라, 명단에서 빠지는 순간 그 채널이
 목록에서 통째로 사라진다. **화면에는 아무 일도 없어 보인다.**
 
-**같은 증상이 부장회의 채널에도 있다.** 만든 사람인데 `memberUids`에 없다. 직급은
-부장(`positionLabel: 교무부장`)이고 2026 배정 문서도 정상이라, 조건(`rank in [부장,관리자]`)에
-분명히 맞는다.
+**부장회의 채널에서도 같은 상태를 봤다** — 만든 사람인데 `memberUids`에 없었다. 직급은
+부장(`positionLabel: 교무부장`)이고 2026 배정 문서도 정상이라 조건(`rank in [부장,관리자]`)에
+분명히 맞았다. **다만 그 채널은 사용자가 직접 지웠으므로 더 조사할 수 없다** — 두 번째
+사례로 세지 말 것. 지금 남은 증거는 전체 공지 채널 하나뿐이다.
 
 **확인한 것 / 아닌 것**
 - `resolveTargets`에 본인 제외 로직 없음 — 빈 조건이면 전원이 대상
@@ -63,7 +64,23 @@ node functions/migrations/moveOrphanPostsToAllStaff.js --school=seonyoo-hs --app
 
 **지금 걸어둔 방어(부분적).** `useChannels`가 전체 공지 채널만 문서를 **직접 구독**한다.
 이 채널은 "학교 사람이면 전부"가 정의상 참이라 명단을 거칠 이유가 없다.
-**일반 채널에는 안 듣는다** — 부장회의는 여전히 사라진 상태다.
+**일반 채널에는 안 듣는다.**
+
+### 화면이 통째로 안 뜨던 문제 — 해결됨 (2026-08-25)
+
+`ErrorBoundary`가 "화면을 표시하지 못했습니다"를 띄웠다. **권한 문제가 아니라 `Button`
+import 누락이었다**(`ChannelMessages.jsx`). 계정 권한은 정상이다 —
+`role: school_admin` → `isAdmin: true`(AuthContext 298행).
+
+무서운 것은 **터지는 시점이 미뤄졌다는 점**이다. `Button`을 쓰는 자리가 원래
+`canvases.length > 0`으로 가려져 있었고 학교에 업무 글이 0건이라 한 번도 렌더되지 않았다.
+"붙이기 단추를 항상 보이게" 고치는 순간 비로소 터졌다. **빌드는 통과한다** — Vite는 정의되지
+않은 식별자를 잡지 않고, 이 저장소에는 ESLint 설정이 없다.
+
+- 재발 방지로 할 수 있는 것: ESLint(`no-undef` + `react/jsx-no-undef`) 도입.
+  **아직 안 했다** — 별도 과제
+- 임시 대비책: 컴포넌트를 새로 쓰거나 JSX를 옮긴 뒤에는 **실제로 그 자리를 렌더시켜 보고**
+  배포한다. 빌드 성공만으로는 아무것도 보장되지 않는다
 
 ---
 
