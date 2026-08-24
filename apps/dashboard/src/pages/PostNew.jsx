@@ -40,6 +40,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { isRequest, newRequestPayload } from '@shared/lib/workRequests'
+import { postVisibilityFor } from '@shared/lib/channels'
 import { deleteAttachment } from '@shared/lib/requestAttachments'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
 import WorkspaceLayout from '../components/WorkspaceLayout'
@@ -256,6 +257,9 @@ export default function PostNew() {
             targetNames: payload.targetNames,
             bodyHtml: safeHtml,
             channelId: channelId || null,
+            // 채널을 옮기면 열람 범위도 함께 옮겨야 한다. 비공개 채널로 옮긴 글이
+            // 학교 공개로 남아 있으면 채널만 숨기고 내용은 그대로 읽히는 셈이 된다.
+            ...postVisibilityFor(channel),
           },
         })
         // 고치면서 뺀 첨부는 이제서야 지운다 (AttachmentPicker의 deferRemove 참고)
@@ -269,6 +273,8 @@ export default function PostNew() {
           ...payload,
           bodyHtml: safeHtml,
           channelId: channelId || null,
+          // 비공개 채널의 글이면 참여자 명단을 복사해 온다(channels.js 참고)
+          ...postVisibilityFor(channel),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         })

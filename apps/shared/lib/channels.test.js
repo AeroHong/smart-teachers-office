@@ -8,8 +8,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CHANNEL_NAME_MAX, canManageChannel, channelStats, hasLeft, isMember, memberDiff,
-  newChannelPayload, sortChannels, validateChannelName,
+  CHANNEL_NAME_MAX, CHANNEL_TYPE, POST_POLICY, VISIBILITY,
+  canManageChannel, canPostTo, channelPostPolicy, channelStats, channelType, channelVisibility,
+  hasLeft, isMember, isPrivateChannel, memberDiff, newChannelPayload, postVisibilityFor,
+  sortChannels, validateChannelName,
 } from './channels.js'
 
 const NOW = new Date('2026-08-02T10:00:00')
@@ -238,4 +240,83 @@ test('원본 배열을 건드리지 않는다', () => {
   const saved = ['u2', 'u1']
   memberDiff(saved, ['u3'])
   assert.deepEqual(saved, ['u2', 'u1'])
+})
+
+// ── 공개 범위 · 쓰기 권한 (2026-08-24, 채널 재편 P1) ───────────
+
+test('옛 문서에는 새 필드가 없다 — 읽을 때는 공개 채널로 흡수한다', () => {
+  const old = { name: '성적-마감', memberUids: ['u1'], createdBy: 'u1' }
+  assert.equal(channelType(old), CHANNEL_TYPE.CHANNEL)
+  assert.equal(channelVisibility(old), VISIBILITY.PUBLIC)
+  assert.equal(channelPostPolicy(old), POST_POLICY.MEMBERS)
+  assert.equal(isPrivateChannel(old), false)
+  // null·undefined도 같은 자리에서 흡수한다
+  assert.equal(channelVisibility(null), VISIBILITY.PUBLIC)
+  assert.equal(isPrivateChannel(undefined), false)
+})
+
+test('새 채널은 세 필드를 반드시 채워 넣는다 — 쿼리로 걸러야 하는 값이라 비면 목록에서 사라진다', () => {
+  const p = newChannelPayload({ name: 'x', members: [{ uid: 'u1' }], createdBy: 'u1' })
+  assert.equal(p.type, CHANNEL_TYPE.CHANNEL)
+  assert.equal(p.visibility, VISIBILITY.PUBLIC)
+  assert.equal(p.postPolicy, POST_POLICY.MEMBERS)
+})
+
+test('모르는 값이 들어오면 안전한 쪽으로 떨어진다', () => {
+  const p = newChannelPayload({
+    name: 'x', members: [], createdBy: 'u1',
+    visibility: '아무거나', postPolicy: '아무거나', type: '아무거나',
+  })
+  assert.equal(p.visibility, VISIBILITY.PUBLIC)
+  assert.equal(p.postPolicy, POST_POLICY.MEMBERS)
+  assert.equal(p.type, CHANNEL_TYPE.CHANNEL)
+})
+
+test('비공개 채널로 만들면 그대로 저장된다', () => {
+  const p = newChannelPayload({
+    name: '특수교육', members: [{ uid: 'u1' }], createdBy: 'u1',
+    visibility: VISIBILITY.PRIVATE, postPolicy: POST_POLICY.OWNER,
+  })
+  assert.equal(p.visibility, VISIBILITY.PRIVATE)
+  assert.equal(p.postPolicy, POST_POLICY.OWNER)
+})
+
+test('공개 채널 글에는 visibleUids를 넣지 않는다 — 인사이동 때마다 전교 글을 갱신하게 된다', () => {
+  const pub = { visibility: VISIBILITY.PUBLIC, memberUids: ['u1', 'u2'] }
+  assert.deepEqual(postVisibilityFor(pub), { visibility: 'school', visibleUids: [] })
+  // 채널 없는 글도 학교 공개다
+  assert.deepEqual(postVisibilityFor(null), { visibility: 'school', visibleUids: [] })
+})
+
+test('비공개 채널 글은 참여자 명단을 복사해 간다 — 채널만 숨기면 내용은 그대로 읽힌다', () => {
+  const priv = { visibility: VISIBILITY.PRIVATE, memberUids: ['u1', 'u2', 'u1'] }
+  const v = postVisibilityFor(priv)
+  assert.equal(v.visibility, 'members')
+  assert.deepEqual(v.visibleUids, ['u1', 'u2'], '중복은 걸러야 한다')
+})
+
+test('공지 전용 채널은 주인과 관리자만 쓴다', () => {
+  const ch = {
+    createdBy: 'owner', memberUids: ['owner', 'member'],
+    postPolicy: POST_POLICY.OWNER,
+  }
+  assert.equal(canPostTo(ch, 'owner'), true)
+  assert.equal(canPostTo(ch, 'member'), false)
+  assert.equal(canPostTo(ch, 'member', true), true, '학교 관리자는 쓸 수 있다')
+})
+
+test('일반 채널은 참여자 전원이 쓴다 — 되묻고 답하는 것이 채널의 값어치다', () => {
+  const ch = { createdBy: 'owner', memberUids: ['owner', 'member'] }
+  assert.equal(canPostTo(ch, 'member'), true)
+})
+
+test('참여자가 아니면 어느 채널에도 못 쓴다', () => {
+  const ch = { createdBy: 'owner', memberUids: ['owner'] }
+  assert.equal(canPostTo(ch, 'outsider'), false)
+  assert.equal(canPostTo(ch, 'outsider', true), false, '관리자라도 참여자가 아니면 못 쓴다')
+})
+
+test('나간 사람은 못 쓴다 — 나가기가 아무 일도 안 하는 버튼이 되면 안 된다', () => {
+  const ch = { createdBy: 'owner', memberUids: ['owner', 'member'], leftUids: ['member'] }
+  assert.equal(canPostTo(ch, 'member'), false)
 })

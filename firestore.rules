@@ -232,14 +232,42 @@ service cloud.firestore {
       // 넣고 뺄 수 있어야 하고, 제목·마감일·대상 명단은 건드릴 수 없어야 한다.
       // 채널 — 업무 글이 모이는 곳. 글에 붙는 이름표라 별도 글 컬렉션이 없다.
       //
-      // 읽기를 소속 교사 전체에 여는 이유: 참여자만 읽게 하면 채널 이름조차 볼 수 없어
-      // "그 채널에 넣어달라"는 말을 꺼낼 수가 없다. 채널에 든 글은 requests 규칙이
-      // 따로 지키므로 채널 문서가 열려도 내용이 새지 않는다.
+      // ── 공개 채널은 이름을 감추지 않는다 ──
+      // 참여자만 읽게 하면 채널 이름조차 볼 수 없어 "그 채널에 넣어달라"는 말을 꺼낼 수가
+      // 없다. 그래서 공개 채널은 소속 교사 전체가 읽는다.
+      //
+      // ── 비공개 채널은 존재 자체를 감춘다 (2026-08-24 신설) ──
+      // 특수교육처럼 학생 개인정보가 오가는 자리가 실제로 있어서, 이름만 보이는 것으로도
+      // 곤란한 채널이 필요하다. visibility == 'private'이면 참여자가 아닌 사람에게는
+      // 목록·직접 URL 어디에서도 잡히지 않는다.
+      //
+      // 두 조건이 쿼리로 증명 가능해야 한다는 점이 중요하다. 규칙은 필터가 아니라서,
+      // 읽을 수 없는 문서를 돌려줄 가능성이 있으면 쿼리 전체가 실패한다. 클라이언트는
+      // where('memberUids','array-contains',uid)로 뽑으므로 두 번째 조건이 이를 만족한다.
+      //
+      // ── 관리자 ──
+      // 학교 관리자(교감·교장)는 업무 채널을 볼 수 있지만 DM은 못 본다. DM을 "이름 없는
+      // 2인 채널"로 통합한 탓에 예외를 두지 않으면 관리자가 전 교직원의 1:1 대화를
+      // 열람하게 된다. 현행 personalNotices 규칙도 같은 이유로 학교 관리자를 막고 있다.
+      // 슈퍼 관리자(학교 밖 시스템 운영자)는 읽기에서 아예 뺐다 — 다학교로 확장 중이라
+      // 운영자가 남의 학교 비공개 채널을 볼 이유가 없다.
       //
       // 고치기를 만든 사람과 관리자로 묶는 이유: 참여자 조건을 아무나 바꾸면 대상이
       // 조용히 넓어지거나 좁아지는데, 그 변화가 채널을 열기 전에는 드러나지 않는다.
       match /channels/{channelId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        // visibility·memberUids는 .get(기본값)으로 감싸지 않는다. 감싸면 규칙 엔진이
+        // where('memberUids','array-contains',uid) 쿼리와 이 조건을 맞물릴 수 없어
+        // 채널 목록 쿼리가 통째로 거부된다. 그래서 백필을 먼저 돌렸다
+        // (functions/migrations/backfillChannelVisibility.js).
+        //
+        // type만 .get()으로 읽는다. 아직 type으로 거르는 쿼리가 없어 안전성 증명과
+        // 무관하고, 어쩌다 필드가 빠진 문서가 있어도 관리자 조항에서 평가가 터지지 않는다.
+        allow read: if
+          (isTeacher(schoolId) && (
+            resource.data.visibility == 'public' ||
+            request.auth.uid in resource.data.memberUids
+          )) ||
+          (isSchoolAdmin(schoolId) && resource.data.get('type', 'channel') == 'channel');
 
         // 만들면서 남을 미리 '나간 사람'으로 박아둘 수 없게 한다
         allow create: if isSuperAdmin() ||
@@ -266,8 +294,23 @@ service cloud.firestore {
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
       }
 
+      // ── 업무 글의 열람 범위 (2026-08-24) ──
+      // 채널만 숨기고 글을 그대로 두면 이름만 안 보일 뿐 내용은 다 읽힌다. 그래서 글에도
+      // 같은 판정을 복사해 둔다(channels.js의 postVisibilityFor).
+      //
+      // 채널 문서를 get()으로 읽어 참여자를 확인하는 방식은 쓸 수 없다. 목록 쿼리 하나가
+      // 서로 다른 채널 수십 개의 글을 돌려주므로 문서 접근 횟수 상한에 걸리고, 문서마다
+      // 결과가 달라지는 조건이라 쿼리 안전성도 증명되지 않는다. 값을 글에 복사해 둔다.
+      //
+      // 공개 글에는 visibleUids를 넣지 않는다 — 넣으면 교직원 uid가 글마다 복제되고
+      // 인사이동 한 번에 학교 전체 글을 갱신해야 한다. 그래서 조건이 두 갈래이고,
+      // 클라이언트도 리스너를 두 개로 나눠 합집합을 쓴다(useChannels.js).
       match /requests/{requestId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow read: if isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && (
+            resource.data.visibility == 'school' ||
+            request.auth.uid in resource.data.visibleUids
+          ));
 
         allow create: if isSuperAdmin() ||
           (isTeacher(schoolId) &&

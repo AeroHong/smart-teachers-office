@@ -12,7 +12,7 @@
  */
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { addDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -26,6 +26,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
 import EditIcon from '@mui/icons-material/EditOutlined'
+import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
 import TagIcon from '@mui/icons-material/Tag'
@@ -33,7 +34,9 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
-import { canManageChannel, hasLeft, memberDiff } from '@shared/lib/channels'
+import {
+  POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, hasLeft, isPrivateChannel, memberDiff,
+} from '@shared/lib/channels'
 import { completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip } from '../components/sidebarUi'
@@ -43,7 +46,9 @@ import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
 import useSchoolMembers from '../lib/useSchoolMembers'
-import { refreshChannelMembers, setChannelArchived, setChannelLeft } from '../lib/channelActions'
+import {
+  refreshChannelMembers, setChannelArchived, setChannelLeft, updateChannelAndPosts,
+} from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
@@ -129,8 +134,14 @@ export default function Channels() {
         // leftUids·archived도 뺀다 — 새 채널의 기본값이라 그대로 쓰면 채널을 고치는
         // 것만으로 나간 사람이 전부 되돌아오고 보관도 풀린다.
         const { createdBy, createdByName, leftUids, archived, ...rest } = payload
-        await updateDoc(doc(db, ...schoolPath(schoolId, COL.CHANNELS), editing.id), {
-          ...rest, updatedAt: serverTimestamp(),
+        // 공개 범위나 참여자가 바뀌면 이 채널 글의 열람 범위도 같이 움직여야 한다.
+        // 채널만 비공개로 돌리고 글을 그대로 두면 이름만 감춘 셈이 된다.
+        await updateChannelAndPosts({
+          schoolId,
+          channelId: editing.id,
+          patch: rest,
+          channelAfter: { ...editing, ...rest },
+          posts: editing.posts || [],
         })
         toast.success('채널을 저장했습니다.')
       }
@@ -161,12 +172,18 @@ export default function Channels() {
       ) : active ? (
         <Box sx={{ p: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5 }}>
-            <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />
+            {/* 비공개 채널은 자물쇠로 갈음한다. 여기가 아니라 설명 줄에만 적으면
+                글을 쓰는 순간에는 눈에 안 들어온다 — 정작 그때 알아야 하는 사실이다. */}
+            {isPrivateChannel(active)
+              ? <LockIcon sx={{ fontSize: 20, color: 'warning.main', mt: '3px' }} />
+              : <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />}
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               <Typography variant="h6" fontWeight={800}>{active.name}</Typography>
               <Typography fontSize="0.76rem" color="text.secondary">
+                {isPrivateChannel(active) && '비공개 · '}
                 참여 {active.memberUids?.length ?? 0}명
                 {active.memberRuleText && ` · ${active.memberRuleText}`}
+                {channelPostPolicy(active) === POST_POLICY.OWNER && ' · 공지 전용'}
               </Typography>
             </Box>
             {canManage && (
@@ -181,12 +198,16 @@ export default function Channels() {
                 <MoreVertIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Tooltip>
-            <Button
-              size="small" variant="contained"
-              onClick={() => navigate(`/requests/new?channel=${active.id}`)}
-            >
-              글 쓰기
-            </Button>
+            {/* 공지 전용 채널에서 참여자는 글을 못 쓴다. 눌린 뒤 규칙에 막혀 튕기면
+                사용자는 기능이 고장 난 것으로 읽으므로 버튼 자체를 감춘다. */}
+            {canPostTo(active, user?.uid, isAdmin) && (
+              <Button
+                size="small" variant="contained"
+                onClick={() => navigate(`/requests/new?channel=${active.id}`)}
+              >
+                글 쓰기
+              </Button>
+            )}
           </Box>
 
           {active.description && (
@@ -211,7 +232,10 @@ export default function Channels() {
             <MemberSyncNote
               added={sync.added} removed={sync.removed} nameOf={nameOf} busy={busy}
               onRefresh={() => run(
-                () => refreshChannelMembers({ schoolId, channelId: active.id, memberUids: sync.uids }),
+                () => refreshChannelMembers({
+                  schoolId, channelId: active.id, memberUids: sync.uids,
+                  channel: active, posts: active.posts || [],
+                }),
                 `참여자를 ${sync.uids.length}명으로 갱신했습니다.`,
                 '참여자를 갱신하지 못했습니다.',
               )}

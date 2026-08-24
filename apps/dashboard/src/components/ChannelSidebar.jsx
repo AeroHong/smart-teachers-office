@@ -27,10 +27,12 @@ import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Inventory2Outlined'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolderOutlined'
 import FolderIcon from '@mui/icons-material/FolderOutlined'
+import LockIcon from '@mui/icons-material/LockOutlined'
 import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
+import { isPrivateChannel } from '@shared/lib/channels'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
   createSection, groupChannels, isCollapsed, isFavorite, moveToSection,
@@ -93,7 +95,14 @@ export default function ChannelSidebar({
   const channelRow = (c, opts = {}) => (
     <SidebarItem
       key={c.id}
-      label={c.name}
+      // 비공개 채널은 목록에서도 자물쇠로 구분한다. 참여자에게만 보이는 줄이라 굳이
+      // 표시할 이유가 없어 보이지만, 여기서 글을 쓰면 어디까지 퍼지는지가 달라진다.
+      label={isPrivateChannel(c) ? (
+        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, minWidth: 0 }}>
+          <LockIcon sx={{ fontSize: 13, flexShrink: 0, opacity: 0.75 }} />
+          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</Box>
+        </Box>
+      ) : c.name}
       selected={c.id === activeChannelId}
       muted={opts.muted}
       onClick={() => navigate(`/channels/${c.id}`)}
