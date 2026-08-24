@@ -42,7 +42,7 @@ import { COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
 import {
   CANVAS_TAB_MAX, POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft,
-  isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
+  isAllStaffChannel, isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
 } from '@shared/lib/channels'
 import { completionStats, dueState, isRequest } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
@@ -53,6 +53,7 @@ import ChannelMessages from '../components/ChannelMessages'
 import ChannelSidebar from '../components/ChannelSidebar'
 import Directory from '../components/Directory'
 import DmDialog from '../components/DmDialog'
+import ShareCanvasDialog from '../components/ShareCanvasDialog'
 import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
@@ -61,7 +62,7 @@ import useSchoolMembers from '../lib/useSchoolMembers'
 import usePublicChannels from '../lib/usePublicChannels'
 import {
   joinPublicChannel, openDm, refreshChannelMembers, setChannelArchived, setChannelLeft,
-  setPostArchived, updateChannelAndPosts,
+  setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
 } from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -93,6 +94,7 @@ export default function Channels() {
   // 채널 머리까지 그대로 살아난다.
   const [sideView, setSideView] = useState('messages')   // 'messages' | 'archive'
   const [moreAnchor, setMoreAnchor] = useState(null)
+  const [sharing, setSharing] = useState(false)   // 캔버스 넘기기 대화상자
   const { markRead } = useChannelPrefs()
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
@@ -134,6 +136,9 @@ export default function Channels() {
   }, [requestId, sideView, canvas])
 
   const dm = isDm(active)
+  // 전교직원 채널은 학교 공지가 도착하는 유일한 자리라 나가기·보관을 막는다. 한 번 끊으면
+  // 그 뒤로 오는 공지를 못 보는데 화면에는 아무 일도 없어 보인다(channels.js 참고).
+  const allStaff = isAllStaffChannel(active)
   // DM에는 관리랄 것이 없다. 이름도 참여자도 고칠 수 없고(firestore.rules에서도 막는다),
   // 보관·나가기도 두지 않았다 — 둘 뿐인 대화에서 한쪽이 자리를 정리하는 동작은
   // 상대에게 어떻게 보일지가 정해지지 않았다. 필요해지면 그때 설계한다.
@@ -482,6 +487,7 @@ export default function Channels() {
               <ChannelMessages
                 channelId={active.id}
                 canPost={canPost}
+                onOpenCanvas={to => navigate(to)}
                 empty={dm ? (
                   <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
                     아직 대화가 없습니다. 여기에 적은 말은 둘만 봅니다.
@@ -546,7 +552,11 @@ export default function Channels() {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
-        {iLeft ? (
+        {allStaff ? (
+          <MenuItem disabled sx={{ fontSize: '0.8rem', whiteSpace: 'normal', maxWidth: 240 }}>
+            학교 공지가 도착하는 자리라 나가거나 보관할 수 없습니다.
+          </MenuItem>
+        ) : iLeft ? (
           <MenuItem
             sx={{ fontSize: '0.85rem' }}
             onClick={() => {
@@ -568,6 +578,18 @@ export default function Channels() {
             채널 나가기
           </MenuItem>
         )}
+        {/* 캔버스를 다른 채널로 넘긴다. 비공개 채널의 글에는 자리 자체를 만들지 않는다 —
+            넘겨봐야 참여자 아닌 사람에게는 안 열리는 줄만 남는다(channelActions 참고).
+            내용이 새지는 않는다. 그건 원본 글의 규칙이 지킨다. */}
+        {canvas.open && !isPrivateChannel(active) && (
+          <MenuItem
+            sx={{ fontSize: '0.85rem' }}
+            onClick={() => { setMenuAnchor(null); setSharing(true) }}
+          >
+            이 글을 다른 채널로 넘기기
+          </MenuItem>
+        )}
+
         {/* 자동 판정이 아직 안 끝났다고 보는 글을 사람이 먼저 치운다. 되돌리기의 짝이다 —
             한쪽만 있으면 마감일 없는 안내처럼 끝난 신호가 없는 글이 탭에서 안 빠진다. */}
         {canManage && canvas.open && isLivePost(canvas.open) && (
@@ -586,7 +608,7 @@ export default function Channels() {
             이 글을 탭에서 치우기
           </MenuItem>
         )}
-        {canManage && (
+        {canManage && !allStaff && (
           active?.archived ? (
             <MenuItem
               sx={{ fontSize: '0.85rem' }}
@@ -659,6 +681,31 @@ export default function Channels() {
         existingNames={allNames}
         onClose={() => { setEditing(null); setPreset(null) }}
         onSave={saveChannel}
+      />
+
+      <ShareCanvasDialog
+        open={sharing}
+        post={canvas.open}
+        sourceChannel={active}
+        channels={channels}
+        myUid={user?.uid}
+        isAdmin={isAdmin}
+        busy={busy}
+        onClose={() => setSharing(false)}
+        onShare={async ({ target, note }) => {
+          setSharing(false)
+          await run(
+            () => shareCanvasToChannel({
+              schoolId,
+              targetChannelId: target.id,
+              post: canvas.open,
+              author: { uid: user.uid, name: userName },
+              note,
+            }),
+            `'${target.name}' 채널로 넘겼습니다.`,
+            '넘기지 못했습니다.',
+          )
+        }}
       />
 
       <DmDialog

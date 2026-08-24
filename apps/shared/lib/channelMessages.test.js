@@ -11,7 +11,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  MESSAGE_BODY_MAX, dmChannelId, dmPartnerUid, hasUnread, newMessagePayload, validateMessage,
+  MESSAGE_BODY_MAX, dmChannelId, dmPartnerUid, hasCanvasRef, hasUnread, newMessagePayload,
+  validateMessage,
 } from './channelMessages.js'
 
 const ts = (ms) => ({ toMillis: () => ms })
@@ -100,4 +101,38 @@ test('DM 상대 찾기', () => {
 test('나 자신과의 DM은 나를 돌려준다 — 메모장처럼 쓰는 자리', () => {
   assert.equal(dmPartnerUid({ memberUids: ['u1'] }, 'u1'), 'u1')
   assert.equal(dmPartnerUid({ memberUids: [] }, 'u1'), 'u1')
+})
+
+// ── 캔버스 넘기기 ─────────────────────────────────────────────
+
+test('가리키는 글이 있으면 제목과 원래 채널을 함께 박아둔다', () => {
+  const m = newMessagePayload({
+    authorUid: 'u1', body: '우리 부서도 해당됩니다',
+    refRequestId: 'r1', refTitle: '성적 마감 안내', refChannelId: 'all-staff',
+  })
+  assert.equal(m.refRequestId, 'r1')
+  assert.equal(m.refTitle, '성적 마감 안내')
+  assert.equal(m.refChannelId, 'all-staff')
+  assert.equal(hasCanvasRef(m), true)
+})
+
+test('가리키는 글이 없으면 제목·채널도 비운다 ★', () => {
+  // refRequestId 없이 refTitle만 남으면 카드가 그려질 근거는 없는데 값은 남아,
+  // 나중에 그 값을 믿고 그리는 코드가 생기면 눌러도 아무 데도 안 가는 줄이 된다
+  const m = newMessagePayload({ authorUid: 'u1', body: '안녕', refTitle: '남은 제목', refChannelId: 'c1' })
+  assert.equal(m.refRequestId, null)
+  assert.equal(m.refTitle, '')
+  assert.equal(m.refChannelId, null)
+  assert.equal(hasCanvasRef(m), false)
+})
+
+test('넘기면서 한마디를 안 붙여도 된다 — 카드만으로 뜻이 통한다', () => {
+  const m = newMessagePayload({ authorUid: 'u1', body: '', refRequestId: 'r1', refTitle: '제목' })
+  assert.equal(m.body, '')
+  assert.equal(hasCanvasRef(m), true)
+})
+
+test('긴 제목은 잘라 담는다 — 메시지 한 줄에 들어가야 한다', () => {
+  const m = newMessagePayload({ authorUid: 'u1', body: '', refRequestId: 'r1', refTitle: '가'.repeat(300) })
+  assert.equal(m.refTitle.length, 120)
 })

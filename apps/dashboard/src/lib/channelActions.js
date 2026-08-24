@@ -6,11 +6,13 @@
  * 여러 필드를 뭉뚱그리면 규칙에서 둘을 갈라낼 수 없다. 나가기가 updatedAt 말고는
  * leftUids만 건드리는 것이 그래서 중요하다 — 요청의 완료 토글과 같은 모양이다.
  */
-import { arrayRemove, arrayUnion, doc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import {
+  arrayRemove, arrayUnion, collection, doc, serverTimestamp, setDoc, updateDoc, writeBatch,
+} from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { newDmPayload, postVisibilityFor } from '@shared/lib/channels'
-import { dmChannelId } from '@shared/lib/channelMessages'
+import { dmChannelId, newMessagePayload } from '@shared/lib/channelMessages'
 
 function channelRef(schoolId, channelId) {
   return doc(db, ...schoolPath(schoolId, COL.CHANNELS), channelId)
@@ -117,6 +119,44 @@ export async function joinPublicChannel({ schoolId, channelId, uid }) {
     leftUids: arrayRemove(uid),
     updatedAt: serverTimestamp(),
   })
+}
+
+/**
+ * 캔버스를 다른 채널로 넘긴다 — 그 채널에 이 글을 가리키는 메시지 하나를 남긴다.
+ *
+ * ── 복사가 아니라 링크다 ────────────────────────────────────
+ *
+ * 내용을 복제하면 두 벌이 갈라지고, 원본이 고쳐진 뒤에는 어느 쪽이 맞는지 알 수 없다. 완료
+ * 체크는 더 심하다 — 복제본에 체크해봐야 원본 집계에 안 잡히는데, 체크한 사람은 했다고 믿는다.
+ * "쪽지=포인터, 업무 글=캔버스" 원칙 그대로 `refRequestId`로 가리키기만 한다.
+ *
+ * ── 비공개 채널의 글은 화면에서 막는다 ──────────────────────
+ *
+ * 막지 않아도 **내용이 새지는 않는다.** 글의 열람 범위는 원본 규칙(visibility/visibleUids)이
+ * 지키므로, 못 읽는 사람이 링크를 눌러도 열리지 않는다. 그래서 이 제한은 보안이 아니라
+ * 화면의 문제다 — 눌러도 안 열리는 링크를 채널에 남기면 "공유했는데 왜 안 열려요"가 된다.
+ *
+ * 메시지 추가와 lastMessageAt 갱신을 한 배치로 묶는 것은 보통 메시지와 같다. 어긋나면 넘기긴
+ * 넘겼는데 그 채널 사람들 사이드바에 점이 안 떠서, 아무도 모르는 채로 남는다.
+ */
+export async function shareCanvasToChannel({ schoolId, targetChannelId, post, author, note = '' }) {
+  const channel = channelRef(schoolId, targetChannelId)
+  const messageRef = doc(collection(channel, COL.CHANNEL_MESSAGES))
+
+  const batch = writeBatch(db)
+  batch.set(messageRef, {
+    ...newMessagePayload({
+      authorUid: author.uid,
+      authorName: author.name,
+      body: note,
+      refRequestId: post.id,
+      refTitle: post.title,
+      refChannelId: post.channelId || null,
+    }),
+    createdAt: serverTimestamp(),
+  })
+  batch.update(channel, { lastMessageAt: serverTimestamp() })
+  await batch.commit()
 }
 
 /**

@@ -29,6 +29,14 @@
 export const MESSAGE_BODY_MAX = 2000
 
 /**
+ * 캔버스를 다른 채널로 넘길 때 붙이는 한마디의 상한.
+ *
+ * 짧게 잡는다. 왜 넘겼는지("우리 부서도 해당됩니다") 한 줄이면 되고, 길게 쓸 말이면 그건
+ * 넘기는 말이 아니라 그 채널에 쓸 새 글이다.
+ */
+export const SHARE_NOTE_MAX = 200
+
+/**
  * 새 메시지 문서.
  *
  * authorName을 함께 저장하는 이유: 목록을 그릴 때마다 uid로 이름을 조회하면 메시지 수만큼
@@ -38,13 +46,30 @@ export const MESSAGE_BODY_MAX = 2000
  *   원칙에 따라, 긴 내용을 붙여넣는 대신 캔버스를 가리킬 때 쓴다.
  * @returns {object} Firestore에 넣을 필드 (createdAt은 호출부에서 serverTimestamp)
  */
-export function newMessagePayload({ authorUid, authorName = '', body, refRequestId = null }) {
+export function newMessagePayload({
+  authorUid, authorName = '', body,
+  refRequestId = null, refTitle = '', refChannelId = null,
+}) {
   return {
     authorUid,
     authorName,
     body: String(body || '').trim().slice(0, MESSAGE_BODY_MAX),
     refRequestId: refRequestId || null,
+    // 제목과 원래 채널을 함께 박아둔다. 안 그러면 메시지를 그릴 때마다 가리키는 글을
+    // 하나씩 읽어야 하는데, 그 글이 다른 채널에 있으면 목록 쿼리로 묶을 수조차 없다
+    // (authorName·memberNames와 같은 판단이다).
+    //
+    // 제목이 새는 것 아닌가: 넘기는 사람은 이미 그 글을 읽을 수 있고, 제목을 옮기고 싶으면
+    // 본문에 타이핑해도 그만이다. 새로 열리는 경로가 아니다. 정작 내용은 원본 규칙이
+    // 지키므로, 읽을 수 없는 사람이 링크를 눌러도 열리지 않는다.
+    refTitle: refRequestId ? String(refTitle || '').trim().slice(0, 120) : '',
+    refChannelId: refRequestId ? (refChannelId || null) : null,
   }
+}
+
+/** 이 메시지가 캔버스를 가리키고 있는가. */
+export function hasCanvasRef(message) {
+  return !!message?.refRequestId
 }
 
 /**

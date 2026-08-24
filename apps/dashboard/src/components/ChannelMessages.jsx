@@ -13,7 +13,8 @@ import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import SendIcon from '@mui/icons-material/Send'
-import { MESSAGE_BODY_MAX, validateMessage } from '@shared/lib/channelMessages'
+import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
+import { MESSAGE_BODY_MAX, hasCanvasRef, validateMessage } from '@shared/lib/channelMessages'
 import { formatDateTime } from '../lib/formatTime'
 import { useToast } from './ToastProvider'
 import useChannelMessages from '../lib/useChannelMessages'
@@ -21,7 +22,7 @@ import useChannelMessages from '../lib/useChannelMessages'
 /** 같은 사람이 이 시간 안에 연달아 보내면 한 덩어리로 본다. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
 
-export default function ChannelMessages({ channelId, canPost, postBlockedReason, empty }) {
+export default function ChannelMessages({ channelId, canPost, postBlockedReason, empty, onOpenCanvas }) {
   const toast = useToast()
   const { messages, loading, send } = useChannelMessages(channelId)
   const [draft, setDraft] = useState('')
@@ -77,9 +78,12 @@ export default function ChannelMessages({ channelId, canPost, postBlockedReason,
             )}
             {/* 평문이라 그대로 그린다. 줄바꿈만 살린다 — 서식을 허용하면 정화기가 한 벌
                 더 늘고, 한 군데라도 빠뜨리면 그대로 XSS가 된다(channelMessages.js 참고) */}
-            <Typography fontSize="0.88rem" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {m.body}
-            </Typography>
+            {m.body && (
+              <Typography fontSize="0.88rem" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {m.body}
+              </Typography>
+            )}
+            {hasCanvasRef(m) && <CanvasCard message={m} onOpen={onOpenCanvas} />}
           </Box>
         ))}
         <div ref={bottomRef} />
@@ -115,6 +119,43 @@ export default function ChannelMessages({ channelId, canPost, postBlockedReason,
             {postBlockedReason}
           </Typography>
         )}
+      </Box>
+    </Box>
+  )
+}
+
+/**
+ * 메시지에 실린 캔버스 — 내용을 복제하지 않고 가리키기만 한다.
+ *
+ * 제목을 메시지에 박아둔 값(refTitle)으로 그린다. 가리키는 글을 읽어서 그리면 메시지 수만큼
+ * 읽기가 늘고, 그 글이 다른 채널에 있으면 목록 쿼리로 묶을 수조차 없다.
+ *
+ * 눌러도 안 열릴 수 있다 — 비공개 채널의 글을 넘기는 길은 화면에서 막아 두었지만, 그 뒤에
+ * 원본 채널이 비공개로 바뀌면 링크만 남는다. 그때 열리지 않는 것이 맞다(원본 규칙이 지킨다).
+ */
+function CanvasCard({ message, onOpen }) {
+  const target = message.refChannelId
+    ? `/channels/${message.refChannelId}/${message.refRequestId}`
+    : `/posts/${message.refRequestId}`
+
+  return (
+    <Box
+      component="button" type="button"
+      onClick={() => onOpen?.(target)}
+      sx={{
+        display: 'flex', alignItems: 'center', gap: 0.8, mt: 0.5, maxWidth: 420,
+        border: '1px solid', borderColor: 'divider', borderRadius: 1,
+        bgcolor: 'action.hover', textAlign: 'left', px: 1.1, py: 0.7,
+        cursor: 'pointer', fontFamily: 'inherit',
+        '&:hover': { borderColor: 'primary.light' },
+      }}
+    >
+      <DescriptionIcon sx={{ fontSize: 17, color: 'text.disabled', flexShrink: 0 }} />
+      <Box sx={{ minWidth: 0 }}>
+        <Typography fontSize="0.84rem" fontWeight={600} noWrap>
+          {message.refTitle || '업무 글'}
+        </Typography>
+        <Typography fontSize="0.7rem" color="text.disabled">업무 글 열기</Typography>
       </Box>
     </Box>
   )

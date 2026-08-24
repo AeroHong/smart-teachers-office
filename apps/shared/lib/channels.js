@@ -14,6 +14,8 @@
  * 뽑는 일과 업무 대상으로 뽑는 일은 같은 문제라 규칙을 두 벌 만들 이유가 없다.
  */
 
+import { ALL_STAFF_CHANNEL_ID } from './schema.js'
+
 /** 채널 이름 — 사이드바 한 줄에 들어가야 하고, 검색으로 찾을 수 있어야 한다. */
 export const CHANNEL_NAME_MAX = 24
 export const CHANNEL_DESCRIPTION_MAX = 120
@@ -62,6 +64,20 @@ export function isPrivateChannel(channel) {
 /** DM인가 — 이름 없는 2인 채널(CHANNEL_TYPE 주석 참고). */
 export function isDm(channel) {
   return channelType(channel) === CHANNEL_TYPE.DM
+}
+
+/**
+ * 전교직원 채널인가 — 학교 전체 공지가 모이는 자리.
+ *
+ * 이 채널만 나가기·보관을 막는다. 학교 공지가 도착하는 유일한 자리라, 한 번 나가면 그 뒤로
+ * 오는 공지를 못 보는데 **화면에는 아무 일도 없어 보인다.** 보관도 같은 이유로 막는다 —
+ * 관리자가 눌러 접으면 전 교직원의 사이드바에서 한꺼번에 사라진다.
+ *
+ * 참여자에서 빠지는 것 자체를 막지는 않는다(그건 인사이동의 몫이다). 막는 것은 **스스로
+ * 길을 끊는 동작**뿐이다.
+ */
+export function isAllStaffChannel(channel) {
+  return channel?.id === ALL_STAFF_CHANNEL_ID
 }
 
 export function channelPostPolicy(channel) {
