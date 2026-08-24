@@ -402,3 +402,57 @@ test('[DM] 제3자는 남의 DM에 메시지를 못 쓴다', async () => {
     authorUid: ADMIN, authorName: 'ADMIN', body: '끼어들기', refRequestId: null,
   }))
 })
+
+// ── 8. 공개 채널 자가 참여 (디렉터리) ──────────────────────────
+//
+// 디렉터리에서 둘러보다 "참여"를 누르는 경로다. 명단(memberUids)은 비공개 채널에서 곧
+// 글 열람 권한(visibleUids)이라, 여기가 뚫리면 남의 비공개 글을 읽는 길이 열린다.
+
+test('[참여] 공개 채널에는 스스로 들어간다', async () => {
+  await assertSucceeds(updateDoc(doc(as(B), ...path('channels', 'pub')), {
+    memberUids: [A, B], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[참여] 비공개 채널에는 스스로 못 들어간다 ★', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'priv')), {
+    memberUids: [A, B], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[참여] 남을 끌어들일 수는 없다', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'pub')), {
+    memberUids: [A, B, C], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[참여] 참여하면서 남을 내보낼 수는 없다 ★', async () => {
+  // 자기를 넣는 김에 명단을 갈아치우는 것을 막는다
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'pub')), {
+    memberUids: [B], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[참여] 참여를 핑계로 다른 필드를 못 바꾼다', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'pub')), {
+    memberUids: [A, B], name: '가로챈 이름', updatedAt: new Date(),
+  }))
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'pub')), {
+    memberUids: [A, B], visibility: 'private', updatedAt: new Date(),
+  }))
+})
+
+test('[참여] 둘러보기 쿼리는 공개 채널만 돌려준다 ★', async () => {
+  // 규칙은 필터가 아니라서, 이 쿼리가 통과한다는 것 자체가 비공개가 안 섞인다는 증명이다
+  const snap = await assertSucceeds(getDocs(query(
+    collection(as(B), ...path('channels')),
+    where('visibility', '==', 'public'),
+  )))
+  assert.ok(snap.docs.length > 0)
+  assert.ok(snap.docs.every(d => d.data().visibility === 'public'))
+  assert.ok(!snap.docs.some(d => d.id === 'priv'))
+})
+
+test('[참여] 조건 없이 채널을 통째로 훑을 수는 없다', async () => {
+  await assertFails(getDocs(collection(as(B), ...path('channels'))))
+})

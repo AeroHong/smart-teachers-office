@@ -28,7 +28,13 @@ import useSchoolMembers from '../lib/useSchoolMembers'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
 
-export default function ChannelDialog({ open, channel, existingNames = [], onClose, onSave }) {
+/**
+ * @param {object} [preset] 새 채널을 미리 채워 연다(디렉터리의 그룹 → '채널 만들기').
+ *   조건까지 담아 오므로 참여자 선택기가 이미 그 사람들을 가리킨 채로 열린다. 고치기와
+ *   구분해 받는 이유는 channel이 있으면 "고치는 중"으로 판정되기 때문이다 — preset을
+ *   channel로 넘기면 저장이 update로 가서 있지도 않은 문서를 고치려 든다.
+ */
+export default function ChannelDialog({ open, channel, preset, existingNames = [], onClose, onSave }) {
   const { members, loading } = useSchoolMembers()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -41,12 +47,12 @@ export default function ChannelDialog({ open, channel, existingNames = [], onClo
 
   useEffect(() => {
     if (!open) return
-    setName(channel?.name || '')
+    setName(channel?.name || preset?.name || '')
     setDescription(channel?.description || '')
-    setRule(channel?.memberRule || EMPTY_RULE)
+    setRule(channel?.memberRule || preset?.memberRule || EMPTY_RULE)
     setIsPrivate(channelVisibility(channel) === VISIBILITY.PRIVATE)
     setOwnerOnly(channelPostPolicy(channel) === POST_POLICY.OWNER)
-  }, [open, channel])
+  }, [open, channel, preset])
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
   // 고칠 때는 자기 이름이 중복 검사에 걸리면 안 된다

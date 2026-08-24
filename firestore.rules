@@ -354,6 +354,21 @@ service cloud.firestore {
                 request.resource.data.diff(resource.data).affectedKeys()
                   .hasOnly(['leftUids', 'updatedAt']) &&
                 selfOnlyUidChange('leftUids')) ||
+               // 디렉터리에서 둘러보다 공개 채널에 스스로 들어간다.
+               //
+               // **공개 채널에만 연다.** 비공개는 참여자 명단이 곧 글 열람 권한이라
+               // (visibleUids, §3) 스스로 들어갈 수 있으면 남의 글을 읽는 길이 열린다.
+               // 공개 채널은 어차피 교직원 누구나 읽을 수 있어서 새로 얻는 권한이 없다.
+               //
+               // leftUids를 같이 여는 이유: 예전에 나갔던 채널이면 명단에만 넣고 나감 표시를
+               // 그대로 두면 참여자인데 목록에는 '나간 채널'로 남는다. 둘 다 자기 uid만
+               // 움직이는지 검사하므로 남을 넣거나 내보낼 수는 없다.
+               (isTeacher(schoolId) &&
+                resource.data.visibility == 'public' &&
+                request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['memberUids', 'leftUids', 'updatedAt']) &&
+                selfOnlyUidChange('memberUids') &&
+                selfOnlyUidChange('leftUids')) ||
                // 메시지를 보내면 참여자가 lastMessageAt을 갱신한다. 이 값 하나로 사이드바
                // 안읽음 점이 계산되므로(추가 읽기 0회), 참여자에게 열지 않으면 메시지 자체를
                // 보낼 수 없다. 바꿀 수 있는 키를 이것 하나로 못 박아 명단·이름은 못 건드리게 한다.

@@ -99,12 +99,26 @@ export async function setChannelLeft({ schoolId, channelId, uid, left }) {
 }
 
 /**
- * 조건을 다시 푼 결과로 참여자 명단을 갈아끼운다. 만든 사람이 확인하고 누를 때만 실행된다.
+ * 공개 채널에 스스로 들어간다 — 디렉터리에서 둘러보다 참여할 때.
  *
- * leftUids는 손대지 않는다. 나간 사람을 여기서 정리하면 조건이 그 사람을 다시 데려오는
- * 순간 본인이 밝힌 뜻이 조용히 뒤집힌다.
- * memberRuleText도 그대로 둔다 — 바뀐 것은 조건이 아니라 조건이 가리키는 사람들이다.
+ * 명단을 통째로 다시 쓰지 않고 arrayUnion으로 나만 더한다. 두 사람이 같은 순간에 들어가도
+ * 서로를 지우지 않고, 규칙에서도 "자기 uid 하나만 늘었는가"를 검사할 수 있다
+ * (selfOnlyUidChange — 나가기와 같은 모양이다).
+ *
+ * leftUids도 함께 지운다. 예전에 나갔던 채널에 다시 들어가는 경우, 명단에만 넣고 나감 표시를
+ * 그대로 두면 참여자인데 목록에는 '나간 채널'로 남는다.
+ *
+ * 비공개 채널에는 쓸 수 없다(규칙이 막는다). 애초에 디렉터리에 뜨지도 않지만, 공개 채널은
+ * 어차피 누구나 읽을 수 있어서 스스로 들어가도 새로 얻는 권한이 없다는 것이 근거다.
  */
+export async function joinPublicChannel({ schoolId, channelId, uid }) {
+  await updateDoc(channelRef(schoolId, channelId), {
+    memberUids: arrayUnion(uid),
+    leftUids: arrayRemove(uid),
+    updatedAt: serverTimestamp(),
+  })
+}
+
 /**
  * 이 사람과의 DM을 연다. 없으면 만든다.
  *
@@ -141,6 +155,13 @@ export async function openDm({ schoolId, me, other, existingIds = [] }) {
   return id
 }
 
+/**
+ * 조건을 다시 푼 결과로 참여자 명단을 갈아끼운다. 만든 사람이 확인하고 누를 때만 실행된다.
+ *
+ * leftUids는 손대지 않는다. 나간 사람을 여기서 정리하면 조건이 그 사람을 다시 데려오는
+ * 순간 본인이 밝힌 뜻이 조용히 뒤집힌다.
+ * memberRuleText도 그대로 둔다 — 바뀐 것은 조건이 아니라 조건이 가리키는 사람들이다.
+ */
 export async function refreshChannelMembers({ schoolId, channelId, memberUids, channel, posts = [] }) {
   await updateChannelAndPosts({
     schoolId,

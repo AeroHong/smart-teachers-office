@@ -53,6 +53,10 @@ export default function App() {
           {/* 쪽지 — 위젯이 아니라 전용 탭. 쿨메신저를 대체하지 않고 병행하는 보조 수단이라
               매일 보는 대시보드의 자리를 차지하지 않는다 */}
           <Route path="/channels" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
+          {/* 정적 경로를 :channelId보다 먼저 둔다. react-router v6는 정적 구간을 더 높게
+              치므로 순서와 무관하게 안전하지만, 읽는 사람에게도 'directory'가 채널 id가
+              아니라는 것이 보여야 한다. */}
+          <Route path="/channels/directory" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
           <Route path="/channels/:channelId" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
           <Route path="/channels/:channelId/:requestId" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
 

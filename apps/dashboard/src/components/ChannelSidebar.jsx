@@ -28,6 +28,7 @@ import ArchiveIcon from '@mui/icons-material/Inventory2Outlined'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolderOutlined'
 import FolderIcon from '@mui/icons-material/FolderOutlined'
 import ForumIcon from '@mui/icons-material/ForumOutlined'
+import GroupsIcon from '@mui/icons-material/Groups'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -48,7 +49,7 @@ const GROUP_ICON = { favorites: StarIcon, section: FolderIcon }
 
 export default function ChannelSidebar({
   channels, archivedChannels, leftChannels, dms = [], myUid,
-  loading, activeChannelId, onNewChannel, onNewDm,
+  loading, activeChannelId, directoryActive, onNewChannel, onNewDm,
 }) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -146,6 +147,19 @@ export default function ChannelSidebar({
       >
         새 채널
       </Button>
+
+      {/* 디렉터리 — 채널 목록 위에 고정. 이 화면에 오는 이유가 "아직 내 목록에 없는 것을
+          찾는다"라서, 내 목록 아래에 두면 정작 목록이 빈 사람에게 제일 안 보인다. */}
+      <SidebarItem
+        label={(
+          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6 }}>
+            <GroupsIcon sx={{ fontSize: 15, flexShrink: 0, opacity: 0.8 }} />
+            디렉터리
+          </Box>
+        )}
+        selected={!!directoryActive}
+        onClick={() => navigate('/channels/directory')}
+      />
 
       {loading ? null : channels.length === 0 ? (
         <SidebarEmpty>참여 중인 채널이 없습니다</SidebarEmpty>

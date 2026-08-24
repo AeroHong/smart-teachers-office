@@ -12,7 +12,7 @@
  * 칸이라, 늘 자리를 차지하면 268px 사이드바에서 정작 볼 채널이 밀려 내려간다.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -51,15 +51,17 @@ import ChannelDialog from '../components/ChannelDialog'
 import ChannelIntro from '../components/ChannelIntro'
 import ChannelMessages from '../components/ChannelMessages'
 import ChannelSidebar from '../components/ChannelSidebar'
+import Directory from '../components/Directory'
 import DmDialog from '../components/DmDialog'
 import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
 import useChannelPrefs from '../lib/useChannelPrefs'
 import useSchoolMembers from '../lib/useSchoolMembers'
+import usePublicChannels from '../lib/usePublicChannels'
 import {
-  openDm, refreshChannelMembers, setChannelArchived, setChannelLeft, setPostArchived,
-  updateChannelAndPosts,
+  joinPublicChannel, openDm, refreshChannelMembers, setChannelArchived, setChannelLeft,
+  setPostArchived, updateChannelAndPosts,
 } from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -69,12 +71,19 @@ const NO_DIFF = { added: [], removed: [], changed: false }
 export default function Channels() {
   const { channelId, requestId } = useParams()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  // 'directory'는 채널 id가 아니라 정적 경로다(App.jsx). 채널과 같은 사이드바를 쓰는
+  // 화면이라 페이지를 따로 만들지 않고 오른쪽 칸만 갈아 끼운다 — 페이지를 나누면 새 채널·
+  // 새 대화 대화상자와 그 상태를 두 벌 들고 있어야 한다.
+  const directory = pathname === '/channels/directory'
   const { user, userName, schoolId, isAdmin } = useAuth()
   const toast = useToast()
   const { channels, archivedChannels, leftChannels, dms, loading } = useChannels()
   const { members, loading: membersLoading } = useSchoolMembers()
+  const { channels: publicChannels, loading: publicLoading, reload: reloadPublic } = usePublicChannels(directory)
 
   const [editing, setEditing] = useState(null)      // null | 'new' | channel
+  const [preset, setPreset] = useState(null)        // 새 채널을 미리 채워 열 때(디렉터리 그룹)
   const [pickingDm, setPickingDm] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
@@ -244,6 +253,27 @@ export default function Channels() {
     }
   }
 
+  /** 공개 채널에 스스로 참여한 뒤 그 채널로 들어간다. 참여만 하고 그 자리에 서 있으면
+   *  "됐나?" 싶어 한 번 더 누르게 된다. */
+  const joinChannel = async (channel) => {
+    const ok = await run(
+      () => joinPublicChannel({ schoolId, channelId: channel.id, uid: user.uid }),
+      `'${channel.name}' 채널에 참여했습니다.`,
+      '채널에 참여하지 못했습니다.',
+    )
+    if (!ok) return
+    // 둘러보기 목록은 구독이 아니라 한 번 읽기라, 다시 읽지 않으면 '참여 중' 표시가 안 바뀐다.
+    reloadPublic()
+    navigate(`/channels/${channel.id}`)
+  }
+
+  /** 그룹을 조건 그대로 들고 새 채널 대화상자를 연다. uid를 복사하지 않는 이유는
+   *  directory.js의 groupToMemberRule 주석 참고 — 조건이어야 인사이동 뒤에 갱신 표시가 뜬다. */
+  const newChannelFromGroup = ({ name, rule }) => {
+    setPreset({ name, memberRule: rule })
+    setEditing('new')
+  }
+
   const sidebar = (
     <ChannelSidebar
       channels={channels}
@@ -253,16 +283,30 @@ export default function Channels() {
       myUid={user?.uid}
       loading={loading}
       activeChannelId={channelId}
-      onNewChannel={() => setEditing('new')}
+      directoryActive={directory}
+      onNewChannel={() => { setPreset(null); setEditing('new') }}
       onNewDm={() => setPickingDm(true)}
     />
   )
 
   return (
     <WorkspaceLayout sidebar={sidebar}>
-      {/* 채널을 못 찾았는데 글 주소가 있으면 글만 그린다. 보관한 채널의 글을 링크로 열거나
-          채널 목록이 아직 안 왔을 때인데, 채널 껍데기를 기다리느라 글을 못 보여줄 이유가 없다. */}
-      {!active && requestId ? (
+      {directory ? (
+        <Directory
+          members={members}
+          membersLoading={membersLoading}
+          myUid={user?.uid}
+          busy={busy}
+          publicChannels={publicChannels}
+          channelsLoading={publicLoading}
+          onOpenChannel={c => navigate(`/channels/${c.id}`)}
+          onJoinChannel={joinChannel}
+          onStartDm={startDm}
+          onNewChannelFromGroup={newChannelFromGroup}
+        />
+      ) : !active && requestId ? (
+        // 채널을 못 찾았는데 글 주소가 있으면 글만 그린다. 보관한 채널의 글을 링크로 열거나
+        // 채널 목록이 아직 안 왔을 때인데, 채널 껍데기를 기다리느라 글을 못 보여줄 이유가 없다.
         <PostDetail
           requestId={requestId}
           onDeleted={() => navigate(`/channels/${channelId}`)}
@@ -611,8 +655,9 @@ export default function Channels() {
       <ChannelDialog
         open={!!editing}
         channel={editing === 'new' ? null : editing}
+        preset={editing === 'new' ? preset : null}
         existingNames={allNames}
-        onClose={() => setEditing(null)}
+        onClose={() => { setEditing(null); setPreset(null) }}
         onSave={saveChannel}
       />
 
