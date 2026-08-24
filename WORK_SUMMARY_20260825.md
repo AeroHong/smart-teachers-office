@@ -157,26 +157,25 @@ Slack의 실제 구조는 이렇다.
 2. **P4 — 리액션 · 멘션 · mute** — 내 활동의 재료가 되고, 손으로 묶는 사용자 그룹
    (`@2학년담임` 멘션 핸들)도 여기서 함께 설계한다
 3. **메시지 단위 스레드/전달** (§4) — 스레드 v1 제외 결정을 다시 볼지가 먼저
-4. **P3-3 홈 재구성** — 1번·2번이 끝나야 착수 가능
+4. **글쓰기 재설계** — [PLAN_composer.md](./PLAN_composer.md). 용어 통일·대상 선택 정리는
+   작고 독립적이라 먼저 내보낼 수 있다
+5. **P3-3 홈 재구성** — 1번·2번이 끝나야 착수 가능
 
 ---
 
-## 7. 다른 PC에서 시작할 때
+## 7. 다음 큰 덩어리 — 글쓰기 재설계
 
-```bash
-git pull
-npm install                      # @firebase/rules-unit-testing 등 devDeps
-npm test                         # 순수 226개
-npm run test:rules               # 규칙 54개 (firebase emulators 필요)
-npm run dev:dashboard            # 로컬 실행
+→ **[PLAN_composer.md](./PLAN_composer.md)** (2026-08-25 방향 확정, 코드 미착수)
 
-# 배포
-npm run build:dashboard
-npx firebase deploy --only hosting:dashboard
-npx firebase deploy --only firestore:rules      # 규칙을 고쳤을 때만
-```
+지금 글쓰기(`/requests/new`)는 사이드바 없는 별도 페이지라 **쓰는 동안 채널이 안 보인다.**
+1·2·3단을 유지한 채 3단 안에서 쓰도록 바꾼다 — 채널 머리 탭 줄의 `＋`로 캔버스를 만들고
+그 자리에서 바로 쓴다.
 
-마이그레이션 스크립트는 `gcloud auth application-default login`이 한 번 필요하다.
-
-**빌드 산출물(`dashboard/index.html`)은 배포할 때마다 별도 `chore:` 커밋으로 올린다** —
-저장소 관례다.
+함께 정리할 것:
+- **용어가 세 벌로 갈려 있다** — 코드 `requests` / 화면 `업무 글` / 논의 `캔버스`.
+  `대화` 탭도 `메시지`로 바꾼다
+- **채널 안에서 쓰는데 대상을 또 고른다.** 채널 참여자가 기본이고 좁히기는 접어둔다
+- **`채널 없음` 선택지가 아직 남아 있다** — P3-A에서 "모든 글이 채널을 갖는다"를 규칙으로
+  삼았는데 UI가 안 따라왔다. 지금 누르면 채널 없는 글이 다시 생긴다
+- **입력창 전면 교체** — `PLAN_blockEditor.md`의 판단이 여기서 다시 필요하다
+- 전반적인 디자인 정리 — 항목은 다음에 화면을 보며 뽑는다
