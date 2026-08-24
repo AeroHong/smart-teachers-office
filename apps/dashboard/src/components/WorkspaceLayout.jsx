@@ -16,6 +16,7 @@ import { alpha } from '@mui/material/styles'
 import AppRail from './AppRail'
 import TopBar from './TopBar'
 import CallAlert from './CallAlert'
+import UpdateBanner from './UpdateBanner'
 
 const SIDEBAR_WIDTH = 268
 
@@ -25,6 +26,8 @@ export default function WorkspaceLayout({ sidebar, children }) {
       <AppRail />
 
       <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {/* 상단바보다 위에 둔다 — 새 배포 안내는 지금 보는 화면보다 앞서는 이야기다 */}
+        <UpdateBanner />
         <TopBar />
 
         <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex' }}>
