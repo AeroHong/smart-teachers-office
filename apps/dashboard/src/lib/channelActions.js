@@ -6,10 +6,11 @@
  * 여러 필드를 뭉뚱그리면 규칙에서 둘을 갈라낼 수 없다. 나가기가 updatedAt 말고는
  * leftUids만 건드리는 것이 그래서 중요하다 — 요청의 완료 토글과 같은 모양이다.
  */
-import { arrayRemove, arrayUnion, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore'
+import { arrayRemove, arrayUnion, doc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
-import { postVisibilityFor } from '@shared/lib/channels'
+import { newDmPayload, postVisibilityFor } from '@shared/lib/channels'
+import { dmChannelId } from '@shared/lib/channelMessages'
 
 function channelRef(schoolId, channelId) {
   return doc(db, ...schoolPath(schoolId, COL.CHANNELS), channelId)
@@ -87,6 +88,42 @@ export async function setChannelLeft({ schoolId, channelId, uid, left }) {
  * 순간 본인이 밝힌 뜻이 조용히 뒤집힌다.
  * memberRuleText도 그대로 둔다 — 바뀐 것은 조건이 아니라 조건이 가리키는 사람들이다.
  */
+/**
+ * 이 사람과의 DM을 연다. 없으면 만든다.
+ *
+ * ── 있는지 없는지를 왜 읽어서 확인하지 않는가 ────────────────
+ *
+ * 없는 문서를 getDoc으로 찔러 보는 방법은 여기서 통하지 않는다. 채널 read 규칙이
+ * `resource.data.visibility`를 보는데 문서가 없으면 resource가 null이라 그 평가가
+ * 실패하고, "없음"이 아니라 **권한 거부**로 돌아온다.
+ *
+ * 그럴 필요도 없다. 내가 낀 DM은 전부 사이드바 목록 쿼리(memberUids array-contains me)에
+ * 이미 들어와 있으므로, 화면이 들고 있는 목록에 없으면 없는 것이다. 추가 읽기 0회.
+ *
+ * @param {string[]} existingIds 지금 내 목록에 있는 채널 id들 (useChannels의 dms)
+ */
+export async function openDm({ schoolId, me, other, existingIds = [] }) {
+  const id = dmChannelId(me.uid, other.uid)
+  if (existingIds.includes(id)) return id
+
+  try {
+    await setDoc(doc(db, ...schoolPath(schoolId, COL.CHANNELS), id), {
+      ...newDmPayload({ me, other }),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  } catch (e) {
+    // 두 사람이 같은 순간에 서로에게 말을 걸면 늦은 쪽의 setDoc은 상대가 방금 만든 문서를
+    // 덮는 update가 되어 규칙에 막힌다. **막히는 것이 맞다** — 덮으면 lastMessageAt이 날아가
+    // 상대 사이드바의 안읽음 점이 조용히 사라진다. 대화는 이미 생겼으니 그대로 열면 된다.
+    //
+    // 상대는 화면에서 고른 같은 학교 교직원이고 나머지 필드는 여기서 채우므로, 이 자리의
+    // permission-denied는 사실상 이 경우뿐이다.
+    if (e?.code !== 'permission-denied') throw e
+  }
+  return id
+}
+
 export async function refreshChannelMembers({ schoolId, channelId, memberUids, channel, posts = [] }) {
   await updateChannelAndPosts({
     schoolId,

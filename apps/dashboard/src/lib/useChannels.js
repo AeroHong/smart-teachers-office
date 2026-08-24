@@ -26,7 +26,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
-import { channelStats, hasLeft, sortChannels } from '@shared/lib/channels'
+import { channelStats, hasLeft, isDm, sortChannels, sortDms } from '@shared/lib/channels'
 
 export default function useChannels() {
   const { user, schoolId } = useAuth()
@@ -105,10 +105,21 @@ export default function useChannels() {
     })
     const left = c => hasLeft(c, user?.uid)
 
+    // DM은 채널 목록에서 뺀다. 같은 컬렉션에 살지만 이름도 업무 글도 없어서, 섞어 놓으면
+    // 즐겨찾기·섹션·마감 뱃지가 전부 빈 채로 붙은 줄이 목록에 낀다. 글 쓸 채널을 고르는
+    // 자리(PostNew)도 이 목록을 쓰므로 거기서도 함께 빠진다.
+    const rest = all.filter(c => !isDm(c))
+
     return {
-      channels: sortChannels(all.filter(c => !c.archived && !left(c))),
-      archivedChannels: sortChannels(all.filter(c => c.archived)),
-      leftChannels: sortChannels(all.filter(c => !c.archived && left(c))),
+      channels: sortChannels(rest.filter(c => !c.archived && !left(c))),
+      archivedChannels: sortChannels(rest.filter(c => c.archived)),
+      leftChannels: sortChannels(rest.filter(c => !c.archived && left(c))),
+      // 아직 한 마디도 오가지 않은 DM은 만든 사람에게만 보인다. 말을 걸려다 만 대화가
+      // 상대 목록에 먼저 뜨면, 열어봐도 아무것도 없는 줄이 남는다.
+      dms: sortDms(
+        all.filter(c => isDm(c) && !c.archived && (c.lastMessageAt || c.createdBy === user?.uid)),
+        user?.uid,
+      ),
     }
   }, [raw, posts, user])
 

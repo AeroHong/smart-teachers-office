@@ -21,7 +21,7 @@ import useChannelMessages from '../lib/useChannelMessages'
 /** 같은 사람이 이 시간 안에 연달아 보내면 한 덩어리로 본다. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
 
-export default function ChannelMessages({ channelId, canPost, postBlockedReason }) {
+export default function ChannelMessages({ channelId, canPost, postBlockedReason, emptyText }) {
   const toast = useToast()
   const { messages, loading, send } = useChannelMessages(channelId)
   const [draft, setDraft] = useState('')
@@ -60,7 +60,7 @@ export default function ChannelMessages({ channelId, canPost, postBlockedReason 
       <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2, py: 1.5 }}>
         {loading ? null : rows.length === 0 ? (
           <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
-            아직 대화가 없습니다. 되묻고 싶은 것을 여기에 적으면 답이 이 채널에 남습니다.
+            {emptyText || '아직 대화가 없습니다. 되묻고 싶은 것을 여기에 적으면 답이 이 채널에 남습니다.'}
           </Typography>
         ) : rows.map(m => (
           <Box key={m.id} sx={{ mb: m.grouped ? 0.2 : 1.2 }}>

@@ -59,6 +59,11 @@ export function isPrivateChannel(channel) {
   return channelVisibility(channel) === VISIBILITY.PRIVATE
 }
 
+/** DM인가 — 이름 없는 2인 채널(CHANNEL_TYPE 주석 참고). */
+export function isDm(channel) {
+  return channelType(channel) === CHANNEL_TYPE.DM
+}
+
 export function channelPostPolicy(channel) {
   return channel?.postPolicy === POST_POLICY.OWNER ? POST_POLICY.OWNER : POST_POLICY.MEMBERS
 }
@@ -93,6 +98,82 @@ export function postVisibilityFor(channel) {
     return { visibility: 'members', visibleUids: [...new Set(channel.memberUids || [])] }
   }
   return { visibility: 'school', visibleUids: [] }
+}
+
+// ── DM ────────────────────────────────────────────────────────
+
+/**
+ * DM 채널 문서.
+ *
+ * 채널과 같은 컬렉션·같은 필드를 쓴다. 그래야 목록 구독·안읽음 계산·메시지 전송·보안 규칙이
+ * 한 벌로 끝난다 — DM을 별도 컬렉션으로 두면 그 네 가지를 전부 두 번씩 만들어야 한다.
+ *
+ * **memberNames를 문서에 박아 두는 이유**: 사이드바는 교직원 명단을 읽지 않는다(채널은
+ * 이름이 문서에 있으니 필요가 없었다). DM만을 위해 명단 조회를 사이드바에 들이면 화면
+ * 하나 그리려고 users를 통째로 읽게 된다. 보낸 사람 이름을 메시지에 박아두는 것
+ * (channelMessages.js의 authorName)과 같은 판단이고, 학교를 떠난 사람과의 지난 대화가
+ * uid로 보이지 않는다는 이점도 같다.
+ *
+ * memberUids는 **반드시 정렬해서** 넣는다. 문서 ID(dmChannelId)가 정렬을 전제로 만들어지고
+ * 보안 규칙도 그 순서로 ID를 맞춰 보기 때문에, 순서가 뒤집히면 규칙에 막힌다.
+ *
+ * @param {{uid: string, name?: string}} me
+ * @param {{uid: string, name?: string}} other
+ */
+export function newDmPayload({ me, other }) {
+  const uids = [me.uid, other.uid].sort()
+  return {
+    name: '',
+    description: '',
+    // 조건으로 뽑은 참여자가 아니라 두 사람을 직접 지목한 것이다. 조건을 비워 두면
+    // '참여자 갱신' 계산이 "두 명 다 빠짐"으로 읽는다.
+    memberRule: { conditions: [], includeUids: uids, excludeUids: [] },
+    memberRuleText: '',
+    memberUids: uids,
+    memberNames: { [me.uid]: me.name || '', [other.uid]: other.name || '' },
+    leftUids: [],
+    createdBy: me.uid,
+    createdByName: me.name || '',
+    archived: false,
+    type: CHANNEL_TYPE.DM,
+    visibility: VISIBILITY.PRIVATE,
+    postPolicy: POST_POLICY.MEMBERS,
+  }
+}
+
+/**
+ * DM을 목록에 뭐라고 적을 것인가 — 상대의 이름.
+ *
+ * 이름이 없는 채널이라 name 필드를 그대로 쓰면 빈 줄이 된다. 나 자신과의 DM(메모 용도로
+ * 열어둔 경우)은 상대가 없으므로 그렇게 밝힌다.
+ */
+export function dmTitle(channel, myUid) {
+  const names = channel?.memberNames || {}
+  const otherUid = (channel?.memberUids || []).find(uid => uid !== myUid)
+  if (!otherUid) return '나와의 대화'
+  return names[otherUid] || '(이름 없음)'
+}
+
+/**
+ * DM 목록 순서 — 최근에 말이 오간 것이 위로.
+ *
+ * 채널은 급한 순(마감·진행 중)으로 정렬하는데 DM은 그럴 근거가 없다. 대화는 마감이 없고,
+ * 방금 온 말에 답하는 것이 거의 항상 다음에 할 일이다.
+ */
+export function sortDms(dms = [], myUid) {
+  return [...dms].sort((a, b) => {
+    const diff = toMillis(b.lastMessageAt) - toMillis(a.lastMessageAt)
+    if (diff !== 0) return diff
+    return dmTitle(a, myUid).localeCompare(dmTitle(b, myUid), 'ko')
+  })
+}
+
+function toMillis(value) {
+  if (!value) return 0
+  if (typeof value.toMillis === 'function') return value.toMillis()
+  if (value instanceof Date) return value.getTime()
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 /**

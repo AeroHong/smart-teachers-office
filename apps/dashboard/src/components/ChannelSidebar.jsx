@@ -27,12 +27,13 @@ import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Inventory2Outlined'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolderOutlined'
 import FolderIcon from '@mui/icons-material/FolderOutlined'
+import ForumIcon from '@mui/icons-material/ForumOutlined'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
-import { isPrivateChannel } from '@shared/lib/channels'
+import { dmTitle, isPrivateChannel } from '@shared/lib/channels'
 import { hasUnread } from '@shared/lib/channelMessages'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
@@ -46,7 +47,8 @@ import useChannelPrefs from '../lib/useChannelPrefs'
 const GROUP_ICON = { favorites: StarIcon, section: FolderIcon }
 
 export default function ChannelSidebar({
-  channels, archivedChannels, leftChannels, loading, activeChannelId, onNewChannel,
+  channels, archivedChannels, leftChannels, dms = [], myUid,
+  loading, activeChannelId, onNewChannel, onNewDm,
 }) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -58,6 +60,9 @@ export default function ChannelSidebar({
   const [deleting, setDeleting] = useState(null)       // 섹션 객체
   const [openArchived, setOpenArchived] = useState(false)
   const [openLeft, setOpenLeft] = useState(false)
+  // DM은 기본으로 펼쳐 둔다. 보관·나간 채널과 달리 매일 들여다보는 자리라, 접혀 있으면
+  // 안읽음 표시가 있는 줄이 한 번 더 눌러야 보인다.
+  const [openDms, setOpenDms] = useState(true)
 
   const groups = useMemo(() => groupChannels(channels, prefs), [channels, prefs])
   const sections = prefs.sections
@@ -183,6 +188,36 @@ export default function ChannelSidebar({
           새 섹션
         </Button>
       )}
+
+      {/* 다이렉트 메시지 — 채널에 물을 자리가 없을 때의 폴백이다. 채널 아래에 두는 것은
+          순서가 곧 권유이기 때문이다("채널 우선, DM은 폴백" · PLAN_channels.md 메시징 모델).
+          비어 있어도 그리는 이유는 여기가 대화를 시작하는 유일한 입구라서다 — 채널·보관함처럼
+          숨기면 첫 DM을 보낼 방법이 없다. */}
+      <SidebarSection
+        label="다이렉트 메시지" icon={ForumIcon} count={dms.length}
+        // 접었을 때도 안 읽은 대화가 몇 개인지는 보여야 한다. 채널 줄과 달리 DM은 굵은
+        // 글씨가 접힘 뒤로 사라지면 온 줄도 모른다.
+        badge={openDms ? 0 : dms.filter(c => hasUnread(c, reads)).length}
+        open={openDms} onToggle={() => setOpenDms(v => !v)}
+        actionActive
+        action={(
+          <IconButton size="small" aria-label="새 대화" onClick={onNewDm} sx={{ p: 0.25 }}>
+            <AddIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        )}
+      >
+        {dms.length === 0 ? (
+          <SidebarEmpty>＋로 대화를 시작하세요</SidebarEmpty>
+        ) : dms.map(c => (
+          <SidebarItem
+            key={c.id}
+            label={dmTitle(c, myUid)}
+            selected={c.id === activeChannelId}
+            strong={hasUnread(c, reads)}
+            onClick={() => navigate(`/channels/${c.id}`)}
+          />
+        ))}
+      </SidebarSection>
 
       {leftChannels.length > 0 && (
         <SidebarSection

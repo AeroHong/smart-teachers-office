@@ -31,13 +31,15 @@ import EditIcon from '@mui/icons-material/EditOutlined'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
+import PersonIcon from '@mui/icons-material/PersonOutline'
 import TagIcon from '@mui/icons-material/Tag'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
 import {
-  POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, hasLeft, isPrivateChannel, memberDiff,
+  POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft, isDm,
+  isPrivateChannel, memberDiff,
 } from '@shared/lib/channels'
 import { completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
@@ -45,13 +47,14 @@ import { MiniChip } from '../components/sidebarUi'
 import ChannelDialog from '../components/ChannelDialog'
 import ChannelMessages from '../components/ChannelMessages'
 import ChannelSidebar from '../components/ChannelSidebar'
+import DmDialog from '../components/DmDialog'
 import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
 import useChannelPrefs from '../lib/useChannelPrefs'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import {
-  refreshChannelMembers, setChannelArchived, setChannelLeft, updateChannelAndPosts,
+  openDm, refreshChannelMembers, setChannelArchived, setChannelLeft, updateChannelAndPosts,
 } from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -63,10 +66,11 @@ export default function Channels() {
   const navigate = useNavigate()
   const { user, userName, schoolId, isAdmin } = useAuth()
   const toast = useToast()
-  const { channels, archivedChannels, leftChannels, loading } = useChannels()
+  const { channels, archivedChannels, leftChannels, dms, loading } = useChannels()
   const { members, loading: membersLoading } = useSchoolMembers()
 
   const [editing, setEditing] = useState(null)      // null | 'new' | channel
+  const [pickingDm, setPickingDm] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
   const [busy, setBusy] = useState(false)
@@ -76,12 +80,16 @@ export default function Channels() {
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
   // 죽으면, 쿨메신저로 돌던 채널 주소가 어느 날 갑자기 안 열린다.
   const active = useMemo(
-    () => [...channels, ...archivedChannels, ...leftChannels].find(c => c.id === channelId) || null,
-    [channels, archivedChannels, leftChannels, channelId],
+    () => [...channels, ...archivedChannels, ...leftChannels, ...dms].find(c => c.id === channelId) || null,
+    [channels, archivedChannels, leftChannels, dms, channelId],
   )
   const posts = useMemo(() => sortByUrgency(active?.posts || []), [active])
 
-  const canManage = canManageChannel(active, user?.uid, isAdmin)
+  const dm = isDm(active)
+  // DM에는 관리랄 것이 없다. 이름도 참여자도 고칠 수 없고(firestore.rules에서도 막는다),
+  // 보관·나가기도 두지 않았다 — 둘 뿐인 대화에서 한쪽이 자리를 정리하는 동작은
+  // 상대에게 어떻게 보일지가 정해지지 않았다. 필요해지면 그때 설계한다.
+  const canManage = !dm && canManageChannel(active, user?.uid, isAdmin)
   const canPost = canPostTo(active, user?.uid, isAdmin)
   const iLeft = hasLeft(active, user?.uid)
 
@@ -99,10 +107,11 @@ export default function Channels() {
    * 안 누르든 이 표시를 다시는 믿지 않는다.
    */
   const sync = useMemo(() => {
-    if (!active || membersLoading || members.length === 0) return NO_DIFF
+    // DM은 조건으로 뽑은 명단이 아니라 두 사람을 지목한 것이라 '갱신'이라는 개념이 없다.
+    if (!active || dm || membersLoading || members.length === 0) return NO_DIFF
     const resolved = resolveTargets(active.memberRule || {}, members)
     return { ...memberDiff(active.memberUids, resolved.uids), uids: resolved.uids }
-  }, [active, members, membersLoading])
+  }, [active, dm, members, membersLoading])
 
   const nameOf = useMemo(() => {
     const byUid = new Map(members.map(m => [m.uid, m.name]))
@@ -164,14 +173,42 @@ export default function Channels() {
     }
   }
 
+  /**
+   * 고른 사람과의 대화를 연다. 없으면 만들면서 연다.
+   *
+   * 문서를 만들자마자 그리로 이동한다. 사이드바 목록에 뜨기를 기다리지 않는 이유는,
+   * 구독 스냅샷이 도착하는 짧은 사이에 "눌렀는데 아무 일도 안 일어난" 화면이 되기
+   * 때문이다. 채널 페이지는 id로 열리므로 목록보다 먼저 도착해도 문제가 없다.
+   */
+  const startDm = async (member) => {
+    setBusy(true)
+    try {
+      const id = await openDm({
+        schoolId,
+        me: { uid: user.uid, name: userName },
+        other: { uid: member.uid, name: member.name },
+        existingIds: dms.map(c => c.id),
+      })
+      setPickingDm(false)
+      navigate(`/channels/${id}`)
+    } catch (e) {
+      toast.error('대화를 열지 못했습니다.', e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const sidebar = (
     <ChannelSidebar
       channels={channels}
       archivedChannels={archivedChannels}
       leftChannels={leftChannels}
+      dms={dms}
+      myUid={user?.uid}
       loading={loading}
       activeChannelId={channelId}
       onNewChannel={() => setEditing('new')}
+      onNewDm={() => setPickingDm(true)}
     />
   )
 
@@ -190,16 +227,28 @@ export default function Channels() {
           <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5 }}>
             {/* 비공개 채널은 자물쇠로 갈음한다. 여기가 아니라 설명 줄에만 적으면
                 글을 쓰는 순간에는 눈에 안 들어온다 — 정작 그때 알아야 하는 사실이다. */}
-            {isPrivateChannel(active)
-              ? <LockIcon sx={{ fontSize: 20, color: 'warning.main', mt: '3px' }} />
-              : <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />}
+            {dm
+              ? <PersonIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />
+              : isPrivateChannel(active)
+                ? <LockIcon sx={{ fontSize: 20, color: 'warning.main', mt: '3px' }} />
+                : <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />}
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography variant="h6" fontWeight={800}>{active.name}</Typography>
+              <Typography variant="h6" fontWeight={800}>
+                {dm ? dmTitle(active, user?.uid) : active.name}
+              </Typography>
               <Typography fontSize="0.76rem" color="text.secondary">
-                {isPrivateChannel(active) && '비공개 · '}
-                참여 {active.memberUids?.length ?? 0}명
-                {active.memberRuleText && ` · ${active.memberRuleText}`}
-                {channelPostPolicy(active) === POST_POLICY.OWNER && ' · 공지 전용'}
+                {dm ? (
+                  // 관리자도 못 읽는다는 사실을 적어 둔다. 업무 채널과 생김새가 같아서
+                  // 여기가 둘만 보는 자리라는 것이 달리 드러날 곳이 없다(데이터모델 §10).
+                  '둘만 보는 대화입니다. 관리자도 읽지 않습니다.'
+                ) : (
+                  <>
+                    {isPrivateChannel(active) && '비공개 · '}
+                    참여 {active.memberUids?.length ?? 0}명
+                    {active.memberRuleText && ` · ${active.memberRuleText}`}
+                    {channelPostPolicy(active) === POST_POLICY.OWNER && ' · 공지 전용'}
+                  </>
+                )}
               </Typography>
             </Box>
             {canManage && (
@@ -209,14 +258,16 @@ export default function Channels() {
                 </IconButton>
               </Tooltip>
             )}
-            <Tooltip title="채널 관리">
-              <IconButton size="small" onClick={e => setMenuAnchor(e.currentTarget)}>
-                <MoreVertIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
+            {!dm && (
+              <Tooltip title="채널 관리">
+                <IconButton size="small" onClick={e => setMenuAnchor(e.currentTarget)}>
+                  <MoreVertIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            )}
             {/* 공지 전용 채널에서 참여자는 글을 못 쓴다. 눌린 뒤 규칙에 막혀 튕기면
                 사용자는 기능이 고장 난 것으로 읽으므로 버튼 자체를 감춘다. */}
-            {canPostTo(active, user?.uid, isAdmin) && (
+            {!dm && canPostTo(active, user?.uid, isAdmin) && (
               <Button
                 size="small" variant="contained"
                 onClick={() => navigate(`/requests/new?channel=${active.id}`)}
@@ -259,21 +310,31 @@ export default function Channels() {
           )}
 
             {/* 대화와 업무 글을 탭으로 가른다. 한 화면에 쌓으면 대화가 길어질수록 업무 글이
-                아래로 밀려 안 보이는데, 정작 마감이 걸린 것은 그쪽이다. */}
-            <Tabs
-              value={tab} onChange={(e, v) => setTab(v)}
-              sx={{ minHeight: 36, mt: 1, '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700 } }}
-            >
-              <Tab value="messages" label="대화" />
-              <Tab value="posts" label={`업무 글${posts.length ? ` ${posts.length}` : ''}`} />
-            </Tabs>
+                아래로 밀려 안 보이는데, 정작 마감이 걸린 것은 그쪽이다.
+
+                DM에는 업무 글을 두지 않는다. 업무 글은 requests 최상위 컬렉션이라 학교
+                관리자가 읽을 수 있는데, DM 메시지는 관리자 열람에서 빼기로 못 박았다
+                (데이터모델 §10). DM 안에 업무 글을 허용하면 "둘만 본다"가 한쪽으로 샌다.
+                한 사람에게만 시키는 일은 업무 글의 대상을 그 사람으로 지정하면 된다. */}
+            {!dm && (
+              <Tabs
+                value={tab} onChange={(e, v) => setTab(v)}
+                sx={{ minHeight: 36, mt: 1, '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700 } }}
+              >
+                <Tab value="messages" label="대화" />
+                <Tab value="posts" label={`업무 글${posts.length ? ` ${posts.length}` : ''}`} />
+              </Tabs>
+            )}
           </Box>
 
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-            {tab === 'messages' ? (
+            {dm || tab === 'messages' ? (
               <ChannelMessages
                 channelId={active.id}
                 canPost={canPost}
+                emptyText={dm
+                  ? '아직 대화가 없습니다. 여기에 적은 말은 둘만 봅니다.'
+                  : '아직 대화가 없습니다. 되묻고 싶은 것을 여기에 적으면 답이 이 채널에 남습니다.'}
                 postBlockedReason={
                   iLeft
                     ? '나간 채널입니다. 다시 참여하면 대화에 쓸 수 있습니다.'
@@ -400,6 +461,16 @@ export default function Channels() {
         existingNames={allNames}
         onClose={() => setEditing(null)}
         onSave={saveChannel}
+      />
+
+      <DmDialog
+        open={pickingDm}
+        members={members}
+        loading={membersLoading}
+        myUid={user?.uid}
+        busy={busy}
+        onClose={() => setPickingDm(false)}
+        onPick={startDm}
       />
     </WorkspaceLayout>
   )

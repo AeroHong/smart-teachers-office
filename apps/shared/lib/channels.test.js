@@ -10,8 +10,8 @@ import assert from 'node:assert/strict'
 import {
   CHANNEL_NAME_MAX, CHANNEL_TYPE, POST_POLICY, VISIBILITY,
   canManageChannel, canPostTo, channelPostPolicy, channelStats, channelType, channelVisibility,
-  hasLeft, isMember, isPrivateChannel, memberDiff, newChannelPayload, postVisibilityFor,
-  sortChannels, validateChannelName,
+  dmTitle, hasLeft, isDm, isMember, isPrivateChannel, memberDiff, newChannelPayload,
+  newDmPayload, postVisibilityFor, sortChannels, sortDms, validateChannelName,
 } from './channels.js'
 
 const NOW = new Date('2026-08-02T10:00:00')
@@ -319,4 +319,69 @@ test('참여자가 아니면 어느 채널에도 못 쓴다', () => {
 test('나간 사람은 못 쓴다 — 나가기가 아무 일도 안 하는 버튼이 되면 안 된다', () => {
   const ch = { createdBy: 'owner', memberUids: ['owner', 'member'], leftUids: ['member'] }
   assert.equal(canPostTo(ch, 'member'), false)
+})
+
+// ── DM (P2b) ──────────────────────────────────────────────────
+
+test('DM 문서는 항상 비공개·2인·이름 없음이다', () => {
+  const dm = newDmPayload({ me: { uid: 'u2', name: '나' }, other: { uid: 'u1', name: '상대' } })
+  assert.equal(dm.type, CHANNEL_TYPE.DM)
+  assert.equal(dm.visibility, VISIBILITY.PRIVATE)
+  assert.equal(dm.postPolicy, POST_POLICY.MEMBERS, '둘 다 쓸 수 있어야 대화가 된다')
+  assert.equal(dm.name, '')
+  assert.equal(dm.memberUids.length, 2)
+})
+
+test('memberUids는 정렬해서 넣는다 — 문서 ID와 보안 규칙이 그 순서를 전제한다', () => {
+  const dm = newDmPayload({ me: { uid: 'u2' }, other: { uid: 'u1' } })
+  assert.deepEqual(dm.memberUids, ['u1', 'u2'])
+  // 누가 먼저 말을 걸든 같은 명단이 나와야 문서 ID가 하나로 정해진다
+  const other = newDmPayload({ me: { uid: 'u1' }, other: { uid: 'u2' } })
+  assert.deepEqual(other.memberUids, dm.memberUids)
+})
+
+test('만든 사람은 말을 건 쪽으로 남는다 — 명단 순서와 무관하다', () => {
+  const dm = newDmPayload({ me: { uid: 'u2', name: '나' }, other: { uid: 'u1', name: '상대' } })
+  assert.equal(dm.createdBy, 'u2')
+  assert.equal(dm.createdByName, '나')
+})
+
+test('이름을 문서에 박아둔다 — 사이드바는 교직원 명단을 읽지 않는다', () => {
+  const dm = newDmPayload({ me: { uid: 'u1', name: '김교사' }, other: { uid: 'u2', name: '이교사' } })
+  assert.deepEqual(dm.memberNames, { u1: '김교사', u2: '이교사' })
+  assert.equal(dmTitle(dm, 'u1'), '이교사', '내가 보면 상대 이름')
+  assert.equal(dmTitle(dm, 'u2'), '김교사', '상대가 보면 내 이름')
+})
+
+test('이름이 비어 있어도 빈 줄을 만들지 않는다', () => {
+  const dm = newDmPayload({ me: { uid: 'u1' }, other: { uid: 'u2' } })
+  assert.equal(dmTitle(dm, 'u1'), '(이름 없음)')
+})
+
+test('나 자신과의 대화는 상대가 없다고 밝힌다', () => {
+  assert.equal(dmTitle({ memberUids: ['u1'], memberNames: { u1: '나' } }, 'u1'), '나와의 대화')
+})
+
+test('isDm은 type으로만 판정한다 — 2인 채널이라고 DM인 것은 아니다', () => {
+  assert.equal(isDm({ type: 'dm' }), true)
+  assert.equal(isDm({ type: 'channel', memberUids: ['a', 'b'] }), false)
+  assert.equal(isDm({ memberUids: ['a', 'b'] }), false, '옛 문서에는 type이 없다')
+})
+
+test('DM 목록은 최근에 말이 오간 순이다 — 대화에는 마감이 없다', () => {
+  const dm = (id, at, name) => ({
+    id, lastMessageAt: at, memberUids: ['me', id], memberNames: { me: '나', [id]: name },
+  })
+  const sorted = sortDms([
+    dm('a', new Date('2026-08-01'), '가'),
+    dm('b', new Date('2026-08-03'), '나'),
+    dm('c', new Date('2026-08-02'), '다'),
+  ], 'me')
+  assert.deepEqual(sorted.map(c => c.id), ['b', 'c', 'a'])
+})
+
+test('한 마디도 오가지 않은 DM은 맨 아래로 — 이름순으로 자리가 흔들리지 않게', () => {
+  const dm = (id, name) => ({ id, memberUids: ['me', id], memberNames: { me: '나', [id]: name } })
+  const sorted = sortDms([dm('b', '이교사'), dm('a', '김교사')], 'me')
+  assert.deepEqual(sorted.map(c => c.id), ['a', 'b'])
 })

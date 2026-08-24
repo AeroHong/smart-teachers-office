@@ -40,6 +40,8 @@ const A = 'teacher-a'
 const B = 'teacher-b'
 const ADMIN = 'admin-u'
 const SUPER = 'super-u'
+// C: DM을 새로 만드는 상대. 이미 있는 dm_A_B로는 create 규칙을 시험할 수 없다
+const C = 'teacher-c'
 
 const path = (...segs) => ['schools', SCHOOL, ...segs]
 
@@ -61,6 +63,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'users', A), { role: 'teacher', schoolId: SCHOOL })
     await setDoc(doc(db, 'users', B), { role: 'teacher', schoolId: SCHOOL })
     await setDoc(doc(db, 'users', ADMIN), { role: 'school_admin', schoolId: SCHOOL })
+    await setDoc(doc(db, 'users', C), { role: 'teacher', schoolId: SCHOOL })
     await setDoc(doc(db, 'users', SUPER), { role: 'teacher', schoolId: OTHER_SCHOOL })
 
     const channel = (over) => ({
@@ -303,4 +306,99 @@ test('[메시지] lastMessageAt을 핑계로 명단을 못 바꾼다', async () 
 
 test('[메시지] 비참여자는 lastMessageAt도 못 건드린다', async () => {
   await assertFails(updateDoc(doc(as(B), ...path('channels', 'priv')), { lastMessageAt: new Date() }))
+})
+
+// ── 7. DM (P2b) ───────────────────────────────────────────────
+//
+// DM은 채널과 같은 컬렉션에 살면서 문서 ID로 두 사람을 못 박는다. 그 못 박음이 실제로
+// 서버에서 강제되는지가 여기서 갈린다 — 클라이언트만 지키는 약속이면 콘솔이나 SDK로
+// 얼마든지 우회할 수 있고, 우회하는 순간 같은 상대와 대화가 둘로 갈라진다.
+
+const dmDoc = (over = {}) => ({
+  name: '', description: '', type: 'dm', visibility: 'private', postPolicy: 'members',
+  memberRule: {}, memberRuleText: '', memberUids: [A, C].sort(),
+  memberNames: { [A]: 'A', [C]: 'C' }, leftUids: [],
+  createdBy: A, createdByName: 'A', archived: false, ...over,
+})
+
+test('[DM] 정해진 ID로는 만들 수 있다', async () => {
+  await assertSucceeds(setDoc(doc(as(A), ...path('channels', `dm_${A}_${C}`)), dmDoc()))
+})
+
+test('[DM] ID가 참여자와 맞지 않으면 못 만든다 ★', async () => {
+  // 이게 뚫리면 같은 상대와 DM이 여러 개 생기고, 대화가 갈라진 뒤에는 어느 쪽에
+  // 답했는지 알 수 없다
+  await assertFails(setDoc(doc(as(A), ...path('channels', 'dm_아무거나')), dmDoc()))
+  await assertFails(setDoc(doc(as(A), ...path('channels', `dm_${A}_${B}_${C}`)), dmDoc()))
+})
+
+test('[DM] 명단이 정렬돼 있지 않으면 못 만든다 — 정렬이 ID를 하나로 정한다', async () => {
+  await assertFails(setDoc(doc(as(A), ...path('channels', `dm_${C}_${A}`)), dmDoc({
+    memberUids: [C, A],
+  })))
+})
+
+test('[DM] 내가 끼지 않은 DM은 못 만든다', async () => {
+  await assertFails(setDoc(doc(as(A), ...path('channels', `dm_${B}_${C}`)), dmDoc({
+    memberUids: [B, C].sort(), createdBy: A,
+  })))
+})
+
+test('[DM] 3인 DM은 못 만든다 — 그러면 문서 ID가 뜻을 잃는다', async () => {
+  await assertFails(setDoc(doc(as(A), ...path('channels', `dm_${A}_${C}`)), dmDoc({
+    memberUids: [A, B, C].sort(),
+  })))
+})
+
+test('[DM] 공개로는 못 만든다', async () => {
+  await assertFails(setDoc(doc(as(A), ...path('channels', `dm_${A}_${C}`)), dmDoc({
+    visibility: 'public',
+  })))
+})
+
+test('[DM] dm_ 자리를 일반 채널로 차지할 수 없다 ★', async () => {
+  // 막지 않으면 dm_A_B 자리에 공개 채널 하나를 만들어 두는 것만으로 두 사람이 영영
+  // DM을 못 열게 막을 수 있다
+  await assertFails(setDoc(doc(as(B), ...path('channels', `dm_${A}_${C}`)), dmDoc({
+    type: 'channel', visibility: 'public', name: '가로채기', createdBy: B,
+  })))
+})
+
+test('[DM] 참여자는 lastMessageAt만 올릴 수 있다', async () => {
+  await assertSucceeds(updateDoc(doc(as(A), ...path('channels', `dm_${A}_${B}`)), {
+    lastMessageAt: new Date(),
+  }))
+})
+
+test('[DM] 만든 사람도 참여자를 못 바꾼다 ★', async () => {
+  // 한 명을 더 넣으면 2인 대화가 아닌데 문서 ID는 여전히 두 사람을 가리킨다
+  await assertFails(updateDoc(doc(as(A), ...path('channels', `dm_${A}_${B}`)), {
+    memberUids: [A, B, C],
+  }))
+  await assertFails(updateDoc(doc(as(A), ...path('channels', `dm_${A}_${B}`)), { name: '이름' }))
+})
+
+test('[DM] 학교 관리자는 남의 DM을 못 고친다 — 읽지도 못하는 대화다', async () => {
+  await assertFails(updateDoc(doc(as(ADMIN), ...path('channels', `dm_${A}_${B}`)), {
+    name: '관리자가 붙인 이름',
+  }))
+})
+
+test('[DM] 아무도 지우지 못한다 — 한쪽이 지우면 상대 대화까지 사라진다', async () => {
+  await assertFails(deleteDoc(doc(as(A), ...path('channels', `dm_${A}_${B}`))))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...path('channels', `dm_${A}_${B}`))))
+})
+
+test('[DM] 일반 채널의 보관·나가기·삭제는 그대로 된다', async () => {
+  await assertSucceeds(updateDoc(doc(as(A), ...path('channels', 'pub')), { archived: true }))
+  await assertSucceeds(updateDoc(doc(as(B), ...path('channels', 'notice')), {
+    leftUids: [B], updatedAt: new Date(),
+  }))
+  await assertSucceeds(deleteDoc(doc(as(A), ...path('channels', 'pub'))))
+})
+
+test('[DM] 제3자는 남의 DM에 메시지를 못 쓴다', async () => {
+  await assertFails(setDoc(doc(as(ADMIN), ...path('channels', `dm_${A}_${B}`, 'messages', 'x')), {
+    authorUid: ADMIN, authorName: 'ADMIN', body: '끼어들기', refRequestId: null,
+  }))
 })
