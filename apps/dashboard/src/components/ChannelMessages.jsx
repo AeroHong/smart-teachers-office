@@ -13,7 +13,11 @@ import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import SendIcon from '@mui/icons-material/Send'
+import AddIcon from '@mui/icons-material/Add'
+import CloseIcon from '@mui/icons-material/Close'
 import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import { MESSAGE_BODY_MAX, hasCanvasRef, validateMessage } from '@shared/lib/channelMessages'
 import { formatDateTime } from '../lib/formatTime'
 import { useToast } from './ToastProvider'
@@ -22,16 +26,22 @@ import useChannelMessages from '../lib/useChannelMessages'
 /** 같은 사람이 이 시간 안에 연달아 보내면 한 덩어리로 본다. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
 
-export default function ChannelMessages({ channelId, canPost, postBlockedReason, empty, onOpenCanvas }) {
+export default function ChannelMessages({
+  channelId, canPost, postBlockedReason, empty, onOpenCanvas, canvases = [],
+}) {
   const toast = useToast()
   const { messages, loading, send } = useChannelMessages(channelId)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // 이 메시지에 실어 보낼 캔버스. 하나만 붙인다 — 여러 개를 붙일 일이면 그건 메시지가
+  // 아니라 그 채널에 쓸 새 글이다.
+  const [attached, setAttached] = useState(null)
+  const [pickerAnchor, setPickerAnchor] = useState(null)
   const bottomRef = useRef(null)
 
   // 채널을 바꾸면 쓰던 초안이 따라가지 않게 비운다. 다른 채널에 쓰려던 말이 남아 있으면
   // 엉뚱한 곳에 보내는 사고가 난다.
-  useEffect(() => { setDraft('') }, [channelId])
+  useEffect(() => { setDraft(''); setAttached(null) }, [channelId])
 
   // 새 메시지가 오면 아래로 내린다. 대화는 아래쪽이 현재라, 위에 멈춰 있으면 방금 온 말을
   // 놓친다.
@@ -42,12 +52,20 @@ export default function ChannelMessages({ channelId, canPost, postBlockedReason,
   const rows = useMemo(() => groupMessages(messages), [messages])
 
   const submit = async () => {
-    const error = validateMessage(draft)
+    // 캔버스를 붙였으면 본문이 비어도 보낼 수 있다. 카드만으로 뜻이 통하고, 한마디를
+    // 강제하면 "봐주세요" 같은 빈말이 늘 뿐이다.
+    const error = attached ? null : validateMessage(draft)
     if (error) { toast.error(error); return }
     setSending(true)
     try {
-      await send({ body: draft })
+      await send({
+        body: draft,
+        refRequestId: attached?.id || null,
+        refTitle: attached?.title || '',
+        refChannelId: attached?.channelId || channelId,
+      })
       setDraft('')
+      setAttached(null)
     } catch (e) {
       // 실패를 삼키면 보낸 줄 알고 넘어간다. 초안은 지우지 않아 다시 누르면 된다.
       toast.error('메시지를 보내지 못했습니다.', e)
@@ -91,6 +109,9 @@ export default function ChannelMessages({ channelId, canPost, postBlockedReason,
 
       <Box sx={{ flexShrink: 0, borderTop: '1px solid', borderColor: 'divider', p: 1.2 }}>
         {canPost ? (
+          <>
+          {/* 붙인 캔버스는 입력칸 위가 아니라 아래에 둔다. 위에 두면 타이핑하는 동안 글자가
+              밀려 내려가 방금 쓴 줄이 눈에서 사라진다. */}
           <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.8 }}>
             <TextField
               fullWidth multiline maxRows={6} size="small"
@@ -108,12 +129,61 @@ export default function ChannelMessages({ channelId, canPost, postBlockedReason,
               }}
             />
             <IconButton
-              color="primary" disabled={sending || !draft.trim()}
+              color="primary" disabled={sending || (!draft.trim() && !attached)}
               onClick={submit} aria-label="보내기"
             >
               <SendIcon sx={{ fontSize: 20 }} />
             </IconButton>
           </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, mt: 0.6 }}>
+            {attached ? (
+              <Box sx={{
+                display: 'flex', alignItems: 'center', gap: 0.8, maxWidth: 420,
+                border: '1px solid', borderColor: 'divider', borderRadius: 1,
+                bgcolor: 'action.hover', px: 1.1, py: 0.7,
+              }}>
+                <DescriptionIcon sx={{ fontSize: 18, color: 'primary.main', flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography fontSize="0.84rem" fontWeight={600} noWrap>{attached.title}</Typography>
+                  {/* Slack은 여기에 편집 권한 선택이 붙는다. 우리 업무 글은 만든 사람만
+                      고치고 대상자는 완료 체크만 하므로, 권한을 고를 것이 아직 없다.
+                      공동 편집을 열려면 동시 편집 충돌 처리가 함께 와야 한다. */}
+                  <Typography fontSize="0.7rem" color="text.disabled">읽기 전용으로 함께 갑니다</Typography>
+                </Box>
+                <IconButton size="small" onClick={() => setAttached(null)} aria-label="캔버스 빼기" sx={{ p: 0.25 }}>
+                  <CloseIcon sx={{ fontSize: 15 }} />
+                </IconButton>
+              </Box>
+            ) : canvases.length > 0 && (
+              <Button
+                size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+                onClick={e => setPickerAnchor(e.currentTarget)}
+                sx={{ fontSize: '0.76rem', color: 'text.secondary' }}
+              >
+                업무 글 붙이기
+              </Button>
+            )}
+          </Box>
+
+          {/* 이 채널의 캔버스만 고르게 한다. 다른 채널 글을 여기서 붙이려면 그 글 쪽에서
+              '전달'을 쓰는 것이 맞다 — 두 길이 같은 일을 서로 반대 방향에서 한다. */}
+          <Menu
+            anchorEl={pickerAnchor} open={!!pickerAnchor} onClose={() => setPickerAnchor(null)}
+            anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+            transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          >
+            {canvases.map(c => (
+              <MenuItem
+                key={c.id}
+                sx={{ fontSize: '0.85rem', maxWidth: 320 }}
+                onClick={() => { setAttached(c); setPickerAnchor(null) }}
+              >
+                <Typography fontSize="0.85rem" noWrap>{c.title}</Typography>
+              </MenuItem>
+            ))}
+          </Menu>
+          </>
         ) : (
           <Typography fontSize="0.8rem" color="text.secondary" sx={{ px: 0.5, py: 0.6 }}>
             {postBlockedReason}

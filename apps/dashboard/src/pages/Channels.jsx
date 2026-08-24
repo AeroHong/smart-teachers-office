@@ -279,6 +279,53 @@ export default function Channels() {
     setEditing('new')
   }
 
+  /**
+   * 글을 채널이나 사람에게 전달한다.
+   *
+   * 사람을 고르면 그 사람과의 DM을 열어(없으면 만들어) 거기에 남긴다. DM이 "이름 없는 2인
+   * 채널"이라 전달 코드가 한 벌로 끝나는 것이 여기서 드러난다 — 채널이든 사람이든 마지막에
+   * 하는 일은 같다.
+   */
+  const forwardPost = async ({ picked, note, post }) => {
+    if (!picked || !post) return
+    setBusy(true)
+    try {
+      const targetChannelId = picked.kind === 'member'
+        ? await openDm({
+          schoolId,
+          me: { uid: user.uid, name: userName },
+          other: { uid: picked.member.uid, name: picked.member.name },
+          existingIds: dms.map(c => c.id),
+        })
+        : picked.id
+
+      await shareCanvasToChannel({
+        schoolId,
+        targetChannelId,
+        post,
+        author: { uid: user.uid, name: userName },
+        note,
+      })
+      toast.success(`${picked.name}에게 전달했습니다.`)
+    } catch (e) {
+      toast.error('전달하지 못했습니다.', e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 쿨메신저에 붙여넣는 것이 아직도 가장 빠른 경우가 있어서 그 길을 막지 않는다. */
+  const copyPostLink = async (post) => {
+    if (!post) return
+    const url = `${window.location.origin}/channels/${post.channelId || active?.id}/${post.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success('링크를 복사했습니다.')
+    } catch (e) {
+      toast.error('링크를 복사하지 못했습니다.', e)
+    }
+  }
+
   const sidebar = (
     <ChannelSidebar
       channels={channels}
@@ -488,6 +535,7 @@ export default function Channels() {
                 channelId={active.id}
                 canPost={canPost}
                 onOpenCanvas={to => navigate(to)}
+                canvases={active.posts || []}
                 empty={dm ? (
                   <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
                     아직 대화가 없습니다. 여기에 적은 말은 둘만 봅니다.
@@ -586,7 +634,7 @@ export default function Channels() {
             sx={{ fontSize: '0.85rem' }}
             onClick={() => { setMenuAnchor(null); setSharing(true) }}
           >
-            이 글을 다른 채널로 넘기기
+            이 글 전달
           </MenuItem>
         )}
 
@@ -688,24 +736,13 @@ export default function Channels() {
         post={canvas.open}
         sourceChannel={active}
         channels={channels}
+        members={members}
         myUid={user?.uid}
         isAdmin={isAdmin}
         busy={busy}
         onClose={() => setSharing(false)}
-        onShare={async ({ target, note }) => {
-          setSharing(false)
-          await run(
-            () => shareCanvasToChannel({
-              schoolId,
-              targetChannelId: target.id,
-              post: canvas.open,
-              author: { uid: user.uid, name: userName },
-              note,
-            }),
-            `'${target.name}' 채널로 넘겼습니다.`,
-            '넘기지 못했습니다.',
-          )
-        }}
+        onCopyLink={p => copyPostLink(p)}
+        onShare={({ picked, note }) => forwardPost({ picked, note, post: canvas.open })}
       />
 
       <DmDialog

@@ -22,15 +22,16 @@
  * "했는데 왜 그대로냐"는 말이 나온다.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
 import { channelStats, hasLeft, isDm, sortChannels, sortDms } from '@shared/lib/channels'
 
 export default function useChannels() {
   const { user, schoolId } = useAuth()
   const [raw, setRaw] = useState([])
+  const [allStaff, setAllStaff] = useState(null)        // 전체 공지 채널 — 별도 구독(아래 주석)
   const [schoolPosts, setSchoolPosts] = useState([])    // 학교 전체 공개 글
   const [memberPosts, setMemberPosts] = useState([])    // 비공개 채널 글 중 내가 볼 수 있는 것
   const [loading, setLoading] = useState(true)
@@ -74,7 +75,27 @@ export default function useChannels() {
       e => setError(e),
     )
 
-    return () => { unsubChannels(); unsubSchool(); unsubMember() }
+    /**
+     * 전체 공지 채널만 문서를 직접 구독한다.
+     *
+     * 위 목록 쿼리는 `memberUids array-contains me`인데, 그 명단이 한 번이라도 낡으면 빠진
+     * 사람의 사이드바에서 **학교 공지가 도착하는 유일한 자리가 통째로 사라진다.** 그러고도
+     * 화면에는 아무 일도 없어 보여서 본인은 공지가 없는 줄 안다. 실제로 그 일이 한 번
+     * 일어났다(2026-08-25).
+     *
+     * 이 채널은 "학교 사람이면 전부"라는 뜻이 정의상 참이므로, 명단을 거쳐 판정할 이유가
+     * 없다. 문서 하나를 더 읽는 값으로 그 실패 모드를 통째로 없앤다.
+     *
+     * 공개 채널이라 읽기 규칙도 명단과 무관하게 통과한다(visibility == 'public').
+     */
+    const unsubAllStaff = onSnapshot(
+      doc(db, ...schoolPath(schoolId, COL.CHANNELS), ALL_STAFF_CHANNEL_ID),
+      snap => setAllStaff(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+      // 아직 마이그레이션을 안 돌린 학교에서는 문서가 없다. 그건 오류가 아니다.
+      () => setAllStaff(null),
+    )
+
+    return () => { unsubChannels(); unsubSchool(); unsubMember(); unsubAllStaff() }
   }, [schoolId, user])
 
   // 합집합. 한쪽에서 빠진 글이 다른 쪽에 남아 있지 않도록 매번 새로 만든다.
@@ -99,7 +120,11 @@ export default function useChannels() {
       byChannel.get(p.channelId).push(p)
     })
 
-    const all = raw.map(c => {
+    // 목록 쿼리에 이미 있으면 그쪽을 쓴다. 같은 문서가 두 번 들어가면 사이드바에 줄이
+    // 두 개 뜬다.
+    const source = allStaff && !raw.some(c => c.id === allStaff.id) ? [...raw, allStaff] : raw
+
+    const all = source.map(c => {
       const own = byChannel.get(c.id) || []
       return { ...c, posts: own, stats: channelStats(own) }
     })
@@ -121,7 +146,7 @@ export default function useChannels() {
         user?.uid,
       ),
     }
-  }, [raw, posts, user])
+  }, [raw, allStaff, posts, user])
 
   return { ...groups, loading, error }
 }
