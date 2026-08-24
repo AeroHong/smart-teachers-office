@@ -19,6 +19,83 @@ export const CHANNEL_NAME_MAX = 24
 export const CHANNEL_DESCRIPTION_MAX = 120
 
 /**
+ * 채널 종류. DM은 별도 시스템이 아니라 "이름 없는 2인 채널"이다(PLAN_channels.md
+ * "메시징 모델" 참고). 그래야 검색·멘션·알림·보안 규칙을 한 벌만 만들면 DM에도 그대로 듣는다.
+ */
+export const CHANNEL_TYPE = { CHANNEL: 'channel', DM: 'dm' }
+
+/**
+ * 공개 범위.
+ *  public  — 소속 교사 누구나 이름과 내용을 본다. 참여자가 아니어도 "넣어달라"고 말할 수 있다
+ *  private — 참여자가 아니면 **존재 자체를 모른다**. 특수교육처럼 학생 개인정보가 오가는
+ *            자리가 실제로 있어서 이름조차 노출되면 안 되는 채널이 필요하다
+ */
+export const VISIBILITY = { PUBLIC: 'public', PRIVATE: 'private' }
+
+/**
+ * 누가 글·메시지를 쓸 수 있는가.
+ *  members — 참여자 전원. 되묻고 답하는 것이 채널의 값어치다
+ *  owner   — 채널 주인만. 부장회의 안내·보안점검처럼 일방 안내만 필요한 자리에서,
+ *            아무나 쓰면 안내가 대화에 묻힌다
+ */
+export const POST_POLICY = { MEMBERS: 'members', OWNER: 'owner' }
+
+/**
+ * 옛 문서에는 이 필드들이 없다. 읽는 곳마다 `?? 'public'`을 늘어놓지 않도록 여기서 흡수한다.
+ *
+ * **주의: 쿼리에는 이 기본값이 통하지 않는다.** where('visibility','==','public')은 필드가
+ * 없는 문서를 아예 돌려주지 않아 목록에서 조용히 사라진다. 쿼리로 거를 값은 반드시
+ * 백필해 두어야 한다(scripts/backfillChannelVisibility.js).
+ */
+export function channelType(channel) {
+  return channel?.type === CHANNEL_TYPE.DM ? CHANNEL_TYPE.DM : CHANNEL_TYPE.CHANNEL
+}
+
+export function channelVisibility(channel) {
+  return channel?.visibility === VISIBILITY.PRIVATE ? VISIBILITY.PRIVATE : VISIBILITY.PUBLIC
+}
+
+export function isPrivateChannel(channel) {
+  return channelVisibility(channel) === VISIBILITY.PRIVATE
+}
+
+export function channelPostPolicy(channel) {
+  return channel?.postPolicy === POST_POLICY.OWNER ? POST_POLICY.OWNER : POST_POLICY.MEMBERS
+}
+
+/**
+ * 이 채널에 글을 쓸 수 있는가.
+ *
+ * 화면에서 미리 막는 이유는 firestore.rules와 같다 — 눌린 뒤 권한 오류로 튕기면
+ * 사용자는 기능이 고장 난 것으로 읽는다.
+ */
+export function canPostTo(channel, uid, isAdmin = false) {
+  if (!channel || !uid) return false
+  if (!isMember(channel, uid)) return false
+  if (channelPostPolicy(channel) === POST_POLICY.MEMBERS) return true
+  return !!isAdmin || channel.createdBy === uid
+}
+
+/**
+ * 채널에 딸린 업무 글이 가져야 할 열람 범위.
+ *
+ * 채널만 숨기고 글을 그대로 두면 채널 이름만 안 보일 뿐 내용은 다 읽힌다. 그래서 글에도
+ * 같은 판정을 복사해 둔다.
+ *
+ * 공개 채널 글에는 visibleUids를 넣지 않는다. 넣으면 교직원 수십 명의 uid가 글마다 복제되고,
+ * 인사이동 한 번에 학교 전체 글을 갱신해야 한다. 비공개는 소수라 그쪽만 유지하면 된다.
+ *
+ * @param {object|null} channel 채널 없는 글이면 null
+ * @returns {{visibility: 'school'|'members', visibleUids: string[]}}
+ */
+export function postVisibilityFor(channel) {
+  if (channel && isPrivateChannel(channel)) {
+    return { visibility: 'members', visibleUids: [...new Set(channel.memberUids || [])] }
+  }
+  return { visibility: 'school', visibleUids: [] }
+}
+
+/**
  * 새 채널 문서.
  *
  * memberUids를 규칙과 함께 저장하는 이유: "내가 속한 채널"을 Firestore에서 뽑으려면
@@ -36,6 +113,9 @@ export function newChannelPayload({
   members = [],
   createdBy,
   createdByName = '',
+  visibility = VISIBILITY.PUBLIC,
+  postPolicy = POST_POLICY.MEMBERS,
+  type = CHANNEL_TYPE.CHANNEL,
 }) {
   return {
     name: (name || '').trim().slice(0, CHANNEL_NAME_MAX),
@@ -47,6 +127,11 @@ export function newChannelPayload({
     createdBy,
     createdByName,
     archived: false,
+    // 셋 다 반드시 값을 채워 넣는다. 쿼리로 걸러야 하는 값이라 필드가 없으면 그 채널이
+    // 목록에서 조용히 빠진다(channelVisibility 주석 참고).
+    type: type === CHANNEL_TYPE.DM ? CHANNEL_TYPE.DM : CHANNEL_TYPE.CHANNEL,
+    visibility: visibility === VISIBILITY.PRIVATE ? VISIBILITY.PRIVATE : VISIBILITY.PUBLIC,
+    postPolicy: postPolicy === POST_POLICY.OWNER ? POST_POLICY.OWNER : POST_POLICY.MEMBERS,
   }
 }
 

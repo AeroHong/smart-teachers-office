@@ -10,9 +10,9 @@
  * 보관함과 '나간 채널'은 비어 있으면 아예 그리지 않는다. 대부분의 사람에게는 평생 빈
  * 칸이라, 늘 자리를 차지하면 268px 사이드바에서 정작 볼 채널이 밀려 내려간다.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { addDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -22,13 +22,13 @@ import DialogTitle from '@mui/material/DialogTitle'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
-import AddIcon from '@mui/icons-material/Add'
-import ArchiveIcon from '@mui/icons-material/Inventory2Outlined'
 import EditIcon from '@mui/icons-material/EditOutlined'
-import LogoutIcon from '@mui/icons-material/LogoutOutlined'
+import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
 import TagIcon from '@mui/icons-material/Tag'
@@ -36,16 +36,23 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
-import { canManageChannel, hasLeft, memberDiff } from '@shared/lib/channels'
+import {
+  POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, hasLeft, isPrivateChannel, memberDiff,
+} from '@shared/lib/channels'
 import { completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
-import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
+import { MiniChip } from '../components/sidebarUi'
 import ChannelDialog from '../components/ChannelDialog'
+import ChannelMessages from '../components/ChannelMessages'
+import ChannelSidebar from '../components/ChannelSidebar'
 import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
+import useChannelPrefs from '../lib/useChannelPrefs'
 import useSchoolMembers from '../lib/useSchoolMembers'
-import { refreshChannelMembers, setChannelArchived, setChannelLeft } from '../lib/channelActions'
+import {
+  refreshChannelMembers, setChannelArchived, setChannelLeft, updateChannelAndPosts,
+} from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
@@ -63,8 +70,8 @@ export default function Channels() {
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
   const [busy, setBusy] = useState(false)
-  const [openArchived, setOpenArchived] = useState(false)
-  const [openLeft, setOpenLeft] = useState(false)
+  const [tab, setTab] = useState('messages')
+  const { markRead } = useChannelPrefs()
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
   // 죽으면, 쿨메신저로 돌던 채널 주소가 어느 날 갑자기 안 열린다.
@@ -75,7 +82,14 @@ export default function Channels() {
   const posts = useMemo(() => sortByUrgency(active?.posts || []), [active])
 
   const canManage = canManageChannel(active, user?.uid, isAdmin)
+  const canPost = canPostTo(active, user?.uid, isAdmin)
   const iLeft = hasLeft(active, user?.uid)
+
+  // 채널을 열 때 읽은 것으로 표시한다. 나갈 때 하면 창을 그냥 닫는 경우에 기록이 안 남아
+  // 다음에 들어와도 안읽음 점이 그대로 있다.
+  useEffect(() => {
+    if (channelId) markRead(channelId).catch(() => {})
+  }, [channelId, markRead])
 
   /**
    * 저장된 참여자와 조건을 지금 다시 푼 결과의 차이.
@@ -133,8 +147,14 @@ export default function Channels() {
         // leftUids·archived도 뺀다 — 새 채널의 기본값이라 그대로 쓰면 채널을 고치는
         // 것만으로 나간 사람이 전부 되돌아오고 보관도 풀린다.
         const { createdBy, createdByName, leftUids, archived, ...rest } = payload
-        await updateDoc(doc(db, ...schoolPath(schoolId, COL.CHANNELS), editing.id), {
-          ...rest, updatedAt: serverTimestamp(),
+        // 공개 범위나 참여자가 바뀌면 이 채널 글의 열람 범위도 같이 움직여야 한다.
+        // 채널만 비공개로 돌리고 글을 그대로 두면 이름만 감춘 셈이 된다.
+        await updateChannelAndPosts({
+          schoolId,
+          channelId: editing.id,
+          patch: rest,
+          channelAfter: { ...editing, ...rest },
+          posts: editing.posts || [],
         })
         toast.success('채널을 저장했습니다.')
       }
@@ -144,49 +164,15 @@ export default function Channels() {
     }
   }
 
-  const channelRow = (c, opts = {}) => (
-    <SidebarItem
-      key={c.id}
-      label={c.name}
-      selected={c.id === channelId}
-      muted={opts.muted}
-      onClick={() => navigate(`/channels/${c.id}`)}
-      chip={badgeFor(c, channelId, opts.muted)}
-    />
-  )
-
   const sidebar = (
-    <>
-      <Button
-        fullWidth size="small" startIcon={<AddIcon sx={{ fontSize: 17 }} />}
-        onClick={() => setEditing('new')}
-        sx={{ justifyContent: 'flex-start', mb: 0.5 }}
-      >
-        새 채널
-      </Button>
-
-      {loading ? null : channels.length === 0 ? (
-        <SidebarEmpty>참여 중인 채널이 없습니다</SidebarEmpty>
-      ) : channels.map(c => channelRow(c))}
-
-      {leftChannels.length > 0 && (
-        <SidebarSection
-          label="나간 채널" icon={LogoutIcon} count={leftChannels.length}
-          open={openLeft} onToggle={() => setOpenLeft(v => !v)}
-        >
-          {leftChannels.map(c => channelRow(c, { muted: true }))}
-        </SidebarSection>
-      )}
-
-      {archivedChannels.length > 0 && (
-        <SidebarSection
-          label="보관함" icon={ArchiveIcon} count={archivedChannels.length}
-          open={openArchived} onToggle={() => setOpenArchived(v => !v)}
-        >
-          {archivedChannels.map(c => channelRow(c, { muted: true }))}
-        </SidebarSection>
-      )}
-    </>
+    <ChannelSidebar
+      channels={channels}
+      archivedChannels={archivedChannels}
+      leftChannels={leftChannels}
+      loading={loading}
+      activeChannelId={channelId}
+      onNewChannel={() => setEditing('new')}
+    />
   )
 
   return (
@@ -197,14 +183,23 @@ export default function Channels() {
           onDeleted={() => navigate(`/channels/${channelId}`)}
         />
       ) : active ? (
-        <Box sx={{ p: 2 }}>
+        // 세로 flex + height 100%. 메시지 목록이 화면 안에서 따로 스크롤되고 입력칸은
+        // 아래에 붙어 있어야 하는데, 문서 흐름대로 두면 입력칸이 대화 밑으로 밀려 내려간다.
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+          <Box sx={{ flexShrink: 0, px: 2, pt: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5 }}>
-            <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />
+            {/* 비공개 채널은 자물쇠로 갈음한다. 여기가 아니라 설명 줄에만 적으면
+                글을 쓰는 순간에는 눈에 안 들어온다 — 정작 그때 알아야 하는 사실이다. */}
+            {isPrivateChannel(active)
+              ? <LockIcon sx={{ fontSize: 20, color: 'warning.main', mt: '3px' }} />
+              : <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />}
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               <Typography variant="h6" fontWeight={800}>{active.name}</Typography>
               <Typography fontSize="0.76rem" color="text.secondary">
+                {isPrivateChannel(active) && '비공개 · '}
                 참여 {active.memberUids?.length ?? 0}명
                 {active.memberRuleText && ` · ${active.memberRuleText}`}
+                {channelPostPolicy(active) === POST_POLICY.OWNER && ' · 공지 전용'}
               </Typography>
             </Box>
             {canManage && (
@@ -219,12 +214,16 @@ export default function Channels() {
                 <MoreVertIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Tooltip>
-            <Button
-              size="small" variant="contained"
-              onClick={() => navigate(`/requests/new?channel=${active.id}`)}
-            >
-              글 쓰기
-            </Button>
+            {/* 공지 전용 채널에서 참여자는 글을 못 쓴다. 눌린 뒤 규칙에 막혀 튕기면
+                사용자는 기능이 고장 난 것으로 읽으므로 버튼 자체를 감춘다. */}
+            {canPostTo(active, user?.uid, isAdmin) && (
+              <Button
+                size="small" variant="contained"
+                onClick={() => navigate(`/requests/new?channel=${active.id}`)}
+              >
+                글 쓰기
+              </Button>
+            )}
           </Box>
 
           {active.description && (
@@ -249,24 +248,54 @@ export default function Channels() {
             <MemberSyncNote
               added={sync.added} removed={sync.removed} nameOf={nameOf} busy={busy}
               onRefresh={() => run(
-                () => refreshChannelMembers({ schoolId, channelId: active.id, memberUids: sync.uids }),
+                () => refreshChannelMembers({
+                  schoolId, channelId: active.id, memberUids: sync.uids,
+                  channel: active, posts: active.posts || [],
+                }),
                 `참여자를 ${sync.uids.length}명으로 갱신했습니다.`,
                 '참여자를 갱신하지 못했습니다.',
               )}
             />
           )}
 
-          {posts.length === 0 ? (
-            <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
-              아직 글이 없습니다. 이 채널에 첫 글을 써보세요.
-            </Typography>
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, mt: 1.5 }}>
-              {posts.map(p => (
-                <PostRow key={p.id} post={p} onClick={() => navigate(`/channels/${active.id}/${p.id}`)} />
-              ))}
-            </Box>
-          )}
+            {/* 대화와 업무 글을 탭으로 가른다. 한 화면에 쌓으면 대화가 길어질수록 업무 글이
+                아래로 밀려 안 보이는데, 정작 마감이 걸린 것은 그쪽이다. */}
+            <Tabs
+              value={tab} onChange={(e, v) => setTab(v)}
+              sx={{ minHeight: 36, mt: 1, '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700 } }}
+            >
+              <Tab value="messages" label="대화" />
+              <Tab value="posts" label={`업무 글${posts.length ? ` ${posts.length}` : ''}`} />
+            </Tabs>
+          </Box>
+
+          <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+            {tab === 'messages' ? (
+              <ChannelMessages
+                channelId={active.id}
+                canPost={canPost}
+                postBlockedReason={
+                  iLeft
+                    ? '나간 채널입니다. 다시 참여하면 대화에 쓸 수 있습니다.'
+                    : '공지 전용 채널이라 만든 사람만 씁니다.'
+                }
+              />
+            ) : (
+              <Box sx={{ height: '100%', overflowY: 'auto', px: 2, pb: 2 }}>
+                {posts.length === 0 ? (
+                  <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
+                    아직 글이 없습니다. 이 채널에 첫 글을 써보세요.
+                  </Typography>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, mt: 1.5 }}>
+                    {posts.map(p => (
+                      <PostRow key={p.id} post={p} onClick={() => navigate(`/channels/${active.id}/${p.id}`)} />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
         </Box>
       ) : (
         <DetailPlaceholder emoji="#️⃣" message="왼쪽에서 채널을 선택하세요." />
@@ -374,19 +403,6 @@ export default function Channels() {
       />
     </WorkspaceLayout>
   )
-}
-
-/** 사이드바 뱃지 — 보관·나간 채널은 흐린 줄이라 급한 표시를 달지 않는다. */
-function badgeFor(c, channelId, muted) {
-  if (muted) return null
-  const selected = c.id === channelId
-  if (c.stats.overdueCount > 0) {
-    return <MiniChip label={`마감 ${c.stats.overdueCount}`} tone="danger" selected={selected} />
-  }
-  if (c.stats.openCount > 0) {
-    return <MiniChip label={c.stats.openCount} tone="neutral" selected={selected} />
-  }
-  return null
 }
 
 /** 채널 상태 한 줄 안내 — 보관·나감처럼 "왜 목록에 없지"의 답이 되는 것들. */

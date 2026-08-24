@@ -52,6 +52,35 @@ service cloud.firestore {
     // 남을 채널에서 내보낼 수 있다.
     //
     // 빈 집합도 hasOnly를 통과하므로 넣기·빼기·변화 없음이 모두 허용된다.
+    // 공지 전용 채널(postPolicy == 'owner')에는 만든 사람만 글을 쓴다.
+    //
+    // 글 하나를 만드는 단일 문서 쓰기라 여기서는 get()을 써도 된다. 목록 쿼리와 달리
+    // 문서 접근 상한에 걸리지 않고, 쿼리 안전성 증명 문제도 없다.
+    //
+    // .get('postPolicy', 'members')로 읽는 이유: 이 필드가 생기기 전 채널에는 값이 없다.
+    // 백필로 채웠지만, 값이 빠진 문서 하나에 글쓰기가 통째로 막히는 실패 모드를 만들지 않는다.
+    function channelData(schoolId, channelId) {
+      return get(/databases/$(database)/documents/schools/$(schoolId)/channels/$(channelId)).data;
+    }
+
+    function channelAllowsPost(schoolId, channelId) {
+      let ch = channelData(schoolId, channelId);
+      return ch.get('postPolicy', 'members') == 'members' || ch.createdBy == request.auth.uid;
+    }
+
+    // 채널 하위 메시지에서 쓰는 참여 판정.
+    //
+    // 채널 문서 자체의 read 규칙과 달리 여기서는 get()을 써도 된다 — 메시지는 항상 채널
+    // 하나 안에서만 조회되어 channelId가 경로에 고정되므로, 목록 쿼리 하나에 get()이
+    // 한 번만 일어난다. 문서 접근 상한에 걸리지 않고 쿼리 안전성도 증명된다.
+    //
+    // 나간 사람(leftUids)을 빼지 않는 이유: 채널 문서 read와 같은 기준을 쓴다. 나가기는
+    // "내 목록에서 접기"이지 권한 회수가 아니고, 다시 참여할 자리도 남겨야 한다.
+    function isChannelMember(schoolId, channelId) {
+      return isTeacher(schoolId) &&
+        request.auth.uid in channelData(schoolId, channelId).get('memberUids', []);
+    }
+
     function selfOnlyUidChange(field) {
       let before = resource.data.get(field, []).toSet();
       let after = request.resource.data.get(field, []).toSet();
@@ -232,14 +261,42 @@ service cloud.firestore {
       // 넣고 뺄 수 있어야 하고, 제목·마감일·대상 명단은 건드릴 수 없어야 한다.
       // 채널 — 업무 글이 모이는 곳. 글에 붙는 이름표라 별도 글 컬렉션이 없다.
       //
-      // 읽기를 소속 교사 전체에 여는 이유: 참여자만 읽게 하면 채널 이름조차 볼 수 없어
-      // "그 채널에 넣어달라"는 말을 꺼낼 수가 없다. 채널에 든 글은 requests 규칙이
-      // 따로 지키므로 채널 문서가 열려도 내용이 새지 않는다.
+      // ── 공개 채널은 이름을 감추지 않는다 ──
+      // 참여자만 읽게 하면 채널 이름조차 볼 수 없어 "그 채널에 넣어달라"는 말을 꺼낼 수가
+      // 없다. 그래서 공개 채널은 소속 교사 전체가 읽는다.
+      //
+      // ── 비공개 채널은 존재 자체를 감춘다 (2026-08-24 신설) ──
+      // 특수교육처럼 학생 개인정보가 오가는 자리가 실제로 있어서, 이름만 보이는 것으로도
+      // 곤란한 채널이 필요하다. visibility == 'private'이면 참여자가 아닌 사람에게는
+      // 목록·직접 URL 어디에서도 잡히지 않는다.
+      //
+      // 두 조건이 쿼리로 증명 가능해야 한다는 점이 중요하다. 규칙은 필터가 아니라서,
+      // 읽을 수 없는 문서를 돌려줄 가능성이 있으면 쿼리 전체가 실패한다. 클라이언트는
+      // where('memberUids','array-contains',uid)로 뽑으므로 두 번째 조건이 이를 만족한다.
+      //
+      // ── 관리자 ──
+      // 학교 관리자(교감·교장)는 업무 채널을 볼 수 있지만 DM은 못 본다. DM을 "이름 없는
+      // 2인 채널"로 통합한 탓에 예외를 두지 않으면 관리자가 전 교직원의 1:1 대화를
+      // 열람하게 된다. 현행 personalNotices 규칙도 같은 이유로 학교 관리자를 막고 있다.
+      // 슈퍼 관리자(학교 밖 시스템 운영자)는 읽기에서 아예 뺐다 — 다학교로 확장 중이라
+      // 운영자가 남의 학교 비공개 채널을 볼 이유가 없다.
       //
       // 고치기를 만든 사람과 관리자로 묶는 이유: 참여자 조건을 아무나 바꾸면 대상이
       // 조용히 넓어지거나 좁아지는데, 그 변화가 채널을 열기 전에는 드러나지 않는다.
       match /channels/{channelId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        // visibility·memberUids는 .get(기본값)으로 감싸지 않는다. 감싸면 규칙 엔진이
+        // where('memberUids','array-contains',uid) 쿼리와 이 조건을 맞물릴 수 없어
+        // 채널 목록 쿼리가 통째로 거부된다. 그래서 백필을 먼저 돌렸다
+        // (functions/migrations/backfillChannelVisibility.js).
+        //
+        // type만 .get()으로 읽는다. 아직 type으로 거르는 쿼리가 없어 안전성 증명과
+        // 무관하고, 어쩌다 필드가 빠진 문서가 있어도 관리자 조항에서 평가가 터지지 않는다.
+        allow read: if
+          (isTeacher(schoolId) && (
+            resource.data.visibility == 'public' ||
+            request.auth.uid in resource.data.memberUids
+          )) ||
+          (isSchoolAdmin(schoolId) && resource.data.get('type', 'channel') == 'channel');
 
         // 만들면서 남을 미리 '나간 사람'으로 박아둘 수 없게 한다
         allow create: if isSuperAdmin() ||
@@ -260,19 +317,84 @@ service cloud.firestore {
           (isTeacher(schoolId) &&
            request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['leftUids', 'updatedAt']) &&
-           selfOnlyUidChange('leftUids'));
+           selfOnlyUidChange('leftUids')) ||
+          // 메시지를 보내면 참여자가 lastMessageAt을 갱신한다. 이 값 하나로 사이드바
+          // 안읽음 점이 계산되므로(추가 읽기 0회), 참여자에게 열지 않으면 메시지 자체를
+          // 보낼 수 없다. 바꿀 수 있는 키를 이것 하나로 못 박아 명단·이름은 못 건드리게 한다.
+          (isTeacher(schoolId) &&
+           request.auth.uid in resource.data.memberUids &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']));
 
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+
+        // ── 채널 메시지 (2026-08-24, P2) ──
+        //
+        // 되묻는 말과 그 답. 업무 글과 달리 완료·마감·대상이 없다. 이걸 업무 글로 만들게
+        // 하면 아무도 안 쓴다 — 되묻기 하나에 제목·대상·마감을 정하라는 셈이기 때문이다.
+        //
+        // 고치기를 막는 것은 댓글과 같은 판단이다. 편집 화면이 없는데 규칙이 코드보다
+        // 넓으면 나중에 콘솔이나 SDK로 남의 눈에 안 띄게 말을 바꿔놓을 수 있다.
+        match /messages/{messageId} {
+          allow read: if isChannelMember(schoolId, channelId) ||
+            // 학교 관리자는 업무 채널만. DM은 제외한다 — 통합 설계 탓에 예외를 두지 않으면
+            // 관리자가 전 교직원의 1:1 대화를 열람하게 된다.
+            (isSchoolAdmin(schoolId) &&
+             channelData(schoolId, channelId).get('type', 'channel') == 'channel');
+
+          allow create: if isChannelMember(schoolId, channelId) &&
+            request.resource.data.authorUid == request.auth.uid &&
+            channelAllowsPost(schoolId, channelId);
+
+          allow update: if false;
+
+          // 글쓴이에게 남의 메시지 삭제 권한을 주지 않는다(댓글과 같은 이유) —
+          // 채널 주인이 불편한 질문을 지울 수 있으면 "답을 모두가 함께 본다"가 깨진다.
+          allow delete: if isSchoolAdmin(schoolId) ||
+            (isTeacher(schoolId) && resource.data.authorUid == request.auth.uid);
+        }
       }
 
+      // ── 업무 글의 열람 범위 (2026-08-24) ──
+      // 채널만 숨기고 글을 그대로 두면 이름만 안 보일 뿐 내용은 다 읽힌다. 그래서 글에도
+      // 같은 판정을 복사해 둔다(channels.js의 postVisibilityFor).
+      //
+      // 채널 문서를 get()으로 읽어 참여자를 확인하는 방식은 쓸 수 없다. 목록 쿼리 하나가
+      // 서로 다른 채널 수십 개의 글을 돌려주므로 문서 접근 횟수 상한에 걸리고, 문서마다
+      // 결과가 달라지는 조건이라 쿼리 안전성도 증명되지 않는다. 값을 글에 복사해 둔다.
+      //
+      // 공개 글에는 visibleUids를 넣지 않는다 — 넣으면 교직원 uid가 글마다 복제되고
+      // 인사이동 한 번에 학교 전체 글을 갱신해야 한다. 그래서 조건이 두 갈래이고,
+      // 클라이언트도 리스너를 두 개로 나눠 합집합을 쓴다(useChannels.js).
       match /requests/{requestId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        // 네 갈래인 이유는 관대해서가 아니라, **클라이언트가 쓰는 쿼리마다 맞물릴 조건이
+        // 하나씩 있어야 하기 때문**이다. 규칙은 필터가 아니라서 쿼리가 이 중 어느 하나도
+        // 보장하지 못하면 통째로 거부된다. 실제로 visibility/visibleUids만 두었더니
+        // 홈 화면과 데스크톱 알림(targetUids 기반)이 조용히 죽었다 — 규칙 테스트로 잡았다.
+        //
+        //   visibility == 'school'  ← useChannels의 공개 글 리스너
+        //   uid in visibleUids      ← useChannels의 비공개 글 리스너
+        //   uid in targetUids       ← useHomeFeed·useDesktopNotifications·CommandPalette
+        //   createdBy == uid        ← RequestList의 '내가 보낸 글'·CommandPalette
+        //
+        // 뒤의 둘은 의미로도 옳다. 나에게 온 글과 내가 쓴 글을 못 읽으면 그건 기능이 아니다.
+        allow read: if isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && (
+            resource.data.visibility == 'school' ||
+            request.auth.uid in resource.data.visibleUids ||
+            request.auth.uid in resource.data.targetUids ||
+            resource.data.createdBy == request.auth.uid
+          ));
 
+        // 공지 전용 채널의 쓰기 제한은 화면(canPostTo)과 여기 둘 다에 둔다. 화면에만 두면
+        // SDK로 바로 쓸 수 있어 "만든 사람만 씁니다"라는 말이 사실이 아니게 된다.
         allow create: if isSuperAdmin() ||
           (isTeacher(schoolId) &&
            request.resource.data.createdBy == request.auth.uid &&
-           request.resource.data.completedUids.size() == 0);
+           request.resource.data.completedUids.size() == 0 &&
+           (request.resource.data.get('channelId', null) == null ||
+            isSchoolAdmin(schoolId) ||
+            channelAllowsPost(schoolId, request.resource.data.channelId)));
 
         // 요청 내용 수정·마감은 만든 사람과 관리자만
         allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||

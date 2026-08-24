@@ -6,12 +6,51 @@
  * 여러 필드를 뭉뚱그리면 규칙에서 둘을 갈라낼 수 없다. 나가기가 updatedAt 말고는
  * leftUids만 건드리는 것이 그래서 중요하다 — 요청의 완료 토글과 같은 모양이다.
  */
-import { arrayRemove, arrayUnion, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { arrayRemove, arrayUnion, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
+import { postVisibilityFor } from '@shared/lib/channels'
 
 function channelRef(schoolId, channelId) {
   return doc(db, ...schoolPath(schoolId, COL.CHANNELS), channelId)
+}
+
+function postRef(schoolId, requestId) {
+  return doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId)
+}
+
+/**
+ * 채널을 고치면서 그 채널 글의 열람 범위까지 한 번에 맞춘다.
+ *
+ * 비공개 채널의 글은 참여자 명단(visibleUids)을 복사해 들고 있다. 채널 참여자가 바뀌었는데
+ * 글이 옛 명단을 들고 있으면, 빠진 사람이 계속 읽거나 새로 온 사람이 못 읽는다. 게다가
+ * 화면은 어제와 똑같아서 아무도 눈치채지 못한다.
+ *
+ * **한 배치로 묶는 것이 핵심이다.** Firestore 배치는 전부 되거나 전부 안 된다. 채널을
+ * 먼저 고치고 글을 따로 고치는 방식이면 중간에 실패했을 때 둘이 어긋난 채로 남고, 그
+ * 어긋남이 곧 열람 권한이라 조용한 유출이 된다.
+ *
+ * Cloud Function 트리거로 미루지 않은 이유도 같다 — 트리거는 결과적 일관성이라 잠깐이지만
+ * 어긋나는 창이 생긴다. 배치는 그 창이 아예 없다.
+ *
+ * 한계: 배치 상한이 500이라 글이 499건을 넘는 채널은 이 방식으로 한 번에 못 맞춘다.
+ * 그때는 쪼개야 하고, 쪼개는 순간 원자성이 깨지므로 Cloud Function 쪽이 낫다.
+ * 지금 규모(채널당 글 수십 건)에서는 걸릴 일이 없다.
+ *
+ * @param {object[]} posts 이 채널에 속한 글들. 화면이 이미 들고 있는 것을 넘긴다 —
+ *   새 규칙에서는 channelId로 글을 직접 조회할 수 없다(그 쿼리는 규칙 조건과 맞물리지 않아
+ *   통째로 거부된다).
+ */
+export async function updateChannelAndPosts({ schoolId, channelId, patch, channelAfter, posts = [] }) {
+  const batch = writeBatch(db)
+  batch.update(channelRef(schoolId, channelId), { ...patch, updatedAt: serverTimestamp() })
+
+  const visibility = postVisibilityFor(channelAfter)
+  posts.forEach((p) => {
+    batch.update(postRef(schoolId, p.id), { ...visibility, updatedAt: serverTimestamp() })
+  })
+
+  await batch.commit()
 }
 
 /**
@@ -48,9 +87,12 @@ export async function setChannelLeft({ schoolId, channelId, uid, left }) {
  * 순간 본인이 밝힌 뜻이 조용히 뒤집힌다.
  * memberRuleText도 그대로 둔다 — 바뀐 것은 조건이 아니라 조건이 가리키는 사람들이다.
  */
-export async function refreshChannelMembers({ schoolId, channelId, memberUids }) {
-  await updateDoc(channelRef(schoolId, channelId), {
-    memberUids,
-    updatedAt: serverTimestamp(),
+export async function refreshChannelMembers({ schoolId, channelId, memberUids, channel, posts = [] }) {
+  await updateChannelAndPosts({
+    schoolId,
+    channelId,
+    patch: { memberUids },
+    channelAfter: { ...channel, memberUids },
+    posts,
   })
 }
