@@ -24,7 +24,9 @@ import assert from 'node:assert/strict'
 import {
   assertFails, assertSucceeds, initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore'
+import {
+  collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where,
+} from 'firebase/firestore'
 
 const SCHOOL = 'test-school'
 const OTHER_SCHOOL = 'other-school'
@@ -233,4 +235,72 @@ test('남의 글은 여전히 못 고친다', async () => {
 
 test('다른 학교 사람은 아무것도 못 읽는다', async () => {
   await assertFails(getDoc(doc(as(SUPER), ...path('channels', 'pub'))))
+})
+
+// ── 6. 채널 메시지 (P2) ───────────────────────────────────────
+
+const msg = (over = {}) => ({ authorUid: A, authorName: 'A', body: '안녕', refRequestId: null, ...over })
+
+test('[메시지] 참여자는 읽고 쓴다', async () => {
+  await assertSucceeds(setDoc(doc(as(A), ...path('channels', 'priv', 'messages', 'm1')), msg()))
+  await assertSucceeds(getDocs(collection(as(A), ...path('channels', 'priv', 'messages'))))
+})
+
+test('[메시지] 비참여 교사는 비공개 채널 메시지를 못 읽는다', async () => {
+  await assertFails(getDocs(collection(as(B), ...path('channels', 'priv', 'messages'))))
+  await assertFails(getDoc(doc(as(B), ...path('channels', 'priv', 'messages', 'm1'))))
+})
+
+test('[메시지] 비참여 교사는 남의 채널에 못 쓴다', async () => {
+  await assertFails(setDoc(doc(as(B), ...path('channels', 'priv', 'messages', 'x')), msg({ authorUid: B })))
+})
+
+test('[메시지] 남의 이름으로 못 쓴다', async () => {
+  await assertFails(setDoc(doc(as(B), ...path('channels', 'pub', 'messages', 'x')), msg({ authorUid: A })))
+})
+
+test('[메시지] 공지 전용 채널에는 참여자가 못 쓴다 — 안내가 대화에 묻히면 안 된다', async () => {
+  await assertFails(setDoc(doc(as(B), ...path('channels', 'notice', 'messages', 'x')), msg({ authorUid: B })))
+  await assertSucceeds(setDoc(doc(as(A), ...path('channels', 'notice', 'messages', 'y')), msg()))
+})
+
+test('[메시지] 보낸 뒤에도 고칠 수 없다 — 편집 화면이 없는데 규칙이 넓으면 몰래 말을 바꾼다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('channels', 'pub', 'messages', 'm1')), msg())
+  })
+  await assertFails(updateDoc(doc(as(A), ...path('channels', 'pub', 'messages', 'm1')), { body: '바꿈' }))
+})
+
+test('[메시지] 자기 메시지는 지울 수 있고 남의 것은 못 지운다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('channels', 'pub', 'messages', 'byA')), msg())
+  })
+  await assertFails(deleteDoc(doc(as(B), ...path('channels', 'pub', 'messages', 'byA'))))
+  await assertSucceeds(deleteDoc(doc(as(A), ...path('channels', 'pub', 'messages', 'byA'))))
+})
+
+test('[메시지] 학교 관리자는 업무 채널 메시지를 볼 수 있다', async () => {
+  await assertSucceeds(getDocs(collection(as(ADMIN), ...path('channels', 'priv', 'messages'))))
+})
+
+test('[메시지] 학교 관리자도 DM 메시지는 못 본다 ★', async () => {
+  await assertFails(getDocs(collection(as(ADMIN), ...path('channels', `dm_${A}_${B}`, 'messages'))))
+})
+
+test('[메시지] 슈퍼 관리자는 어느 메시지도 못 본다', async () => {
+  await assertFails(getDocs(collection(asSuper(), ...path('channels', 'pub', 'messages'))))
+})
+
+test('[메시지] 참여자는 lastMessageAt만 갱신할 수 있다 — 안읽음 점이 이 값으로 계산된다', async () => {
+  await assertSucceeds(updateDoc(doc(as(A), ...path('channels', 'pub')), { lastMessageAt: new Date() }))
+})
+
+test('[메시지] lastMessageAt을 핑계로 명단을 못 바꾼다', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'notice')), {
+    lastMessageAt: new Date(), memberUids: [A, B, 'intruder'],
+  }))
+})
+
+test('[메시지] 비참여자는 lastMessageAt도 못 건드린다', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'priv')), { lastMessageAt: new Date() }))
 })

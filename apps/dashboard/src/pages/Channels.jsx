@@ -10,7 +10,7 @@
  * 보관함과 '나간 채널'은 비어 있으면 아예 그리지 않는다. 대부분의 사람에게는 평생 빈
  * 칸이라, 늘 자리를 차지하면 268px 사이드바에서 정작 볼 채널이 밀려 내려간다.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import Box from '@mui/material/Box'
@@ -22,6 +22,8 @@ import DialogTitle from '@mui/material/DialogTitle'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
@@ -41,10 +43,12 @@ import { completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip } from '../components/sidebarUi'
 import ChannelDialog from '../components/ChannelDialog'
+import ChannelMessages from '../components/ChannelMessages'
 import ChannelSidebar from '../components/ChannelSidebar'
 import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
+import useChannelPrefs from '../lib/useChannelPrefs'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import {
   refreshChannelMembers, setChannelArchived, setChannelLeft, updateChannelAndPosts,
@@ -66,6 +70,8 @@ export default function Channels() {
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
   const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState('messages')
+  const { markRead } = useChannelPrefs()
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
   // 죽으면, 쿨메신저로 돌던 채널 주소가 어느 날 갑자기 안 열린다.
@@ -76,7 +82,14 @@ export default function Channels() {
   const posts = useMemo(() => sortByUrgency(active?.posts || []), [active])
 
   const canManage = canManageChannel(active, user?.uid, isAdmin)
+  const canPost = canPostTo(active, user?.uid, isAdmin)
   const iLeft = hasLeft(active, user?.uid)
+
+  // 채널을 열 때 읽은 것으로 표시한다. 나갈 때 하면 창을 그냥 닫는 경우에 기록이 안 남아
+  // 다음에 들어와도 안읽음 점이 그대로 있다.
+  useEffect(() => {
+    if (channelId) markRead(channelId).catch(() => {})
+  }, [channelId, markRead])
 
   /**
    * 저장된 참여자와 조건을 지금 다시 푼 결과의 차이.
@@ -170,7 +183,10 @@ export default function Channels() {
           onDeleted={() => navigate(`/channels/${channelId}`)}
         />
       ) : active ? (
-        <Box sx={{ p: 2 }}>
+        // 세로 flex + height 100%. 메시지 목록이 화면 안에서 따로 스크롤되고 입력칸은
+        // 아래에 붙어 있어야 하는데, 문서 흐름대로 두면 입력칸이 대화 밑으로 밀려 내려간다.
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+          <Box sx={{ flexShrink: 0, px: 2, pt: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5 }}>
             {/* 비공개 채널은 자물쇠로 갈음한다. 여기가 아니라 설명 줄에만 적으면
                 글을 쓰는 순간에는 눈에 안 들어온다 — 정작 그때 알아야 하는 사실이다. */}
@@ -242,17 +258,44 @@ export default function Channels() {
             />
           )}
 
-          {posts.length === 0 ? (
-            <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
-              아직 글이 없습니다. 이 채널에 첫 글을 써보세요.
-            </Typography>
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, mt: 1.5 }}>
-              {posts.map(p => (
-                <PostRow key={p.id} post={p} onClick={() => navigate(`/channels/${active.id}/${p.id}`)} />
-              ))}
-            </Box>
-          )}
+            {/* 대화와 업무 글을 탭으로 가른다. 한 화면에 쌓으면 대화가 길어질수록 업무 글이
+                아래로 밀려 안 보이는데, 정작 마감이 걸린 것은 그쪽이다. */}
+            <Tabs
+              value={tab} onChange={(e, v) => setTab(v)}
+              sx={{ minHeight: 36, mt: 1, '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700 } }}
+            >
+              <Tab value="messages" label="대화" />
+              <Tab value="posts" label={`업무 글${posts.length ? ` ${posts.length}` : ''}`} />
+            </Tabs>
+          </Box>
+
+          <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+            {tab === 'messages' ? (
+              <ChannelMessages
+                channelId={active.id}
+                canPost={canPost}
+                postBlockedReason={
+                  iLeft
+                    ? '나간 채널입니다. 다시 참여하면 대화에 쓸 수 있습니다.'
+                    : '공지 전용 채널이라 만든 사람만 씁니다.'
+                }
+              />
+            ) : (
+              <Box sx={{ height: '100%', overflowY: 'auto', px: 2, pb: 2 }}>
+                {posts.length === 0 ? (
+                  <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
+                    아직 글이 없습니다. 이 채널에 첫 글을 써보세요.
+                  </Typography>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, mt: 1.5 }}>
+                    {posts.map(p => (
+                      <PostRow key={p.id} post={p} onClick={() => navigate(`/channels/${active.id}/${p.id}`)} />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
         </Box>
       ) : (
         <DetailPlaceholder emoji="#️⃣" message="왼쪽에서 채널을 선택하세요." />

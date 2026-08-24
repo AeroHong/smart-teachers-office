@@ -59,9 +59,26 @@ service cloud.firestore {
     //
     // .get('postPolicy', 'members')로 읽는 이유: 이 필드가 생기기 전 채널에는 값이 없다.
     // 백필로 채웠지만, 값이 빠진 문서 하나에 글쓰기가 통째로 막히는 실패 모드를 만들지 않는다.
+    function channelData(schoolId, channelId) {
+      return get(/databases/$(database)/documents/schools/$(schoolId)/channels/$(channelId)).data;
+    }
+
     function channelAllowsPost(schoolId, channelId) {
-      let ch = get(/databases/$(database)/documents/schools/$(schoolId)/channels/$(channelId)).data;
+      let ch = channelData(schoolId, channelId);
       return ch.get('postPolicy', 'members') == 'members' || ch.createdBy == request.auth.uid;
+    }
+
+    // 채널 하위 메시지에서 쓰는 참여 판정.
+    //
+    // 채널 문서 자체의 read 규칙과 달리 여기서는 get()을 써도 된다 — 메시지는 항상 채널
+    // 하나 안에서만 조회되어 channelId가 경로에 고정되므로, 목록 쿼리 하나에 get()이
+    // 한 번만 일어난다. 문서 접근 상한에 걸리지 않고 쿼리 안전성도 증명된다.
+    //
+    // 나간 사람(leftUids)을 빼지 않는 이유: 채널 문서 read와 같은 기준을 쓴다. 나가기는
+    // "내 목록에서 접기"이지 권한 회수가 아니고, 다시 참여할 자리도 남겨야 한다.
+    function isChannelMember(schoolId, channelId) {
+      return isTeacher(schoolId) &&
+        request.auth.uid in channelData(schoolId, channelId).get('memberUids', []);
     }
 
     function selfOnlyUidChange(field) {
@@ -300,10 +317,42 @@ service cloud.firestore {
           (isTeacher(schoolId) &&
            request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['leftUids', 'updatedAt']) &&
-           selfOnlyUidChange('leftUids'));
+           selfOnlyUidChange('leftUids')) ||
+          // 메시지를 보내면 참여자가 lastMessageAt을 갱신한다. 이 값 하나로 사이드바
+          // 안읽음 점이 계산되므로(추가 읽기 0회), 참여자에게 열지 않으면 메시지 자체를
+          // 보낼 수 없다. 바꿀 수 있는 키를 이것 하나로 못 박아 명단·이름은 못 건드리게 한다.
+          (isTeacher(schoolId) &&
+           request.auth.uid in resource.data.memberUids &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']));
 
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
+
+        // ── 채널 메시지 (2026-08-24, P2) ──
+        //
+        // 되묻는 말과 그 답. 업무 글과 달리 완료·마감·대상이 없다. 이걸 업무 글로 만들게
+        // 하면 아무도 안 쓴다 — 되묻기 하나에 제목·대상·마감을 정하라는 셈이기 때문이다.
+        //
+        // 고치기를 막는 것은 댓글과 같은 판단이다. 편집 화면이 없는데 규칙이 코드보다
+        // 넓으면 나중에 콘솔이나 SDK로 남의 눈에 안 띄게 말을 바꿔놓을 수 있다.
+        match /messages/{messageId} {
+          allow read: if isChannelMember(schoolId, channelId) ||
+            // 학교 관리자는 업무 채널만. DM은 제외한다 — 통합 설계 탓에 예외를 두지 않으면
+            // 관리자가 전 교직원의 1:1 대화를 열람하게 된다.
+            (isSchoolAdmin(schoolId) &&
+             channelData(schoolId, channelId).get('type', 'channel') == 'channel');
+
+          allow create: if isChannelMember(schoolId, channelId) &&
+            request.resource.data.authorUid == request.auth.uid &&
+            channelAllowsPost(schoolId, channelId);
+
+          allow update: if false;
+
+          // 글쓴이에게 남의 메시지 삭제 권한을 주지 않는다(댓글과 같은 이유) —
+          // 채널 주인이 불편한 질문을 지울 수 있으면 "답을 모두가 함께 본다"가 깨진다.
+          allow delete: if isSchoolAdmin(schoolId) ||
+            (isTeacher(schoolId) && resource.data.authorUid == request.auth.uid);
+        }
       }
 
       // ── 업무 글의 열람 범위 (2026-08-24) ──

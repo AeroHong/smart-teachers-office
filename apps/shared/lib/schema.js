@@ -85,6 +85,12 @@ export const COL = {
   // 채널 — 업무 글이 모이는 곳. requests.channelId 로 연결한다.
   // 글에 붙는 이름표일 뿐이라 별도 글 컬렉션을 두지 않았다 (channels.js 참고).
   CHANNELS: 'channels',
+  // channels/{id}/messages/{messageId} — 채널 안의 대화 (auto-ID).
+  //
+  // requests와 달리 하위 컬렉션인 이유: 메시지는 항상 채널 하나 안에서만 조회되어
+  // channelId가 경로에 고정된다. 그래야 보안 규칙이 채널 문서를 get()으로 읽어도
+  // 쿼리당 한 번이면 끝난다. 의도된 비대칭이다 (channelMessages.js 참고).
+  CHANNEL_MESSAGES: 'messages',
 
   // 성취평가제(ASA)
   ASA_SUBJECTS: 'asaSubjects',

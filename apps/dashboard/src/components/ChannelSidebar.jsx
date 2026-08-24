@@ -33,6 +33,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import { isPrivateChannel } from '@shared/lib/channels'
+import { hasUnread } from '@shared/lib/channelMessages'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
   createSection, groupChannels, isCollapsed, isFavorite, moveToSection,
@@ -49,7 +50,7 @@ export default function ChannelSidebar({
 }) {
   const navigate = useNavigate()
   const toast = useToast()
-  const { prefs, update } = useChannelPrefs()
+  const { prefs, reads, update } = useChannelPrefs()
 
   const [rowMenu, setRowMenu] = useState(null)        // { anchor, channelId }
   const [sectionMenu, setSectionMenu] = useState(null) // { anchor, sectionId }
@@ -104,6 +105,9 @@ export default function ChannelSidebar({
         </Box>
       ) : c.name}
       selected={c.id === activeChannelId}
+      // 안 읽은 대화가 있으면 굵게. 점을 따로 찍지 않는 이유는 오른쪽에 이미 마감·진행 중
+      // 칩이 있어서다 — 표시가 둘이면 어느 쪽이 급한 것인지 매번 다시 읽어야 한다.
+      strong={!opts.muted && hasUnread(c, reads)}
       muted={opts.muted}
       onClick={() => navigate(`/channels/${c.id}`)}
       chip={badgeFor(c, activeChannelId, opts.muted)}
