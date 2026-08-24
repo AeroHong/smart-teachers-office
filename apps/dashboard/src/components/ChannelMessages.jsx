@@ -155,7 +155,10 @@ export default function ChannelMessages({
                   <CloseIcon sx={{ fontSize: 15 }} />
                 </IconButton>
               </Box>
-            ) : canvases.length > 0 && (
+            ) : (
+              // 붙일 글이 없어도 단추는 남긴다. 없을 때 감췄더니 "기능이 배포가 안 됐나"가
+              // 됐다 — 있는 기능이 조건에 따라 사라지면 사용자는 그것이 조건 때문인지
+              // 고장인지 구분할 방법이 없다. 눌러서 "아직 없습니다"를 보는 편이 낫다.
               <Button
                 size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
                 onClick={e => setPickerAnchor(e.currentTarget)}
@@ -173,7 +176,11 @@ export default function ChannelMessages({
             anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
             transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
           >
-            {canvases.map(c => (
+            {canvases.length === 0 ? (
+              <MenuItem disabled sx={{ fontSize: '0.82rem', whiteSpace: 'normal', maxWidth: 260 }}>
+                이 채널에 아직 업무 글이 없습니다. '글 쓰기'로 만들면 여기에 붙일 수 있습니다.
+              </MenuItem>
+            ) : canvases.map(c => (
               <MenuItem
                 key={c.id}
                 sx={{ fontSize: '0.85rem', maxWidth: 320 }}
