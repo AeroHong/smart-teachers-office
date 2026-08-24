@@ -23,7 +23,9 @@ import useHomeFeed from '../lib/useHomeFeed'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import CampaignIcon from '@mui/icons-material/Campaign'
 import EventIcon from '@mui/icons-material/Event'
+import LaunchIcon from '@mui/icons-material/Launch'
 import useSeenPosts from '../lib/useSeenPosts'
+import { EXTERNAL_LINKS } from '../lib/externalLinks'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
@@ -39,7 +41,9 @@ export default function Home() {
   const [localSel, setLocalSel] = useState(null)
   // 학사일정도 펴둔다. 접어두면 D-day가 코앞인 일정을 열어봐야만 알 수 있는데,
   // 그건 "놓치지 않게 한다"는 이 화면의 목적과 어긋난다.
-  const [open, setOpen] = useState({ requests: true, notices: true, events: true })
+  // 바로가기는 접어둔 채로 시작한다 — 내용이 바뀌지 않는 고정 목록이라, 매일 챙겨야 하는
+  // 요청·공지보다 먼저 눈에 들어오면 안 된다.
+  const [open, setOpen] = useState({ requests: true, notices: true, events: true, links: false })
 
   // 글을 고르면 주소가 바뀌므로 화면 안의 선택은 지운다 (양쪽이 동시에 선택돼 보이지 않게)
   useEffect(() => { if (requestId) setLocalSel(null) }, [requestId])
@@ -141,6 +145,23 @@ export default function Home() {
             />
           )
         })}
+      </SidebarSection>
+
+      <SidebarSection
+        label="바로가기"
+        icon={LaunchIcon}
+        count={EXTERNAL_LINKS.length}
+        open={open.links}
+        onToggle={() => setOpen(o => ({ ...o, links: !o.links }))}
+      >
+        {EXTERNAL_LINKS.map(link => (
+          <SidebarItem
+            key={link.href}
+            label={link.label}
+            href={link.href}
+            chip={<MiniChip label="↗" />}
+          />
+        ))}
       </SidebarSection>
     </>
   )

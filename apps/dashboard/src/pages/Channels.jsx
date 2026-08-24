@@ -25,10 +25,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
-import AddIcon from '@mui/icons-material/Add'
-import ArchiveIcon from '@mui/icons-material/Inventory2Outlined'
 import EditIcon from '@mui/icons-material/EditOutlined'
-import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
 import TagIcon from '@mui/icons-material/Tag'
@@ -39,8 +36,9 @@ import { resolveTargets } from '@shared/lib/targeting'
 import { canManageChannel, hasLeft, memberDiff } from '@shared/lib/channels'
 import { completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
-import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
+import { MiniChip } from '../components/sidebarUi'
 import ChannelDialog from '../components/ChannelDialog'
+import ChannelSidebar from '../components/ChannelSidebar'
 import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
@@ -63,8 +61,6 @@ export default function Channels() {
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
   const [busy, setBusy] = useState(false)
-  const [openArchived, setOpenArchived] = useState(false)
-  const [openLeft, setOpenLeft] = useState(false)
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
   // 죽으면, 쿨메신저로 돌던 채널 주소가 어느 날 갑자기 안 열린다.
@@ -144,49 +140,15 @@ export default function Channels() {
     }
   }
 
-  const channelRow = (c, opts = {}) => (
-    <SidebarItem
-      key={c.id}
-      label={c.name}
-      selected={c.id === channelId}
-      muted={opts.muted}
-      onClick={() => navigate(`/channels/${c.id}`)}
-      chip={badgeFor(c, channelId, opts.muted)}
-    />
-  )
-
   const sidebar = (
-    <>
-      <Button
-        fullWidth size="small" startIcon={<AddIcon sx={{ fontSize: 17 }} />}
-        onClick={() => setEditing('new')}
-        sx={{ justifyContent: 'flex-start', mb: 0.5 }}
-      >
-        새 채널
-      </Button>
-
-      {loading ? null : channels.length === 0 ? (
-        <SidebarEmpty>참여 중인 채널이 없습니다</SidebarEmpty>
-      ) : channels.map(c => channelRow(c))}
-
-      {leftChannels.length > 0 && (
-        <SidebarSection
-          label="나간 채널" icon={LogoutIcon} count={leftChannels.length}
-          open={openLeft} onToggle={() => setOpenLeft(v => !v)}
-        >
-          {leftChannels.map(c => channelRow(c, { muted: true }))}
-        </SidebarSection>
-      )}
-
-      {archivedChannels.length > 0 && (
-        <SidebarSection
-          label="보관함" icon={ArchiveIcon} count={archivedChannels.length}
-          open={openArchived} onToggle={() => setOpenArchived(v => !v)}
-        >
-          {archivedChannels.map(c => channelRow(c, { muted: true }))}
-        </SidebarSection>
-      )}
-    </>
+    <ChannelSidebar
+      channels={channels}
+      archivedChannels={archivedChannels}
+      leftChannels={leftChannels}
+      loading={loading}
+      activeChannelId={channelId}
+      onNewChannel={() => setEditing('new')}
+    />
   )
 
   return (
@@ -374,19 +336,6 @@ export default function Channels() {
       />
     </WorkspaceLayout>
   )
-}
-
-/** 사이드바 뱃지 — 보관·나간 채널은 흐린 줄이라 급한 표시를 달지 않는다. */
-function badgeFor(c, channelId, muted) {
-  if (muted) return null
-  const selected = c.id === channelId
-  if (c.stats.overdueCount > 0) {
-    return <MiniChip label={`마감 ${c.stats.overdueCount}`} tone="danger" selected={selected} />
-  }
-  if (c.stats.openCount > 0) {
-    return <MiniChip label={c.stats.openCount} tone="neutral" selected={selected} />
-  }
-  return null
 }
 
 /** 채널 상태 한 줄 안내 — 보관·나감처럼 "왜 목록에 없지"의 답이 되는 것들. */
