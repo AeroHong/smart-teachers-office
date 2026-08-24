@@ -8,10 +8,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CHANNEL_NAME_MAX, CHANNEL_TYPE, POST_POLICY, VISIBILITY,
+  CANVAS_TAB_MAX, CHANNEL_NAME_MAX, CHANNEL_TYPE, POST_POLICY, VISIBILITY,
   canManageChannel, canPostTo, channelPostPolicy, channelStats, channelType, channelVisibility,
-  dmTitle, hasLeft, isDm, isMember, isPrivateChannel, memberDiff, newChannelPayload,
-  newDmPayload, postVisibilityFor, sortChannels, sortDms, validateChannelName,
+  dmTitle, hasLeft, isDm, isLivePost, isMember, isPrivateChannel, memberDiff, newChannelPayload,
+  newDmPayload, postVisibilityFor, sortCanvasTabs, sortChannels, sortDms, validateChannelName,
 } from './channels.js'
 
 const NOW = new Date('2026-08-02T10:00:00')
@@ -384,4 +384,60 @@ test('한 마디도 오가지 않은 DM은 맨 아래로 — 이름순으로 자
   const dm = (id, name) => ({ id, memberUids: ['me', id], memberNames: { me: '나', [id]: name } })
   const sorted = sortDms([dm('b', '이교사'), dm('a', '김교사')], 'me')
   assert.deepEqual(sorted.map(c => c.id), ['a', 'b'])
+})
+
+// ── 캔버스 탭 (P3-1) ──────────────────────────────────────────
+
+const NOW_TAB = new Date('2026-08-24T10:00:00')
+
+test('전원이 완료한 요청은 탭에서 빠진다 — 자동 판정', () => {
+  assert.equal(isLivePost({ kind: 'request', targetUids: ['a', 'b'], completedUids: ['a'] }), true)
+  assert.equal(isLivePost({ kind: 'request', targetUids: ['a', 'b'], completedUids: ['a', 'b'] }), false)
+})
+
+test('마감이 지난 요청은 탭에 남는다 — 끝난 게 아니라 가장 급한 것이다 ★', () => {
+  const post = {
+    kind: 'request', targetUids: ['a'], completedUids: [], dueDate: new Date('2026-08-01'),
+  }
+  assert.equal(isLivePost(post, NOW_TAB), true)
+})
+
+test('안내는 완료 개념이 없어 마감일로 판정한다', () => {
+  const notice = (due) => ({ kind: 'notice', targetUids: [], completedUids: [], dueDate: due })
+  assert.equal(isLivePost(notice(new Date('2026-08-01')), NOW_TAB), false, '지난 안내는 빠진다')
+  assert.equal(isLivePost(notice(new Date('2026-08-30')), NOW_TAB), true)
+  assert.equal(isLivePost(notice(null), NOW_TAB), true, '마감일이 없으면 끝난 신호가 없다')
+})
+
+test('대상이 0명인 요청은 끝난 걸로 치지 않는다 — 아직 대상을 못 정한 글이다', () => {
+  assert.equal(isLivePost({ kind: 'request', targetUids: [], completedUids: [] }), true)
+})
+
+test('사람이 치운 글은 아직 안 끝났어도 빠진다', () => {
+  assert.equal(isLivePost({
+    kind: 'request', targetUids: ['a'], completedUids: [], archived: true,
+  }), false)
+})
+
+test('사람이 다시 꺼낸 글은 끝났어도 남는다 ★', () => {
+  // 되돌리기가 필드를 지우는 방식이었다면 자동 판정이 곧바로 다시 치워버린다
+  assert.equal(isLivePost({
+    kind: 'request', targetUids: ['a'], completedUids: ['a'], archived: false,
+  }), true)
+})
+
+test('탭 순서는 최근에 만든 것이 앞 — 넘치는 것을 오래된 것부터 접기 위해서다', () => {
+  const p = (id, at) => ({ id, createdAt: new Date(at) })
+  const sorted = sortCanvasTabs([p('old', '2026-08-01'), p('new', '2026-08-20'), p('mid', '2026-08-10')])
+  assert.deepEqual(sorted.map(x => x.id), ['new', 'mid', 'old'])
+})
+
+test('만든 시각이 없는 글도 순서에서 빠지지 않는다', () => {
+  const sorted = sortCanvasTabs([{ id: 'a' }, { id: 'b', createdAt: new Date('2026-08-01') }])
+  assert.equal(sorted.length, 2)
+  assert.equal(sorted[0].id, 'b', '시각이 있는 쪽이 앞')
+})
+
+test('탭 상한은 정해져 있다 — 넘치면 접는 쪽이지 목록으로 되돌리지 않는다', () => {
+  assert.ok(CANVAS_TAB_MAX >= 1 && CANVAS_TAB_MAX <= 8)
 })

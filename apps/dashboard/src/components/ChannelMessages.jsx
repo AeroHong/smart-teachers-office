@@ -21,7 +21,7 @@ import useChannelMessages from '../lib/useChannelMessages'
 /** 같은 사람이 이 시간 안에 연달아 보내면 한 덩어리로 본다. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
 
-export default function ChannelMessages({ channelId, canPost, postBlockedReason, emptyText }) {
+export default function ChannelMessages({ channelId, canPost, postBlockedReason, empty }) {
   const toast = useToast()
   const { messages, loading, send } = useChannelMessages(channelId)
   const [draft, setDraft] = useState('')
@@ -59,9 +59,14 @@ export default function ChannelMessages({ channelId, canPost, postBlockedReason,
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2, py: 1.5 }}>
         {loading ? null : rows.length === 0 ? (
-          <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
-            {emptyText || '아직 대화가 없습니다. 되묻고 싶은 것을 여기에 적으면 답이 이 채널에 남습니다.'}
-          </Typography>
+          // 빈 화면을 바깥에서 그리게 열어 둔다. 채널을 막 만든 사람에게는 "무엇부터
+          // 해야 하나"를 깔아주고(ChannelIntro), DM에는 한 줄이면 충분하다 — 그 판단에
+          // 필요한 것(권한·채널 문서)이 전부 이 컴포넌트 바깥에 있다.
+          empty || (
+            <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
+              아직 대화가 없습니다. 되묻고 싶은 것을 여기에 적으면 답이 이 채널에 남습니다.
+            </Typography>
+          )
         ) : rows.map(m => (
           <Box key={m.id} sx={{ mb: m.grouped ? 0.2 : 1.2 }}>
             {!m.grouped && (

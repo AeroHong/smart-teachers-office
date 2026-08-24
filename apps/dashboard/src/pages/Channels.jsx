@@ -4,8 +4,9 @@
  * 목록에 뱃지로 "진행 중 / 마감 지남"을 붙인다. 채널을 열어봐야 챙길 게 있는지 알 수
  * 있으면 결국 다 열어보게 되고, 그러면 목록이 있으나 마나다.
  *
- * 글 목록은 시간순이 아니라 급한 순이다(sortByUrgency). 채널의 쓸모가 "지금 뭐가
- * 남았지"에 답하는 것이라, 최근에 쓴 글보다 마감이 코앞인 글이 위에 있어야 한다.
+ * 업무 글(캔버스)은 목록이 아니라 채널 머리의 탭이다(P3-1). 캔버스는 마감이 있으니 만드는
+ * 것이고 끝나면 탭에서 빠지므로, 한 채널에서 동시에 살아 있는 것은 몇 개뿐이다. 넘치면
+ * '더보기'로 접는다 — 목록으로 되돌리면 "지금 살아 있는 일이 머리에 보인다"가 사라진다.
  *
  * 보관함과 '나간 채널'은 비어 있으면 아예 그리지 않는다. 대부분의 사람에게는 평생 빈
  * 칸이라, 늘 자리를 차지하면 268px 사이드바에서 정작 볼 채널이 밀려 내려간다.
@@ -19,6 +20,7 @@ import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
+import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -28,6 +30,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
 import EditIcon from '@mui/icons-material/EditOutlined'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
@@ -38,13 +41,14 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
 import {
-  POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft, isDm,
-  isPrivateChannel, memberDiff,
+  CANVAS_TAB_MAX, POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft,
+  isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
 } from '@shared/lib/channels'
-import { completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
+import { completionStats, dueState, isRequest } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip } from '../components/sidebarUi'
 import ChannelDialog from '../components/ChannelDialog'
+import ChannelIntro from '../components/ChannelIntro'
 import ChannelMessages from '../components/ChannelMessages'
 import ChannelSidebar from '../components/ChannelSidebar'
 import DmDialog from '../components/DmDialog'
@@ -54,7 +58,8 @@ import useChannels from '../lib/useChannels'
 import useChannelPrefs from '../lib/useChannelPrefs'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import {
-  openDm, refreshChannelMembers, setChannelArchived, setChannelLeft, updateChannelAndPosts,
+  openDm, refreshChannelMembers, setChannelArchived, setChannelLeft, setPostArchived,
+  updateChannelAndPosts,
 } from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -74,7 +79,11 @@ export default function Channels() {
   const [menuAnchor, setMenuAnchor] = useState(null)
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState('messages')
+  // 캔버스 탭은 주소(requestId)가 정하고, 이 상태는 글이 열려 있지 않을 때만 쓴다.
+  // 캔버스를 주소로 고르는 것은 P2a 이전부터 그랬고, 그래야 쿨메신저에 붙여넣은 링크가
+  // 채널 머리까지 그대로 살아난다.
+  const [sideView, setSideView] = useState('messages')   // 'messages' | 'archive'
+  const [moreAnchor, setMoreAnchor] = useState(null)
   const { markRead } = useChannelPrefs()
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
@@ -83,7 +92,37 @@ export default function Channels() {
     () => [...channels, ...archivedChannels, ...leftChannels, ...dms].find(c => c.id === channelId) || null,
     [channels, archivedChannels, leftChannels, dms, channelId],
   )
-  const posts = useMemo(() => sortByUrgency(active?.posts || []), [active])
+
+  /**
+   * 채널 머리에 세울 캔버스 탭.
+   *
+   * 살아 있는 글만 탭이 되고(isLivePost), CANVAS_TAB_MAX를 넘으면 오래된 것부터 '더보기'로
+   * 접힌다. 지금 열려 있는 글이 그 안에 없으면 — 보관된 글을 목록에서 열었거나, 접힌 것을
+   * 더보기에서 골랐을 때 — 맨 뒤에 한 자리를 만들어 붙인다. 안 그러면 눌러서 연 글의 탭이
+   * 어디에도 없어서, 지금 뭘 보고 있는지가 화면에서 사라진다.
+   */
+  const canvas = useMemo(() => {
+    const live = sortCanvasTabs((active?.posts || []).filter(p => isLivePost(p)))
+    const shown = live.slice(0, CANVAS_TAB_MAX)
+    const folded = live.slice(CANVAS_TAB_MAX)
+    const archived = sortCanvasTabs((active?.posts || []).filter(p => !isLivePost(p)))
+
+    const open = requestId ? (active?.posts || []).find(p => p.id === requestId) : null
+    const tabs = open && !shown.some(p => p.id === open.id) ? [...shown, open] : shown
+    return { tabs, folded, archived, open }
+  }, [active, requestId])
+
+  /**
+   * MUI Tabs에 넘길 값. 어느 탭에도 없는 값을 주면 콘솔 경고가 뜨고 밑줄이 사라진다.
+   *
+   * 실제로 그럴 수 있는 경우가 둘 있다 — 주소의 글이 이 채널 글이 아니거나 아직 안 왔을 때,
+   * 그리고 마지막 보관 글을 다시 꺼내서 '보관된 글' 탭 자체가 사라졌을 때다.
+   */
+  const tabValue = useMemo(() => {
+    if (requestId) return canvas.tabs.some(p => p.id === requestId) ? requestId : false
+    if (sideView === 'archive') return canvas.archived.length > 0 ? 'archive' : 'messages'
+    return 'messages'
+  }, [requestId, sideView, canvas])
 
   const dm = isDm(active)
   // DM에는 관리랄 것이 없다. 이름도 참여자도 고칠 수 없고(firestore.rules에서도 막는다),
@@ -98,6 +137,10 @@ export default function Channels() {
   useEffect(() => {
     if (channelId) markRead(channelId).catch(() => {})
   }, [channelId, markRead])
+
+  // 채널을 옮기면 대화로 돌아온다. 보관 목록에 머물러 있으면, 다음 채널을 열었을 때
+  // 끝난 글부터 보이고 지금 오가는 말은 한 번 더 눌러야 나온다.
+  useEffect(() => { setSideView('messages') }, [channelId])
 
   /**
    * 저장된 참여자와 조건을 지금 다시 푼 결과의 차이.
@@ -127,13 +170,16 @@ export default function Channels() {
     [channels, archivedChannels, leftChannels],
   )
 
+  /** @returns {Promise<boolean>} 성공했는지. 실패한 뒤에도 화면을 옮기면 안 되는 곳에서 쓴다. */
   const run = async (fn, message, failure) => {
     setBusy(true)
     try {
       await fn()
       toast.success(message)
+      return true
     } catch (e) {
       toast.error(failure, e)
+      return false
     } finally {
       setBusy(false)
     }
@@ -214,7 +260,9 @@ export default function Channels() {
 
   return (
     <WorkspaceLayout sidebar={sidebar}>
-      {requestId ? (
+      {/* 채널을 못 찾았는데 글 주소가 있으면 글만 그린다. 보관한 채널의 글을 링크로 열거나
+          채널 목록이 아직 안 왔을 때인데, 채널 껍데기를 기다리느라 글을 못 보여줄 이유가 없다. */}
+      {!active && requestId ? (
         <PostDetail
           requestId={requestId}
           onDeleted={() => navigate(`/channels/${channelId}`)}
@@ -317,50 +365,137 @@ export default function Channels() {
                 (데이터모델 §10). DM 안에 업무 글을 허용하면 "둘만 본다"가 한쪽으로 샌다.
                 한 사람에게만 시키는 일은 업무 글의 대상을 그 사람으로 지정하면 된다. */}
             {!dm && (
-              <Tabs
-                value={tab} onChange={(e, v) => setTab(v)}
-                sx={{ minHeight: 36, mt: 1, '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700 } }}
-              >
-                <Tab value="messages" label="대화" />
-                <Tab value="posts" label={`업무 글${posts.length ? ` ${posts.length}` : ''}`} />
-              </Tabs>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                <Tabs
+                  value={tabValue}
+                  onChange={(e, v) => {
+                    if (v === 'messages' || v === 'archive') { setSideView(v); navigate(`/channels/${active.id}`) }
+                    else navigate(`/channels/${active.id}/${v}`)
+                  }}
+                  variant="scrollable" scrollButtons={false}
+                  sx={{
+                    minHeight: 36, flexGrow: 1, minWidth: 0,
+                    '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700, maxWidth: 180 },
+                  }}
+                >
+                  <Tab value="messages" label="대화" />
+                  {canvas.tabs.map(p => (
+                    <Tab key={p.id} value={p.id} label={p.title} />
+                  ))}
+                  {/* 보관된 글이 하나도 없으면 탭을 만들지 않는다. 대부분의 채널에서 한동안
+                      빈 칸일 텐데, 늘 자리를 차지하면 정작 살아 있는 캔버스가 먼저 접힌다. */}
+                  {canvas.archived.length > 0 && sideView === 'archive' && !requestId && (
+                    <Tab value="archive" label={`보관된 글 ${canvas.archived.length}`} />
+                  )}
+                </Tabs>
+
+                {(canvas.folded.length > 0 || canvas.archived.length > 0) && (
+                  <Button
+                    size="small" endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
+                    onClick={e => setMoreAnchor(e.currentTarget)}
+                    sx={{ flexShrink: 0, fontSize: '0.8rem', fontWeight: 700, color: 'text.secondary' }}
+                  >
+                    더보기{canvas.folded.length > 0 ? ` ${canvas.folded.length}` : ''}
+                  </Button>
+                )}
+              </Box>
             )}
           </Box>
 
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-            {dm || tab === 'messages' ? (
+            {requestId ? (
+              // 캔버스 하나. 탭 바는 위에 그대로 남는다 — 글을 열 때마다 채널 머리가
+              // 통째로 사라지면, 돌아오려고 뒤로 가기를 눌러야 하고 옆 캔버스로 바로
+              // 건너뛸 수도 없다.
+              <Box sx={{ height: '100%', overflowY: 'auto' }}>
+                <PostDetail
+                  requestId={requestId}
+                  onDeleted={() => navigate(`/channels/${active.id}`)}
+                />
+              </Box>
+            ) : !dm && sideView === 'archive' ? (
+              <Box sx={{ height: '100%', overflowY: 'auto', px: 2, pb: 2 }}>
+                <Typography color="text.secondary" fontSize="0.78rem" sx={{ mt: 1.5, mb: 1 }}>
+                  끝난 글입니다. 지워진 것이 아니라 채널 머리의 탭에서만 접혔습니다.
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6 }}>
+                  {canvas.archived.map(p => (
+                    <PostRow
+                      key={p.id}
+                      post={p}
+                      onClick={() => navigate(`/channels/${active.id}/${p.id}`)}
+                      onUnarchive={canManage ? () => run(
+                        () => setPostArchived({ schoolId, requestId: p.id, archived: false }),
+                        '탭에 다시 올렸습니다.',
+                        '다시 꺼내지 못했습니다.',
+                      ) : undefined}
+                      busy={busy}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            ) : (
               <ChannelMessages
                 channelId={active.id}
                 canPost={canPost}
-                emptyText={dm
-                  ? '아직 대화가 없습니다. 여기에 적은 말은 둘만 봅니다.'
-                  : '아직 대화가 없습니다. 되묻고 싶은 것을 여기에 적으면 답이 이 채널에 남습니다.'}
+                empty={dm ? (
+                  <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
+                    아직 대화가 없습니다. 여기에 적은 말은 둘만 봅니다.
+                  </Typography>
+                ) : (active.posts || []).length > 0 ? (
+                  // 캔버스가 하나라도 있으면 채널은 이미 굴러가고 있다. 그때도 "첫 글을
+                  // 쓰세요"를 띄우면 이미 한 일을 다시 권하는 셈이다.
+                  <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
+                    아직 대화가 없습니다. 되묻고 싶은 것을 여기에 적으면 답이 이 채널에 남습니다.
+                  </Typography>
+                ) : (
+                  <ChannelIntro
+                    channel={active}
+                    canPost={canPost}
+                    canManage={canManage}
+                    onNewPost={() => navigate(`/requests/new?channel=${active.id}`)}
+                    onEditChannel={() => setEditing(active)}
+                  />
+                )}
                 postBlockedReason={
                   iLeft
                     ? '나간 채널입니다. 다시 참여하면 대화에 쓸 수 있습니다.'
                     : '공지 전용 채널이라 만든 사람만 씁니다.'
                 }
               />
-            ) : (
-              <Box sx={{ height: '100%', overflowY: 'auto', px: 2, pb: 2 }}>
-                {posts.length === 0 ? (
-                  <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
-                    아직 글이 없습니다. 이 채널에 첫 글을 써보세요.
-                  </Typography>
-                ) : (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, mt: 1.5 }}>
-                    {posts.map(p => (
-                      <PostRow key={p.id} post={p} onClick={() => navigate(`/channels/${active.id}/${p.id}`)} />
-                    ))}
-                  </Box>
-                )}
-              </Box>
             )}
           </Box>
         </Box>
       ) : (
         <DetailPlaceholder emoji="#️⃣" message="왼쪽에서 채널을 선택하세요." />
       )}
+
+      {/* 탭에서 접힌 캔버스와 보관된 글. 접힌 것을 여기서 고르면 그 글이 탭 자리를
+          하나 얻는다(canvas.tabs) — 고른 것이 어디에도 안 보이면 뭘 보고 있는지 알 수 없다. */}
+      <Menu
+        anchorEl={moreAnchor} open={!!moreAnchor} onClose={() => setMoreAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        {canvas.folded.map(p => (
+          <MenuItem
+            key={p.id}
+            sx={{ fontSize: '0.85rem', maxWidth: 280 }}
+            onClick={() => { setMoreAnchor(null); navigate(`/channels/${active.id}/${p.id}`) }}
+          >
+            <Typography fontSize="0.85rem" noWrap>{p.title}</Typography>
+          </MenuItem>
+        ))}
+        {canvas.folded.length > 0 && canvas.archived.length > 0 && <Divider />}
+        {canvas.archived.length > 0 && (
+          <MenuItem
+            sx={{ fontSize: '0.85rem', color: 'text.secondary' }}
+            onClick={() => { setMoreAnchor(null); setSideView('archive'); navigate(`/channels/${active.id}`) }}
+          >
+            보관된 글 {canvas.archived.length}
+          </MenuItem>
+        )}
+      </Menu>
 
       <Menu
         anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)}
@@ -387,6 +522,24 @@ export default function Channels() {
             onClick={() => { setMenuAnchor(null); setConfirm('leave') }}
           >
             채널 나가기
+          </MenuItem>
+        )}
+        {/* 자동 판정이 아직 안 끝났다고 보는 글을 사람이 먼저 치운다. 되돌리기의 짝이다 —
+            한쪽만 있으면 마감일 없는 안내처럼 끝난 신호가 없는 글이 탭에서 안 빠진다. */}
+        {canManage && canvas.open && isLivePost(canvas.open) && (
+          <MenuItem
+            sx={{ fontSize: '0.85rem' }}
+            onClick={() => {
+              setMenuAnchor(null)
+              const id = canvas.open.id
+              run(
+                () => setPostArchived({ schoolId, requestId: id, archived: true }),
+                '탭에서 치웠습니다. 보관된 글에서 다시 꺼낼 수 있습니다.',
+                '치우지 못했습니다.',
+              ).then(ok => { if (ok) navigate(`/channels/${active.id}`) })
+            }}
+          >
+            이 글을 탭에서 치우기
           </MenuItem>
         )}
         {canManage && (
@@ -539,14 +692,19 @@ function ConfirmDialog({ open, title, name, body, action, busy, onCancel, onConf
   )
 }
 
-/** 채널 안의 글 한 줄 — 제목, 완료 현황, 마감. */
-function PostRow({ post, onClick }) {
+/**
+ * 채널 안의 글 한 줄 — 제목, 완료 현황, 마감.
+ *
+ * 보관된 글 목록에서만 '다시 꺼내기'가 붙는다. 줄 자체가 버튼이라 그 안에 버튼을 넣을 수
+ * 없어서, 사이드바 줄과 같은 방식으로 옆에 나란히 둔다.
+ */
+function PostRow({ post, onClick, onUnarchive, busy }) {
   const request = isRequest(post)
   const stats = request ? completionStats(post) : null
   const due = request ? dueState(post) : null
   const settled = stats && stats.total > 0 && stats.doneCount === stats.total
 
-  return (
+  const row = (
     <Box
       component="button" type="button" onClick={onClick}
       sx={{
@@ -573,6 +731,21 @@ function PostRow({ post, onClick }) {
           tone={settled ? 'success' : DUE_TONE[due?.state] || 'neutral'}
         />
       )}
+    </Box>
+  )
+
+  if (!onUnarchive) return row
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+      {row}
+      <Button
+        size="small" variant="outlined" disabled={busy}
+        onClick={onUnarchive}
+        sx={{ flexShrink: 0, fontSize: '0.76rem', whiteSpace: 'nowrap' }}
+      >
+        다시 꺼내기
+      </Button>
     </Box>
   )
 }

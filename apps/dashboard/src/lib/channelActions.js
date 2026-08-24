@@ -69,6 +69,23 @@ export async function setChannelArchived({ schoolId, channelId, archived }) {
 }
 
 /**
+ * 캔버스를 치우거나 다시 꺼낸다 — 채널 머리의 탭에서 빼거나 되돌린다.
+ *
+ * 값을 지우지 않고 `false`를 박아 넣는 이유: 필드가 없는 상태는 "자동 판정에 맡긴다"는 뜻이라
+ * (isLivePost 참고), 다시 꺼낸 글에서 필드를 지우면 자동 판정이 곧바로 다시 치워버린다.
+ * 되돌리기 버튼이 아무 일도 안 하는 버튼이 되는 셈이다.
+ *
+ * 글은 하나도 건드리지 않는다. 탭에서 접힐 뿐 '보관된 글'에서 언제든 열 수 있다 —
+ * 채널 보관과 같은 성격이고, 그래서 권한도 같다(만든 사람과 관리자).
+ */
+export async function setPostArchived({ schoolId, requestId, archived }) {
+  await updateDoc(postRef(schoolId, requestId), {
+    archived,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/**
  * 나가기 / 다시 참여.
  *
  * arrayUnion·arrayRemove를 쓰는 이유는 두 사람이 동시에 나가도 서로의 기록을 덮어쓰지

@@ -100,6 +100,52 @@ export function postVisibilityFor(channel) {
   return { visibility: 'school', visibleUids: [] }
 }
 
+// ── 캔버스(업무 글) 탭 ────────────────────────────────────────
+
+/**
+ * 채널 머리에 탭으로 세울 캔버스의 최대 수.
+ *
+ * Slack은 보통 한둘이고 우리는 대여섯을 예상했다. 넘칠 때 목록으로 되돌리지 않고 '더보기'로
+ * 접는 이유는, 목록으로 되돌리면 채널이 몇 개든 탭 방식의 이점(지금 살아 있는 일이 머리에
+ * 보인다)이 통째로 사라지기 때문이다. 넘치는 채널만 조금 불편하면 된다.
+ */
+export const CANVAS_TAB_MAX = 4
+
+/**
+ * 이 글이 탭에 남아 있어야 하는가.
+ *
+ * ── 자동으로 판정하고, 사람이 되돌릴 수 있게 한다 (2026-08-24 확정) ──
+ *
+ * 자동만 두면 아직 볼 일이 남았는데 사라지고, 수동만 두면 아무도 안 눌러서 쌓인다. 둘 다
+ * 실제로 일어나는 일이라 한쪽만 고를 수 없었다. 그래서 기본은 자동이고 `archived` 필드가
+ * 있으면 그 뜻이 자동 판정을 이긴다 — **세 가지 상태가 아니라, 자동 판정에 대한 예외 표시다.**
+ *
+ *   archived 없음   → 자동 판정
+ *   archived: true  → 아직 안 끝났지만 사람이 치웠다
+ *   archived: false → 끝났지만 사람이 다시 꺼냈다
+ *
+ * 요청은 "대상 전원 완료"가 끝난 신호다. 마감이 지난 것은 끝난 것이 아니라 **가장 급한
+ * 것**이라 그대로 둔다. 안내는 완료 개념이 없어 마감일이 지나면 볼 일이 끝난 것으로 본다.
+ * 마감일 없는 안내는 신호가 없어 계속 남는데, 그건 CANVAS_TAB_MAX가 받아낸다.
+ */
+export function isLivePost(post, now = new Date()) {
+  if (post?.archived === true) return false
+  if (post?.archived === false) return true
+  if ((post?.kind || 'request') === 'request') return !isSettled(post)
+  return !isOverdue(post, now)
+}
+
+/**
+ * 탭에 세울 순서 — 최근에 만든 것이 앞으로.
+ *
+ * 넘치는 것을 '오래된 것부터' 접기로 했으니, 오래된 것이 뒤로 가야 자연스럽게 잘린다.
+ * 급한 순(sortByUrgency)을 쓰지 않는 이유는 탭 자리가 매일 바뀌기 때문이다 — 마감이
+ * 다가오는 것만으로 탭이 옆으로 움직이면, 어제 오른쪽에서 누르던 것을 오늘 다시 찾아야 한다.
+ */
+export function sortCanvasTabs(posts = []) {
+  return [...posts].sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt))
+}
+
 // ── DM ────────────────────────────────────────────────────────
 
 /**
@@ -229,7 +275,7 @@ export function channelStats(posts = [], now = new Date()) {
 }
 
 /** 대상 전원이 완료했으면 끝난 것으로 본다. 대상이 0명이면 끝난 걸로 치지 않는다. */
-function isSettled(post) {
+export function isSettled(post) {
   const targets = post?.targetUids || []
   if (targets.length === 0) return false
   const done = new Set(post?.completedUids || [])
