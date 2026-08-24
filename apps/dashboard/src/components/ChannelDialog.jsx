@@ -35,7 +35,15 @@ const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
  *   channel로 넘기면 저장이 update로 가서 있지도 않은 문서를 고치려 든다.
  */
 export default function ChannelDialog({ open, channel, preset, existingNames = [], onClose, onSave }) {
-  const { members, loading } = useSchoolMembers()
+  const { members, loading, refetch } = useSchoolMembers()
+
+  // 대화상자는 Channels.jsx에 늘 마운트돼 있고 열고 닫히기만 한다(그래서 useSchoolMembers가
+  // 이 컴포넌트 자체는 페이지가 열릴 때 딱 한 번만 구성원을 읽는다). 트레이 상주 앱은 그
+  // 마운트가 며칠 전일 수 있어, 열 때마다 다시 읽지 않으면 그사이 바뀐 직급·부서가 반영
+  // 안 된 채로 채널이 만들어지거나 고쳐진다(useSchoolMembers.js 주석의 실제 사고 참고).
+  useEffect(() => {
+    if (open) refetch()
+  }, [open, refetch])
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [rule, setRule] = useState(EMPTY_RULE)

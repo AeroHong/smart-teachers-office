@@ -80,7 +80,7 @@ export default function Channels() {
   const { user, userName, schoolId, isAdmin } = useAuth()
   const toast = useToast()
   const { channels, archivedChannels, leftChannels, dms, loading } = useChannels()
-  const { members, loading: membersLoading } = useSchoolMembers()
+  const { members, loading: membersLoading, refetch: refetchMembers } = useSchoolMembers()
   const { channels: publicChannels, loading: publicLoading, reload: reloadPublic } = usePublicChannels(directory)
 
   const [editing, setEditing] = useState(null)      // null | 'new' | channel
@@ -442,12 +442,22 @@ export default function Channels() {
           {canManage && sync.changed && (
             <MemberSyncNote
               added={sync.added} removed={sync.removed} nameOf={nameOf} busy={busy}
+              // 화면에 보이는 sync.uids로 바로 쓰지 않는다. 그건 이 페이지가 마운트될 때
+              // 읽은 명단으로 계산한 값이고, 트레이 상주 앱은 그 마운트가 며칠 전일 수
+              // 있다. 그 사이 누군가의 직급·부서가 바뀌었으면 옛 데이터로 계산한 명단이
+              // 그대로 써진다 — 실제로 이 경로에서 채널을 만든 사람 본인이 조용히
+              // 빠지는 사고가 있었다(2026-08-25, useSchoolMembers.js 주석 참고).
+              // 누르는 순간 다시 읽어 그 결과로 계산한다.
               onRefresh={() => run(
-                () => refreshChannelMembers({
-                  schoolId, channelId: active.id, memberUids: sync.uids,
-                  channel: active, posts: active.posts || [],
-                }),
-                `참여자를 ${sync.uids.length}명으로 갱신했습니다.`,
+                async () => {
+                  const fresh = await refetchMembers()
+                  const freshUids = resolveTargets(active.memberRule || {}, fresh).uids
+                  await refreshChannelMembers({
+                    schoolId, channelId: active.id, memberUids: freshUids,
+                    channel: active, posts: active.posts || [],
+                  })
+                },
+                '참여자를 갱신했습니다.',
                 '참여자를 갱신하지 못했습니다.',
               )}
             />
