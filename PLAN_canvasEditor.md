@@ -1,6 +1,6 @@
 # 글쓰기 캔버스 — Notion/Slack 캔버스 스타일 재설계
 
-> 상태: **1단계 완료(2026-08-26).** 2~5단계 진행 예정.
+> 상태: **1~2단계 완료(2026-08-26).** 3~5단계 진행 예정.
 > 관련: [PLAN_composer.md](./PLAN_composer.md) · [PLAN_blockEditor.md](./PLAN_blockEditor.md)
 
 ## Context
@@ -59,15 +59,18 @@
   명령으로(전용 툴바 버튼만 없앴다). "+" 메뉴로 정식 편입은 3단계.
 - `PostComposer.jsx`가 `RichTextEditor` 대신 `CanvasEditor`를 쓰도록 교체.
 
-### 2단계 — 제목 기반 목차(TOC)
+### 2단계 — 제목 기반 목차(TOC) ✅ 완료(2026-08-26)
 
 - `CanvasEditor` 안에서 `editorRef.current.querySelectorAll('h2,h3,h4')`로 제목 목록을
-  뽑아(입력마다 갱신) 왼쪽에 얇은 목차 칼럼을 그린다. 클릭하면 `scrollIntoView`.
+  뽑아(`emit()`이 부를 때마다, 즉 모든 변경 경로에서 갱신) 왼쪽에 얇은(168px) 목차
+  칼럼을 그린다. 클릭하면 `scrollIntoView({behavior:'smooth', block:'center'})`.
+  본문을 부모가 처음 채워 넣을 때(고치기 화면 진입 등)도 목차가 비어 있지 않도록
+  `value` 동기화 effect에서도 한 번 부른다.
 - 제목 요소에 앵커 id는 **저장하지 않고** 매번 에디터 DOM에서 동적으로 부여한다(`h-0`,
-  `h-1`…) — 그러면 `richText.js`의 `ALLOWED_ATTR`를 안 건드려도 된다. 목차는 편집 중에만
-  필요하고 읽기 화면(PostDetail)에는 요청되지 않았다.
+  `h-1`…) — `richText.js`의 `ALLOWED_ATTR`는 안 건드렸다. 목차는 편집 중에만 필요하고
+  읽기 화면(PostDetail)에는 요청되지 않았다.
 - 제목이 하나도 없으면 목차 칼럼 자체를 안 그린다(빈 자리 낭비 방지 — 이 코드베이스
-  전반의 관례).
+  전반의 관례). 칼럼은 `position: sticky`라 긴 글을 스크롤해도 계속 보인다.
 
 ### 3단계 — "+" 삽입 통합 + 표 · 날짜 칩 · 캔버스 삽입 · 파일
 

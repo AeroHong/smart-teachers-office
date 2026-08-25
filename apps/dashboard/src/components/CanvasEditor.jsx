@@ -69,16 +69,37 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
   const [menuRect, setMenuRect] = useState(null)
   // 텍스트를 드래그로 고르면 그 위에 뜨는 작은 도구 — 문단·단어·글자 수정은 여기서 한다.
   const [bubble, setBubble] = useState(null)   // { rect }
+  // 제목 기반 목차. { id, level, text }[] — id는 저장하지 않고 편집기 DOM에만 매길 때마다 다시 매긴다.
+  const [headings, setHeadings] = useState([])
+
+  /**
+   * 목차를 다시 읽는다. 저장된 값이 아니라 **지금 화면의 DOM**에서 뽑는다 — 목차는 편집
+   * 중에만 필요하고 읽기 화면(PostDetail)에는 요청되지 않아서, id를 본문에 박아 저장할
+   * 이유가 없다. 앵커가 매번 새로 매겨져도 클릭한 순간 기준으로만 맞으면 충분하다.
+   */
+  const syncHeadings = useCallback(() => {
+    const el = editorRef.current
+    if (!el) { setHeadings([]); return }
+    const nodes = [...el.querySelectorAll('h2,h3,h4')]
+    setHeadings(nodes.map((node, i) => {
+      const id = `h-${i}`
+      node.id = id
+      return { id, level: node.tagName, text: node.textContent.trim() || '(제목 없음)' }
+    }))
+  }, [])
 
   // 부모가 값을 바꿨을 때만 DOM에 밀어 넣는다. 타이핑 중에 덮어쓰면 커서가 맨 앞으로 튄다.
   useEffect(() => {
     const el = editorRef.current
     if (el && value !== el.innerHTML) el.innerHTML = value || ''
+    syncHeadings()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   const emit = useCallback(() => {
     onChange(editorRef.current?.innerHTML || '')
-  }, [onChange])
+    syncHeadings()
+  }, [onChange, syncHeadings])
 
   // 글을 고치면 이미지가 밀리므로 손잡이도 따라가야 한다 (measure가 위치를 다시 잰다).
   // 우클릭 메뉴는 글을 치기 시작하면 닫는다 — '/'와 달리 쳐서 좁힐 수 있는 메뉴가 아니다.
@@ -437,8 +458,48 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
     ),
   } : null
 
+  const jumpToHeading = (id) => {
+    editorRef.current?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
   return (
-    <Box sx={{ position: 'relative' }}>
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+      {/* 제목 기반 목차 — 제목이 하나도 없으면 아예 안 그린다. 늘 자리를 차지하면
+          짧은 글을 쓰는 사람에게는 빈 칼럼만 남는다. 스크롤은 부모가 하므로 sticky로
+          붙여 두면 긴 글에서도 계속 보인다. */}
+      {headings.length > 0 && (
+        <Box sx={{
+          width: 168, flexShrink: 0, position: 'sticky', top: 8,
+          display: 'flex', flexDirection: 'column', gap: 0.2, pt: 1,
+        }}>
+          <Typography fontSize="0.7rem" fontWeight={800} color="text.disabled" sx={{ mb: 0.3, pl: 0.8 }}>
+            목차
+          </Typography>
+          {headings.map(h => (
+            <Box
+              key={h.id}
+              component="button"
+              type="button"
+              onClick={() => jumpToHeading(h.id)}
+              sx={{
+                display: 'block', width: '100%', textAlign: 'left',
+                border: 0, background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                borderRadius: 0.75, px: 0.8, py: 0.35,
+                pl: h.level === 'H2' ? 0.8 : h.level === 'H3' ? 1.8 : 2.8,
+                fontSize: h.level === 'H2' ? '0.8rem' : '0.76rem',
+                fontWeight: h.level === 'H2' ? 700 : 500,
+                color: 'text.secondary',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
+              }}
+            >
+              {h.text}
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      <Box sx={{ position: 'relative', flexGrow: 1, minWidth: 0 }}>
       <Box
         ref={editorRef}
         contentEditable
@@ -597,6 +658,7 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
         onSelect={applySlash}
         onClose={() => { setSlash(null); setMenuRect(null) }}
       />
+      </Box>
     </Box>
   )
 }
