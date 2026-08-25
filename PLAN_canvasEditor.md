@@ -1,6 +1,7 @@
 # 글쓰기 캔버스 — Notion/Slack 캔버스 스타일 재설계
 
-> 상태: **1~3단계 완료(2026-08-26).** 4~5단계 진행 예정.
+> 상태: **1~3, 5단계 완료(2026-08-26).** 4단계(표지)만 남음 — 사용자가 5단계(자동저장)를
+> 먼저 요청해 순서를 앞당겼다. 아래 "1~3단계 사용자 피드백 반영" 절도 참고.
 > 관련: [PLAN_composer.md](./PLAN_composer.md) · [PLAN_blockEditor.md](./PLAN_blockEditor.md)
 
 ## Context
@@ -115,7 +116,34 @@
   `AttachmentPicker.jsx` 파일 자체는 쪽지(`NoticeComposeModal.jsx`)가 여전히 써서
   손대지 않았다.
 
-### 4단계 — 표지(Cover)
+### 1~3단계 사용자 피드백 반영 (2026-08-26, 5단계보다 먼저 처리)
+
+1~3단계를 배포한 뒤 실제로 써보고 받은 피드백 넷. 4단계(표지)보다 먼저, 5단계와
+같은 라운드에서 처리했다.
+
+- **"+" 아이콘을 눌러도 반응이 없던 버그** — `menuRect`를 열 때 그 클릭이 `window`까지
+  올라가면, 메뉴가 열려 있는 동안 바깥 클릭을 감시하던 `useEffect`(`window.
+  addEventListener('click', close)`)가 **같은 클릭**을 "바깥 클릭"으로 오인해 열자마자
+  닫아버렸다. 우클릭(`contextmenu`)으로 열 때는 이벤트 종류가 달라 안 걸리던 문제가,
+  "+" 버튼을 진짜 `click`으로 여는 순간 드러났다. `e.stopPropagation()`으로 고쳤다 —
+  이 클릭이 애초에 `window`까지 안 올라가게 막는다.
+- **"+" 버튼을 캡처 화면(사용자가 로컬 스크린샷으로 제공)과 비슷하게** — Slack 캔버스의
+  알약 모양 도구줄(초록 원형 '+' + 아이콘 몇 개가 한 줄)을 참고해 다시 그렸다. 초록
+  '+'는 전체 삽입 메뉴를 그대로 열고, 옆에 이미지·파일·표·리스트를 자주 쓰는 것만
+  개별 아이콘으로 바로 실행하게 뒀다. 캡처에 있던 "Aa"(글자 스타일)·이모지는 대응하는
+  기능이 아직 없어 넣지 않았다("비슷하게"로 해석 — 캡처를 그대로 베끼기보다 있는
+  기능만 같은 언어로 표현).
+- **제목도 캔버스 영역으로** — `PostComposer.jsx`의 제목 입력을 고정 헤더(요청/안내·
+  마감일이 있던 자리)에서 스크롤되는 캔버스 흐름 맨 위로 옮겼다. 밑줄을 없애고
+  글자를 키워(1.6rem/800) 입력 상자가 아니라 캔버스 위에 놓인 큰 제목처럼 보이게
+  했다 — 노션 페이지를 열면 곧바로 "제목을 쓰는 상태"가 되는 것과 같은 인상. 대상·
+  요청/안내·마감일은 설정값이라 그대로 고정 칸에 남았다(제목만 "글의 일부"로 옮김).
+- **홈이 빈 3단으로 떨어지는 문제** — 이건 캔버스 자체가 아니라 `Channels.jsx`(P3-3
+  홈 재구성) 쪽 버그라 `PLAN_channels.md`에 따로 적었다. 요지: `/`(홈)에 채널 id 없이
+  들어오면 직전에 보던 채널(localStorage) 또는 전체 공지로 즉시 돌린다 — "3단이
+  비어 보이는 순간"을 없앴다.
+
+### 4단계 — 표지(Cover) — 아직 안 함
 
 - 캔버스 맨 위(목차보다도 위, 제목 필드보다는 아래—본문 캔버스 영역의 시작)에 배너
   자리. 비어 있으면 "+ 표지 추가" 텍스트 버튼만, 있으면 이미지 + 마우스 오버 시
@@ -125,37 +153,42 @@
   추가(둘 다 `null` 기본).
 - `PostDetail.jsx`(읽기 화면) 맨 위에 표지가 있으면 그린다 — 작은 추가만.
 
-### 5단계 — 자동저장 + 알림 보내기 (가장 큰 동작 변화)
+### 5단계 — 자동저장 + 알림 보내기 ✅ 완료(2026-08-26, 사용자 요청으로 4단계보다 먼저)
 
 - `PostComposer.jsx`에서 "보내기"/"취소" 버튼과 `canSave`/`blockReason` 게이팅,
-  `discardAndLeave`/`keptFiles` 정리 로직을 **없앤다** — 더 이상 저장을 막거나 되돌릴
-  필요가 없다(무엇을 올리든 그 순간 이미 저장된 문서에 딸린 것이라 "취소해서 지운다"가
-  성립하지 않는다).
-- **생성 트리거**: 제목·본문·대상·표지·첨부 중 무엇이든 처음 바뀌는 순간(첫 dirty)
-  `setDoc`으로 즉시 문서를 만든다 — 디바운스 없이 1회. 만들자마자 기존
-  `onSaved(requestId)`을 호출해 `Channels.jsx`가 주소를 `/new`에서 실제 캔버스 주소로
-  조용히 바꾼다(이미 있는 배선, 손 안 댐).
-  단, **완전히 빈 상태**(제목 공백 + 본문 비어 있음 + 표지 없음 + 첨부 없음)에서는 아직
-  안 만든다 — Notion처럼 "빈 문서가 즉시 생긴다"까지는 가지 않는다(목록·탭에 제목 없는
-  글이 쌓이는 걸 막는다).
-- **갱신**: 문서가 있으면 이후 모든 변경을 약 700ms 디바운스로 `updateDoc`.
-- **대상 0명**은 더 이상 저장을 막지 않는다 — 대신 대상 줄 옆에 "아직 아무에게도 가지
-  않습니다" 같은 경고 문구만 상시 표시(막지 않고 알리기만, 기존 `blockReason` 문구를
-  재활용).
-- 저장 상태 표시: "저장됨"/"저장 중…" 작은 텍스트(제목 옆 또는 상단 오른쪽).
-- **알림 보내기** 버튼 신설(상단, 요청/안내·마감일 옆) → 기존
-  `apps/dashboard/src/lib/channelActions.js`의 `shareCanvasToChannel({ schoolId,
-  targetChannelId: channel.id, post: {id, title, channelId}, author, note: '' })`를
-  **그대로** 호출한다(같은 채널로 "전달"하는 것과 동일한 함수 — 새 백엔드 로직 불필요).
-  이 호출이 채널 메시지 탭에 `refRequestId`가 걸린 메시지를 만들고 `lastMessageAt`을
-  갱신해 다른 참여자 사이드바에 안읽음 점이 뜬다. 여러 번 눌러도 매번 새 메시지가
-  쌓인다(토글 아님).
+  `discardAndLeave`/`keptFiles`(고아 파일 정리) 로직을 없앴다 — 자동저장이라 "취소해서
+  지운다"가 더는 성립하지 않는다.
+- **생성 트리거**: 제목·본문·대상·요청/안내·마감일·첨부 중 무엇이든 처음 바뀌는 순간
+  (첫 dirty) `setDoc`으로 즉시 문서를 만든다 — 디바운스 없이 1회(`created ? 700 : 0`
+  타이머). 완전히 빈 상태(제목 공백 + 본문 비어 있음 + 첨부 없음)에서는 아직 안
+  만든다(`isEmptyHtml` 재사용) — 제목 없는 빈 문서가 채널 탭에 쌓이지 않게.
+- **문서가 막 생긴 순간의 함정**: 만들자마자 `onSaved(requestId)`로 주소를 `/new`에서
+  `/channels/:channelId/:requestId/`**`edit`**로 바꾼다(처음 계획은 `/edit` 없는 보기
+  주소였는데, 그러면 `Channels.jsx`가 `PostComposer` 대신 `PostDetail`을 그려 한창
+  쓰는 중인 화면이 읽기 화면으로 튕겨버렸다 — 고쳐서 `/edit`로). 이 주소 전환이
+  `editingId`를 `undefined→실값`으로 바꾸면서, "고칠 글 읽어오기" 이펙트가 방금 만든
+  문서를 곧바로 다시 읽어와 그사이 친 글자를 덮어쓸 뻔했다 — `justCreatedRef` 플래그로
+  그 재조회를 딱 한 번 건너뛰게 막았다.
+- **갱신**: 문서가 있으면 이후 모든 변경을 700ms 디바운스로 `updatePostContent`.
+- **화면을 떠날 때(unmount) 안전망**: 디바운스가 아직 안 끝났어도 마지막 상태를 한 번
+  더 조용히(`silent`) 저장한다 — 타이핑 직후 곧바로 다른 채널을 눌러도 700ms 안의
+  마지막 몇 글자까지 지켜진다. `silent` 모드는 `onSaved`(→navigate)도, 화면 상태
+  갱신도 하지 않는다 — 이미 다른 곳으로 이동한 사용자를 방금 쓴 글로 도로 튕기면
+  안 되기 때문이다.
+- **대상 0명**은 더 이상 저장을 막지 않는다 — 대신 대상 줄이 "⚠ 대상이 없습니다 —
+  아직 아무에게도 가지 않습니다"로 바뀌어 상시 경고만 한다(막지 않고 알리기만).
+- 저장 상태 표시: 하단 바 왼쪽에 "저장 중…"/"저장됨"/"저장하지 못했습니다".
+- **알림 보내기** 버튼(하단 바 오른쪽) → 기존 `apps/dashboard/src/lib/channelActions.js`의
+  `shareCanvasToChannel({ schoolId, targetChannelId: channel.id, post, author })`를
+  그대로 호출(같은 채널로 "전달"하는 것과 동일한 함수 — 새 백엔드 로직 불필요). 채널
+  메시지 탭에 `refRequestId`가 걸린 메시지를 만들고 `lastMessageAt`을 갱신해 참여자
+  사이드바에 안읽음 점이 뜬다. 여러 번 눌러도 매번 새 메시지가 쌓인다(토글 아님).
 
 ## 건드리는 파일 요약
 
 | 파일 | 변경 |
 |---|---|
-| `apps/dashboard/src/components/CanvasEditor.jsx` | **신설**. 1단계: 툴바 제거·선택 서식 도구. 2단계: 목차. 3단계: 표·날짜 칩·캔버스 삽입·파일·"+" 통합. 4~5단계에서 표지·자동저장 연동 예정 |
+| `apps/dashboard/src/components/CanvasEditor.jsx` | **신설**. 1단계: 툴바 제거·선택 서식 도구. 2단계: 목차. 3단계: 표·날짜 칩·캔버스 삽입·파일·"+" 통합. 피드백: "+" 클릭 버그 수정, 알약 도구줄 재디자인. 4단계에서 표지 연동 예정 |
 | `apps/dashboard/src/components/RichTextEditor.jsx` | 변경 없음 (쪽지 전용으로 계속 씀) |
 | `apps/dashboard/src/components/SlashMenu.jsx` | 1단계: 제목 3단. 3단계: `extraItems` prop 추가(기본 빈 배열, 하위호환) |
 | `apps/shared/lib/richText.js` | 1단계: `h4` 허용. 3단계: 표 태그, `data-date` 등 `ALLOWED_ATTR`, `htmlToText` 표 처리 |
@@ -163,9 +196,10 @@
 | `apps/shared/lib/dateChips.js` | **신설(3단계)**. 날짜 칩 라벨·색 계산 + DOM 재렌더 |
 | `apps/shared/lib/canvasRefCard.js` | **신설(3단계)**. 캔버스 삽입 카드 마크업 생성 + 클릭 대상 판정 |
 | `apps/shared/lib/workRequests.js` | 4단계: `newRequestPayload`에 `coverImageUrl`/`coverImagePath` 기본값 추가 예정 |
-| `apps/dashboard/src/components/PostComposer.jsx` | 1단계: `CanvasEditor`로 교체. 3단계: `AttachmentPicker` 제거, 얇은 첨부 칩 줄, `canvasOptions`/`onFileUploaded` 연결. 4~5단계: 표지 UI, 자동저장 엔진, 알림 보내기 예정 |
+| `apps/dashboard/src/components/PostComposer.jsx` | 1단계: `CanvasEditor`로 교체. 3단계: `AttachmentPicker` 제거, 얇은 첨부 칩 줄, `canvasOptions`/`onFileUploaded` 연결. 피드백: 제목을 캔버스로 이동. 5단계: 자동저장 엔진(`flushRef`), 알림 보내기, 저장 상태 표시. 4단계에서 표지 UI 예정 |
 | `apps/dashboard/src/components/PostDetail.jsx` | 3단계: 날짜 칩 재계산(`hydrateDateChips`), 캔버스 삽입 카드 클릭 이동. 4단계: 표지 렌더 예정 |
 | `apps/dashboard/src/components/AttachmentPicker.jsx` | 변경 없음 — 쪽지(`NoticeComposeModal.jsx`)가 여전히 써서 그대로 둠 |
+| `apps/dashboard/src/pages/Channels.jsx` | 5단계: `onSaved`가 `/edit` 주소로 이동하도록 수정(보기 주소로 보내면 PostComposer가 PostDetail로 튕겨나가던 문제). 홈 기본 채널 리다이렉트는 `PLAN_channels.md` 쪽 변경 |
 
 ## 이번 범위가 아닌 것 (명시적으로 미룸)
 

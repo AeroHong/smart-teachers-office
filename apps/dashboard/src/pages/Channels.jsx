@@ -39,7 +39,7 @@ import PersonIcon from '@mui/icons-material/PersonOutline'
 import TagIcon from '@mui/icons-material/Tag'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
 import {
   CANVAS_TAB_MAX, POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft,
@@ -71,6 +71,12 @@ const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 
 
 const NO_DIFF = { added: [], removed: [], changed: false }
 
+// 직전에 보던 채널 — 기기 단위 편의값이라 Firestore가 아니라 localStorage에 둔다.
+// 채널을 옮길 때마다 쓰는데, 그때마다 users/{uid} 문서에 쓰면 클릭 한 번마다 쓰기가
+// 늘어난다(channelPrefs.js가 진짜 설정을 두는 이유와 반대 판단 — 이건 설정이 아니라
+// "방금 어디 있었나"일 뿐이다).
+const LAST_CHANNEL_KEY = 'lastChannelId'
+
 export default function Channels() {
   const { channelId, requestId } = useParams()
   const navigate = useNavigate()
@@ -83,6 +89,11 @@ export default function Channels() {
   // 채널이 사라지지 않아야 쓰는 동안에도 옆 탭에 오간 말이 그대로 보인다.
   const composingNew = pathname === `/channels/${channelId}/new`
   const editingPostId = pathname.endsWith('/edit') ? requestId : null
+  // 홈(레일의 '홈' 버튼)이 곧장 이 자리다 — channelId 없이 여기로 오면 아래 이펙트가
+  // 직전 채널(또는 없으면 전체 공지)로 곧바로 돌린다. "3단이 비는 모습"을 없애려는 것이라
+  // (사용자 요청, 2026-08-26), 리다이렉트가 끝나기 전 짧은 순간에도 빈 화면 문구 대신
+  // 로딩 표시를 보여준다(아래 렌더 분기).
+  const isHome = pathname === '/'
   const { user, userName, schoolId, isAdmin } = useAuth()
   const toast = useToast()
   const { channels, archivedChannels, leftChannels, dms, loading } = useChannels()
@@ -109,6 +120,25 @@ export default function Channels() {
     () => [...channels, ...archivedChannels, ...leftChannels, ...dms].find(c => c.id === channelId) || null,
     [channels, archivedChannels, leftChannels, dms, channelId],
   )
+
+  // 홈 → 직전 채널(있으면) 또는 전체 공지로. 목록이 아직 안 왔으면(loading) 기다린다 —
+  // 그 전에 돌리면 "직전 채널이 있었는지"를 알 방법이 없어 늘 전체 공지로만 떨어진다.
+  useEffect(() => {
+    if (!isHome || loading) return
+    const known = new Set([...channels, ...archivedChannels, ...leftChannels, ...dms].map(c => c.id))
+    let target = ALL_STAFF_CHANNEL_ID
+    try {
+      const last = localStorage.getItem(LAST_CHANNEL_KEY)
+      if (last && known.has(last)) target = last
+    } catch { /* 개인정보 보호 모드 등에서 localStorage가 막혀 있으면 기본값으로 */ }
+    navigate(`/channels/${target}`, { replace: true })
+  }, [isHome, loading, channels, archivedChannels, leftChannels, dms, navigate])
+
+  // 채널을 열 때마다 "직전 채널"로 기억해 둔다. 디렉터리는 채널이 아니라 안 남긴다.
+  useEffect(() => {
+    if (!active?.id) return
+    try { localStorage.setItem(LAST_CHANNEL_KEY, active.id) } catch { /* 막혀 있으면 그냥 넘어간다 */ }
+  }, [active])
 
   /**
    * 채널 머리에 세울 캔버스 탭.
@@ -536,7 +566,10 @@ export default function Channels() {
                 editingId={editingPostId}
                 members={members}
                 membersLoading={membersLoading}
-                onSaved={id => navigate(`/channels/${active.id}/${id}`)}
+                // 자동저장이 새 글을 처음 만든 순간 1회 — 주소를 /new에서 /edit로 조용히
+                // 바꾼다. 보기 주소(/edit 없는)로 보내면 PostComposer 대신 PostDetail이
+                // 그려져, 한창 쓰는 중인 화면이 읽기 화면으로 튕겨버린다.
+                onSaved={id => navigate(`/channels/${active.id}/${id}/edit`, { replace: true })}
                 onCancel={() => navigate(editingPostId ? `/channels/${active.id}/${editingPostId}` : `/channels/${active.id}`)}
               />
             ) : requestId ? (
@@ -604,6 +637,10 @@ export default function Channels() {
             )}
           </Box>
         </Box>
+      ) : isHome ? (
+        // 위 리다이렉트 이펙트가 곧 실제 채널로 옮겨준다 — "채널을 선택하세요"라고
+        // 안내하면 이 순간에만 잠깐 보였다 사라질 문구를 사람이 읽으려 든다.
+        <DetailPlaceholder emoji="⏳" message="불러오는 중…" />
       ) : (
         <DetailPlaceholder emoji="#️⃣" message="왼쪽에서 채널을 선택하세요." />
       )}

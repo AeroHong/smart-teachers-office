@@ -36,6 +36,7 @@ import FormatColorTextIcon from '@mui/icons-material/FormatColorText'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
 import Popover from '@mui/material/Popover'
 import SlashMenu from './SlashMenu'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -719,23 +720,64 @@ export default function CanvasEditor({
         </Typography>
       )}
 
-      {/* 하단에 떠 있는 '+' — Slack 캔버스와 같은 자리. '/'와 같은 메뉴를 연다
-          (SlashMenu.jsx extraItems) — 트리거만 다르고 결과는 같다. */}
-      <Box sx={{ position: 'sticky', bottom: 12, display: 'flex', mt: 1, zIndex: 5 }}>
+      {/* 하단에 떠 있는 삽입 막대 — Slack 캔버스의 알약 모양 도구줄과 비슷하게(사용자가
+          캡처로 준 참고 화면: 초록 원형 '+' + 자주 쓰는 아이콘 몇 개가 한 줄에). '+'는
+          전체 메뉴(표·날짜·캔버스·파일·리스트)를 열고, 나머지는 자주 쓰는 것만 골라
+          한 번에 바로 넣는다 — 이모지·글자 스타일처럼 아직 없는 기능까지 자리를 만들지는
+          않았다(캡처와 똑같지는 않고 "비슷하게"). */}
+      <Box sx={{
+        position: 'sticky', bottom: 12, display: 'inline-flex', alignItems: 'center', gap: 0.2,
+        mt: 1, zIndex: 5, p: 0.4, borderRadius: 999,
+        bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 3,
+      }}>
         <Tooltip title="삽입 (표·날짜·캔버스·파일…)">
           <IconButton
             size="small"
             onClick={(e) => {
+              // 이 클릭이 window까지 올라가면 메뉴를 닫는 리스너(아래 useEffect)가
+              // 같은 클릭에 걸려 열자마자 닫혀버린다 — 눌러도 반응이 없는 것처럼 보이던
+              // 원인이 이것이었다.
+              e.stopPropagation()
               setSlash(null)
               const r = e.currentTarget.getBoundingClientRect()
               setMenuRect({ top: r.top, bottom: r.top, left: r.left, right: r.left, width: 0, height: 0 })
             }}
             sx={{
-              bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
-              boxShadow: 2, '&:hover': { bgcolor: 'action.hover' },
+              bgcolor: 'primary.main', color: 'primary.contrastText',
+              '&:hover': { bgcolor: 'primary.dark' },
             }}
           >
             <AddIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="이미지">
+          <IconButton size="small" onClick={e => { e.stopPropagation(); fileInputRef.current?.click() }}>
+            <ImageOutlinedIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="파일">
+          <IconButton size="small" onClick={e => { e.stopPropagation(); docFileInputRef.current?.click() }}>
+            <AttachFileIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="표">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              // 캔버스를 아직 한 번도 안 눌러본 상태면 커서가 어디에도 없어 표를 끼울
+              // 자리가 없다 — '/'·우클릭 메뉴 경로처럼 먼저 포커스를 준다.
+              editorRef.current?.focus()
+              insertTable()
+              emit()
+            }}
+          >
+            <TableChartOutlinedIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="리스트 (추후 업데이트 예정)">
+          <IconButton size="small" onClick={e => { e.stopPropagation(); toast.success('리스트는 다음 업데이트에서 만나요.') }}>
+            <FormatListBulletedIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
       </Box>

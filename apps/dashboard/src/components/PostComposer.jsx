@@ -18,6 +18,20 @@
  * 문서 ID를 화면에 들어올 때 미리 만들어 두는 이유는 첨부와 본문 이미지 때문이다. 둘 다
  * 고르는 즉시 schools/{schoolId}/requests/{requestId}/ 아래로 올라가야 하는데, 저장
  * 시점에 ID를 만들면 그 전에 올린 파일의 경로를 정할 수 없다(PostNew.jsx 시절부터의 이유).
+ *
+ * ── 자동저장(2026-08-26) ──────────────────────────────────────
+ *
+ * "알림 보내기"를 눌러야만 저장되던 예전 방식은 안 누르고 나가면 쓴 내용이 그냥
+ * 사라졌다. 노션처럼 무엇이든 쓰는 순간 이미 저장된 것으로 바꿨다 — 제목·본문·대상·
+ * 요청/안내·마감일·첨부 중 하나라도 바뀌면 자동으로 저장된다(`syncSave` 이펙트).
+ * 완전히 빈 상태에서는 아직 문서를 만들지 않는다(제목 없는 빈 문서가 채널 탭에
+ * 쌓이는 것을 막는다) — 뭐라도 쓰는 순간 즉시(디바운스 없이) 한 번 만들고, 그 뒤
+ * 변경은 700ms 디바운스로 갱신한다. 화면을 떠날 때(unmount) 디바운스를 기다리지 않고
+ * 마지막 상태를 한 번 더 조용히 밀어 넣는다 — 타이핑 직후 곧바로 다른 채널을 눌러도
+ * 700ms 안의 마지막 몇 글자까지 지켜지도록.
+ *
+ * "알림 보내기"는 이제 저장과 무관한 별도 동작이다 — 채널 메시지 탭에 이 글을
+ * 가리키는 메시지를 하나 남긴다(전달 기능과 같은 함수, 같은 채널로 보내는 것뿐).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
@@ -25,14 +39,18 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
+import CircularProgress from '@mui/material/CircularProgress'
 import Collapse from '@mui/material/Collapse'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CloseIcon from '@mui/icons-material/Close'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
@@ -40,11 +58,12 @@ import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { isRequest, newRequestPayload } from '@shared/lib/workRequests'
 import { postVisibilityFor } from '@shared/lib/channels'
 import { deleteAttachment, fileKind, formatBytes } from '@shared/lib/requestAttachments'
-import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
+import { htmlToText, isEmptyHtml, sanitizeHtml } from '@shared/lib/richText'
 import TargetPicker from './TargetPicker'
 import CanvasEditor from './CanvasEditor'
 import { useToast } from './ToastProvider'
 import { updatePostContent } from '../lib/requestActions'
+import { shareCanvasToChannel } from '../lib/channelActions'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
 
@@ -86,8 +105,10 @@ function dueLabel(value) {
 /**
  * @param {object} channel 지금 글을 쓰는 채널. 대상 기본값과 열람 범위가 여기서 나온다.
  * @param {string} [editingId] 있으면 고치기 모드 — 그 글을 읽어와 채운다.
- * @param {(requestId: string) => void} onSaved 저장 뒤(새 글이면 새로 만든 id).
- * @param {() => void} onCancel 취소 — 업로드해 둔 파일 정리는 여기 안에서 처리한다.
+ * @param {(requestId: string) => void} onSaved 문서가 처음 만들어진 직후 1회(새 글이면
+ *   새로 만든 id) — Channels.jsx가 주소를 `/new`에서 실제 캔버스 주소로 조용히 바꾼다.
+ * @param {() => void} onCancel 고칠 글을 못 찾았을 때만 쓴다(더 이상 '취소' 버튼은 없다 —
+ *   자동저장이라 되돌릴 '쓰다 만 것'이 없다).
  * @param {object[]} members 학교 구성원 — 부모(Channels.jsx)가 이미 구독 중인 것을 그대로 받는다.
  * @param {boolean} membersLoading
  */
@@ -110,13 +131,21 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
   const [rule, setRule] = useState(channel?.memberRule || EMPTY_RULE)
   const [targetOpen, setTargetOpen] = useState(false)
   const [attachments, setAttachments] = useState([])
-  const [bodyImages, setBodyImages] = useState([])   // 본문에 넣은 이미지 (버릴 때 정리용)
   const [links, setLinks] = useState([])
-  const [saving, setSaving] = useState(false)
   const [loadingPost, setLoadingPost] = useState(!!editingId)
+  // 실제 Firestore 문서가 이미 만들어졌는가. 고치기는 처음부터 true, 새 글은 첫 자동저장이
+  // 만든 순간 true가 된다 — 그 전까지는 완전히 로컬 상태다.
+  const [created, setCreated] = useState(!!editingId)
+  const [saveState, setSaveState] = useState('idle')   // idle | saving | saved | error
 
   // 고치기를 시작한 시점에 이미 붙어 있던 파일. 도중에 그만둬도 이건 지우면 안 된다.
   const keptFiles = useRef(new Set())
+
+  // 첫 자동저장이 새 글을 만들면 주소가 /new → /edit로 조용히 바뀐다(아래 onSaved).
+  // editingId가 undefined→실값으로 바뀌는 그 순간, 아래 "고칠 글 읽어오기" 이펙트가
+  // 방금 내가 막 저장한 문서를 다시 읽어와 그사이 친 글자를 덮어써 버릴 뻔했다 —
+  // 이 플래그가 "방금 내가 만든 것"이면 그 재조회를 한 번 건너뛰게 한다.
+  const justCreatedRef = useRef(false)
 
   /**
    * 고칠 글을 한 번만 읽어온다. onSnapshot으로 구독하지 않는 이유: 쓰는 도중에 서버 값이
@@ -124,6 +153,7 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
    */
   useEffect(() => {
     if (!editingId || !schoolId) return
+    if (justCreatedRef.current) { justCreatedRef.current = false; return }
     let alive = true
     getDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), editingId))
       .then(snap => {
@@ -161,7 +191,6 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
   }, [editingId, schoolId])
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
-  const canSave = title.trim() && targets.length > 0 && !saving && !loadingPost
 
   // '+캔버스'로 심을 수 있는 후보 — 이 채널의 다른 업무 글만 준다(지금 쓰는 글 자신은 뺀다).
   const canvasOptions = useMemo(
@@ -173,7 +202,7 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
 
   /**
    * '+파일'로 올린 파일. AttachmentPicker.jsx가 하던 일을 그대로 한다 — 고치는 중이면
-   * (deferRemove와 같은 이유로) 실제 삭제는 저장 시점까지 미룬다.
+   * (deferRemove와 같은 이유로) 실제 삭제는 자동저장이 처리한다(아래 flushRef 참고).
    */
   const removeAttachment = async (a) => {
     setAttachments(prev => prev.filter(x => x.path !== a.path))
@@ -185,27 +214,22 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
     }
   }
 
-  const blockReason = !title.trim() ? '제목을 입력해 주세요'
-    : targets.length === 0 ? '조건에 맞는 대상이 없습니다'
-    : null
-
   /**
-   * 취소하면 이번에 올린 파일을 지운다. 첨부와 본문 이미지는 문서를 저장하기 전에
-   * 업로드된다(경로에 문서 ID가 필요해서). 쓰다가 그만두면 아무도 참조하지 않는 파일이
-   * 저장소에 남으므로 나가는 길에 치운다. 고치는 중이라면 원래 붙어 있던 파일(keptFiles)은
-   * 건드리지 않는다.
+   * "지금 이 순간 저장한다면"을 매 렌더 다시 만들어 둔다 — 디바운스 타이머와 언마운트
+   * 정리(cleanup) 양쪽에서 **항상 최신 상태**로 부를 수 있어야 하기 때문이다. 언마운트
+   * cleanup은 빈 배열 이펙트라 등록 시점의 클로저만 갖는데, ref 안의 함수는 매 렌더
+   * 다시 대입되므로 unmount 순간의 최신 값을 쓸 수 있다.
+   *
+   * @param {boolean} silent 언마운트 중 부를 때 true. 화면이 이미 사라지는 중이라
+   *   상태 갱신(setCreated 등)도, onSaved(→navigate)도 하지 않는다 — 안 그러면 사용자가
+   *   막 눌러서 옮겨간 다른 채널에서 이 글로 도로 튕겨간다.
    */
-  const discardAndLeave = () => {
-    const uploaded = [...attachments, ...bodyImages].filter(a => !keptFiles.current.has(a.path))
-    setAttachments([])
-    setBodyImages([])
-    onCancel()
-    Promise.all(uploaded.map(a => deleteAttachment(a).catch(() => {})))
-  }
+  const flushRef = useRef(async () => {})
+  flushRef.current = async ({ silent = false } = {}) => {
+    if (loadingPost) return
+    const isEmpty = !title.trim() && isEmptyHtml(bodyHtml) && attachments.length === 0
+    if (!created && isEmpty) return
 
-  const handleSave = async () => {
-    if (!canSave) return
-    setSaving(true)
     try {
       const safeHtml = sanitizeHtml(bodyHtml)
       const payload = newRequestPayload({
@@ -223,7 +247,17 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
         createdByName: userName,
       })
 
-      if (editingId) {
+      if (!created) {
+        await setDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId), {
+          ...payload,
+          bodyHtml: safeHtml,
+          channelId: channel.id,
+          ...postVisibilityFor(channel),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+        if (!silent) { justCreatedRef.current = true; setCreated(true); onSaved(requestId) }
+      } else {
         // 고칠 때 넘기지 않는 것 — completedUids(이미 한 사람의 기록), status(마감 여부),
         // createdBy/createdByName(글쓴이). 채널은 프롭으로 고정이라 옮길 수 없다(전달로 한다).
         await updatePostContent({
@@ -250,23 +284,64 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
         await Promise.all([...keptFiles.current]
           .filter(path => !kept.has(path))
           .map(path => deleteAttachment({ path }).catch(() => {})))
-        toast.success('수정한 내용을 저장했습니다.')
-      } else {
-        await setDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId), {
-          ...payload,
-          bodyHtml: safeHtml,
-          channelId: channel.id,
-          ...postVisibilityFor(channel),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        })
-        toast.success(`${targets.length}명에게 ${needsCompletion ? '요청을' : '안내를'} 보냈습니다.`)
       }
-      onSaved(requestId)
+      if (!silent) setSaveState('saved')
     } catch (e) {
-      toast.error(editingId ? '수정 내용을 저장하지 못했습니다.' : '글을 보내지 못했습니다.', e)
+      if (!silent) {
+        setSaveState('error')
+        toast.error('저장하지 못했습니다.', e)
+      }
+    }
+  }
+
+  // 처음 한 번(마운트, 또는 고치기 로딩 완료 직후)은 저장을 건너뛴다 — 안 그러면 아무것도
+  // 안 고쳤는데도 로딩 직후 값이 채워지는 것 자체를 "변경"으로 잡아 헛저장이 한 번 나간다.
+  const skipNextSaveRef = useRef(true)
+
+  useEffect(() => {
+    if (loadingPost) { skipNextSaveRef.current = true; return }
+    if (skipNextSaveRef.current) { skipNextSaveRef.current = false; return }
+
+    setSaveState('saving')
+    // 문서가 아직 없으면(첫 저장) 디바운스 없이 바로 만든다 — "썼는데 안 만들어졌다"로
+    // 보이는 시간을 없앤다. 이미 있으면 타이핑 한 글자마다 쓰지 않도록 모아서 보낸다.
+    // created는 일부러 의존성 배열에서 뺐다 — 첫 저장이 created를 true로 바꾸는 순간
+    // 이 이펙트가 그것 때문에 다시 돌면, 방금 막 저장한 것과 똑같은 내용을 700ms 뒤에
+    // 한 번 더 쓰는 헛수고가 생긴다. flushRef.current()는 매 렌더 최신 created를
+    // 참조하므로 다음 실제 변경부터는 어차피 옳은 값으로 판단한다.
+    const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, attachments, targets, loadingPost])
+
+  // 화면을 완전히 떠날 때(다른 채널·다른 탭으로 이동해 이 컴포넌트가 사라질 때)만 도는
+  // 정리 함수. 위 디바운스가 아직 안 끝났어도 마지막 상태를 한 번 더 조용히 저장한다.
+  useEffect(() => {
+    return () => { flushRef.current({ silent: true }) }
+  }, [])
+
+  const [notifying, setNotifying] = useState(false)
+
+  /**
+   * 알림 보내기 — 저장과 완전히 무관한 별도 동작이다. 채널 '전달' 기능과 같은 함수를
+   * 같은 채널로 부르는 것뿐이다(shareCanvasToChannel) — 새 백엔드 로직이 필요 없다.
+   * 여러 번 눌러도 매번 새 메시지가 쌓인다(토글이 아니다).
+   */
+  const notifyChannel = async () => {
+    if (!created) return
+    setNotifying(true)
+    try {
+      await shareCanvasToChannel({
+        schoolId,
+        targetChannelId: channel.id,
+        post: { id: requestId, title: title || '(제목 없음)', channelId: channel.id },
+        author: { uid: user.uid, name: userName },
+      })
+      toast.success('채널에 알렸습니다.')
+    } catch (e) {
+      toast.error('알리지 못했습니다.', e)
     } finally {
-      setSaving(false)
+      setNotifying(false)
     }
   }
 
@@ -279,14 +354,6 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Box sx={{ flexShrink: 0, px: 2, pt: 1.5 }}>
-        <TextField
-          fullWidth autoFocus variant="standard"
-          placeholder="제목"
-          value={title} onChange={e => setTitle(e.target.value)}
-          inputProps={{ style: { fontSize: '1.05rem', fontWeight: 700 } }}
-          sx={{ mb: 1.2 }}
-        />
-
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1 }}>
           <SegChoice
             value={needsCompletion ? 'request' : 'notice'}
@@ -324,8 +391,17 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
 
         <Box sx={{ mb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
-            <Typography fontSize="0.8rem" color="text.secondary" sx={{ flexGrow: 1 }}>
-              이 채널 참여자 {targets.length}명이 대상입니다
+            {/* 예전엔 대상이 0명이면 저장을 막았다. 자동저장은 막을 자리가 없어져서
+                (막으면 그 사이 다른 변경까지 다 저장이 안 된다) 대신 경고만 상시 띄운다. */}
+            <Typography
+              fontSize="0.8rem"
+              color={targets.length === 0 ? 'warning.main' : 'text.secondary'}
+              fontWeight={targets.length === 0 ? 700 : 400}
+              sx={{ flexGrow: 1 }}
+            >
+              {targets.length === 0
+                ? '⚠ 대상이 없습니다 — 아직 아무에게도 가지 않습니다'
+                : `이 채널 참여자 ${targets.length}명이 대상입니다`}
             </Typography>
             <Button size="small" onClick={() => setTargetOpen(v => !v)} sx={{ fontSize: '0.76rem' }}>
               {targetOpen ? '접기' : '대상 좁히기'}
@@ -373,11 +449,22 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
       </Box>
 
       <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2 }}>
+        {/* 제목도 캔버스 영역으로 내렸다(사용자 요청, 2026-08-26) — 노션처럼 페이지를
+            열면 곧바로 "제목을 쓰는 상태"가 되도록. 위 대상·요청/안내·마감일은 설정값이라
+            그대로 고정 칸에 남지만, 제목은 글의 일부라 캔버스 흐름 맨 위에 둔다.
+            테두리·밑줄을 없애 입력 상자가 아니라 캔버스 위의 큰 제목처럼 보이게 한다. */}
+        <TextField
+          fullWidth autoFocus variant="standard"
+          placeholder="제목"
+          value={title} onChange={e => setTitle(e.target.value)}
+          InputProps={{ disableUnderline: true }}
+          inputProps={{ style: { fontSize: '1.6rem', fontWeight: 800 } }}
+          sx={{ mb: 1 }}
+        />
         <CanvasEditor
           docId={requestId}
           value={bodyHtml}
           onChange={setBodyHtml}
-          onImageUploaded={img => setBodyImages(prev => [...prev, img])}
           onFileUploaded={file => setAttachments(prev => [...prev, file])}
           canvasOptions={canvasOptions}
           placeholder="무엇을 어떻게 하면 되는지 적어주세요. '+'로 이미지·표·날짜·다른 업무 글도 넣을 수 있습니다."
@@ -388,21 +475,47 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
         flexShrink: 0, borderTop: '1px solid', borderColor: 'divider',
         px: 2, py: 1.1, display: 'flex', alignItems: 'center', gap: 1.2,
       }}>
-        {blockReason && (
-          <Typography fontSize="0.76rem" color="text.secondary">{blockReason}</Typography>
-        )}
+        <SaveStateLabel state={saveState} />
         <Box sx={{ flexGrow: 1 }} />
-        <Button size="small" onClick={discardAndLeave}>취소</Button>
-        <Button variant="contained" size="small" onClick={handleSave} disabled={!canSave}>
-          {editingId
-            ? '수정한 내용 저장'
-            : targets.length > 0
-              ? `${targets.length}명에게 ${needsCompletion ? '요청' : '안내'} 보내기`
-              : '보내기'}
+        <Button
+          size="small" variant="contained" startIcon={<NotificationsActiveIcon sx={{ fontSize: 16 }} />}
+          disabled={!created || notifying}
+          onClick={notifyChannel}
+        >
+          알림 보내기
         </Button>
       </Box>
     </Box>
   )
+}
+
+/** 자동저장 상태 한 줄 — 구글독스·노션과 같은 자리, 같은 뜻. */
+function SaveStateLabel({ state }) {
+  if (state === 'saving') {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+        <CircularProgress size={12} thickness={5} />
+        <Typography fontSize="0.76rem" color="text.secondary">저장 중…</Typography>
+      </Box>
+    )
+  }
+  if (state === 'saved') {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
+        <Typography fontSize="0.76rem" color="text.secondary">저장됨</Typography>
+      </Box>
+    )
+  }
+  if (state === 'error') {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <ErrorOutlineIcon sx={{ fontSize: 14, color: 'error.main' }} />
+        <Typography fontSize="0.76rem" color="error.main">저장하지 못했습니다</Typography>
+      </Box>
+    )
+  }
+  return null
 }
 
 /**
