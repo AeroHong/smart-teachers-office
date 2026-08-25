@@ -571,6 +571,7 @@ export default function Channels() {
                 // 그려져, 한창 쓰는 중인 화면이 읽기 화면으로 튕겨버린다.
                 onSaved={id => navigate(`/channels/${active.id}/${id}/edit`, { replace: true })}
                 onCancel={() => navigate(editingPostId ? `/channels/${active.id}/${editingPostId}` : `/channels/${active.id}`)}
+                onOpenCanvasRef={to => navigate(to)}
               />
             ) : requestId ? (
               // 캔버스 하나. 탭 바는 위에 그대로 남는다 — 글을 열 때마다 채널 머리가

@@ -14,7 +14,7 @@
  * 상자 안에 또 스크롤이 생기면 그게 곧 "입력 상자"라는 신호가 된다. 부모(PostComposer)의
  * 캔버스 영역이 대신 스크롤한다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
@@ -41,7 +41,7 @@ import Popover from '@mui/material/Popover'
 import SlashMenu from './SlashMenu'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { isImageFile, uploadAttachment } from '@shared/lib/requestAttachments'
-import { canvasRefCardHtml } from '@shared/lib/canvasRefCard'
+import { canvasRefCardHtml, canvasRefTarget } from '@shared/lib/canvasRefCard'
 import { dateChipHtml, hydrateDateChips } from '@shared/lib/dateChips'
 import { useToast } from './ToastProvider'
 import { RICH_TEXT_SX } from './richTextStyles'
@@ -77,9 +77,15 @@ const BUBBLE_TOOLS = [
 const BUBBLE_WIDTH = 232
 const BUBBLE_HEIGHT = 40
 
-export default function CanvasEditor({
-  docId, folder = 'requests', value, onChange, onImageUploaded, onFileUploaded, canvasOptions = [], placeholder,
-}) {
+/**
+ * ref로 `focus()`를 내준다 — 제목 입력창에서 Enter를 치면 본문으로 이어서 쓸 수 있어야
+ * 하는데, 그 처리는 부모(PostComposer)의 제목 필드에 있고 본문 DOM은 여기 안에 갇혀
+ * 있어서다(`useImperativeHandle`).
+ */
+const CanvasEditor = forwardRef(function CanvasEditor({
+  docId, folder = 'requests', value, onChange, onImageUploaded, onFileUploaded, onOpenCanvasRef,
+  canvasOptions = [], placeholder,
+}, ref) {
   const { schoolId } = useAuth()
   const toast = useToast()
   const editorRef = useRef(null)
@@ -104,6 +110,10 @@ export default function CanvasEditor({
   const [datePicker, setDatePicker] = useState(null)   // { rect, value }
   const savedRangeRef = useRef(null)
   const [canvasMenuAnchor, setCanvasMenuAnchor] = useState(null)   // { top, left } — 캔버스 삽입 고르기
+
+  useImperativeHandle(ref, () => ({
+    focus: () => editorRef.current?.focus(),
+  }), [])
 
   /**
    * 목차를 다시 읽는다. 저장된 값이 아니라 **지금 화면의 DOM**에서 뽑는다 — 목차는 편집
@@ -156,10 +166,15 @@ export default function CanvasEditor({
     setPicked({ el: img, rect: img.getBoundingClientRect(), clip: clipRect() })
   }
 
-  // 이미지를 누르면 고르고, 표 안을 누르면 표를 고르고, 다른 곳을 누르면 다 푼다
+  // 이미지를 누르면 고르고, 표 안을 누르면 표를 고르고, 캔버스 삽입 카드를 누르면 그
+  // 글을 열고(편집 중에도 — contenteditable="false"라 글자 편집과 안 부딪힌다),
+  // 다른 곳을 누르면 다 푼다.
   const handleEditorClick = (e) => {
     const table = e.target.closest?.('table')
-    if (e.target?.tagName === 'IMG') {
+    const cardTarget = canvasRefTarget(e.target)
+    if (cardTarget) {
+      onOpenCanvasRef?.(cardTarget)
+    } else if (e.target?.tagName === 'IMG') {
       pickImage(e.target)
       setPickedTable(null)
     } else if (table && editorRef.current?.contains(table)) {
@@ -724,10 +739,13 @@ export default function CanvasEditor({
           캡처로 준 참고 화면: 초록 원형 '+' + 자주 쓰는 아이콘 몇 개가 한 줄에). '+'는
           전체 메뉴(표·날짜·캔버스·파일·리스트)를 열고, 나머지는 자주 쓰는 것만 골라
           한 번에 바로 넣는다 — 이모지·글자 스타일처럼 아직 없는 기능까지 자리를 만들지는
-          않았다(캡처와 똑같지는 않고 "비슷하게"). */}
+          않았다(캡처와 똑같지는 않고 "비슷하게"). 캔버스 가로 폭 전체를 기준으로
+          가운데 오도록, sticky는 폭 전체를 차지하는 바깥 칸에 걸고 알약은 그 안에서만
+          가운데로 민다. */}
+      <Box sx={{ position: 'sticky', bottom: 12, display: 'flex', justifyContent: 'center', mt: 1, zIndex: 5 }}>
       <Box sx={{
-        position: 'sticky', bottom: 12, display: 'inline-flex', alignItems: 'center', gap: 0.2,
-        mt: 1, zIndex: 5, p: 0.4, borderRadius: 999,
+        display: 'inline-flex', alignItems: 'center', gap: 0.2,
+        p: 0.4, borderRadius: 999,
         bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 3,
       }}>
         <Tooltip title="삽입 (표·날짜·캔버스·파일…)">
@@ -780,6 +798,7 @@ export default function CanvasEditor({
             <FormatListBulletedIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
+      </Box>
       </Box>
 
       {/* 표를 고르면 바깥에 뜨는 행·열 추가 단추. 이미지 손잡이와 같은 자리 계산 방식이지만
@@ -973,4 +992,6 @@ export default function CanvasEditor({
       </Box>
     </Box>
   )
-}
+})
+
+export default CanvasEditor

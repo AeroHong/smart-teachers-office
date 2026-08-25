@@ -111,10 +111,15 @@ function dueLabel(value) {
  *   자동저장이라 되돌릴 '쓰다 만 것'이 없다).
  * @param {object[]} members 학교 구성원 — 부모(Channels.jsx)가 이미 구독 중인 것을 그대로 받는다.
  * @param {boolean} membersLoading
+ * @param {(to: string) => void} onOpenCanvasRef 본문 안 '캔버스 삽입' 카드를 눌렀을 때
+ *   그 글로 이동한다. ChannelMessages.jsx가 CanvasCard에 쓰는 onOpenCanvas와 같은 역할.
  */
-export default function PostComposer({ channel, editingId, onSaved, onCancel, members, membersLoading }) {
+export default function PostComposer({
+  channel, editingId, onSaved, onCancel, members, membersLoading, onOpenCanvasRef,
+}) {
   const { user, userName, schoolId } = useAuth()
   const toast = useToast()
+  const canvasEditorRef = useRef(null)
 
   // 새 글은 첨부 경로에 쓸 ID를 미리 만들고, 고칠 때는 이미 있는 문서를 그대로 쓴다
   const draftId = useMemo(
@@ -460,12 +465,19 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
           InputProps={{ disableUnderline: true }}
           inputProps={{ style: { fontSize: '1.6rem', fontWeight: 800 } }}
           sx={{ mb: 1 }}
+          // 제목을 쓰고 Enter를 치면 본문으로 이어지는 게 자연스럽다 — 지금은 한 줄
+          // 입력창이라 Enter가 아무 일도 안 하고 있었다.
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); canvasEditorRef.current?.focus() }
+          }}
         />
         <CanvasEditor
+          ref={canvasEditorRef}
           docId={requestId}
           value={bodyHtml}
           onChange={setBodyHtml}
           onFileUploaded={file => setAttachments(prev => [...prev, file])}
+          onOpenCanvasRef={onOpenCanvasRef}
           canvasOptions={canvasOptions}
           placeholder="무엇을 어떻게 하면 되는지 적어주세요. '+'로 이미지·표·날짜·다른 업무 글도 넣을 수 있습니다."
         />
