@@ -15,9 +15,16 @@ import { useNavigate } from 'react-router-dom'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
 import { dueState } from '@shared/lib/workRequests'
 import { htmlToText } from '@shared/lib/richText'
+
+// 채널 아래 주소로 바로 보낸다. PostRedirect.jsx(옛 /posts/:id)를 거치지 않는 것은
+// 클릭 한 번에 한 번의 이동이 자연스럽기 때문이다 — 모든 글이 channelId를 갖는(P3-A)
+// 지금은 여기서 몰라야 할 이유가 없다.
+function postRoute(r, id) {
+  return `/channels/${r.channelId || ALL_STAFF_CHANNEL_ID}/${id}`
+}
 
 const DUE_CHECK_INTERVAL_MS = 30 * 60 * 1000
 
@@ -134,14 +141,14 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const r = change.doc.data()
-          notifyOnce(`notice:${change.doc.id}`, '새 공지', r.title || '', `/posts/${change.doc.id}`)
+          notifyOnce(`notice:${change.doc.id}`, '새 공지', r.title || '', postRoute(r, change.doc.id))
         })
       },
       () => {},
     )
   }, [schoolId, user])
 
-  // 3) 새 업무 요청 — useHomeFeed.js와 동일 쿼리(진행 중인 것만)라 기존 색인을 그대로 쓴다.
+  // 3) 새 업무 요청 — useMyRequests.js와 동일 쿼리(진행 중인 것만)라 기존 색인을 그대로 쓴다.
   useEffect(() => {
     if (!isDesktop() || !schoolId || !user) return
     let first = true
@@ -157,7 +164,7 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const r = change.doc.data()
-          notifyOnce(`request:${change.doc.id}`, '새 업무 요청', r.title || '', `/posts/${change.doc.id}`)
+          notifyOnce(`request:${change.doc.id}`, '새 업무 요청', r.title || '', postRoute(r, change.doc.id))
         })
       },
       () => {},
@@ -208,7 +215,7 @@ export default function useDesktopNotifications() {
       const title = state === 'overdue' ? '마감 지남' : '마감임박'
       // 날짜를 키에 넣어 같은 요청을 하루에 한 번만 알린다
       // (타이머가 반복 실행되고 스냅샷마다 다시 판정하므로 필요)
-      notifyOnce(`due:${r.id}:${todayKey}`, title, `${r.title || ''} · ${label}`, `/posts/${r.id}`)
+      notifyOnce(`due:${r.id}:${todayKey}`, title, `${r.title || ''} · ${label}`, postRoute(r, r.id))
     })
   }, [])
 
@@ -236,7 +243,7 @@ export default function useDesktopNotifications() {
             // remindedAt이 그대로라 키가 같아 이력에 막힌다.
             const at = r.remindedAt?.toMillis?.()
             if (!at) return
-            notifyOnce(`remind:${change.doc.id}:${at}`, '다시 알림', r.title || '', `/posts/${change.doc.id}`)
+            notifyOnce(`remind:${change.doc.id}:${at}`, '다시 알림', r.title || '', postRoute(r, change.doc.id))
           })
         }
         first = false

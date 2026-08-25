@@ -7,10 +7,12 @@ import DesktopNotifications from './components/DesktopNotifications'
 import DesktopPresence from './components/DesktopPresence'
 import DesktopClientReport from './components/DesktopClientReport'
 import Login from './pages/Login'
-import Home from './pages/Home'
 import RequestList from './pages/RequestList'
 import PostNew from './pages/PostNew'
 import Channels from './pages/Channels'
+import Activity from './pages/Activity'
+import AcademicCalendar from './pages/AcademicCalendar'
+import PostRedirect from './pages/PostRedirect'
 import Messages from './pages/Messages'
 import Members from './pages/Members'
 import AdminDesktop from './pages/AdminDesktop'
@@ -37,10 +39,18 @@ export default function App() {
           <Route path="/school-setup" element={<RedirectToPortal path="/school-setup" />} />
           <Route path="/student" element={<RedirectToPortal path="/student" />} />
 
-          {/* 홈 — 왼쪽에 오늘 볼 것들(요청·안내·호출·일정), 오른쪽에 고른 것 하나.
-              글은 주소를 가진다 (쿨메신저에 붙여넣는 링크가 특정 글을 가리켜야 하므로) */}
-          <Route path="/" element={<ProtectedRoute anyUser><Home /></ProtectedRoute>} />
-          <Route path="/posts/:requestId" element={<ProtectedRoute anyUser><Home /></ProtectedRoute>} />
+          {/* 홈 = 채널 목록 (2026-08-25 재구성). 위젯형 홈이 하던 "오늘 볼 것들 훑기"는
+              이제 채널이 그 자리다 — Channels.jsx를 그대로 재사용한다. */}
+          <Route path="/" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
+          {/* 옛 홈이 쓰던 주소. 쿨메신저에 이미 붙여넣긴 링크가 이 형태를 가리킬 수 있어
+              죽이지 않고 새 주소로 돌린다(PostRedirect.jsx). */}
+          <Route path="/posts/:requestId" element={<ProtectedRoute anyUser><PostRedirect /></ProtectedRoute>} />
+          {/* 내 활동 — "안 한 일". 채널별 뱃지와 달리 채널을 넘나들며 모아 보여준다.
+              알림과 달리 읽어도 안 사라지고 완료해야 사라진다. */}
+          <Route path="/activity" element={<ProtectedRoute anyUser><Activity /></ProtectedRoute>} />
+          <Route path="/activity/:requestId" element={<ProtectedRoute anyUser><Activity /></ProtectedRoute>} />
+          {/* 학사일정 — 1차 버전(목록+상세). 월 단위 캘린더 그리드는 나중 작업 */}
+          <Route path="/calendar" element={<ProtectedRoute anyUser><AcademicCalendar /></ProtectedRoute>} />
           {/* 업무 요청 — 관리자가 아니라 부장·담당 교사가 쓰므로 대시보드에 둔다.
               상세는 만든 사람에게는 현황판, 대상 교사에게는 할 일 상세로 보인다
               (쿨메신저에 붙여넣는 링크가 이 주소를 가리킨다) */}

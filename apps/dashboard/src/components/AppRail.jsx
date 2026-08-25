@@ -11,15 +11,18 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import DashboardIcon from '@mui/icons-material/SpaceDashboard'
 import RequestIcon from '@mui/icons-material/PlaylistAddCheck'
-import TagIcon from '@mui/icons-material/Tag'
+import TaskAltIcon from '@mui/icons-material/TaskAlt'
+import EventIcon from '@mui/icons-material/Event'
 import MailIcon from '@mui/icons-material/MailOutline'
 import PeopleIcon from '@mui/icons-material/Groups'
 import DevicesIcon from '@mui/icons-material/DevicesOther'
 import LaunchIcon from '@mui/icons-material/Launch'
 import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { isDoneBy } from '@shared/lib/workRequests'
 import { portalLink } from '../lib/portalUrl'
 import useUnreadNotices from '../lib/useUnreadNotices'
+import useMyRequests from '../lib/useMyRequests'
 
 const RAIL_WIDTH = 64
 
@@ -75,9 +78,11 @@ function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
 }
 
 export default function AppRail() {
-  const { userName, logout, isAdmin } = useAuth()
+  const { user, userName, logout, isAdmin } = useAuth()
   const { pathname } = useLocation()
   const unreadNotices = useUnreadNotices()
+  const myRequests = useMyRequests()
+  const pendingCount = myRequests.filter(r => !isDoneBy(r, user?.uid)).length
 
   return (
     <Box
@@ -96,19 +101,26 @@ export default function AppRail() {
         icon={DashboardIcon}
         label="홈"
         to="/"
-        active={pathname === '/' || pathname.startsWith('/posts')}
+        active={pathname === '/' || pathname.startsWith('/posts') || pathname.startsWith('/channels')}
+      />
+      <RailButton
+        icon={TaskAltIcon}
+        label="내 활동"
+        to="/activity"
+        active={pathname.startsWith('/activity')}
+        badge={pendingCount}
+      />
+      <RailButton
+        icon={EventIcon}
+        label="학사일정"
+        to="/calendar"
+        active={pathname.startsWith('/calendar')}
       />
       <RailButton
         icon={RequestIcon}
         label="요청 현황"
         to="/requests"
         active={pathname.startsWith('/requests')}
-      />
-      <RailButton
-        icon={TagIcon}
-        label="채널"
-        to="/channels"
-        active={pathname.startsWith('/channels')}
       />
       <RailButton
         icon={MailIcon}

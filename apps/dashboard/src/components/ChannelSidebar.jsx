@@ -29,6 +29,7 @@ import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolderOutlined'
 import FolderIcon from '@mui/icons-material/FolderOutlined'
 import ForumIcon from '@mui/icons-material/ForumOutlined'
 import GroupsIcon from '@mui/icons-material/Groups'
+import LaunchIcon from '@mui/icons-material/LaunchOutlined'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -44,6 +45,7 @@ import {
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from './sidebarUi'
 import { useToast } from './ToastProvider'
 import useChannelPrefs from '../lib/useChannelPrefs'
+import { EXTERNAL_LINKS } from '../lib/externalLinks'
 
 const GROUP_ICON = { favorites: StarIcon, section: FolderIcon }
 
@@ -61,6 +63,7 @@ export default function ChannelSidebar({
   const [deleting, setDeleting] = useState(null)       // 섹션 객체
   const [openArchived, setOpenArchived] = useState(false)
   const [openLeft, setOpenLeft] = useState(false)
+  const [openLinks, setOpenLinks] = useState(false)
   // DM은 기본으로 펼쳐 둔다. 보관·나간 채널과 달리 매일 들여다보는 자리라, 접혀 있으면
   // 안읽음 표시가 있는 줄이 한 번 더 눌러야 보인다.
   const [openDms, setOpenDms] = useState(true)
@@ -250,6 +253,17 @@ export default function ChannelSidebar({
           {archivedChannels.map(c => channelRow(c, { muted: true }))}
         </SidebarSection>
       )}
+
+      {/* 바로가기 — 스마트교무실 밖 링크. 쪽지마다 붙는 드라이브 링크를 매번 다시 찾지
+          않도록 같은 자리에 고정한다(externalLinks.js). 매일 누르는 목록이 아니라 접어 둔다. */}
+      <SidebarSection
+        label="바로가기" icon={LaunchIcon} count={EXTERNAL_LINKS.length}
+        open={openLinks} onToggle={() => setOpenLinks(v => !v)}
+      >
+        {EXTERNAL_LINKS.map(link => (
+          <SidebarItem key={link.href} label={link.label} href={link.href} />
+        ))}
+      </SidebarSection>
 
       {/* 채널 줄 메뉴 — 즐겨찾기와 섹션 이동을 한 판에 둔다. 하위 메뉴로 접으면 섹션이
           두어 개뿐인데도 한 번 더 눌러야 한다. */}
