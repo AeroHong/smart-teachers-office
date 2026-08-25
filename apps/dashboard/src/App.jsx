@@ -8,7 +8,6 @@ import DesktopPresence from './components/DesktopPresence'
 import DesktopClientReport from './components/DesktopClientReport'
 import Login from './pages/Login'
 import RequestList from './pages/RequestList'
-import PostNew from './pages/PostNew'
 import Channels from './pages/Channels'
 import Activity from './pages/Activity'
 import AcademicCalendar from './pages/AcademicCalendar'
@@ -55,11 +54,7 @@ export default function App() {
               상세는 만든 사람에게는 현황판, 대상 교사에게는 할 일 상세로 보인다
               (쿨메신저에 붙여넣는 링크가 이 주소를 가리킨다) */}
           <Route path="/requests" element={<ProtectedRoute anyUser><RequestList /></ProtectedRoute>} />
-          <Route path="/requests/new" element={<ProtectedRoute anyUser><PostNew /></ProtectedRoute>} />
           <Route path="/requests/:requestId" element={<ProtectedRoute anyUser><RequestList /></ProtectedRoute>} />
-          {/* 고치기 — 쓰기와 같은 화면을 쓴다. 글을 지우고 다시 쓰면 주소가 바뀌어
-              쿨메신저에 뿌린 링크가 죽고 완료 기록도 함께 날아간다 */}
-          <Route path="/requests/:requestId/edit" element={<ProtectedRoute anyUser><PostNew /></ProtectedRoute>} />
           {/* 쪽지 — 위젯이 아니라 전용 탭. 쿨메신저를 대체하지 않고 병행하는 보조 수단이라
               매일 보는 대시보드의 자리를 차지하지 않는다 */}
           <Route path="/channels" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
@@ -67,8 +62,15 @@ export default function App() {
               치므로 순서와 무관하게 안전하지만, 읽는 사람에게도 'directory'가 채널 id가
               아니라는 것이 보여야 한다. */}
           <Route path="/channels/directory" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
+          {/* 글쓰기 — 채널 3단 안에서 그대로 쓴다(PLAN_composer.md). 예전 /requests/new
+              같은 별도 페이지가 아니라 Channels.jsx가 자기 안에서 갈아 끼운다. */}
+          <Route path="/channels/:channelId/new" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
           <Route path="/channels/:channelId" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
           <Route path="/channels/:channelId/:requestId" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
+          {/* 고치기 — 쓰기와 같은 화면을 쓴다. 글을 지우고 다시 쓰면 주소가 바뀌어
+              쿨메신저에 뿌린 링크가 죽고 완료 기록도 함께 날아간다. 채널은 프롭으로
+              고정이라 여기서 옮길 수 없다 — 옮기는 건 '전달'이 하는 일이다. */}
+          <Route path="/channels/:channelId/:requestId/edit" element={<ProtectedRoute anyUser><Channels /></ProtectedRoute>} />
 
           <Route path="/messages" element={<ProtectedRoute anyUser><Messages /></ProtectedRoute>} />
           {/* 데스크톱 알림 클릭 → 해당 쪽지가 바로 열리도록 (목록만 뜨면 어느 게 새 건지 못 찾는다) */}

@@ -18,13 +18,17 @@ import Typography from '@mui/material/Typography'
 import SearchIcon from '@mui/icons-material/Search'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
 import { POST_KIND, isRequest } from '@shared/lib/workRequests'
 
 const PAGES = [
-  { id: 'page:/', label: '홈', hint: '요청·안내·호출·일정', to: '/', emoji: '🏠' },
+  { id: 'page:/', label: '홈', hint: '채널 목록', to: '/', emoji: '🏠' },
+  { id: 'page:/activity', label: '내 활동', hint: '안 한 일', to: '/activity', emoji: '✅' },
+  { id: 'page:/calendar', label: '학사일정', hint: '다가오는 일정', to: '/calendar', emoji: '🗓' },
   { id: 'page:/requests', label: '요청 현황', hint: '내가 보낸 안내·요청의 진행', to: '/requests', emoji: '📋' },
-  { id: 'page:/requests/new', label: '글 쓰기', hint: '안내 또는 요청 만들기', to: '/requests/new', emoji: '✏️' },
+  // 글쓰기는 이제 채널 안에서 하는 일이라 채널 맥락이 없는 여기서는 기본 채널(전체
+  // 공지)로 보낸다(PLAN_composer.md).
+  { id: 'page:/channels/new', label: '글 쓰기', hint: '안내 또는 요청 만들기', to: `/channels/${ALL_STAFF_CHANNEL_ID}/new`, emoji: '✏️' },
   { id: 'page:/messages', label: '쪽지', hint: '받은 쪽지·보낸 쪽지', to: '/messages', emoji: '✉️' },
   { id: 'page:/members', label: '구성원', hint: '조직도·연락', to: '/members', emoji: '👥' },
 ]

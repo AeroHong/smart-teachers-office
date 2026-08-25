@@ -30,7 +30,7 @@ import SchoolIcon from '@mui/icons-material/School'
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccountOutlined'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
 import { canManageChannel } from '@shared/lib/channels'
 import { completionStats, dueState, isRequest, sortByUrgency } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
@@ -123,9 +123,12 @@ export default function RequestList() {
 
   const sidebar = (
     <>
+      {/* 이 화면엔 채널 맥락이 없다(여러 채널의 글을 모아 보는 자리라서). 글쓰기는
+          이제 채널 안에서 하는 일이라(PLAN_composer.md), 채널을 먼저 골라야 하는
+          '＋'를 여기 다시 두는 대신 기본 채널(전체 공지)로 보낸다. */}
       <Button
         fullWidth size="small" variant="contained" startIcon={<AddIcon />}
-        onClick={() => navigate('/requests/new')}
+        onClick={() => navigate(`/channels/${ALL_STAFF_CHANNEL_ID}/new`)}
         sx={{ mb: 1 }}
       >
         글 쓰기

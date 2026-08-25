@@ -31,7 +31,7 @@ import EditIcon from '@mui/icons-material/EditOutlined'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
 import {
   POST_KIND, completionStats, dueState, isDoneBy, isRequest, isTargetOf, pendingMembers,
@@ -138,7 +138,7 @@ export default function PostDetail({ requestId, onDeleted }) {
             <Button
               size="small" startIcon={<EditIcon sx={{ fontSize: 17 }} />}
               disabled={busy}
-              onClick={() => navigate(`/requests/${requestId}/edit`)}
+              onClick={() => navigate(`/channels/${request.channelId || ALL_STAFF_CHANNEL_ID}/${requestId}/edit`)}
             >
               수정
             </Button>

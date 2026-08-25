@@ -29,6 +29,7 @@ import Tabs from '@mui/material/Tabs'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
+import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/EditOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import LockIcon from '@mui/icons-material/LockOutlined'
@@ -54,6 +55,7 @@ import ChannelSidebar from '../components/ChannelSidebar'
 import Directory from '../components/Directory'
 import DmDialog from '../components/DmDialog'
 import ShareCanvasDialog from '../components/ShareCanvasDialog'
+import PostComposer from '../components/PostComposer'
 import PostDetail from '../components/PostDetail'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
@@ -77,6 +79,10 @@ export default function Channels() {
   // 화면이라 페이지를 따로 만들지 않고 오른쪽 칸만 갈아 끼운다 — 페이지를 나누면 새 채널·
   // 새 대화 대화상자와 그 상태를 두 벌 들고 있어야 한다.
   const directory = pathname === '/channels/directory'
+  // 글쓰기·고치기도 채널과 같은 사이드바 위에서 자리만 바꿔 그린다(PLAN_composer.md §2) —
+  // 채널이 사라지지 않아야 쓰는 동안에도 옆 탭에 오간 말이 그대로 보인다.
+  const composingNew = pathname === `/channels/${channelId}/new`
+  const editingPostId = pathname.endsWith('/edit') ? requestId : null
   const { user, userName, schoolId, isAdmin } = useAuth()
   const toast = useToast()
   const { channels, archivedChannels, leftChannels, dms, loading } = useChannels()
@@ -130,10 +136,11 @@ export default function Channels() {
    * 그리고 마지막 보관 글을 다시 꺼내서 '보관된 글' 탭 자체가 사라졌을 때다.
    */
   const tabValue = useMemo(() => {
+    if (composingNew) return 'new'
     if (requestId) return canvas.tabs.some(p => p.id === requestId) ? requestId : false
     if (sideView === 'archive') return canvas.archived.length > 0 ? 'archive' : 'messages'
     return 'messages'
-  }, [requestId, sideView, canvas])
+  }, [composingNew, requestId, sideView, canvas])
 
   const dm = isDm(active)
   // 전교직원 채널은 학교 공지가 도착하는 유일한 자리라 나가기·보관을 막는다. 한 번 끊으면
@@ -409,16 +416,6 @@ export default function Channels() {
                 </IconButton>
               </Tooltip>
             )}
-            {/* 공지 전용 채널에서 참여자는 글을 못 쓴다. 눌린 뒤 규칙에 막혀 튕기면
-                사용자는 기능이 고장 난 것으로 읽으므로 버튼 자체를 감춘다. */}
-            {!dm && canPostTo(active, user?.uid, isAdmin) && (
-              <Button
-                size="small" variant="contained"
-                onClick={() => navigate(`/requests/new?channel=${active.id}`)}
-              >
-                글 쓰기
-              </Button>
-            )}
           </Box>
 
           {active.description && (
@@ -490,12 +487,31 @@ export default function Channels() {
                   {canvas.tabs.map(p => (
                     <Tab key={p.id} value={p.id} label={p.title} />
                   ))}
+                  {/* 새 글을 쓰는 동안만 뜨는 임시 탭. 저장하면 진짜 캔버스 탭이 그 자리를
+                      대신하고, 취소하거나 다른 탭으로 옮기면 그냥 사라진다 — 초안을 남기지
+                      않기로 했다(PLAN_composer.md §8). */}
+                  {composingNew && <Tab value="new" label="새 글" />}
                   {/* 보관된 글이 하나도 없으면 탭을 만들지 않는다. 대부분의 채널에서 한동안
                       빈 칸일 텐데, 늘 자리를 차지하면 정작 살아 있는 캔버스가 먼저 접힌다. */}
                   {canvas.archived.length > 0 && sideView === 'archive' && !requestId && (
                     <Tab value="archive" label={`보관된 글 ${canvas.archived.length}`} />
                   )}
                 </Tabs>
+
+                {/* 새 캔버스 만들기 — Slack의 탭 줄 '＋'와 같은 자리(PLAN_composer.md §2).
+                    공지 전용 채널의 참여자에게는 애초에 안 보인다 — 눌러도 규칙에 막혀
+                    튕기면 기능이 고장 난 것으로 읽는다. */}
+                {canPost && !composingNew && (
+                  <Tooltip title="새 글">
+                    <IconButton
+                      size="small"
+                      onClick={() => navigate(`/channels/${active.id}/new`)}
+                      sx={{ flexShrink: 0 }}
+                    >
+                      <AddIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
 
                 {(canvas.folded.length > 0 || canvas.archived.length > 0) && (
                   <Button
@@ -511,7 +527,19 @@ export default function Channels() {
           </Box>
 
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-            {requestId ? (
+            {composingNew || editingPostId ? (
+              // PostComposer가 height:100% 세로 flex를 스스로 관리한다(제목·설정은
+              // 고정, 본문만 스크롤, 저장 버튼은 아래 고정) — PostDetail처럼 바깥에서
+              // overflowY:auto로 한 번 더 감싸면 저장 버튼까지 함께 스크롤돼 버린다.
+              <PostComposer
+                channel={active}
+                editingId={editingPostId}
+                members={members}
+                membersLoading={membersLoading}
+                onSaved={id => navigate(`/channels/${active.id}/${id}`)}
+                onCancel={() => navigate(editingPostId ? `/channels/${active.id}/${editingPostId}` : `/channels/${active.id}`)}
+              />
+            ) : requestId ? (
               // 캔버스 하나. 탭 바는 위에 그대로 남는다 — 글을 열 때마다 채널 머리가
               // 통째로 사라지면, 돌아오려고 뒤로 가기를 눌러야 하고 옆 캔버스로 바로
               // 건너뛸 수도 없다.
@@ -563,7 +591,7 @@ export default function Channels() {
                     channel={active}
                     canPost={canPost}
                     canManage={canManage}
-                    onNewPost={() => navigate(`/requests/new?channel=${active.id}`)}
+                    onNewPost={() => navigate(`/channels/${active.id}/new`)}
                     onEditChannel={() => setEditing(active)}
                   />
                 )}
