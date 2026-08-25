@@ -484,7 +484,9 @@ export default function Channels() {
                     '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700, maxWidth: 180 },
                   }}
                 >
-                  <Tab value="messages" label="대화" />
+                  {/* '대화'가 아니라 '메시지' — 쿨메신저를 쓰던 사람에게 '대화'는 1:1 창을
+                      가리키는 말이라 DM과 뜻이 겹친다(PLAN_composer.md §3 용어 정리) */}
+                  <Tab value="messages" label="메시지" />
                   {canvas.tabs.map(p => (
                     <Tab key={p.id} value={p.id} label={p.title} />
                   ))}

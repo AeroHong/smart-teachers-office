@@ -37,7 +37,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { isRequest, newRequestPayload } from '@shared/lib/workRequests'
 import { postVisibilityFor } from '@shared/lib/channels'
@@ -115,7 +115,10 @@ export default function PostNew() {
   const [pinned, setPinned] = useState(false)
   const [dueDate, setDueDate] = useState('')
   const [rule, setRule] = useState(EMPTY_RULE)
-  const [channelId, setChannelId] = useState(searchParams.get('channel') || '')
+  // "모든 글이 채널을 갖는다"(P3-A)가 규칙이 된 뒤로 '채널 없음'은 선택지가 아니다.
+  // 채널을 지정 안 하고 들어오면 전체 공지 채널을 기본으로 둔다 — 그 채널의 memberRule이
+  // 빈 조건(전체 교직원)이라 예전에 '채널 없음'이던 글과 대상 결과가 똑같다.
+  const [channelId, setChannelId] = useState(searchParams.get('channel') || ALL_STAFF_CHANNEL_ID)
   const [attachments, setAttachments] = useState([])
   const [bodyImages, setBodyImages] = useState([])   // 본문에 넣은 이미지 (버릴 때 정리용)
   const [links, setLinks] = useState([])
@@ -152,7 +155,9 @@ export default function PostNew() {
         setPinned(!!post.pinned)
         setDueDate(post.dueDate?.toDate ? ymd(post.dueDate.toDate()) : '')
         setRule(post.targetRule || EMPTY_RULE)
-        setChannelId(post.channelId || '')
+        // 마이그레이션(moveOrphanPostsToAllStaff)으로 실제 데이터엔 이제 없어야 하는
+        // 경우지만, 방어적으로 옛 글도 같은 기본값을 쓴다.
+        setChannelId(post.channelId || ALL_STAFF_CHANNEL_ID)
         setAttachments(post.attachments || [])
         setLinks(post.links || [])
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
@@ -355,20 +360,21 @@ export default function PostNew() {
           <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', p: 1.5 }}>
             <PanelLabel>채널</PanelLabel>
             <Select
-              size="small" fullWidth displayEmpty
+              size="small" fullWidth
+              // 채널 목록이 아직 안 왔을 때(로딩 중)만 빈 값을 보인다 — 채널이 오면
+              // channelId(기본값 전체 공지)가 항상 목록 안에 있으므로 빈 값으로 안 떨어진다.
               value={channels.some(c => c.id === channelId) ? channelId : ''}
+              displayEmpty
               onChange={e => pickChannel(e.target.value)}
               sx={{ fontSize: '0.83rem', mb: 0.6 }}
             >
-              <MenuItem value="" sx={{ fontSize: '0.85rem' }}>채널 없음</MenuItem>
               {channels.map(c => (
                 <MenuItem key={c.id} value={c.id} sx={{ fontSize: '0.85rem' }}>{c.name}</MenuItem>
               ))}
             </Select>
             <Typography fontSize="0.76rem" color="text.secondary">
-              {channelId
-                ? '채널에 쌓여 이어지는 업무로 볼 수 있습니다.'
-                : '채널을 고르면 그 채널 참여자가 대상으로 채워집니다.'}
+              채널에 쌓여 이어지는 업무로 볼 수 있습니다. 채널을 바꾸면 그 채널 참여자가
+              대상으로 다시 채워집니다.
             </Typography>
 
             <Divider sx={{ my: 1.5 }} />
