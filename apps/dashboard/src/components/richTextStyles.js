@@ -34,4 +34,24 @@ export const RICH_TEXT_SX = {
   // 넣으면 제목의 위 여백 때문에 상자가 위아래로 벌어져 보이기 때문이다.
   '& aside > *': { marginTop: 0, marginBottom: 0 },
   '& aside > * + *': { marginTop: '0.45em' },
+  // 표 — sanitizeHtml이 style 중 color만 남기므로(richText.js) 테두리·간격은 여기서
+  // 태그 선택자로 준다. inline style로 넣으면 저장하는 순간 지워진다.
+  '& table': { borderCollapse: 'collapse', my: 0.8, width: '100%' },
+  '& td, & th': { border: '1px solid', borderColor: 'divider', px: 1, py: 0.5, fontSize: '0.88rem', minWidth: 60 },
+  // 날짜 칩 — 삽입 직후엔 글자만 있고, hydrateDateChips가 라벨과 색(style="color:…")을
+  // 매번 다시 계산해 채운다(dateChips.js). 여기서는 알약 모양만 담당한다.
+  '& [data-date]': {
+    display: 'inline-flex', alignItems: 'center', gap: '0.25em',
+    px: 0.7, py: 0.1, borderRadius: 5, bgcolor: 'action.hover',
+    fontSize: '0.85em', fontWeight: 600, cursor: 'default',
+  },
+  // 캔버스 삽입 카드 — ChannelMessages.jsx의 CanvasCard와 같은 인상을 주도록 테두리 있는
+  // 카드꼴로 맞춘다(canvasRefCard.js가 마크업을 만든다).
+  '& [data-canvas-ref]': {
+    display: 'flex', alignItems: 'center', gap: '0.6em',
+    my: 0.6, p: 1, maxWidth: 420, cursor: 'pointer',
+    border: '1px solid', borderColor: 'divider', borderRadius: 1,
+    bgcolor: 'action.hover',
+    '&:hover': { borderColor: 'primary.light' },
+  },
 }

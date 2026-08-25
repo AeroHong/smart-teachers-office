@@ -47,16 +47,22 @@ export const SLASH_ITEMS = [
   { id: 'image', label: '이미지', hint: '파일에서 고르기', keywords: 'ㅇㅁㅈ 이미지 사진 그림 image photo', Icon: ImageIcon, action: 'image' },
 ]
 
-export default function SlashMenu({ open, anchorRect, query, onSelect, onClose }) {
+/**
+ * @param {object[]} [extraItems] 이 화면에서만 더하는 항목(캔버스 전용: 표·날짜·캔버스삽입·
+ *   파일 등). "+"버튼과 "/"가 같은 메뉴를 열게 하려고 목록에만 얹는다 — 위치 계산·키보드
+ *   탐색은 그대로 재사용한다. 안 넘기면(쪽지 쪽 RichTextEditor) 지금 메뉴 그대로다.
+ */
+export default function SlashMenu({ open, anchorRect, query, onSelect, onClose, extraItems = [] }) {
   const [cursor, setCursor] = useState(0)
   const listRef = useRef(null)
 
   const items = useMemo(() => {
+    const all = extraItems.length ? [...SLASH_ITEMS, ...extraItems] : SLASH_ITEMS
     const q = (query || '').trim().toLowerCase()
-    if (!q) return SLASH_ITEMS
-    return SLASH_ITEMS.filter(i =>
+    if (!q) return all
+    return all.filter(i =>
       i.label.toLowerCase().includes(q) || i.keywords.toLowerCase().includes(q))
-  }, [query])
+  }, [query, extraItems])
 
   useEffect(() => { setCursor(0) }, [query])
 

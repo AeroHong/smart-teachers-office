@@ -1,6 +1,6 @@
 # 글쓰기 캔버스 — Notion/Slack 캔버스 스타일 재설계
 
-> 상태: **1~2단계 완료(2026-08-26).** 3~5단계 진행 예정.
+> 상태: **1~3단계 완료(2026-08-26).** 4~5단계 진행 예정.
 > 관련: [PLAN_composer.md](./PLAN_composer.md) · [PLAN_blockEditor.md](./PLAN_blockEditor.md)
 
 ## Context
@@ -72,38 +72,48 @@
 - 제목이 하나도 없으면 목차 칼럼 자체를 안 그린다(빈 자리 낭비 방지 — 이 코드베이스
   전반의 관례). 칼럼은 `position: sticky`라 긴 글을 스크롤해도 계속 보인다.
 
-### 3단계 — "+" 삽입 통합 + 표 · 날짜 칩 · 캔버스 삽입 · 파일
+### 3단계 — "+" 삽입 통합 + 표 · 날짜 칩 · 캔버스 삽입 · 파일 ✅ 완료(2026-08-26)
 
-- **"+" 버튼과 "/" 를 같은 메뉴로 합친다.** `SlashMenu`에 `extraItems` prop을 추가하고,
-  `CanvasEditor`가 아래 신규 항목을 얹어 넘긴다. 하단 플로팅 "+" 아이콘 버튼(캔버스
-  스크롤 영역 안에 `position: sticky; bottom`)을 누르면 커서 위치에 같은 메뉴가 뜬다.
-- **표**: 새 SLASH_ITEMS 항목("표", 3×3 기본) — `applyHtml`과 같은 방식으로 `<table>`을
-  직접 만들어 끼운다. 최소 기능만: 셀 안 텍스트 편집, 표를 클릭하면(기존 이미지
-  손잡이와 같은 오버레이 패턴 재사용) 표 바깥에 "행 추가"/"열 추가" 버튼이 뜬다.
-  행·열 삭제·셀 병합은 이번 범위 밖.
-  → `apps/shared/lib/richText.js`의 `ALLOWED_TAGS`에 `table,thead,tbody,tr,td,th` 추가,
-  `htmlToText`에 표 셀 텍스트 추출 한 줄 추가.
-- **날짜 칩(리마인더)**: 작은 날짜 선택 팝오버 → `<span data-date="YYYY-MM-DD">📅 8/28(금)
-  · D-2</span>` 형태로 커서 위치에 삽입. D-day 표시·색은 기존 `workRequests.js`의
-  `dueState`/`DUE_TONE` 패턴을 재사용해 매 렌더마다 다시 계산한다(저장은 날짜 문자열만,
-  "D-2" 문구는 항상 그때그때 계산 — 다음날 다시 열어도 틀어지지 않는다). 클릭하면 팝오버로
-  날짜 수정·삭제.
-  **범위 명시**: 이번 단계는 시각적 칩까지다. 정해진 날짜가 되면 실제로 알림을 쏘는
-  것(푸시·데스크톱 알림 연동)은 새 백엔드(예약 실행) 인프라가 필요한 별도 작업이라
-  포함하지 않는다. → `richText.js` sanitize 설정에 `ALLOWED_ATTR`로 `data-date` 추가.
-- **캔버스 삽입**: 이 채널(또는 다른 채널)의 기존 업무 글을 골라 카드로 심는다. 채널
-  메시지 탭의 `CanvasCard`(ChannelMessages.jsx)와 같은 생김새·같은 데이터
-  (`refRequestId`/`refTitle`/`refChannelId`)를 본문 안 커스텀 요소로 넣는다 — 저장은
-  `<div data-canvas-ref="{id}" data-canvas-title="…" data-canvas-channel="…">` 형태,
-  렌더는 CanvasCard와 동일 컴포넌트를 재사용(뷰 모드 PostDetail에서도 같은 카드가
-  보이도록 새 렌더 컴포넌트 하나만 공유). 고를 목록은 `useChannels()`가 이미 들고 있는
-  채널·글 데이터를 그대로 쓴다(추가 구독 없음).
-- **파일**: `+파일` → 기존 `uploadAttachment` 그대로 사용, 결과를 `attachments` 배열에
-  추가(질문 2 답변대로 데이터 모델은 안 바꾼다). `AttachmentPicker.jsx`의 폼형 UI(파일첨부
-  버튼 + 링크 붙여넣기 입력칸)는 `PostComposer.jsx`에서 뺀다 — 대신 제목 바로 아래에
-  얇은 칩 줄(아이콘+파일명+용량, ×로 제거)만 남긴다. "링크 붙여넣기" 입력칸은 삭제하고
-  대체하지 않는다(하이퍼링크는 1단계의 선택 서식 도구 '링크'로 충분 — 텍스트를 골라
-  주소를 문다).
+- **"+" 버튼과 "/" 를 같은 메뉴로 합쳤다.** `SlashMenu`에 `extraItems` prop을 추가했고
+  (기본값 빈 배열이라 쪽지 쪽 `RichTextEditor`는 그대로), `CanvasEditor`가
+  `CANVAS_EXTRA_ITEMS`(표·날짜·캔버스·파일·리스트)를 얹어 넘긴다. 캔버스 스크롤 영역
+  안에 `position: sticky; bottom`인 "+" 아이콘 버튼을 눌러도 같은 메뉴가 뜬다 — 버튼의
+  화면 위치를 `menuRect`로 넘기는 방식이라(우클릭 메뉴와 완전히 같은 경로), 위치 계산·
+  키보드 탐색을 다시 짤 필요가 없었다.
+- **표**: "표" 항목 → `applyHtml`로 3×3 `<table>`을 직접 만들어 끼운다(커서는 첫 셀로).
+  표 안을 클릭하면(이미지 손잡이와 같은 클릭-고르기 패턴) 표 바깥에 "행 추가"/"열 추가"
+  단추가 뜬다 — `pickedTable` 상태 + `measureTable()`이 이미지의 `picked`/`measure()`와
+  똑같은 구조다. 행·열 삭제·셀 병합은 계획대로 범위 밖.
+  → `richText.js`의 `ALLOWED_TAGS`에 표 태그, `htmlToText`에 `</tr>`→줄바꿈·
+  `</td>`·`</th>`→공백 처리 추가. `richTextStyles.js`에 표 테두리·간격(태그 선택자로 —
+  inline style은 sanitizeHtml이 color만 남기고 지운다).
+- **날짜 칩(리마인더)**: 새 `apps/shared/lib/dateChips.js` — `chipDateInfo(dateStr)`가
+  "D-2"/"오늘"/"3일 지남" 라벨과 색을 계산하고, `hydrateDateChips(root)`가 컨테이너 안의
+  `[data-date]` 칩을 전부 다시 그린다. **편집기(CanvasEditor의 `emit()`)와 읽기 화면
+  (PostDetail.jsx, `request.bodyHtml`이 바뀔 때) 양쪽에서 부른다** — 그래야 며칠 뒤에
+  다시 열어도 그날 기준으로 맞다. 저장하는 것은 `data-date="YYYY-MM-DD"`뿐, 문구는
+  절대 저장하지 않는다.
+  `<input type="date">`는 실제 포커스가 필요해 색 팔레트처럼 `onMouseDown` 방어로 선택을
+  지킬 수 없었다 — 열 때 `window.getSelection()`의 Range를 복제해 두고, 확정할 때
+  되살려 넣는 방식으로 풀었다(`savedRangeRef`).
+  **범위 명시대로 시각적 칩까지만** — 실제 알림 발송은 안 만들었다.
+- **캔버스 삽입**: React 컴포넌트를 그대로 재사용하지는 못했다 — `dangerouslySetInnerHTML`은
+  원시 HTML만 받아서, ChannelMessages.jsx의 `CanvasCard`를 직접 끼워 넣을 방법이 없었다.
+  대신 새 `apps/shared/lib/canvasRefCard.js`가 마크업 생성 함수(`canvasRefCardHtml`)와
+  클릭 대상 판정 함수(`canvasRefTarget`)를 내보내, 편집기·읽기 화면이 **같은 함수**로
+  같은 모양을 만들고 같은 방식으로 클릭을 처리한다 — "컴포넌트 하나 공유"의 취지는
+  살리되 저장 형식(HTML 문자열)에 맞게 방법을 바꿨다. 편집기 안에서는
+  `contenteditable="false"`라 통째로 한 덩어리로만 다뤄지고(클릭해도 이동 안 함),
+  PostDetail.jsx는 본문 컨테이너에 클릭 위임(`handleBodyClick`)을 달아 카드를 누르면
+  그 글로 이동한다. 후보 목록은 `channel.posts`(부모가 이미 `useChannels()`로 들고
+  있던 것)를 그대로 내려받는다 — 추가 구독 없음. **다른 채널까지는 이번엔 안 넣었다**
+  (이 채널 것만) — 여러 채널을 오가며 고르는 UI는 범위를 더 키워서, 필요해지면 따로 본다.
+- **파일**: `+파일` → 기존 `uploadAttachment` 그대로, 결과는 `attachments` 배열에 추가
+  (데이터 모델 그대로). `PostComposer.jsx`에서 `AttachmentPicker`를 뺐다 — 대신 제목·
+  대상 영역 바로 아래에 얇은 칩 줄(아이콘+파일명+용량, ×로 제거)만 남았다. "링크
+  붙여넣기" 입력칸은 대체 없이 없앴다(하이퍼링크는 선택 서식 도구 '링크'로 충분).
+  `AttachmentPicker.jsx` 파일 자체는 쪽지(`NoticeComposeModal.jsx`)가 여전히 써서
+  손대지 않았다.
 
 ### 4단계 — 표지(Cover)
 
@@ -145,15 +155,17 @@
 
 | 파일 | 변경 |
 |---|---|
-| `apps/dashboard/src/components/CanvasEditor.jsx` | **신설(1단계 완료)**. RichTextEditor.jsx 포팅 + 툴바 제거 + 선택 서식 도구. 2~3단계에서 목차·표·칩·삽입 추가 예정 |
+| `apps/dashboard/src/components/CanvasEditor.jsx` | **신설**. 1단계: 툴바 제거·선택 서식 도구. 2단계: 목차. 3단계: 표·날짜 칩·캔버스 삽입·파일·"+" 통합. 4~5단계에서 표지·자동저장 연동 예정 |
 | `apps/dashboard/src/components/RichTextEditor.jsx` | 변경 없음 (쪽지 전용으로 계속 씀) |
-| `apps/dashboard/src/components/SlashMenu.jsx` | 1단계: 제목 3단(h1/h2/h3 항목 라벨·매핑 조정). 3단계: `extraItems` prop 추가 예정 |
-| `apps/shared/lib/richText.js` | 1단계: `ALLOWED_TAGS`에 `h4`, `htmlToText` 정규식 확장. 3단계: 표 태그·`data-date` 추가 예정 |
-| `apps/dashboard/src/components/richTextStyles.js` | 1단계: `& h4` 스타일 추가 |
+| `apps/dashboard/src/components/SlashMenu.jsx` | 1단계: 제목 3단. 3단계: `extraItems` prop 추가(기본 빈 배열, 하위호환) |
+| `apps/shared/lib/richText.js` | 1단계: `h4` 허용. 3단계: 표 태그, `data-date` 등 `ALLOWED_ATTR`, `htmlToText` 표 처리 |
+| `apps/dashboard/src/components/richTextStyles.js` | 1단계: `& h4`. 3단계: 표·날짜 칩·캔버스 삽입 카드 스타일 |
+| `apps/shared/lib/dateChips.js` | **신설(3단계)**. 날짜 칩 라벨·색 계산 + DOM 재렌더 |
+| `apps/shared/lib/canvasRefCard.js` | **신설(3단계)**. 캔버스 삽입 카드 마크업 생성 + 클릭 대상 판정 |
 | `apps/shared/lib/workRequests.js` | 4단계: `newRequestPayload`에 `coverImageUrl`/`coverImagePath` 기본값 추가 예정 |
-| `apps/dashboard/src/components/PostComposer.jsx` | 1단계: `CanvasEditor`로 교체. 3~5단계: 첨부 칩 줄, 표지 UI, 자동저장 엔진, 알림 보내기 예정 |
-| `apps/dashboard/src/components/PostDetail.jsx` | 4단계: 표지 렌더 추가, (필요시) 캔버스삽입 카드 렌더 공유 예정 |
-| `apps/dashboard/src/components/AttachmentPicker.jsx` | 변경 없음(다른 곳에서 쓰는지 3단계에서 확인) |
+| `apps/dashboard/src/components/PostComposer.jsx` | 1단계: `CanvasEditor`로 교체. 3단계: `AttachmentPicker` 제거, 얇은 첨부 칩 줄, `canvasOptions`/`onFileUploaded` 연결. 4~5단계: 표지 UI, 자동저장 엔진, 알림 보내기 예정 |
+| `apps/dashboard/src/components/PostDetail.jsx` | 3단계: 날짜 칩 재계산(`hydrateDateChips`), 캔버스 삽입 카드 클릭 이동. 4단계: 표지 렌더 예정 |
+| `apps/dashboard/src/components/AttachmentPicker.jsx` | 변경 없음 — 쪽지(`NoticeComposeModal.jsx`)가 여전히 써서 그대로 둠 |
 
 ## 이번 범위가 아닌 것 (명시적으로 미룸)
 

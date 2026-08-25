@@ -23,11 +23,19 @@ const ALLOWED_TAGS = [
   // 콜아웃 — 꼭 봐야 할 한 문단. class는 걸러지므로 태그 자체가 서식 표시다
   // (richTextStyles.js가 aside를 꾸민다).
   'aside',
+  // 표 — 테두리·간격은 richTextStyles.js가 태그 선택자로 준다(style은 대부분 걸러짐).
+  'table', 'thead', 'tbody', 'tr', 'td', 'th',
 ]
 
 // style을 통째로 허용하지 않고 color만 남긴다. 배경·위치·크기를 자유롭게 두면 남의 글이
 // 화면을 덮거나 다른 요소를 가리게 만들 수 있다.
-const ALLOWED_ATTR = ['href', 'target', 'rel', 'src', 'alt', 'width', 'height', 'color', 'style']
+const ALLOWED_ATTR = [
+  'href', 'target', 'rel', 'src', 'alt', 'width', 'height', 'color', 'style',
+  // 날짜 칩(dateChips.js)·캔버스 삽입 카드(canvasRefCard.js)가 쓰는 표시용 데이터.
+  // contenteditable="false"는 편집기 안에서 통째로 하나의 덩어리로 다루려는 것 —
+  // 안에 글자를 따로 못 치게 막아 실수로 카드 안 내용이 깨지지 않게 한다.
+  'data-date', 'data-canvas-ref', 'data-canvas-title', 'data-canvas-channel', 'contenteditable',
+]
 
 const STYLE_ATTR = /\sstyle="([^"]*)"/gi
 
@@ -55,8 +63,9 @@ export function htmlToText(html) {
   return html
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<hr\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h[1-4]|blockquote|summary|details)>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-4]|blockquote|summary|details|tr)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '· ')
+    .replace(/<\/(td|th)>/gi, ' ')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')

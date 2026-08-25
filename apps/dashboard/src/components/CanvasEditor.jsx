@@ -16,22 +16,44 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
+import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import AddIcon from '@mui/icons-material/Add'
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
+import EventIcon from '@mui/icons-material/Event'
 import FormatBoldIcon from '@mui/icons-material/FormatBold'
 import FormatItalicIcon from '@mui/icons-material/FormatItalic'
 import FormatUnderlinedIcon from '@mui/icons-material/FormatUnderlined'
 import StrikethroughSIcon from '@mui/icons-material/StrikethroughS'
 import LinkIcon from '@mui/icons-material/Link'
 import FormatColorTextIcon from '@mui/icons-material/FormatColorText'
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
+import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
 import Popover from '@mui/material/Popover'
 import SlashMenu from './SlashMenu'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { isImageFile, uploadAttachment } from '@shared/lib/requestAttachments'
+import { canvasRefCardHtml } from '@shared/lib/canvasRefCard'
+import { dateChipHtml, hydrateDateChips } from '@shared/lib/dateChips'
 import { useToast } from './ToastProvider'
 import { RICH_TEXT_SX } from './richTextStyles'
+
+/** '+'와 '/'가 함께 여는 메뉴에 얹는 캔버스 전용 항목. 표·목차 등 지금 뜻이 없는 것과
+ *  갈라, 쪽지 쪽 RichTextEditor·SlashMenu에는 안 넘긴다(SlashMenu.jsx extraItems). */
+const CANVAS_EXTRA_ITEMS = [
+  { id: 'table', label: '표', hint: '3×3 표 넣기', keywords: 'ㅍ 표 테이블 table', Icon: TableChartOutlinedIcon, action: 'table' },
+  { id: 'date', label: '날짜', hint: '리마인더 칩', keywords: 'ㄴㅉ 날짜 리마인더 date reminder', Icon: EventIcon, action: 'date' },
+  { id: 'canvasRef', label: '캔버스', hint: '다른 업무 글을 카드로', keywords: 'ㅋㅂㅅ 캔버스 업무글 링크 canvas', Icon: DescriptionOutlinedIcon, action: 'canvasRef' },
+  { id: 'file', label: '파일', hint: '한글·엑셀 등 첨부', keywords: 'ㅍㅇ 파일 첨부 file attach', Icon: AttachFileIcon, action: 'file' },
+  { id: 'list', label: '리스트', hint: '추후 업데이트 예정', keywords: 'ㄹㅅㅌ 리스트 체크리스트 list checklist', Icon: FormatListBulletedIcon, action: 'comingSoon' },
+]
 
 /** 글자색. 자유 선택기 대신 몇 가지만 둔다 — 종류가 많을수록 글이 알록달록해진다. */
 const TEXT_COLORS = [
@@ -54,23 +76,33 @@ const BUBBLE_TOOLS = [
 const BUBBLE_WIDTH = 232
 const BUBBLE_HEIGHT = 40
 
-export default function CanvasEditor({ docId, folder = 'requests', value, onChange, onImageUploaded, placeholder }) {
+export default function CanvasEditor({
+  docId, folder = 'requests', value, onChange, onImageUploaded, onFileUploaded, canvasOptions = [], placeholder,
+}) {
   const { schoolId } = useAuth()
   const toast = useToast()
   const editorRef = useRef(null)
-  const fileInputRef = useRef(null)
+  const fileInputRef = useRef(null)     // 이미지 전용(accept="image/*")
+  const docFileInputRef = useRef(null)  // "+파일" — 무슨 형식이든 받는다
   const [uploading, setUploading] = useState(0)
   const [colorAnchor, setColorAnchor] = useState(null)
   // 크기를 조절하려고 고른 이미지. 손잡이는 이 값이 있을 때만 그린다.
   const [picked, setPicked] = useState(null)   // { el, rect }
+  // 클릭해 고른 표. 바깥에 "행 추가"/"열 추가" 단추를 그릴 때만 쓴다.
+  const [pickedTable, setPickedTable] = useState(null)   // { el, rect }
   // '/'를 친 위치와 그 뒤에 이어 친 글자. 메뉴를 고르면 이 구간을 지우고 블록을 넣는다.
   const [slash, setSlash] = useState(null)
-  // 우클릭으로 연 서식 메뉴의 자리. 항목은 '/' 메뉴와 같고 여는 방법만 다르다.
+  // 우클릭 또는 하단 '+' 단추로 연 메뉴의 자리. 항목은 '/' 메뉴와 같고 여는 방법만 다르다.
   const [menuRect, setMenuRect] = useState(null)
   // 텍스트를 드래그로 고르면 그 위에 뜨는 작은 도구 — 문단·단어·글자 수정은 여기서 한다.
   const [bubble, setBubble] = useState(null)   // { rect }
   // 제목 기반 목차. { id, level, text }[] — id는 저장하지 않고 편집기 DOM에만 매길 때마다 다시 매긴다.
   const [headings, setHeadings] = useState([])
+  // 날짜 칩을 찍을 위치. 팝오버의 날짜 입력창은 실제 포커스가 필요해 커서가 편집기를
+  // 벗어나므로, 열 때 선택 구간을 미리 저장해 뒀다가 확정할 때 되살린다.
+  const [datePicker, setDatePicker] = useState(null)   // { rect, value }
+  const savedRangeRef = useRef(null)
+  const [canvasMenuAnchor, setCanvasMenuAnchor] = useState(null)   // { top, left } — 캔버스 삽입 고르기
 
   /**
    * 목차를 다시 읽는다. 저장된 값이 아니라 **지금 화면의 DOM**에서 뽑는다 — 목차는 편집
@@ -93,12 +125,16 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
     const el = editorRef.current
     if (el && value !== el.innerHTML) el.innerHTML = value || ''
     syncHeadings()
+    hydrateDateChips(el)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   const emit = useCallback(() => {
     onChange(editorRef.current?.innerHTML || '')
     syncHeadings()
+    // 날짜 칩의 "D-2" 문구는 저장하지 않고 매번 다시 계산한다(dateChips.js) — 오늘 기준으로
+    // 값이 안 틀어지려면 여기서 매 변경마다 다시 그려야 한다.
+    hydrateDateChips(editorRef.current)
   }, [onChange, syncHeadings])
 
   // 글을 고치면 이미지가 밀리므로 손잡이도 따라가야 한다 (measure가 위치를 다시 잰다).
@@ -119,12 +155,18 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
     setPicked({ el: img, rect: img.getBoundingClientRect(), clip: clipRect() })
   }
 
-  // 이미지를 누르면 고르고, 다른 곳을 누르면 푼다
+  // 이미지를 누르면 고르고, 표 안을 누르면 표를 고르고, 다른 곳을 누르면 다 푼다
   const handleEditorClick = (e) => {
+    const table = e.target.closest?.('table')
     if (e.target?.tagName === 'IMG') {
       pickImage(e.target)
+      setPickedTable(null)
+    } else if (table && editorRef.current?.contains(table)) {
+      setPickedTable({ el: table, rect: table.getBoundingClientRect() })
+      setPicked(null)
     } else {
       setPicked(null)
+      setPickedTable(null)
       syncSlash()
     }
   }
@@ -139,6 +181,52 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
       el?.removeEventListener('scroll', measure)
     }
   }, [picked, measure])
+
+  /** 고른 표의 화면 위치를 다시 잰다 — "행 추가"/"열 추가" 단추가 표를 따라가야 한다. */
+  const measureTable = useCallback(() => {
+    setPickedTable(prev => {
+      if (!prev?.el?.isConnected) return null
+      return { el: prev.el, rect: prev.el.getBoundingClientRect() }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!pickedTable) return
+    const el = editorRef.current
+    window.addEventListener('resize', measureTable)
+    el?.addEventListener('scroll', measureTable)
+    return () => {
+      window.removeEventListener('resize', measureTable)
+      el?.removeEventListener('scroll', measureTable)
+    }
+  }, [pickedTable, measureTable])
+
+  const addTableRow = () => {
+    const table = pickedTable?.el
+    if (!table) return
+    const cols = table.rows[0]?.cells.length || 1
+    const tr = document.createElement('tr')
+    for (let i = 0; i < cols; i++) {
+      const td = document.createElement('td')
+      td.appendChild(document.createElement('br'))
+      tr.appendChild(td)
+    }
+    table.appendChild(tr)
+    emit()
+    measureTable()
+  }
+
+  const addTableCol = () => {
+    const table = pickedTable?.el
+    if (!table) return
+    ;[...table.rows].forEach((row) => {
+      const td = document.createElement('td')
+      td.appendChild(document.createElement('br'))
+      row.appendChild(td)
+    })
+    emit()
+    measureTable()
+  }
 
   const startResize = (e) => {
     e.preventDefault()
@@ -293,6 +381,70 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
     if (target) putCaretIn(target, !!inner)
   }
 
+  /** 표 넣기 — 기본 3×3. 행·열을 늘리는 것만 지원한다(줄이기·셀 병합은 이번 범위 밖). */
+  const insertTable = () => {
+    const cell = () => '<td><br></td>'
+    const row = () => `<tr>${Array.from({ length: 3 }).map(cell).join('')}</tr>`
+    const html = `<table>${Array.from({ length: 3 }).map(row).join('')}</table><p><br></p>`
+    applyHtml(html, 'td')
+  }
+
+  /**
+   * 날짜 칩 팝오버를 연다.
+   *
+   * `<input type="date">`는 실제로 포커스를 받아야 값을 고를 수 있어, 색 팔레트처럼
+   * onMouseDown을 막아 선택을 지키는 방법을 못 쓴다. 대신 지금 커서 위치를 복제해
+   * 저장해 두고, 확정할 때 그 자리를 되살려 넣는다.
+   */
+  const openDatePicker = () => {
+    const sel = window.getSelection()
+    const range = sel?.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+    savedRangeRef.current = range
+    const rect = (range && range.getBoundingClientRect().width + range.getBoundingClientRect().height > 0)
+      ? range.getBoundingClientRect()
+      : editorRef.current?.getBoundingClientRect()
+    setDatePicker({ rect, value: '' })
+  }
+
+  const confirmDatePicker = () => {
+    const dateStr = datePicker?.value
+    if (!dateStr) return
+    editorRef.current?.focus()
+    const sel = window.getSelection()
+    if (savedRangeRef.current) {
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
+    document.execCommand('insertHTML', false, dateChipHtml(dateStr))
+    setDatePicker(null)
+    emit()
+  }
+
+  /** 캔버스 삽입 — 이 채널의 다른 업무 글을 카드로 심는다. 고르기는 메뉴, 삽입은 applyHtml. */
+  const pickCanvasRef = (post) => {
+    setCanvasMenuAnchor(null)
+    editorRef.current?.focus()
+    const sel = window.getSelection()
+    if (savedRangeRef.current) {
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
+    applyHtml(canvasRefCardHtml(post))
+    emit()
+  }
+
+  const insertFile = async (file) => {
+    setUploading(n => n + 1)
+    try {
+      const uploaded = await uploadAttachment({ schoolId, docId, folder, file })
+      onFileUploaded?.(uploaded)
+    } catch (e) {
+      toast.error(`파일을 올리지 못했습니다: ${e.message}`, e)
+    } finally {
+      setUploading(n => n - 1)
+    }
+  }
+
   const applyList = (cmd) => {
     const line = readLine()
     if (!line) return
@@ -378,6 +530,20 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
     setMenuRect(null)
 
     if (item.action === 'image') { fileInputRef.current?.click(); return }
+    if (item.action === 'file') { docFileInputRef.current?.click(); return }
+    if (item.action === 'table') { insertTable(); emit(); return }
+    if (item.action === 'date') { openDatePicker(); return }
+    if (item.action === 'canvasRef') {
+      // MUI Menu가 접근성 때문에 포커스를 자기 쪽으로 가져간다 — 고르는 순간 편집기 선택이
+      // 사라지므로, 날짜 팝오버와 같은 방식으로 지금 커서 위치를 저장해 뒀다가 되살린다.
+      const sel = window.getSelection()
+      const range = sel?.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+      savedRangeRef.current = range
+      const rect = range?.getBoundingClientRect() || el?.getBoundingClientRect()
+      setCanvasMenuAnchor(rect ? { top: rect.bottom, left: rect.left } : null)
+      return
+    }
+    if (item.action === 'comingSoon') { toast.success('리스트는 다음 업데이트에서 만나요.'); return }
     if (item.cmd) {
       if (LIST_TAGS[item.cmd]) applyList(item.cmd)
       else document.execCommand(item.cmd, false, null)
@@ -418,6 +584,10 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
 
   const handleFiles = (files) => {
     [...files].filter(isImageFile).forEach(insertImage)
+  }
+
+  const handleDocFiles = (files) => {
+    [...files].forEach(insertFile)
   }
 
   const handlePaste = (e) => {
@@ -535,12 +705,111 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
         hidden
         onChange={e => { handleFiles(e.target.files); e.target.value = '' }}
       />
+      <input
+        ref={docFileInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={e => { handleDocFiles(e.target.files); e.target.value = '' }}
+      />
 
       {uploading > 0 && (
         <Typography fontSize="0.75rem" color="text.secondary" sx={{ mt: 0.5 }}>
-          이미지 {uploading}개 올리는 중…
+          {uploading}개 올리는 중…
         </Typography>
       )}
+
+      {/* 하단에 떠 있는 '+' — Slack 캔버스와 같은 자리. '/'와 같은 메뉴를 연다
+          (SlashMenu.jsx extraItems) — 트리거만 다르고 결과는 같다. */}
+      <Box sx={{ position: 'sticky', bottom: 12, display: 'flex', mt: 1, zIndex: 5 }}>
+        <Tooltip title="삽입 (표·날짜·캔버스·파일…)">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              setSlash(null)
+              const r = e.currentTarget.getBoundingClientRect()
+              setMenuRect({ top: r.top, bottom: r.top, left: r.left, right: r.left, width: 0, height: 0 })
+            }}
+            sx={{
+              bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
+              boxShadow: 2, '&:hover': { bgcolor: 'action.hover' },
+            }}
+          >
+            <AddIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* 표를 고르면 바깥에 뜨는 행·열 추가 단추. 이미지 손잡이와 같은 자리 계산 방식이지만
+          표는 잘라 보여줄 이유가 없어(overflow 없음) 클립 상자 없이 바로 그린다. */}
+      {pickedTable && (
+        <>
+          <Box
+            onMouseDown={e => { e.preventDefault(); addTableRow() }}
+            sx={{
+              position: 'fixed', top: pickedTable.rect.bottom + 4, left: pickedTable.rect.left,
+              zIndex: 1300, px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
+              borderRadius: 0.75, cursor: 'pointer',
+              bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
+              '&:hover': { bgcolor: 'action.hover' },
+            }}
+          >
+            + 행 추가
+          </Box>
+          <Box
+            onMouseDown={e => { e.preventDefault(); addTableCol() }}
+            sx={{
+              position: 'fixed', top: pickedTable.rect.top, left: pickedTable.rect.right + 4,
+              zIndex: 1300, px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
+              borderRadius: 0.75, cursor: 'pointer',
+              bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
+              '&:hover': { bgcolor: 'action.hover' },
+            }}
+          >
+            + 열 추가
+          </Box>
+        </>
+      )}
+
+      {/* 날짜 칩 팝오버 — anchorPosition을 쓰는 이유는 버튼이 아니라 커서 위치를
+          기준으로 띄워야 해서다(누른 메뉴 항목은 이미 사라진 뒤라 anchorEl이 없다). */}
+      <Popover
+        open={!!datePicker}
+        anchorReference="anchorPosition"
+        anchorPosition={datePicker ? { top: datePicker.rect.bottom, left: datePicker.rect.left } : undefined}
+        onClose={() => setDatePicker(null)}
+      >
+        <Box sx={{ p: 1.2, display: 'flex', gap: 0.8, alignItems: 'center' }}>
+          <TextField
+            type="date" size="small" autoFocus
+            value={datePicker?.value || ''}
+            onChange={e => setDatePicker(d => ({ ...d, value: e.target.value }))}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmDatePicker() } }}
+          />
+          <Button size="small" variant="contained" disabled={!datePicker?.value} onClick={confirmDatePicker}>
+            삽입
+          </Button>
+        </Box>
+      </Popover>
+
+      {/* 캔버스 삽입 고르기 — 이 채널의 업무 글만 보여준다(부모가 canvasOptions로 넘김,
+          지금 편집 중인 글 자신은 이미 빼서 넘어온다). */}
+      <Menu
+        open={!!canvasMenuAnchor}
+        anchorReference="anchorPosition"
+        anchorPosition={canvasMenuAnchor || undefined}
+        onClose={() => setCanvasMenuAnchor(null)}
+      >
+        {canvasOptions.length === 0 ? (
+          <MenuItem disabled sx={{ fontSize: '0.82rem', whiteSpace: 'normal', maxWidth: 260 }}>
+            이 채널에 아직 다른 업무 글이 없습니다.
+          </MenuItem>
+        ) : canvasOptions.map(p => (
+          <MenuItem key={p.id} sx={{ fontSize: '0.85rem', maxWidth: 320 }} onClick={() => pickCanvasRef(p)}>
+            <Typography fontSize="0.85rem" noWrap>{p.title}</Typography>
+          </MenuItem>
+        ))}
+      </Menu>
 
       {/* 드래그로 고른 글 위에 뜨는 서식 도구. 마우스가 선택을 놓지 않도록 mousedown에서
           기본 동작을 막는다 — 안 막으면 버튼을 누르는 순간 선택이 풀려 아무 글자에도
@@ -657,6 +926,7 @@ export default function CanvasEditor({ docId, folder = 'requests', value, onChan
         query={slash?.query}
         onSelect={applySlash}
         onClose={() => { setSlash(null); setMenuRect(null) }}
+        extraItems={CANVAS_EXTRA_ITEMS}
       />
       </Box>
     </Box>

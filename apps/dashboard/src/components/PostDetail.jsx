@@ -9,7 +9,7 @@
  *
  * 셸(레일·사이드바)은 바깥이 담당하므로 여기서는 내용만 그린다.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import Box from '@mui/material/Box'
@@ -37,6 +37,8 @@ import {
   POST_KIND, completionStats, dueState, isDoneBy, isRequest, isTargetOf, pendingMembers,
 } from '@shared/lib/workRequests'
 import { sanitizeHtml } from '@shared/lib/richText'
+import { canvasRefTarget } from '@shared/lib/canvasRefCard'
+import { hydrateDateChips } from '@shared/lib/dateChips'
 import PostComments from './PostComments'
 import RequestMaterials from './RequestMaterials'
 import { ListSkeleton, ToneChip } from './widgetUi'
@@ -61,6 +63,7 @@ export default function PostDetail({ requestId, onDeleted }) {
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const bodyRef = useRef(null)
 
   useEffect(() => {
     if (!schoolId || !requestId) return
@@ -70,6 +73,18 @@ export default function PostDetail({ requestId, onDeleted }) {
       e => { toast.error('요청을 불러오지 못했습니다.', e); setLoaded(true) },
     )
   }, [schoolId, requestId, toast])
+
+  // 캔버스 편집기가 저장한 날짜 칩은 "D-2" 문구를 저장하지 않고 매번 다시 계산한다
+  // (dateChips.js) — 편집기 밖(읽기 화면)에서도 오늘 기준으로 다시 그려야 한다.
+  useEffect(() => {
+    hydrateDateChips(bodyRef.current)
+  }, [request?.bodyHtml])
+
+  /** 본문 안 캔버스 삽입 카드를 누르면 그 글을 연다(canvasRefCard.js). */
+  const handleBodyClick = (e) => {
+    const target = canvasRefTarget(e.target)
+    if (target) navigate(target)
+  }
 
   useEffect(() => {
     if (!schoolId || !requestId) return
@@ -161,6 +176,8 @@ export default function PostDetail({ requestId, onDeleted }) {
           {/* 서식 있는 본문은 항상 걸러서 그린다. 옛 글은 bodyHtml이 없어 평문으로 남는다. */}
           {request.bodyHtml ? (
             <Box
+              ref={bodyRef}
+              onClick={handleBodyClick}
               sx={{
                 mb: 2, fontSize: '0.95rem', lineHeight: 1.75,
                 ...RICH_TEXT_SX,

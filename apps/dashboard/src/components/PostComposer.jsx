@@ -27,20 +27,21 @@ import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import Collapse from '@mui/material/Collapse'
 import FormControlLabel from '@mui/material/FormControlLabel'
+import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
+import CloseIcon from '@mui/icons-material/Close'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { isRequest, newRequestPayload } from '@shared/lib/workRequests'
 import { postVisibilityFor } from '@shared/lib/channels'
-import { deleteAttachment } from '@shared/lib/requestAttachments'
+import { deleteAttachment, fileKind, formatBytes } from '@shared/lib/requestAttachments'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
 import TargetPicker from './TargetPicker'
-import AttachmentPicker from './AttachmentPicker'
 import CanvasEditor from './CanvasEditor'
 import { useToast } from './ToastProvider'
 import { updatePostContent } from '../lib/requestActions'
@@ -161,6 +162,28 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
   const canSave = title.trim() && targets.length > 0 && !saving && !loadingPost
+
+  // '+캔버스'로 심을 수 있는 후보 — 이 채널의 다른 업무 글만 준다(지금 쓰는 글 자신은 뺀다).
+  const canvasOptions = useMemo(
+    () => (channel?.posts || [])
+      .filter(p => p.id !== requestId)
+      .map(p => ({ id: p.id, title: p.title, channelId: p.channelId || channel.id })),
+    [channel, requestId],
+  )
+
+  /**
+   * '+파일'로 올린 파일. AttachmentPicker.jsx가 하던 일을 그대로 한다 — 고치는 중이면
+   * (deferRemove와 같은 이유로) 실제 삭제는 저장 시점까지 미룬다.
+   */
+  const removeAttachment = async (a) => {
+    setAttachments(prev => prev.filter(x => x.path !== a.path))
+    if (editingId) return
+    try {
+      await deleteAttachment(a)
+    } catch (e) {
+      toast.error('파일을 지우지 못했습니다. 목록에서는 제거됐습니다.', e)
+    }
+  }
 
   const blockReason = !title.trim() ? '제목을 입력해 주세요'
     : targets.length === 0 ? '조건에 맞는 대상이 없습니다'
@@ -316,6 +339,37 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
             </Box>
           </Collapse>
         </Box>
+
+        {/* '+파일'로 올린 것들 — 예전 AttachmentPicker의 폼(파일첨부 버튼 + 링크 붙여넣기
+            입력칸)을 없애고 얇은 줄만 남겼다(PLAN_canvasEditor.md 3단계). 하이퍼링크는
+            본문에서 글을 골라 링크를 무는 것으로 충분하다고 보고 별도 '링크 첨부'는
+            안 만들었다. */}
+        {attachments.length > 0 && (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mb: 1 }}>
+            {attachments.map(a => {
+              const kind = fileKind(a.name)
+              return (
+                <Box
+                  key={a.path}
+                  sx={{
+                    display: 'flex', alignItems: 'center', gap: 0.5,
+                    border: '1px solid', borderColor: 'divider', borderRadius: 5,
+                    pl: 1, pr: 0.3, py: 0.2,
+                  }}
+                >
+                  <Typography fontSize="0.8rem">{kind.emoji}</Typography>
+                  <Typography fontSize="0.78rem" fontWeight={600} noWrap sx={{ maxWidth: 160 }}>
+                    {a.name}
+                  </Typography>
+                  <Typography fontSize="0.7rem" color="text.secondary">{formatBytes(a.size)}</Typography>
+                  <IconButton size="small" onClick={() => removeAttachment(a)} aria-label="파일 제거" sx={{ p: 0.2 }}>
+                    <CloseIcon sx={{ fontSize: 13 }} />
+                  </IconButton>
+                </Box>
+              )
+            })}
+          </Box>
+        )}
       </Box>
 
       <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2 }}>
@@ -324,17 +378,10 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
           value={bodyHtml}
           onChange={setBodyHtml}
           onImageUploaded={img => setBodyImages(prev => [...prev, img])}
-          placeholder="무엇을 어떻게 하면 되는지 적어주세요. 이미지는 붙여넣거나 끌어다 놓으면 됩니다."
+          onFileUploaded={file => setAttachments(prev => [...prev, file])}
+          canvasOptions={canvasOptions}
+          placeholder="무엇을 어떻게 하면 되는지 적어주세요. '+'로 이미지·표·날짜·다른 업무 글도 넣을 수 있습니다."
         />
-        <Box sx={{ my: 1.5 }}>
-          <AttachmentPicker
-            requestId={requestId}
-            deferRemove={!!editingId}
-            attachments={attachments}
-            links={links}
-            onChange={({ attachments: a, links: l }) => { setAttachments(a); setLinks(l) }}
-          />
-        </Box>
       </Box>
 
       <Box sx={{
