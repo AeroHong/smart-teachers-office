@@ -206,10 +206,36 @@ export function asaCutoffId(year, semester, grade, subjectName) {
 // ── 학년도 · 학기 계산 ────────────────────────────────────────
 
 /**
- * 오늘 기준 학년도와 학기.
+ * 임의의 시각이 속하는 학년도.
  *
- * 학년도는 3월에 시작하므로 1~2월은 아직 전년도 학년도다.
- * 학기는 3~8월이 1학기, 9~2월이 2학기.
+ * 학년도는 3월에 시작하므로 1~2월은 아직 전년도 학년도다. `currentYearSemester()`가 "지금"
+ * 기준으로만 쓸 수 있던 것을, 업무 글에 `year`를 백필할 때는 그 글이 **쓰인 시점**
+ * (`createdAt`) 기준으로 물어야 해서 날짜를 받는 형태로 뺐다.
+ *
+ * @param {Date|import('firebase/firestore').Timestamp|number} date
+ * @returns {number}
+ */
+export function schoolYearFor(date) {
+  const d = typeof date?.toDate === 'function' ? date.toDate() : new Date(date)
+  const month = d.getMonth() + 1
+  return month <= 2 ? d.getFullYear() - 1 : d.getFullYear()
+}
+
+/**
+ * 임의의 시각이 속하는 학기. 3~8월이 1학기, 9~2월이 2학기.
+ * `schoolYearFor`와 짝이다 — 둘 다 순수 함수로 빼둬야 "오늘"에 기대지 않고 테스트할 수 있다.
+ *
+ * @param {Date|import('firebase/firestore').Timestamp|number} date
+ * @returns {1|2}
+ */
+export function semesterFor(date) {
+  const d = typeof date?.toDate === 'function' ? date.toDate() : new Date(date)
+  const month = d.getMonth() + 1
+  return (month >= 3 && month <= 8) ? 1 : 2
+}
+
+/**
+ * 오늘 기준 학년도와 학기.
  * 예) 2027-01-15 → { year: 2026, semester: 2 }
  *
  * asaCutoffs처럼 학년도·학기로 스코프되는 데이터를 조회할 때 기본값으로 쓴다.
@@ -218,12 +244,7 @@ export function asaCutoffId(year, semester, grade, subjectName) {
  */
 export function currentYearSemester() {
   const now = new Date()
-  const month = now.getMonth() + 1
-  const calYear = now.getFullYear()
-  return {
-    year: month <= 2 ? calYear - 1 : calYear,
-    semester: (month >= 3 && month <= 8) ? 1 : 2,
-  }
+  return { year: schoolYearFor(now), semester: semesterFor(now) }
 }
 
 /**

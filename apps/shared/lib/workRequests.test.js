@@ -7,7 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  completionStats, dueState, isDoneBy, isRequest, newRequestPayload,
+  completionStats, dueState, isDoneBy, isOwner, isRequest, newRequestPayload, ownerOf,
   pendingMembers, sortByUrgency,
 } from './workRequests.js'
 
@@ -132,6 +132,40 @@ test('요청에는 고정(pinned) 개념이 없다', () => {
 
 test('알 수 없는 종류는 요청으로 떨어진다', () => {
   assert.equal(newRequestPayload({ kind: '이상한값', title: 'x', targets: [] }).kind, 'request')
+})
+
+test('학년도를 안 넘기면 지금 학년도를 채운다', async () => {
+  const { year } = (await import('./schema.js')).currentYearSemester()
+  const payload = newRequestPayload({ title: 'x', targets: [] })
+  assert.equal(payload.year, year)
+})
+
+test('학년도를 넘기면 그대로 쓴다 — 백필 스크립트가 옛 글에 지난 학년도를 넣을 때 쓴다', () => {
+  assert.equal(newRequestPayload({ title: 'x', targets: [], year: 2024 }).year, 2024)
+})
+
+test('담당(ownerUids)을 지정하지 않으면 만든 사람이 담당이다', () => {
+  const payload = newRequestPayload({ title: 'x', targets: [], createdBy: 'u9' })
+  assert.deepEqual(payload.ownerUids, [])   // 저장값 자체는 비워둔다 — "정한 적 없음"과 "정함"을 구분
+  assert.deepEqual(ownerOf(payload), ['u9'])   // 그러나 담당을 물으면 만든 사람이 나온다
+  assert.equal(isOwner(payload, 'u9'), true)
+  assert.equal(isOwner(payload, 'u2'), false)
+})
+
+test('담당을 지정하면 만든 사람과 달라도 된다 — 대신 만들어주는 경우', () => {
+  const payload = newRequestPayload({
+    title: 'x', targets: [], createdBy: 'u9', ownerUids: ['u1', 'u2', 'u1'],
+  })
+  assert.deepEqual(payload.ownerUids, ['u1', 'u2'])   // 중복은 저장 시점에 정리
+  assert.deepEqual(ownerOf(payload), ['u1', 'u2'])
+  assert.equal(isOwner(payload, 'u9'), false, '지정된 담당이 있으면 만든 사람은 자동으로 담당이 아니다')
+})
+
+test('ownerOf/isOwner는 빈 값에도 깨지지 않는다', () => {
+  assert.deepEqual(ownerOf(null), [])
+  assert.deepEqual(ownerOf({}), [])
+  assert.equal(isOwner(null, 'u1'), false)
+  assert.equal(isOwner({ ownerUids: ['u1'] }, null), false)
 })
 
 test('kind가 없는 옛 문서는 요청으로 본다', () => {

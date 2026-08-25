@@ -24,6 +24,7 @@
  * 교사 화면에서 요청마다 완료 문서를 한 번씩 더 읽어야 한다. 대신 규칙에서 본인 uid만
  * 넣고 뺄 수 있게 막는다.
  */
+import { currentSchoolYear } from './schema.js'
 
 export const POST_KIND = {
   notice: { label: '안내', emoji: '📢' },
@@ -57,6 +58,8 @@ export function newRequestPayload({
   attachments = [], links = [],
   targetRule, targetRuleText, targets,
   createdBy, createdByName,
+  ownerUids = [],
+  year,
 }) {
   const resolvedKind = POST_KIND[kind] ? kind : 'request'
   return {
@@ -80,7 +83,30 @@ export function newRequestPayload({
     completedUids: [],
     createdBy,
     createdByName,
+    // 담당(누가 굴리는가) — 만든 사람(createdBy)과 다를 수 있다. 부장이 대신 만들어주고
+    // 실제로 챙기는 사람은 따로인 경우가 실제로 있다(PLAN_workCentric.md §4.4). 지정하지
+    // 않으면 만든 사람이 담당인 것으로 본다 — ownerOf()가 그 기본값을 담당한다.
+    ownerUids: [...new Set(ownerUids)],
+    // 학년도 — 호출부가 안 넘기면 지금 학년도로 채운다. teacherAssignments 등과 같은
+    // 스코프 규칙(schema.js의 schoolYearFor)을 따른다. "작년 정기고사 때 뭘 했지"를
+    // 찾을 방법이 없던 것이 인수인계가 끊기는 실질적 원인이었다(PLAN_workCentric.md §6.1).
+    year: Number.isInteger(year) ? year : currentSchoolYear(),
   }
+}
+
+/**
+ * 이 업무를 굴리는 사람들. `ownerUids`가 비어 있으면(옛 문서·미지정) 만든 사람으로 본다 —
+ * "담당을 안 정했다"가 아니라 "정한 적이 없을 뿐 사실상 만든 사람이 담당"이기 때문이다.
+ * 필드가 없다고 담당이 없는 것으로 보이면, 총괄 뷰에서 그 업무가 통째로 안 잡힌다.
+ */
+export function ownerOf(post) {
+  const owners = post?.ownerUids
+  return owners && owners.length > 0 ? owners : [post?.createdBy].filter(Boolean)
+}
+
+export function isOwner(post, uid) {
+  if (!uid) return false
+  return ownerOf(post).includes(uid)
 }
 
 /** 완료 표시 한 줄. 문서 ID는 uid를 쓴다. */

@@ -353,8 +353,15 @@ match /channels/{channelId}   allow read: if isTeacher(schoolId)
 역할이 안 붙어 있으면 인수인계는 여전히 안 된다. 반대로 이 둘이 붙으면 채널 모델은 그
 위에서 어느 쪽으로도 갈 수 있다.
 
-1. **업무 글에 `year` 추가 + 백필** — `createdAt`에서 유도. 기존 데이터 안 깨짐, 즉시 가능
-2. **담당(`ownerUids`) 필드 추가** — 총괄은 뷰로 풀리므로(§4.2) 필드는 담당 하나면 된다
+1. [x] **업무 글에 `year` 추가 + 백필** (2026-08-25) — `createdAt`에서 유도.
+   `schema.js`의 `schoolYearFor(date)`로 뺐다(기존 `currentYearSemester()`는 "지금"만
+   물을 수 있었다). `functions/migrations/backfillRequestYearAndOwner.js`로 백필
+   완료(seonyoo-hs 2건). 새 글은 `newRequestPayload`가 안 넘기면 자동으로 채운다
+2. [x] **담당(`ownerUids`) 필드 추가** (2026-08-25) — `workRequests.js`의 `ownerOf(post)`/
+   `isOwner(post, uid)`. **저장값은 빈 배열로 둔다** — `ownerOf()`가 비어 있으면
+   `createdBy`로 읽으므로("정한 적 없음"과 "만든 사람=담당"을 구분해 두려는 것),
+   백필도 전부 채우지 않고 빈 배열만 넣었다. 담당을 실제로 지정하는 UI는 아직 없다
+   (§9의 3~4번, 총괄 뷰와 함께 만든다)
 3. **업무 ↔ 조직 연결 확정** — 총괄 뷰의 필터 기준. `channelId`를 쓸지 별도 필드를 둘지
 4. **총괄 뷰 (부장 대시보드)** — 완료율(가)만으로 먼저. 기존 수신자 화면은 그대로 둔다
 5. **쪽지 → 업무 글 전환 유도** — **장기전**(§9.1). 위와 병행하되 완료를 기대하지 않는다
