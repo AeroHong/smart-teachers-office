@@ -141,6 +141,18 @@ export default function Channels() {
   }, [active])
 
   /**
+   * 캔버스 하나를 열 주소. 글쓴이면 늘 편집기로 보낸다 — 마감 여부와 무관하게, 돌아왔을
+   * 때 "계속 쓰는 화면"이 나와야 한다는 사용자 확정(2026-08-26)에 따른 것. 제출현황
+   * (완료 N/M명 확인·다시 알림·마감하기)은 더 이상 여기로 자동으로 떨어지지 않고,
+   * PostComposer 안 '업무현황' 버튼을 눌러야 나온다 — 글쓴이가 아니면 그대로 보기
+   * 화면(PostDetail)이라 대상자의 완료 체크 흐름은 그대로다.
+   */
+  const canvasUrl = (post) => {
+    const editable = post?.createdBy === user?.uid
+    return `/channels/${active.id}/${post.id}${editable ? '/edit' : ''}`
+  }
+
+  /**
    * 채널 머리에 세울 캔버스 탭.
    *
    * 살아 있는 글만 탭이 되고(isLivePost), CANVAS_TAB_MAX를 넘으면 오래된 것부터 '더보기'로
@@ -503,7 +515,7 @@ export default function Channels() {
                   value={tabValue}
                   onChange={(e, v) => {
                     if (v === 'messages' || v === 'archive') { setSideView(v); navigate(`/channels/${active.id}`) }
-                    else navigate(`/channels/${active.id}/${v}`)
+                    else navigate(canvasUrl(canvas.tabs.find(p => p.id === v) || { id: v }))
                   }}
                   variant="scrollable" scrollButtons={false}
                   sx={{
@@ -593,7 +605,7 @@ export default function Channels() {
                     <PostRow
                       key={p.id}
                       post={p}
-                      onClick={() => navigate(`/channels/${active.id}/${p.id}`)}
+                      onClick={() => navigate(canvasUrl(p))}
                       onUnarchive={canManage ? () => run(
                         () => setPostArchived({ schoolId, requestId: p.id, archived: false }),
                         '탭에 다시 올렸습니다.',
@@ -657,7 +669,7 @@ export default function Channels() {
           <MenuItem
             key={p.id}
             sx={{ fontSize: '0.85rem', maxWidth: 280 }}
-            onClick={() => { setMoreAnchor(null); navigate(`/channels/${active.id}/${p.id}`) }}
+            onClick={() => { setMoreAnchor(null); navigate(canvasUrl(p)) }}
           >
             <Typography fontSize="0.85rem" noWrap>{p.title}</Typography>
           </MenuItem>

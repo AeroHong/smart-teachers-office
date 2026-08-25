@@ -55,7 +55,7 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
-import { isRequest, newRequestPayload } from '@shared/lib/workRequests'
+import { completionStats, isRequest, newRequestPayload } from '@shared/lib/workRequests'
 import { postVisibilityFor } from '@shared/lib/channels'
 import { deleteAttachment, fileKind, formatBytes } from '@shared/lib/requestAttachments'
 import { htmlToText, isEmptyHtml, sanitizeHtml } from '@shared/lib/richText'
@@ -142,6 +142,12 @@ export default function PostComposer({
   // 만든 순간 true가 된다 — 그 전까지는 완전히 로컬 상태다.
   const [created, setCreated] = useState(!!editingId)
   const [saveState, setSaveState] = useState('idle')   // idle | saving | saved | error
+  // '업무현황 N/M' 버튼 표시용. 자동저장이 title·bodyHtml 등을 실시간으로 반영하는 것과
+  // 달리 이 값은 여기서 손대지 않는다(완료 체크는 PostDetail 쪽 일) — 고칠 글을 읽어올
+  // 때 한 번 채워서 보여주기만 한다. 실시간이 아니라서 편집하는 동안 다른 사람이 방금
+  // 완료해도 숫자가 바로 안 바뀔 수 있다 — 버튼을 눌러 실제 현황(PostDetail)으로 가면
+  // 거기는 구독이라 정확하다.
+  const [completedUids, setCompletedUids] = useState([])
 
   // 고치기를 시작한 시점에 이미 붙어 있던 파일. 도중에 그만둬도 이건 지우면 안 된다.
   const keptFiles = useRef(new Set())
@@ -183,6 +189,7 @@ export default function PostComposer({
         setTargetOpen(narrowed)
         setAttachments(post.attachments || [])
         setLinks(post.links || [])
+        setCompletedUids(post.completedUids || [])
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
         setLoadingPost(false)
       })
@@ -196,6 +203,10 @@ export default function PostComposer({
   }, [editingId, schoolId])
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
+  const stats = useMemo(
+    () => completionStats({ targetUids: targets.map(t => t.uid), completedUids }),
+    [targets, completedUids],
+  )
 
   // '+캔버스'로 심을 수 있는 후보 — 이 채널의 다른 업무 글만 준다(지금 쓰는 글 자신은 뺀다).
   const canvasOptions = useMemo(
@@ -368,6 +379,20 @@ export default function PostComposer({
               { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
             ]}
           />
+          {/* 이제 채널 탭을 눌러 돌아오면 글쓴이는 무조건 이 편집기로 온다(제출현황으로
+              자동으로 안 튕긴다 — 사용자 확정, 2026-08-26). 그 대신 제출현황(완료 관리)을
+              보고 싶을 때 누르는 문이 이 버튼이다 — 보기 화면(PostDetail)으로 보낸다.
+              완료 수는 실시간이 아니다(고칠 글을 한 번만 읽어오므로) — 정확한 값은
+              눌러서 들어간 화면이 보여준다. */}
+          {needsCompletion && created && (
+            <Button
+              size="small" variant="outlined"
+              onClick={() => onOpenCanvasRef?.(`/channels/${channel.id}/${requestId}`)}
+              sx={{ fontSize: '0.76rem' }}
+            >
+              업무현황 {stats.doneCount}/{stats.total}
+            </Button>
+          )}
           {needsCompletion ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
               <TextField
