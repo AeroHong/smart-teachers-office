@@ -14,6 +14,7 @@ export const RICH_TEXT_SX = {
   '& p': { m: 0 },
   '& h2': { fontSize: '1.15rem', fontWeight: 800, m: '0.6em 0 0.2em' },
   '& h3': { fontSize: '1rem', fontWeight: 700, m: '0.5em 0 0.2em' },
+  '& h4': { fontSize: '0.92rem', fontWeight: 700, m: '0.45em 0 0.15em' },
   '& blockquote': {
     m: '0.4em 0', pl: 1.5, borderLeft: '3px solid', borderColor: 'divider',
     color: 'text.secondary',

@@ -41,7 +41,7 @@ import { deleteAttachment } from '@shared/lib/requestAttachments'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
 import TargetPicker from './TargetPicker'
 import AttachmentPicker from './AttachmentPicker'
-import RichTextEditor from './RichTextEditor'
+import CanvasEditor from './CanvasEditor'
 import { useToast } from './ToastProvider'
 import { updatePostContent } from '../lib/requestActions'
 
@@ -319,7 +319,7 @@ export default function PostComposer({ channel, editingId, onSaved, onCancel, me
       </Box>
 
       <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2 }}>
-        <RichTextEditor
+        <CanvasEditor
           docId={requestId}
           value={bodyHtml}
           onChange={setBodyHtml}

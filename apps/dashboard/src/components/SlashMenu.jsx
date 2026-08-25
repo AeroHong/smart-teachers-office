@@ -36,7 +36,8 @@ const MENU_MAX_HEIGHT = 300
  */
 export const SLASH_ITEMS = [
   { id: 'h1', label: '큰 제목', hint: '문단을 나누는 제목', keywords: 'ㅈㅁ 제목 큰제목 h1 title', Icon: TitleIcon, block: 'H2' },
-  { id: 'h2', label: '작은 제목', hint: '소제목', keywords: 'ㅈㅁ 제목 작은제목 h2 subtitle', Icon: TitleIcon, block: 'H3' },
+  { id: 'h2', label: '중간 제목', hint: '중간 소제목', keywords: 'ㅈㄱㅈㅁ 제목 중간제목 h2 subtitle', Icon: TitleIcon, block: 'H3' },
+  { id: 'h3', label: '작은 제목', hint: '작은 소제목', keywords: 'ㅈㅇㅈㅁ 제목 작은제목 h3 subtitle', Icon: TitleIcon, block: 'H4' },
   { id: 'ul', label: '글머리 기호', hint: '· 목록', keywords: 'ㄱㅁㄹ 글머리 목록 bullet list', Icon: FormatListBulletedIcon, cmd: 'insertUnorderedList' },
   { id: 'ol', label: '번호 매기기', hint: '1. 2. 3. 목록', keywords: 'ㅂㅎ 번호 순서 number ordered list', Icon: FormatListNumberedIcon, cmd: 'insertOrderedList' },
   { id: 'quote', label: '인용', hint: '들여쓴 인용문', keywords: 'ㅇㅇ 인용 quote', Icon: FormatQuoteIcon, block: 'BLOCKQUOTE' },

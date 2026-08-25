@@ -17,7 +17,7 @@ const ALLOWED_TAGS = [
   'ul', 'ol', 'li',
   'a', 'img', 'hr',
   'blockquote', 'code', 'pre',
-  'h1', 'h2', 'h3',
+  'h1', 'h2', 'h3', 'h4',
   // 토글 — 긴 안내에서 세부 절차를 접어두는 용도. 자바스크립트 없이 브라우저가 여닫는다.
   'details', 'summary',
   // 콜아웃 — 꼭 봐야 할 한 문단. class는 걸러지므로 태그 자체가 서식 표시다
@@ -55,7 +55,7 @@ export function htmlToText(html) {
   return html
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<hr\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h[1-3]|blockquote|summary|details)>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-4]|blockquote|summary|details)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '· ')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
