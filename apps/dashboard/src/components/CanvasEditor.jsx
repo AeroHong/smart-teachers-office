@@ -136,6 +136,8 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const [datePicker, setDatePicker] = useState(null)   // { rect, value }
   const savedRangeRef = useRef(null)
   const [canvasMenuAnchor, setCanvasMenuAnchor] = useState(null)   // { top, left } — 캔버스 삽입 고르기
+  // 막대로 축약된 목차에 마우스를 올리면 글자 목록을 오버레이로 펼친다.
+  const [tocExpanded, setTocExpanded] = useState(false)
   // 지금 마우스가 올라가 있는 블록(에디터의 직계 자식) — 손잡이(⋮⋮)를 그 옆에 띄운다.
   const [hoveredBlock, setHoveredBlock] = useState(null)   // { el, rect }
   // 손잡이 ⋮⋮ 클릭으로 연 메뉴 — 삭제·복제·변환. el을 따로 담는 이유는 메뉴가 열려
@@ -278,6 +280,53 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     measureTable()
   }
 
+  /** 마지막 행·열만 지운다 — 추가와 같은 자리(늘 끝에)라 어느 것이 지워질지 헷갈리지
+   *  않는다. 한 칸까지만 남기고 그 아래로는 막는다 — 표가 통째로 사라지면 되돌릴
+   *  방법이 삭제(Undo)뿐인데 이 편집기는 브라우저 기본 Undo에만 기대고 있다. */
+  const deleteTableRow = () => {
+    const table = pickedTable?.el
+    if (!table || table.rows.length <= 1) return
+    table.deleteRow(-1)
+    emit()
+    measureTable()
+  }
+
+  const deleteTableCol = () => {
+    const table = pickedTable?.el
+    if (!table || (table.rows[0]?.cells.length || 0) <= 1) return
+    ;[...table.rows].forEach(row => row.deleteCell(-1))
+    emit()
+    measureTable()
+  }
+
+  /** 표 전체 폭 조절 — 이미지 리사이즈(startResize)와 같은 자리(오른쪽 아래 손잡이,
+   *  pointermove로 폭만 바꾼다). 표는 width 속성이 아니라 style.width로 준다 —
+   *  richText.js가 style에서 color 말고는 다 걸러내므로, 대신 표에는 width 속성을
+   *  직접 허용해 뒀다(richTextStyles.js는 테두리·간격만 담당). */
+  const startTableResize = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const table = pickedTable?.el
+    if (!table) return
+
+    const startX = e.clientX
+    const startWidth = table.getBoundingClientRect().width
+    const maxWidth = editorRef.current?.clientWidth || 900
+
+    const onMove = (ev) => {
+      const next = Math.round(Math.min(maxWidth, Math.max(160, startWidth + (ev.clientX - startX))))
+      table.setAttribute('width', String(next))
+      measureTable()
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      emit()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   // ── 블록 손잡이(⋮⋮) — 호버·메뉴·드래그 재배치 ──────────────────────────
   //
   // "블록"은 에디터의 직계 자식이다. 콜아웃(aside) 안에는 문단이 한 겹 더 있는데
@@ -295,15 +344,41 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     return null
   }, [])
 
+  /**
+   * 손잡이가 편집기 rect 왼쪽 바깥(fixed)에 뜨다 보니, "글자 위 → 손잡이" 이동은
+   * 그 사이 몇 px의 빈 공간을 지난다 — 편집기도 바깥 칸도 그 빈 공간까지 자기
+   * 영역으로 치지 않아(fixed는 레이아웃 크기에 안 잡힌다) 지나가는 순간 mouseleave가
+   * 먼저 터진다. 그 즉시 지우지 않고 살짝(180ms) 기다렸다가 지운다 — 그사이 손잡이에
+   * 도착하면(onMouseEnter) 취소된다. 드롭다운 메뉴가 트리거와 패널 사이 틈을 이렇게
+   * 넘기는 것과 같은 방식이다.
+   */
+  const hoverClearTimer = useRef(null)
+  const cancelHoverClear = () => {
+    if (hoverClearTimer.current) { clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null }
+  }
+  const scheduleHoverClear = () => {
+    cancelHoverClear()
+    hoverClearTimer.current = setTimeout(() => {
+      hoverClearTimer.current = null
+      setHoveredBlock(null)
+    }, 180)
+  }
+  useEffect(() => () => cancelHoverClear(), [])
+
   const handleEditorMouseMove = (e) => {
     if (blockDrag) return   // 드래그 중엔 onMove가 따로 관리한다
+    cancelHoverClear()
+    // 손잡이 자체는 편집기 밖(같은 바깥 칸의 형제)이라 findTopBlock이 못 찾는다 —
+    // 그대로 두면 손잡이 위에 마우스가 있는 동안에도 매 mousemove마다 "블록 아님"으로
+    // 읽혀 손잡이가 깜빡이며 사라진다. 손잡이 위에서는 지금 상태를 그대로 둔다.
+    if (e.target.closest?.('[data-block-handle]')) return
     const block = findTopBlock(e.target)
-    if (!block) { setHoveredBlock(null); return }
+    if (!block) { scheduleHoverClear(); return }
     setHoveredBlock(prev => (prev?.el === block ? prev : { el: block, rect: block.getBoundingClientRect() }))
   }
 
   const handleEditorMouseLeave = () => {
-    if (!blockDrag && !blockMenu) setHoveredBlock(null)
+    if (!blockDrag && !blockMenu) scheduleHoverClear()
   }
 
   // 손잡이가 떠 있는 동안 스크롤·창 크기 변화에 다시 잰다 — picked(이미지 손잡이)와
@@ -837,40 +912,83 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
       {/* 제목 기반 목차 — 제목이 하나도 없으면 아예 안 그린다. 늘 자리를 차지하면
           짧은 글을 쓰는 사람에게는 빈 칼럼만 남는다. 스크롤은 부모가 하므로 sticky로
-          붙여 두면 긴 글에서도 계속 보인다. */}
+          붙여 두면 긴 글에서도 계속 보인다.
+
+          평소엔 제목 길이·단계만 짧은 막대로 축약해서 보여준다(글 전체 흐름을
+          미니맵처럼 훑는 용도) — 글자로 늘 펼쳐 두니 폭이 168px나 차지해 캔버스보다
+          목차가 더 도드라져 보였다(사용자 지적, 2026-08-26). 마우스를 올리면 그
+          자리 위에 글자 목록이 겹쳐 뜬다 — width를 넓히는 대신 absolute 오버레이로
+          띄워서, 펼쳐져도 옆 캔버스 레이아웃이 밀리지 않는다. */}
       {headings.length > 0 && (
-        <Box sx={{
-          width: 168, flexShrink: 0, position: 'sticky', top: 8,
-          display: 'flex', flexDirection: 'column', gap: 0.2, pt: 1,
-        }}>
-          <Typography fontSize="0.7rem" fontWeight={800} color="text.disabled" sx={{ mb: 0.3, pl: 0.8 }}>
-            목차
-          </Typography>
-          {headings.map(h => (
-            <Box
-              key={h.id}
-              component="button"
-              type="button"
-              onClick={() => jumpToHeading(h.id)}
-              sx={{
-                display: 'block', width: '100%', textAlign: 'left',
-                border: 0, background: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                borderRadius: 0.75, px: 0.8, py: 0.35,
-                pl: h.level === 'H2' ? 0.8 : h.level === 'H3' ? 1.8 : 2.8,
-                fontSize: h.level === 'H2' ? '0.8rem' : '0.76rem',
-                fontWeight: h.level === 'H2' ? 700 : 500,
-                color: 'text.secondary',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
-              }}
-            >
-              {h.text}
-            </Box>
-          ))}
+        <Box
+          sx={{ width: 18, flexShrink: 0, position: 'sticky', top: 8, pt: 1.4 }}
+          onMouseEnter={() => setTocExpanded(true)}
+          onMouseLeave={() => setTocExpanded(false)}
+        >
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.7 }}>
+            {headings.map(h => (
+              <Box
+                key={h.id}
+                component="button"
+                type="button"
+                onClick={() => jumpToHeading(h.id)}
+                aria-label={h.text}
+                sx={{
+                  display: 'block', p: 0, border: 0, background: 'none', cursor: 'pointer',
+                  height: 3, borderRadius: 2, bgcolor: 'divider',
+                  ml: h.level === 'H2' ? 0 : h.level === 'H3' ? 0.7 : 1.4,
+                  width: h.level === 'H2' ? 16 : h.level === 'H3' ? 11 : 7,
+                  '&:hover': { bgcolor: 'text.disabled' },
+                }}
+              />
+            ))}
+          </Box>
+
+          {tocExpanded && (
+            <Paper elevation={4} sx={{
+              position: 'absolute', top: 0, left: 0, width: 180, zIndex: 10,
+              p: 0.6, border: '1px solid', borderColor: 'divider',
+            }}>
+              <Typography fontSize="0.7rem" fontWeight={800} color="text.disabled" sx={{ mb: 0.3, pl: 0.8, mt: 0.2 }}>
+                목차
+              </Typography>
+              {headings.map(h => (
+                <Box
+                  key={h.id}
+                  component="button"
+                  type="button"
+                  onClick={() => jumpToHeading(h.id)}
+                  sx={{
+                    display: 'block', width: '100%', textAlign: 'left',
+                    border: 0, background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                    borderRadius: 0.75, px: 0.8, py: 0.35,
+                    pl: h.level === 'H2' ? 0.8 : h.level === 'H3' ? 1.8 : 2.8,
+                    fontSize: h.level === 'H2' ? '0.8rem' : '0.76rem',
+                    fontWeight: h.level === 'H2' ? 700 : 500,
+                    color: 'text.secondary',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
+                  }}
+                >
+                  {h.text}
+                </Box>
+              ))}
+            </Paper>
+          )}
         </Box>
       )}
 
-      <Box sx={{ position: 'relative', flexGrow: 1, minWidth: 0 }}>
+      {/* onMouseMove/onMouseLeave는 편집기(안쪽 Box)가 아니라 이 바깥 칸에 건다 —
+          손잡이(⋮⋮)가 편집기 rect 왼쪽 바깥에 fixed로 뜨는데, 편집기에 리스너를
+          달면 마우스가 글자 위에서 손잡이 쪽으로 움직이는 순간 편집기의
+          mouseleave가 먼저 터져 손잡이가 나타나기 전에 사라졌다(사용자 확인,
+          2026-08-26). 손잡이는 이 바깥 칸의 자식이라, 여기 걸면 "편집기 → 손잡이"
+          이동은 이 칸 안에서의 이동일 뿐이라 leave가 안 터진다. */}
+      <Box
+        sx={{ position: 'relative', flexGrow: 1, minWidth: 0 }}
+        onMouseMove={handleEditorMouseMove}
+        onMouseLeave={handleEditorMouseLeave}
+      >
       <Box
         ref={editorRef}
         contentEditable
@@ -885,8 +1003,6 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onPaste={handlePaste}
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
-        onMouseMove={handleEditorMouseMove}
-        onMouseLeave={handleEditorMouseLeave}
         data-placeholder={placeholder}
         sx={{
           minHeight: 320, px: { xs: 0, sm: 1 }, py: 1,
@@ -922,7 +1038,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           누른 블록이 어디였는지 잊게 하지 않으려고. */}
       {hoveredBlock && !menuRect && !slash && (
         <Box
+          data-block-handle="true"
           onPointerDown={handleHandlePointerDown}
+          onMouseEnter={cancelHoverClear}
+          onMouseLeave={scheduleHoverClear}
           sx={{
             position: 'fixed',
             top: hoveredBlock.rect.top + 1,
@@ -1051,30 +1170,78 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           표는 잘라 보여줄 이유가 없어(overflow 없음) 클립 상자 없이 바로 그린다. */}
       {pickedTable && (
         <>
-          <Box
-            onMouseDown={e => { e.preventDefault(); addTableRow() }}
-            sx={{
-              position: 'fixed', top: pickedTable.rect.bottom + 4, left: pickedTable.rect.left,
-              zIndex: 1300, px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
-              borderRadius: 0.75, cursor: 'pointer',
-              bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
-              '&:hover': { bgcolor: 'action.hover' },
-            }}
-          >
-            + 행 추가
+          {/* 행 추가·삭제 — 표 아래, 나란히. 삭제는 늘 마지막 행이라 추가 바로 옆에
+              두면 "방금 늘린 걸 되돌린다"는 뜻으로 자연스럽게 읽힌다. */}
+          <Box sx={{
+            position: 'fixed', top: pickedTable.rect.bottom + 4, left: pickedTable.rect.left,
+            zIndex: 1300, display: 'flex', gap: 0.4,
+          }}>
+            <Box
+              onMouseDown={e => { e.preventDefault(); addTableRow() }}
+              sx={{
+                px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
+                borderRadius: 0.75, cursor: 'pointer',
+                bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              + 행 추가
+            </Box>
+            {pickedTable.el.rows.length > 1 && (
+              <Box
+                onMouseDown={e => { e.preventDefault(); deleteTableRow() }}
+                sx={{
+                  px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
+                  borderRadius: 0.75, cursor: 'pointer', color: 'error.main',
+                  bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
+                  '&:hover': { bgcolor: 'action.hover' },
+                }}
+              >
+                − 행 삭제
+              </Box>
+            )}
           </Box>
-          <Box
-            onMouseDown={e => { e.preventDefault(); addTableCol() }}
-            sx={{
-              position: 'fixed', top: pickedTable.rect.top, left: pickedTable.rect.right + 4,
-              zIndex: 1300, px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
-              borderRadius: 0.75, cursor: 'pointer',
-              bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
-              '&:hover': { bgcolor: 'action.hover' },
-            }}
-          >
-            + 열 추가
+          {/* 열 추가·삭제 — 표 오른쪽, 위아래로. */}
+          <Box sx={{
+            position: 'fixed', top: pickedTable.rect.top, left: pickedTable.rect.right + 4,
+            zIndex: 1300, display: 'flex', flexDirection: 'column', gap: 0.4,
+          }}>
+            <Box
+              onMouseDown={e => { e.preventDefault(); addTableCol() }}
+              sx={{
+                px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
+                borderRadius: 0.75, cursor: 'pointer',
+                bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              + 열 추가
+            </Box>
+            {(pickedTable.el.rows[0]?.cells.length || 0) > 1 && (
+              <Box
+                onMouseDown={e => { e.preventDefault(); deleteTableCol() }}
+                sx={{
+                  px: 0.9, py: 0.3, fontSize: '0.72rem', fontWeight: 700,
+                  borderRadius: 0.75, cursor: 'pointer', color: 'error.main',
+                  bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 2,
+                  '&:hover': { bgcolor: 'action.hover' },
+                }}
+              >
+                − 열 삭제
+              </Box>
+            )}
           </Box>
+          {/* 표 폭 조절 손잡이 — 이미지 리사이즈 손잡이와 같은 모양(오른쪽 아래 원형). */}
+          <Box
+            onPointerDown={startTableResize}
+            sx={{
+              position: 'fixed',
+              top: pickedTable.rect.bottom - 7, left: pickedTable.rect.right - 7,
+              width: 14, height: 14, borderRadius: '50%', zIndex: 1300,
+              bgcolor: 'primary.main', border: '2px solid #fff',
+              cursor: 'nwse-resize',
+            }}
+          />
         </>
       )}
 
