@@ -26,6 +26,10 @@ export default function UpdateBanner() {
         display: 'flex', alignItems: 'center', gap: 1,
         px: 1.5, py: 0.6, flexShrink: 0,
         bgcolor: 'primary.main', color: 'primary.contrastText',
+        // 데스크톱 앱은 창 맨 위, 이 띠가 걸리는 자리에 OS 최소화·최대화·닫기 버튼이
+        // titleBarOverlay로 겹쳐 뜬다(apps/desktop/main.js) — 오른쪽 끝 버튼들이 거기
+        // 가려 눌리지 않았다(사용자 확인, 2026-08-26). TopBar.jsx와 같은 폭만큼 비운다.
+        pr: '138px',
       }}
     >
       <RefreshIcon sx={{ fontSize: 18 }} />
