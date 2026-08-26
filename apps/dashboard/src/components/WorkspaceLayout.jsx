@@ -12,7 +12,7 @@
  * 스크롤은 사이드바와 상세가 각자 한다. 함께 움직이면 목록을 내리는 동안 읽던 글이 사라진다.
  */
 import Box from '@mui/material/Box'
-import { alpha } from '@mui/material/styles'
+import { ThemeProvider, createTheme } from '@mui/material/styles'
 import AppRail from './AppRail'
 import TopBar from './TopBar'
 import CallAlert from './CallAlert'
@@ -21,6 +21,25 @@ import UpdateBanner from './UpdateBanner'
 // 268 → 240. Slack과 나란히 놓고 보니 우리 쪽이 더 넓으면서 글자는 더 작았다
 // (sidebarUi.jsx가 그만큼 커진다) — 폭을 줄이고 글자를 키워 밀도를 맞춘다.
 const SIDEBAR_WIDTH = 240
+
+/**
+ * 사이드바(2단) 전용 다크 테마 — 1단(rail.bg)과 같은 계열, 한 단계 밝은 rail.border를
+ * 배경으로 쓴다(사용자 요청, 2026-08-26). sidebarUi.jsx·ChannelSidebar.jsx는 손대지
+ * 않았다 — 그 파일들이 이미 text.primary/secondary/disabled·action.hover 같은 의미
+ * 있는 토큰만 쓰고 있어서, 여기서 그 토큰들의 값만 밝은 배경용에서 어두운 배경용으로
+ * 바꿔치기하면 하위 컴포넌트 전체가 자동으로 뒤집힌다(sidebarUi를 쓰는 다른 화면 —
+ * 내 활동·학사일정·요청 현황·쪽지·구성원도 전부 같은 방식으로 반영됨). 팝업 메뉴도
+ * React context를 통해 이 테마를 물려받아 함께 어두워진다.
+ */
+const sidebarTheme = (outer) => createTheme(outer, {
+  palette: {
+    mode: 'dark',
+    background: { paper: outer.palette.rail.border },
+    text: { primary: '#e2e8f0', secondary: '#94a3b8', disabled: '#64748b' },
+    action: { hover: 'rgba(255,255,255,0.06)', selected: 'rgba(255,255,255,0.12)' },
+    divider: 'rgba(255,255,255,0.09)',
+  },
+})
 
 export default function WorkspaceLayout({ sidebar, children }) {
   return (
@@ -38,23 +57,30 @@ export default function WorkspaceLayout({ sidebar, children }) {
           {sidebar && (
             <Box
               component="nav"
-              sx={theme => ({
+              sx={{
                 width: SIDEBAR_WIDTH, flexShrink: 0,
-                borderRight: '1px solid', borderColor: 'divider',
+                bgcolor: 'rail.border',
                 overflowY: 'auto', py: 1, px: 0.75,
                 display: { xs: 'none', sm: 'block' },
-                // 어두운 레일에서 밝은 목록으로 한 번에 끊기지 않게, 왼쪽 가장자리에만
-                // 레일 색이 옅게 남는다. 경계가 칼로 자른 듯 서지 않는다.
-                backgroundImage: `linear-gradient(90deg, ${alpha(theme.palette.rail.bg, 0.13)} 0%, ${alpha(theme.palette.rail.bg, 0.05)} 30%, transparent 60%)`,
-              })}
+              }}
             >
-              {sidebar}
+              <ThemeProvider theme={sidebarTheme}>
+                {sidebar}
+              </ThemeProvider>
             </Box>
           )}
 
+          {/* 3단은 흰 배경을 유지하고, 바깥 어두운 프레임(1단·상단바)과 맞닿는 오른쪽·
+              아래 가장자리에만 같은 색 테두리를 둘렀다 — 어두운 틀 안에 흰 카드가 얹힌
+              인상. 위·왼쪽은 상단바·사이드바가 이미 어두워 경계가 저절로 생겨 테두리가
+              필요 없다(사용자 요청, 2026-08-26). */}
           <Box
             component="main"
-            sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: 'background.paper' }}
+            sx={{
+              flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: 'background.paper',
+              borderRight: '1px solid', borderBottom: '1px solid', borderColor: 'rail.bg',
+              borderTopRightRadius: 10, borderBottomRightRadius: 10,
+            }}
           >
             {children}
           </Box>
