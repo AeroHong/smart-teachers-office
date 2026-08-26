@@ -123,6 +123,12 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const [picked, setPicked] = useState(null)   // { el, rect }
   // 클릭해 고른 표. 바깥에 "행 추가"/"열 추가" 단추를 그릴 때만 쓴다.
   const [pickedTable, setPickedTable] = useState(null)   // { el, rect }
+  // 표 안에서 지금 마우스가 올라간 행·열 — 왼쪽·위쪽에 뜨는 작은 손잡이로 잡아
+  // 그 행·열끼리만 순서를 바꾼다(표 밖 블록 재배치와 같은 발상, 범위만 표 안으로).
+  const [hoveredRow, setHoveredRow] = useState(null)   // { el, rect }
+  const [hoveredCol, setHoveredCol] = useState(null)   // { index, rect }
+  const [rowDrag, setRowDrag] = useState(null)   // { indicatorTop }
+  const [colDrag, setColDrag] = useState(null)   // { indicatorLeft }
   // '/'를 친 위치와 그 뒤에 이어 친 글자. 메뉴를 고르면 이 구간을 지우고 블록을 넣는다.
   const [slash, setSlash] = useState(null)
   // 우클릭 또는 하단 '+' 단추로 연 메뉴의 자리. 항목은 '/' 메뉴와 같고 여는 방법만 다르다.
@@ -234,6 +240,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     }
   }, [picked, measure])
 
+  // 표를 바꿔 고르거나(다른 표 클릭) 아예 놓으면(바깥 클릭) 행·열 손잡이도 같이
+  // 지운다 — 안 그러면 이제 안 골라진 표의 행 손잡이가 화면에 그대로 남는다.
+  useEffect(() => { setHoveredRow(null); setHoveredCol(null) }, [pickedTable?.el])
+
   /** 고른 표의 화면 위치를 다시 잰다 — "행 추가"/"열 추가" 단추가 표를 따라가야 한다. */
   const measureTable = useCallback(() => {
     setPickedTable(prev => {
@@ -327,19 +337,189 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     window.addEventListener('pointerup', onUp)
   }
 
+  /**
+   * 칸(열) 너비 조정 — 경계 하나를 끌면 양옆 두 칸만 나눠 갖는다(표 전체 폭은
+   * 그대로). tableLayout:'fixed'에서는 **첫 행**의 width가 그 열 전체를 정하므로
+   * 첫 행의 칸에만 값을 준다(richTextStyles.js 참고).
+   */
+  const startColResize = (colIndex) => (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const table = pickedTable?.el
+    const firstRow = table?.rows[0]
+    const leftCell = firstRow?.cells[colIndex]
+    const rightCell = firstRow?.cells[colIndex + 1]
+    if (!leftCell || !rightCell) return
+
+    const startX = e.clientX
+    const leftStart = leftCell.getBoundingClientRect().width
+    const rightStart = rightCell.getBoundingClientRect().width
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX
+      const nextLeft = Math.max(40, Math.round(leftStart + dx))
+      const nextRight = Math.max(40, Math.round(rightStart - dx))
+      // 둘 다 최소 40px을 지키면서 합을 유지한다 — 한쪽이 바닥을 치면 반대쪽만
+      // 계속 늘어나 표 전체 폭이 조용히 커지는 것을 막는다.
+      if (nextLeft === 40 || nextRight === 40) return
+      leftCell.setAttribute('width', String(nextLeft))
+      rightCell.setAttribute('width', String(nextRight))
+      measureTable()
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      emit()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  /**
+   * 표 안에서 마우스가 있는 행·열을 찾는다 — pickedTable일 때만 부른다.
+   *
+   * 못 찾았을 때 여기서 바로 지우지 않는다(값을 찾았을 때만 채운다) — 행·열
+   * 손잡이도 표 rect 바깥(fixed)에 뜨므로 블록 손잡이와 같은 "그 사이 빈 틈"
+   * 문제가 있다. 지우는 판단은 호출부(handleEditorMouseMove)가 scheduleHoverClear로
+   * 한 군데에서 통일해서 한다. @returns 행이나 열을 하나라도 찾았는가
+   */
+  const handleTableMouseMove = (e) => {
+    const table = pickedTable?.el
+    if (!table) return false
+    let found = false
+
+    const y = e.clientY
+    const row = [...table.rows].find(tr => {
+      const r = tr.getBoundingClientRect()
+      return y >= r.top && y <= r.bottom
+    })
+    if (row) {
+      setHoveredRow(prev => (prev?.el === row ? prev : { el: row, rect: row.getBoundingClientRect() }))
+      found = true
+    }
+
+    const x = e.clientX
+    const firstRow = table.rows[0]
+    const colIndex = firstRow ? [...firstRow.cells].findIndex(td => {
+      const r = td.getBoundingClientRect()
+      return x >= r.left && x <= r.right
+    }) : -1
+    if (colIndex >= 0) {
+      setHoveredCol(prev => (prev?.index === colIndex ? prev : { index: colIndex, rect: firstRow.cells[colIndex].getBoundingClientRect() }))
+      found = true
+    }
+    return found
+  }
+
+  /** 행 손잡이(표 왼쪽) — 끌면 이 표 안에서만 행 순서를 바꾼다. 블록 드래그와 같은
+   *  방식(형제 rect 중간값과 커서 y좌표 비교)이지만 대상이 tr이고 범위가 표 하나뿐이다. */
+  const startRowDrag = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const table = pickedTable?.el
+    const row = hoveredRow?.el
+    if (!table || !row) return
+    const siblings = [...table.rows]
+
+    const onMove = (ev) => {
+      let insertBeforeEl = null
+      let indicatorTop = null
+      for (const sib of siblings) {
+        if (sib === row) continue
+        const r = sib.getBoundingClientRect()
+        if (ev.clientY < r.top + r.height / 2) { insertBeforeEl = sib; indicatorTop = r.top; break }
+      }
+      if (indicatorTop === null) {
+        const last = siblings[siblings.length - 1]
+        indicatorTop = (last === row ? row : last).getBoundingClientRect().bottom
+      }
+      setRowDrag({ insertBeforeEl, indicatorTop })
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setRowDrag(prev => {
+        if (prev) {
+          // row.parentElement를 쓴다(table이 아니라) — HTML을 문자열로 만들어 넣으면
+          // <tr>들이 암시적 <tbody> 아래 들어가므로, 실제 부모는 table 자신이 아니다.
+          const container = row.parentElement
+          if (prev.insertBeforeEl) container.insertBefore(row, prev.insertBeforeEl)
+          else container.appendChild(row)
+          emit()
+        }
+        return null
+      })
+      setHoveredRow(null)
+      measureTable()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  /** 열 손잡이(표 위쪽) — 끌면 모든 행에서 그 순서의 칸을 한꺼번에 옮긴다. 열은
+   *  DOM에 실제로 존재하는 태그가 아니라 "각 행의 n번째 칸들의 모임"이라, 한 행씩
+   *  옮기는 게 아니라 행마다 같은 인덱스의 칸을 반복해서 옮겨야 한다. */
+  const startColDrag = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const table = pickedTable?.el
+    const colIndex = hoveredCol?.index
+    if (!table || colIndex == null) return
+    const firstRow = table.rows[0]
+    const colCells = [...firstRow.cells]   // 경계 계산은 첫 행 기준
+
+    const onMove = (ev) => {
+      let insertBeforeIndex = null
+      let indicatorLeft = null
+      for (let i = 0; i < colCells.length; i++) {
+        if (i === colIndex) continue
+        const r = colCells[i].getBoundingClientRect()
+        if (ev.clientX < r.left + r.width / 2) { insertBeforeIndex = i; indicatorLeft = r.left; break }
+      }
+      if (indicatorLeft === null) {
+        const last = colCells[colCells.length - 1]
+        indicatorLeft = last.getBoundingClientRect().right
+      }
+      setColDrag({ insertBeforeIndex, indicatorLeft })
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setColDrag(prev => {
+        if (prev && prev.insertBeforeIndex !== colIndex && prev.insertBeforeIndex !== colIndex + 1) {
+          ;[...table.rows].forEach((tr) => {
+            const cell = tr.cells[colIndex]
+            const target = prev.insertBeforeIndex != null ? tr.cells[prev.insertBeforeIndex] : null
+            if (!cell) return
+            if (target) tr.insertBefore(cell, target)
+            else tr.appendChild(cell)
+          })
+          emit()
+        }
+        return null
+      })
+      setHoveredCol(null)
+      measureTable()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   // ── 블록 손잡이(⋮⋮) — 호버·메뉴·드래그 재배치 ──────────────────────────
   //
   // "블록"은 에디터의 직계 자식이다. 콜아웃(aside) 안에는 문단이 한 겹 더 있는데
   // (SlashMenu.jsx의 callout html 참고), 그 안쪽 문단에 마우스를 올려도 손잡이는
-  // 콜아웃 전체에 떠야 한다 — 그래서 태그 선택자(closest)가 아니라 "부모가 정확히
-  // 에디터 루트인 조상을 찾을 때까지 거슬러 올라가는" 방식을 쓴다.
-  const findTopBlock = useCallback((node) => {
+  // 콜아웃 전체에 떠야 한다. e.target 히트테스트 대신 **커서의 y좌표가 어느 직계
+  // 자식의 세로 범위 안에 있는지**로 찾는다 — 왼쪽·오른쪽 여백(패딩)에 마우스가
+  // 있으면 e.target이 편집기 루트 자신이 되어(자식 엘리먼트가 거기까지 안 넓혀져
+  // 있어서) 블록을 못 찾았다(사용자 지적, 2026-08-26) — 그 줄의 세로 범위 안이면
+  // 가로 위치와 무관하게 잡히게 한다.
+  const findTopBlockAtY = useCallback((y) => {
     const el = editorRef.current
     if (!el) return null
-    let n = node
-    while (n && n !== el) {
-      if (n.parentElement === el) return n.nodeType === 1 ? n : null
-      n = n.parentElement
+    for (const child of el.children) {
+      const r = child.getBoundingClientRect()
+      if (y >= r.top && y <= r.bottom) return child
     }
     return null
   }, [])
@@ -356,29 +536,36 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const cancelHoverClear = () => {
     if (hoverClearTimer.current) { clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null }
   }
+  // 표 안 행·열 손잡이(표 왼쪽·위쪽 바깥)도 같은 문제라 같은 타이머를 같이 쓴다.
   const scheduleHoverClear = () => {
     cancelHoverClear()
     hoverClearTimer.current = setTimeout(() => {
       hoverClearTimer.current = null
       setHoveredBlock(null)
+      setHoveredRow(null)
+      setHoveredCol(null)
     }, 180)
   }
   useEffect(() => () => cancelHoverClear(), [])
 
   const handleEditorMouseMove = (e) => {
-    if (blockDrag) return   // 드래그 중엔 onMove가 따로 관리한다
+    if (blockDrag || rowDrag || colDrag) return   // 드래그 중엔 각자의 onMove가 따로 관리한다
     cancelHoverClear()
     // 손잡이 자체는 편집기 밖(같은 바깥 칸의 형제)이라 findTopBlock이 못 찾는다 —
     // 그대로 두면 손잡이 위에 마우스가 있는 동안에도 매 mousemove마다 "블록 아님"으로
     // 읽혀 손잡이가 깜빡이며 사라진다. 손잡이 위에서는 지금 상태를 그대로 둔다.
-    if (e.target.closest?.('[data-block-handle]')) return
-    const block = findTopBlock(e.target)
-    if (!block) { scheduleHoverClear(); return }
-    setHoveredBlock(prev => (prev?.el === block ? prev : { el: block, rect: block.getBoundingClientRect() }))
+    if (e.target.closest?.('[data-block-handle],[data-table-handle]')) return
+    const block = findTopBlockAtY(e.clientY)
+    if (block) setHoveredBlock(prev => (prev?.el === block ? prev : { el: block, rect: block.getBoundingClientRect() }))
+    // 표를 고른 상태면 그 표 안의 행·열도 같이 찾는다. 찾은 게 하나도 없을 때만
+    // (블록도, 표의 행·열도 아님) 지우기를 예약한다 — 그래야 손잡이로 이동하는
+    // 중간의 빈 틈에서 곧바로 사라지지 않는다.
+    const foundInTable = pickedTable ? handleTableMouseMove(e) : false
+    if (!block && !foundInTable) scheduleHoverClear()
   }
 
   const handleEditorMouseLeave = () => {
-    if (!blockDrag && !blockMenu) scheduleHoverClear()
+    if (!blockDrag && !blockMenu && !rowDrag && !colDrag) scheduleHoverClear()
   }
 
   // 손잡이가 떠 있는 동안 스크롤·창 크기 변화에 다시 잰다 — picked(이미지 손잡이)와
@@ -396,6 +583,34 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       window.removeEventListener('scroll', remeasure, true)
     }
   }, [hoveredBlock?.el])
+
+  // 표 안 행·열 손잡이도 같은 이유로 다시 잰다.
+  useEffect(() => {
+    if (!hoveredRow) return
+    const remeasure = () => {
+      setHoveredRow(prev => (prev?.el?.isConnected ? { el: prev.el, rect: prev.el.getBoundingClientRect() } : null))
+    }
+    window.addEventListener('resize', remeasure)
+    window.addEventListener('scroll', remeasure, true)
+    return () => {
+      window.removeEventListener('resize', remeasure)
+      window.removeEventListener('scroll', remeasure, true)
+    }
+  }, [hoveredRow?.el])
+
+  useEffect(() => {
+    if (!hoveredCol || !pickedTable) return
+    const remeasure = () => {
+      const cell = pickedTable.el.rows[0]?.cells[hoveredCol.index]
+      setHoveredCol(prev => (cell ? { index: prev.index, rect: cell.getBoundingClientRect() } : null))
+    }
+    window.addEventListener('resize', remeasure)
+    window.addEventListener('scroll', remeasure, true)
+    return () => {
+      window.removeEventListener('resize', remeasure)
+      window.removeEventListener('scroll', remeasure, true)
+    }
+  }, [hoveredCol?.index, pickedTable])
 
   const closeBlockMenu = () => { setBlockMenu(null); setConvertSubmenuAnchor(null) }
 
@@ -921,7 +1136,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           띄워서, 펼쳐져도 옆 캔버스 레이아웃이 밀리지 않는다. */}
       {headings.length > 0 && (
         <Box
-          sx={{ width: 18, flexShrink: 0, position: 'sticky', top: 8, pt: 1.4 }}
+          sx={{ width: 18, flexShrink: 0, position: 'sticky', top: 8, pt: 1.4, zIndex: 20 }}
           onMouseEnter={() => setTocExpanded(true)}
           onMouseLeave={() => setTocExpanded(false)}
         >
@@ -946,7 +1161,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
 
           {tocExpanded && (
             <Paper elevation={4} sx={{
-              position: 'absolute', top: 0, left: 0, width: 180, zIndex: 10,
+              position: 'absolute', top: 0, left: 0, width: 180, zIndex: 20,
               p: 0.6, border: '1px solid', borderColor: 'divider',
             }}>
               <Typography fontSize="0.7rem" fontWeight={800} color="text.disabled" sx={{ mb: 0.3, pl: 0.8, mt: 0.2 }}>
@@ -1242,6 +1457,86 @@ const CanvasEditor = forwardRef(function CanvasEditor({
               cursor: 'nwse-resize',
             }}
           />
+
+          {/* 칸(열) 너비 조정 — 첫 행 칸 경계마다 얇은 세로 띠. 평소엔 안 보이다가
+              올리면 파랗게 — 표 테두리와 헷갈리지 않게. */}
+          {[...Array(Math.max(0, (pickedTable.el.rows[0]?.cells.length || 1) - 1))].map((_, i) => {
+            const cell = pickedTable.el.rows[0]?.cells[i]
+            if (!cell) return null
+            const r = cell.getBoundingClientRect()
+            return (
+              <Box
+                key={i}
+                onPointerDown={startColResize(i)}
+                sx={{
+                  position: 'fixed', top: pickedTable.rect.top, left: r.right - 2,
+                  width: 4, height: pickedTable.rect.height, zIndex: 1250,
+                  cursor: 'col-resize',
+                  '&:hover': { bgcolor: 'primary.main', opacity: 0.5 },
+                }}
+              />
+            )
+          })}
+
+          {/* 행 손잡이 — 표 왼쪽 바깥, 지금 마우스가 있는 행 옆. 끌면 이 표 안에서만
+              행 순서가 바뀐다(블록 드래그와 같은 모양, 범위만 표 안). */}
+          {hoveredRow && !rowDrag && !colDrag && (
+            <Box
+              data-table-handle="true"
+              onPointerDown={startRowDrag}
+              onMouseEnter={cancelHoverClear}
+              onMouseLeave={scheduleHoverClear}
+              sx={{
+                position: 'fixed', top: hoveredRow.rect.top + hoveredRow.rect.height / 2 - 9,
+                left: pickedTable.rect.left - 22, zIndex: 1250,
+                width: 18, height: 18, borderRadius: 0.75,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'grab', color: 'text.disabled', bgcolor: 'background.paper',
+                border: '1px solid', borderColor: 'divider',
+                '&:hover': { color: 'text.secondary' },
+              }}
+            >
+              <DragIndicatorIcon sx={{ fontSize: 14 }} />
+            </Box>
+          )}
+
+          {/* 열 손잡이 — 표 위쪽 바깥, 지금 마우스가 있는 열 위. 끌면 모든 행에서
+              그 칸이 함께 옮겨진다. */}
+          {hoveredCol && !rowDrag && !colDrag && (
+            <Box
+              data-table-handle="true"
+              onPointerDown={startColDrag}
+              onMouseEnter={cancelHoverClear}
+              onMouseLeave={scheduleHoverClear}
+              sx={{
+                position: 'fixed', top: pickedTable.rect.top - 22,
+                left: hoveredCol.rect.left + hoveredCol.rect.width / 2 - 9, zIndex: 1250,
+                width: 18, height: 18, borderRadius: 0.75,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'grab', color: 'text.disabled', bgcolor: 'background.paper',
+                border: '1px solid', borderColor: 'divider', transform: 'rotate(90deg)',
+                '&:hover': { color: 'text.secondary' },
+              }}
+            >
+              <DragIndicatorIcon sx={{ fontSize: 14 }} />
+            </Box>
+          )}
+
+          {/* 행·열 드래그 중 삽입 위치 표시선. */}
+          {rowDrag && (
+            <Box sx={{
+              position: 'fixed', top: rowDrag.indicatorTop - 1, left: pickedTable.rect.left,
+              width: pickedTable.rect.width, height: 2, bgcolor: 'primary.main',
+              zIndex: 1300, pointerEvents: 'none', borderRadius: 1,
+            }} />
+          )}
+          {colDrag && (
+            <Box sx={{
+              position: 'fixed', top: pickedTable.rect.top, left: colDrag.indicatorLeft - 1,
+              width: 2, height: pickedTable.rect.height, bgcolor: 'primary.main',
+              zIndex: 1300, pointerEvents: 'none', borderRadius: 1,
+            }} />
+          )}
         </>
       )}
 
