@@ -143,6 +143,20 @@ function ensureBlockIds(el) {
 }
 
 /**
+ * 아직 아무것도 안 쓴 빈 블록인가 — 반응·댓글 "추가" 단추를 여기엔 안 보여준다. 아직
+ * 타이핑하지 않은 다음 줄(문서 맨 끝의 빈 문단 등)에도 손잡이는 뜨지만, 거기에 반응·댓글
+ * 단추까지 뜨면 아무 내용도 없는 자리 위에 붕 떠 보인다(사용자 확인, 2026-08-26 —
+ * "아직 아무것도 입력되지 않은 부분에도 표시가 뜨기도 하고"). 표·이미지·날짜 칩·캔버스
+ * 카드처럼 글자 없이도 내용이 있는 블록은 예외로 둔다. ⋮⋮ 손잡이(옮기기·지우기)는 빈
+ * 블록에도 그대로 뜬다 — 구조를 다루는 조작은 내용과 무관하게 늘 필요하다.
+ */
+function isBlockEmpty(el) {
+  if (!el) return true
+  if (el.querySelector('img, table, hr, [data-canvas-ref], [data-date]')) return false
+  return el.textContent.trim().length === 0
+}
+
+/**
  * 제목을 이 컴포넌트 안에서 그린다(2026-08-26부터) — 예전엔 부모(PostComposer)가
  * 캔버스 바로 위에 따로 그렸는데, 그러면 제목의 왼쪽 여백과 본문의 왼쪽 여백이
  * 서로 다른 값이 됐다(본문은 목차 칸+간격만큼 오른쪽으로 밀린다, 아래 참고). 제목을
@@ -669,9 +683,18 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     }
     window.addEventListener('resize', remeasure)
     window.addEventListener('scroll', remeasure, true)
+    // 블록 댓글 패널이 열리거나 닫히면 이 칸의 폭만 바뀐다(window는 안 바뀜) — 반응·댓글
+    // 단추가 옛 자리에 그대로 떠 있던 원인(사용자 확인, 2026-08-26). 이 칸 자체의 크기
+    // 변화를 직접 듣는다(useBlockReactionRects.js와 같은 이유).
+    let ro
+    if (editorRef.current && 'ResizeObserver' in window) {
+      ro = new ResizeObserver(remeasure)
+      ro.observe(editorRef.current)
+    }
     return () => {
       window.removeEventListener('resize', remeasure)
       window.removeEventListener('scroll', remeasure, true)
+      ro?.disconnect()
     }
   }, [hoveredBlock?.el])
 
@@ -1583,7 +1606,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       {/* 블록 반응(이모지 리액션) — 손잡이(왼쪽)와 마주 보는 오른쪽에 둔다. 이미 반응이
           달린 블록은 아래(reactionRects)가 늘 보여주므로, 여기서는 "아직 반응이 없는
           블록에 처음 반응을 남기는" 경우만 호버 중에 다룬다(둘 다 그리면 같은 블록에
-          알약 줄이 두 번 뜬다).
+          알약 줄이 두 번 뜬다). 아직 아무것도 안 쓴 빈 블록에는 안 뜬다(isBlockEmpty) —
+          손잡이는 구조 조작(옮기기·지우기)이라 빈 줄에도 필요하지만, 반응·댓글은 내용이
+          있어야 뜻이 통한다(사용자 확인, 2026-08-26 — "아직 아무것도 입력되지 않은
+          부분에도 표시가 뜨기도 하고").
           data-block-handle — ⋮⋮ 손잡이와 같은 표식. handleEditorMouseMove가 이걸 보면
           hoveredBlock 재배정을 멈춘다 — 이게 없으면 단추 쪽으로 마우스를 살짝만 내려도
           (블록 아래쪽 여백을 지나며) findTopBlockAtY가 다음 블록을 찾아버려 hoveredBlock이
@@ -1591,7 +1617,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           2026-08-26 — "마우스커서를 살짝 내리면 아래 줄로 넘어가 버리네"). 팝오버를 연
           뒤에는(reactionPicker) 이 칸이 사라져도 팝오버 자체는 안 닫힌다 — 아래
           ReactionPicker 참고. */}
-      {hoveredBlock && !menuRect && !slash
+      {hoveredBlock && !menuRect && !slash && !isBlockEmpty(hoveredBlock.el)
         && !blockReactions[hoveredBlock.el.getAttribute('data-block-id')] && (
         <Box
           data-block-handle="true"

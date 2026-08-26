@@ -31,9 +31,20 @@ export default function useBlockReactionRects(containerRef, blockIds, version) {
     remeasure()
     window.addEventListener('resize', remeasure)
     window.addEventListener('scroll', remeasure, true)
+    // 창 자체는 안 바뀌어도 이 칸의 폭이 바뀌는 경우가 있다 — 블록 댓글 패널(4번째 칸)이
+    // 열리거나 닫히면 캔버스 칸이 옆으로 좁아지는데, 그건 window resize가 아니라서 위
+    // 리스너로는 못 잡는다(사용자 확인, 2026-08-26 — "댓글 창이 열리는데 기존 이모지,
+    // 댓글 입력 버튼이 떠있어서 댓글 사이드바 위에 둥둥 떠있습니다" — 옛 폭 기준으로 잰
+    // 자리에 그대로 떠 있던 것). ResizeObserver로 이 칸 자체의 크기 변화를 직접 듣는다.
+    let ro
+    if (containerRef.current && 'ResizeObserver' in window) {
+      ro = new ResizeObserver(remeasure)
+      ro.observe(containerRef.current)
+    }
     return () => {
       window.removeEventListener('resize', remeasure)
       window.removeEventListener('scroll', remeasure, true)
+      ro?.disconnect()
     }
   }, [containerRef, key, version])
 
