@@ -34,9 +34,16 @@ import StrikethroughSIcon from '@mui/icons-material/StrikethroughS'
 import LinkIcon from '@mui/icons-material/Link'
 import FormatColorTextIcon from '@mui/icons-material/FormatColorText'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
+import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import ContentCopyIcon from '@mui/icons-material/ContentCopyOutlined'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import TitleIcon from '@mui/icons-material/Title'
+import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
+import NotesIcon from '@mui/icons-material/Notes'
 import Popover from '@mui/material/Popover'
 import SlashMenu from './SlashMenu'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -78,6 +85,25 @@ const BUBBLE_WIDTH = 232
 const BUBBLE_HEIGHT = 40
 
 /**
+ * 블록 손잡이 메뉴의 "변환" 항목. 표·이미지·콜아웃·구분선은 여기 없다 — "제목으로
+ * 변환"이 뜻이 없는 블록들이다. 커서 위치 기반인 applyBlock/applyList와 달리
+ * 손잡이로 고른 블록(hoveredBlock)을 직접 받는다 — 메뉴를 열 때 커서가 그 블록
+ * 안에 있으리라는 보장이 없다(다른 블록에 커서를 둔 채로 손잡이를 눌렀을 수도 있다).
+ */
+const BLOCK_CONVERT_OPTIONS = [
+  { id: 'p', label: '문단', tag: 'P', Icon: NotesIcon },
+  { id: 'h2', label: '큰 제목', tag: 'H2', Icon: TitleIcon },
+  { id: 'h3', label: '중간 제목', tag: 'H3', Icon: TitleIcon },
+  { id: 'h4', label: '작은 제목', tag: 'H4', Icon: TitleIcon },
+  { id: 'ul', label: '글머리 기호', list: 'UL', Icon: FormatListBulletedIcon },
+  { id: 'ol', label: '번호 매기기', list: 'OL', Icon: FormatListNumberedIcon },
+  { id: 'blockquote', label: '인용', tag: 'BLOCKQUOTE', Icon: FormatQuoteIcon },
+]
+
+/** 변환 메뉴 자체를 보여줄지 — 표·이미지가 든 문단·콜아웃·구분선·상세는 대상 밖. */
+const CONVERTIBLE_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'BLOCKQUOTE'])
+
+/**
  * ref로 `focus()`를 내준다 — 제목 입력창에서 Enter를 치면 본문으로 이어서 쓸 수 있어야
  * 하는데, 그 처리는 부모(PostComposer)의 제목 필드에 있고 본문 DOM은 여기 안에 갇혀
  * 있어서다(`useImperativeHandle`).
@@ -110,6 +136,14 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const [datePicker, setDatePicker] = useState(null)   // { rect, value }
   const savedRangeRef = useRef(null)
   const [canvasMenuAnchor, setCanvasMenuAnchor] = useState(null)   // { top, left } — 캔버스 삽입 고르기
+  // 지금 마우스가 올라가 있는 블록(에디터의 직계 자식) — 손잡이(⋮⋮)를 그 옆에 띄운다.
+  const [hoveredBlock, setHoveredBlock] = useState(null)   // { el, rect }
+  // 손잡이 ⋮⋮ 클릭으로 연 메뉴 — 삭제·복제·변환. el을 따로 담는 이유는 메뉴가 열려
+  // 있는 동안 마우스가 손잡이 밖으로 나가 hoveredBlock이 비워질 수 있어서다.
+  const [blockMenu, setBlockMenu] = useState(null)   // { el, anchor: {top,left} }
+  const [convertSubmenuAnchor, setConvertSubmenuAnchor] = useState(null)
+  // 손잡이를 끌어 블록을 옮기는 중 — 삽입될 자리를 얇은 선으로 보여준다.
+  const [blockDrag, setBlockDrag] = useState(null)   // { indicatorTop }
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
@@ -242,6 +276,157 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     })
     emit()
     measureTable()
+  }
+
+  // ── 블록 손잡이(⋮⋮) — 호버·메뉴·드래그 재배치 ──────────────────────────
+  //
+  // "블록"은 에디터의 직계 자식이다. 콜아웃(aside) 안에는 문단이 한 겹 더 있는데
+  // (SlashMenu.jsx의 callout html 참고), 그 안쪽 문단에 마우스를 올려도 손잡이는
+  // 콜아웃 전체에 떠야 한다 — 그래서 태그 선택자(closest)가 아니라 "부모가 정확히
+  // 에디터 루트인 조상을 찾을 때까지 거슬러 올라가는" 방식을 쓴다.
+  const findTopBlock = useCallback((node) => {
+    const el = editorRef.current
+    if (!el) return null
+    let n = node
+    while (n && n !== el) {
+      if (n.parentElement === el) return n.nodeType === 1 ? n : null
+      n = n.parentElement
+    }
+    return null
+  }, [])
+
+  const handleEditorMouseMove = (e) => {
+    if (blockDrag) return   // 드래그 중엔 onMove가 따로 관리한다
+    const block = findTopBlock(e.target)
+    if (!block) { setHoveredBlock(null); return }
+    setHoveredBlock(prev => (prev?.el === block ? prev : { el: block, rect: block.getBoundingClientRect() }))
+  }
+
+  const handleEditorMouseLeave = () => {
+    if (!blockDrag && !blockMenu) setHoveredBlock(null)
+  }
+
+  // 손잡이가 떠 있는 동안 스크롤·창 크기 변화에 다시 잰다 — picked(이미지 손잡이)와
+  // 같은 이유. 이 에디터는 스스로 스크롤하지 않고 부모(PostComposer)가 하므로
+  // capture 단계로 window의 scroll도 듣는다.
+  useEffect(() => {
+    if (!hoveredBlock) return
+    const remeasure = () => {
+      setHoveredBlock(prev => (prev?.el?.isConnected ? { el: prev.el, rect: prev.el.getBoundingClientRect() } : null))
+    }
+    window.addEventListener('resize', remeasure)
+    window.addEventListener('scroll', remeasure, true)
+    return () => {
+      window.removeEventListener('resize', remeasure)
+      window.removeEventListener('scroll', remeasure, true)
+    }
+  }, [hoveredBlock?.el])
+
+  const closeBlockMenu = () => { setBlockMenu(null); setConvertSubmenuAnchor(null) }
+
+  const deleteBlock = () => {
+    const el = blockMenu?.el
+    if (!el) return
+    el.remove()
+    closeBlockMenu()
+    setHoveredBlock(null)
+    emit()
+  }
+
+  const duplicateBlock = () => {
+    const el = blockMenu?.el
+    if (!el) return
+    el.after(el.cloneNode(true))
+    closeBlockMenu()
+    emit()
+  }
+
+  /** 문단↔제목↔목록↔인용처럼 "글자만 있는" 블록끼리만 서로 바꾼다. 목록→다른 것은
+   *  항목들을 한 문단으로 이어붙이고, 다른 것→목록은 통째로 항목 하나가 된다. */
+  const convertBlock = (option) => {
+    const el = blockMenu?.el
+    if (!el) return
+    const wasList = el.tagName === 'UL' || el.tagName === 'OL'
+    let created
+    if (option.list) {
+      created = document.createElement(option.list)
+      if (wasList) {
+        created.append(...el.childNodes)
+      } else {
+        const li = document.createElement('li')
+        li.append(...el.childNodes)
+        if (!li.hasChildNodes()) li.appendChild(document.createElement('br'))
+        created.appendChild(li)
+      }
+    } else {
+      created = document.createElement(option.tag)
+      if (wasList) {
+        created.textContent = [...el.querySelectorAll('li')].map(li => li.textContent).join(' ')
+      } else {
+        created.append(...el.childNodes)
+      }
+      if (!created.hasChildNodes()) created.appendChild(document.createElement('br'))
+    }
+    el.replaceWith(created)
+    closeBlockMenu()
+    setHoveredBlock(null)
+    emit()
+  }
+
+  /**
+   * 손잡이 pointerdown — 살짝 누르기만 하면(움직임이 거의 없으면) 클릭으로 보고
+   * 메뉴를 연다. 일정 거리 이상 끌면 드래그로 보고 재배치 모드로 들어간다. 같은
+   * 버튼 하나로 "클릭=메뉴, 끌기=이동" 둘 다 되게 하는 흔한 방식이다.
+   */
+  const handleHandlePointerDown = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const block = hoveredBlock?.el
+    const el = editorRef.current
+    if (!block || !el) return
+    const anchorRect = e.currentTarget.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const siblings = [...el.children]
+    let moved = false
+
+    const onMove = (ev) => {
+      if (!moved) {
+        if (Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return
+        moved = true
+      }
+      let insertBeforeEl = null
+      let indicatorTop = null
+      for (const sib of siblings) {
+        if (sib === block) continue
+        const r = sib.getBoundingClientRect()
+        if (ev.clientY < r.top + r.height / 2) { insertBeforeEl = sib; indicatorTop = r.top; break }
+      }
+      if (indicatorTop === null) {
+        const last = siblings[siblings.length - 1]
+        indicatorTop = (last === block ? block : last).getBoundingClientRect().bottom
+      }
+      setBlockDrag({ insertBeforeEl, indicatorTop })
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (moved) {
+        setBlockDrag(prev => {
+          if (prev) {
+            if (prev.insertBeforeEl) el.insertBefore(block, prev.insertBeforeEl)
+            else el.appendChild(block)
+            emit()
+          }
+          return null
+        })
+        setHoveredBlock(null)
+      } else {
+        setBlockMenu({ el: block, anchor: { top: anchorRect.bottom, left: anchorRect.left } })
+      }
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
   }
 
   const startResize = (e) => {
@@ -700,6 +885,8 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onPaste={handlePaste}
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
+        onMouseMove={handleEditorMouseMove}
+        onMouseLeave={handleEditorMouseLeave}
         data-placeholder={placeholder}
         sx={{
           minHeight: 320, px: { xs: 0, sm: 1 }, py: 1,
@@ -728,6 +915,65 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         hidden
         onChange={e => { handleDocFiles(e.target.files); e.target.value = '' }}
       />
+
+      {/* 블록 손잡이(⋮⋮) — 지금 마우스가 올라간 블록의 왼쪽 바깥에 뜬다. picked(이미지
+          손잡이)와 같은 자리 계산 방식이지만, 이건 잘라 보여줄 이유가 없어(overflow
+          없음) clip 상자 없이 바로 그린다. 메뉴가 열려 있는 동안에도 계속 보이게 둔다 —
+          누른 블록이 어디였는지 잊게 하지 않으려고. */}
+      {hoveredBlock && !menuRect && !slash && (
+        <Box
+          onPointerDown={handleHandlePointerDown}
+          sx={{
+            position: 'fixed',
+            top: hoveredBlock.rect.top + 1,
+            left: hoveredBlock.rect.left - 26,
+            zIndex: 1200, width: 22, height: 22, borderRadius: 0.75,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'grab', color: 'text.disabled',
+            bgcolor: blockMenu?.el === hoveredBlock.el ? 'action.hover' : 'transparent',
+            '&:hover': { bgcolor: 'action.hover', color: 'text.secondary' },
+          }}
+        >
+          <DragIndicatorIcon sx={{ fontSize: 17 }} />
+        </Box>
+      )}
+
+      {/* 드래그로 블록을 끄는 동안 삽입될 자리를 보여주는 얇은 선. */}
+      {blockDrag && (
+        <Box sx={{
+          position: 'fixed', top: blockDrag.indicatorTop - 1,
+          left: (editorRef.current?.getBoundingClientRect().left ?? 0),
+          width: editorRef.current?.getBoundingClientRect().width ?? 0,
+          height: 2, bgcolor: 'primary.main', zIndex: 1300, pointerEvents: 'none',
+          borderRadius: 1,
+        }} />
+      )}
+
+      {/* 블록 메뉴 — 삭제·복제·변환. 변환은 문단·제목·목록·인용류일 때만 보여준다
+          (표·이미지·콜아웃·구분선에는 뜻이 없다). */}
+      <Menu anchorReference="anchorPosition" anchorPosition={blockMenu?.anchor} open={!!blockMenu} onClose={closeBlockMenu}>
+        <MenuItem sx={{ fontSize: '0.85rem', gap: 1 }} onClick={duplicateBlock}>
+          <ContentCopyIcon sx={{ fontSize: 17 }} />복제
+        </MenuItem>
+        <MenuItem sx={{ fontSize: '0.85rem', gap: 1, color: 'error.main' }} onClick={deleteBlock}>
+          <DeleteOutlineIcon sx={{ fontSize: 17 }} />삭제
+        </MenuItem>
+        {blockMenu?.el && CONVERTIBLE_TAGS.has(blockMenu.el.tagName) && (
+          <MenuItem
+            sx={{ fontSize: '0.85rem', gap: 1 }}
+            onClick={e => setConvertSubmenuAnchor(e.currentTarget)}
+          >
+            <TitleIcon sx={{ fontSize: 17 }} />다른 블록으로 변환
+          </MenuItem>
+        )}
+      </Menu>
+      <Menu anchorEl={convertSubmenuAnchor} open={!!convertSubmenuAnchor} onClose={() => setConvertSubmenuAnchor(null)}>
+        {BLOCK_CONVERT_OPTIONS.map(o => (
+          <MenuItem key={o.id} sx={{ fontSize: '0.85rem', gap: 1 }} onClick={() => convertBlock(o)}>
+            <o.Icon sx={{ fontSize: 17 }} />{o.label}
+          </MenuItem>
+        ))}
+      </Menu>
 
       {uploading > 0 && (
         <Typography fontSize="0.75rem" color="text.secondary" sx={{ mt: 0.5 }}>
