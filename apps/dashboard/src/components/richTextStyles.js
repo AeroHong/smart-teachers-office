@@ -81,4 +81,30 @@ export const RICH_TEXT_SX = {
     fontWeight: 700, color: 'primary.main', bgcolor: 'action.hover',
     px: '0.3em', borderRadius: 4,
   },
+  // 체크리스트(할 일) — data-todo가 붙은 li만 글머리 기호 대신 체크박스를 쓴다.
+  // 목록 들여쓰기(& ul, & ol의 pl:3)는 이 li에도 그대로 적용되므로 여기선 그
+  // 안에서 체크박스+글자를 가로로 배치하는 것만 신경 쓴다.
+  '& li[data-todo]': {
+    listStyle: 'none', display: 'flex', alignItems: 'flex-start', gap: '0.5em',
+    marginLeft: '-1.5em',
+  },
+  // 체크박스 자리(data-todo-check) — contenteditable="false"라 CanvasEditor.jsx가
+  // 클릭을 별도로 잡는다(글자 커서 배치와 안 섞이게). 체크 표시는 ::after로 그린다 —
+  // 실제 <input>을 안 쓰는 이유는 richText.js 주석 참고.
+  '& [data-todo-check]': {
+    display: 'inline-block', width: '1em', height: '1em', marginTop: '0.2em',
+    flexShrink: 0, borderRadius: '3px', cursor: 'pointer',
+    border: '1.5px solid', borderColor: 'text.disabled',
+    position: 'relative',
+  },
+  '& li[data-checked="true"] [data-todo-check]': {
+    bgcolor: 'primary.main', borderColor: 'primary.main',
+  },
+  '& li[data-checked="true"] [data-todo-check]::after': {
+    content: '""', position: 'absolute', left: '0.28em', top: '0.02em',
+    width: '0.32em', height: '0.55em',
+    borderRight: '2px solid #fff', borderBottom: '2px solid #fff',
+    transform: 'rotate(40deg)',
+  },
+  '& li[data-checked="true"]': { color: 'text.disabled', textDecoration: 'line-through' },
 }

@@ -42,6 +42,12 @@ const ALLOWED_ATTR = [
   // sanitizeHtml이 color 말고는 다 걸러내 못 쓴다(위 STYLE_ATTR 참고). 값 자체가
   // 아니라 몇 가지 이름(red/orange/...)만 저장해 richTextStyles.js가 색을 정한다.
   'data-callout-color',
+  // 체크리스트(할 일) 블록 — data-todo가 붙은 li는 data-checked로 완료 여부를
+  // 담는다. <input type="checkbox">를 안 쓰는 이유는 ALLOWED_TAGS에 input을
+  // 새로 늘리는 대신 이미 있는 data-* 토글 패턴(dateChips.js)과 통일하기 위해서다.
+  // data-todo-check는 li 안의 체크박스 자리(contenteditable="false")를 가리킨다 —
+  // 클릭을 감지할 별도 엘리먼트가 있어야 글자 커서 배치와 안 부딪힌다.
+  'data-todo', 'data-checked', 'data-todo-check',
 ]
 
 const STYLE_ATTR = /\sstyle="([^"]*)"/gi

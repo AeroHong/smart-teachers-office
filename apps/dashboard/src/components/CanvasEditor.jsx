@@ -35,6 +35,7 @@ import StrikethroughSIcon from '@mui/icons-material/StrikethroughS'
 import LinkIcon from '@mui/icons-material/Link'
 import FormatColorTextIcon from '@mui/icons-material/FormatColorText'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
+import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck'
 import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
@@ -61,7 +62,7 @@ const CANVAS_EXTRA_ITEMS = [
   { id: 'date', label: '날짜', hint: '리마인더 칩', keywords: 'ㄴㅉ 날짜 리마인더 date reminder', Icon: EventIcon, action: 'date' },
   { id: 'canvasRef', label: '캔버스', hint: '다른 업무 글을 카드로', keywords: 'ㅋㅂㅅ 캔버스 업무글 링크 canvas', Icon: DescriptionOutlinedIcon, action: 'canvasRef' },
   { id: 'file', label: '파일', hint: '한글·엑셀 등 첨부', keywords: 'ㅍㅇ 파일 첨부 file attach', Icon: AttachFileIcon, action: 'file' },
-  { id: 'list', label: '리스트', hint: '추후 업데이트 예정', keywords: 'ㄹㅅㅌ 리스트 체크리스트 list checklist', Icon: FormatListBulletedIcon, action: 'comingSoon' },
+  { id: 'checklist', label: '체크리스트', hint: '할 일 목록', keywords: 'ㅊㅋㄹㅅㅌ 체크리스트 할일 목록 checklist todo', Icon: PlaylistAddCheckIcon, action: 'checklist' },
 ]
 
 /** 글자색. 자유 선택기 대신 몇 가지만 둔다 — 종류가 많을수록 글이 알록달록해진다. */
@@ -231,6 +232,15 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   // 글을 열고(편집 중에도 — contenteditable="false"라 글자 편집과 안 부딪힌다),
   // 다른 곳을 누르면 다 푼다.
   const handleEditorClick = (e) => {
+    const todoCheck = e.target.closest?.('[data-todo-check]')
+    if (todoCheck) {
+      const li = todoCheck.closest('li[data-todo]')
+      if (li) {
+        li.setAttribute('data-checked', li.getAttribute('data-checked') === 'true' ? 'false' : 'true')
+        emit()
+      }
+      return
+    }
     const table = e.target.closest?.('table')
     const cardTarget = canvasRefTarget(e.target)
     if (cardTarget) {
@@ -892,6 +902,25 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     sel.addRange(range)
   }
 
+  /** 커서를 어떤 노드 바로 뒤에 둔다 — 체크리스트 항목은 맨 앞이 contenteditable="false"
+   *  체크박스라, putCaretIn처럼 "안의 맨 앞"에 두면 체크박스보다 앞이 돼버린다. */
+  const putCaretAfterNode = (node) => {
+    const sel = window.getSelection()
+    const range = document.createRange()
+    range.setStartAfter(node)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
+  /** 체크박스 하나를 만든다 — 삽입할 때와 Enter로 새 항목을 만들 때 둘 다 쓴다. */
+  const makeTodoCheck = () => {
+    const check = document.createElement('span')
+    check.setAttribute('data-todo-check', '')
+    check.setAttribute('contenteditable', 'false')
+    return check
+  }
+
   const applyHtml = (html, caret) => {
     const line = readLine()
     if (!line) return
@@ -996,6 +1025,32 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     putCaretIn(item)
   }
 
+  /** 체크리스트 — 일반 목록(applyList)과 같은 자리 계산이지만, 항목 안에 체크박스가
+   *  먼저 들어가야 해서 li를 직접 만든다. 글자가 있는 줄에서 골랐으면(다른 항목처럼
+   *  execCommand로 바로 바꿀 방법이 없어) 그 줄의 글자를 그대로 새 항목 안으로 옮긴다. */
+  const insertChecklist = () => {
+    const line = readLine()
+    if (!line) return
+
+    const list = document.createElement('ul')
+    const item = document.createElement('li')
+    item.setAttribute('data-todo', '')
+    item.setAttribute('data-checked', 'false')
+    const check = makeTodoCheck()
+    item.appendChild(check)
+
+    if (!line.isEmpty && line.block) {
+      item.append(...line.block.childNodes)
+      line.block.replaceWith(list)
+      list.appendChild(item)
+    } else {
+      item.appendChild(document.createElement('br'))
+      list.appendChild(item)
+      placeAtEmptyLine(line.block, list)
+    }
+    putCaretAfterNode(check)
+  }
+
   const applyBlock = (tag) => {
     const line = readLine()
     if (!line) return
@@ -1028,6 +1083,53 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
 
     const line = readLine()
+
+    /**
+     * 체크리스트 항목에서 Enter — 브라우저 기본 동작(li 복제)에 맡기면 체크박스
+     * (contenteditable="false")가 없는 빈 li가 생기거나, 체크된 상태(data-checked)까지
+     * 그대로 복사돼 새 항목이 이미 완료로 시작한다. 그래서 직접 만든다 — 빈 항목에서
+     * Enter면 목록을 빠져나가고(다른 목록과 같은 관례), 아니면 커서 뒤 내용을
+     * 새 항목으로 옮긴다.
+     */
+    const todoLi = line?.block?.closest('li[data-todo]')
+    if (todoLi) {
+      e.preventDefault()
+      if (!todoLi.textContent.trim()) {
+        // li를 그 자리에서 바로 <p>로 바꿀 수 없다 — 부모가 <ul>이라 <p>가 그 안에
+        // 끼면 잘못된 구조가 된다(placeAtEmptyLine의 LI 처리와 같은 이유). ul
+        // 바깥으로 꺼내고, ul이 비면 통째로 지운다.
+        const p = document.createElement('p')
+        p.appendChild(document.createElement('br'))
+        const list = todoLi.parentElement
+        todoLi.remove()
+        list.after(p)
+        if (!list.childElementCount) list.remove()
+        putCaretIn(p)
+        emit()
+        return
+      }
+
+      const sel = window.getSelection()
+      const range = sel.getRangeAt(0)
+      const afterRange = document.createRange()
+      afterRange.setStart(range.startContainer, range.startOffset)
+      afterRange.setEndAfter(todoLi.lastChild)
+      const remainder = afterRange.extractContents()
+
+      const newLi = document.createElement('li')
+      newLi.setAttribute('data-todo', '')
+      newLi.setAttribute('data-checked', 'false')
+      const check = makeTodoCheck()
+      newLi.appendChild(check)
+      if (remainder.childNodes.length > 0) newLi.appendChild(remainder)
+      else newLi.appendChild(document.createElement('br'))
+
+      todoLi.after(newLi)
+      putCaretAfterNode(check)
+      emit()
+      return
+    }
+
     const block = line?.block?.closest(EXIT_ON_ENTER)
     if (!block) return
 
@@ -1065,6 +1167,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     if (item.action === 'image') { fileInputRef.current?.click(); return }
     if (item.action === 'file') { docFileInputRef.current?.click(); return }
     if (item.action === 'table') { insertTable(); emit(); return }
+    if (item.action === 'checklist') { insertChecklist(); emit(); return }
     if (item.action === 'date') { openDatePicker(); return }
     if (item.action === 'canvasRef') {
       // MUI Menu가 접근성 때문에 포커스를 자기 쪽으로 가져간다 — 고르는 순간 편집기 선택이
@@ -1488,9 +1591,17 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             <TableChartOutlinedIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
-        <Tooltip title="리스트 (추후 업데이트 예정)">
-          <IconButton size="small" onClick={e => { e.stopPropagation(); toast.success('리스트는 다음 업데이트에서 만나요.') }}>
-            <FormatListBulletedIcon sx={{ fontSize: 18 }} />
+        <Tooltip title="체크리스트">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              editorRef.current?.focus()
+              insertChecklist()
+              emit()
+            }}
+          >
+            <PlaylistAddCheckIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
       </Box>
