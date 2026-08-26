@@ -165,3 +165,57 @@ SIDE_COLUMN_WIDTH(360px)`. 좌우 칸을 **고정폭**으로 주면 가운데(�
     `close` 핸들러), "재시작"이 실은 프로세스를 안 죽이는 숨기기→열기였다.
     electron-updater는 앱이 **완전히 종료**될 때만 설치한다. 해결: 트레이 아이콘
     우클릭 → "종료"로 진짜 종료한 뒤 다시 실행 → 적용 확인됨.
+  - **테두리 1px → 3px, UpdateBanner 버튼이 titleBarOverlay에 가려짐**: 위 색상 재구성
+    라운드에서 3단 테두리가 너무 얇아 안 보였고(`WorkspaceLayout.jsx` 1px→3px),
+    `UpdateBanner.jsx`의 새로고침·닫기 버튼이 오른쪽 위 창 조절 버튼과 겹쳐 안
+    눌렸다(`TopBar.jsx`와 같은 `pr:'138px'` 추가로 해결) ✅ 완료(2026-08-26).
+
+## 3차 피드백 — 2단 텍스트·구조 정비 + 나와의 대화 (2026-08-26)
+
+사용자가 2단(사이드바)을 콕 집어 다시 지적: "+ 아이콘이 색 문제로 안 보인다",
+"채널에 아이콘이 없다(#)", "글씨크기 통일·확대, 줄간격 확대", "채널/DM 추가
+버튼을 목록 아래로", "DM에 나와의 대화(셀프 메모) 기능을 넣자", "섹션 제목이
+접고 펼 수 있다는 게 안 보인다".
+
+- **"+" 안 보임 — 근본 원인**: `WorkspaceLayout.jsx`의 `sidebarTheme`은
+  `createTheme(outer, {palette:{mode:'dark', ...}})` 형태로 쓰는데, 이 2-인자
+  형태는 `outer.palette`(이미 완성된 밝은 팔레트)를 얕게 deepmerge만 한다 —
+  `mode`를 바꿔도 `action.active`처럼 직접 안 적은 토큰은 MUI가 다시 계산해
+  주지 않고 밝은 테마 값(거의 검정)이 그대로 남는다. 색을 안 지정한 아이콘
+  버튼(`ChannelSidebar.jsx`의 +, ⋮)은 기본색으로 `action.active`를 쓰므로
+  어두운 배경 위에서 안 보였다. `action.active`(+ disabled/disabledBackground)를
+  다크 기본값으로 명시해 해결.
+- **채널 "#" 아이콘**: `channelRow()`의 라벨을 비공개(자물쇠)뿐 아니라 공개
+  채널에도 `TagIcon`(Channels.jsx 채널 헤더에서 이미 쓰던 것과 동일)을 달도록
+  바꿈.
+- **글씨 크기·줄간격**: `sidebarUi.jsx` — 섹션 제목(`SidebarSection` label)
+  0.76rem→0.82rem, 항목(`SidebarItem` label) 0.88rem→0.9rem, 두 곳 다 줄
+  높이(`py`) 확대(0.45/0.4 → 0.55/0.6). "제목 아래 내용 텍스트가 조금
+  작아야 함"은 섹션 안이 비었을 때 뜨는 안내 문구(`SidebarEmpty`, 0.8rem)가
+  제목·항목보다 작게 유지되는 것으로 해석해 반영 — 항목 자체를 제목보다
+  작게 하면 이번 라운드 전에 이미 확보한 가독성(Slack 대비 작다던 지난 지적)이
+  후퇴하므로. **해석이 다르면 다음 라운드에서 바로 고침.**
+- **섹션 토글 신호 부재**: `SidebarSection`이 커스텀 아이콘이 있으면 꺾쇠를
+  아예 안 그려서, 접고 펼 수 있는 기능은 처음부터 있었는데(`onToggle`/`open`)
+  신호가 없었다. 커스텀 아이콘 옆에 꺾쇠를 항상 함께 그리도록 수정.
+- **추가 버튼 위치**: "새 채널"을 채널 목록(+새 섹션 버튼) 아래로, DM의 "+"
+  아이콘(헤더)을 없애고 목록 맨 아래 "새 대화 시작" 버튼으로 이동.
+- **나와의 대화(셀프 DM)**: 데이터모델은 이미 준비돼 있었다 — `channels.js`의
+  `dmTitle()`이 `memberUids`에 상대가 없으면(`[uid, uid]`) 이미 '나와의 대화'를
+  반환하게 짜여 있었다. 막힌 곳은 딱 하나, `firestore.rules`의
+  `isValidDmCreate()`가 `memberUids[0] < memberUids[1]`로 엄격 비교해 두 값이
+  같은 셀프 DM을 거부했다 — `<=`로 완화(서로 다른 두 사람 사이에서는 동작이
+  똑같아 기존 정렬 보장은 안 깨짐). `read`/`update`/`messages` 규칙은 전부
+  `uid in memberUids` 패턴이라 셀프 DM에서도 자연히 통과함을 코드 리뷰로 확인.
+  `tests/firestore.rules.test.js`에 회귀 테스트 추가(`★` 표시).
+  - **`ChannelSidebar.jsx`**: `dms`에서 `memberUids`가 전부 나인 문서를
+    `selfDm`으로 분리해 목록 맨 위에 고정 항목으로 그린다(정렬에 따라 자리가
+    흔들리면 메모장 용도로 못 씀). 아직 문서가 없으면 클릭 시 `onSelfDm`
+    (=Channels.jsx의 기존 `startDm(자기 자신)`)으로 그 자리에서 만든다.
+  - **`Channels.jsx`**: `isSelfDm` 판정 추가, 헤더 부제("둘만"→"나만")와 빈
+    대화 안내 문구(Slack의 "Notes to self" 설명을 우리 말로 각색)를 분기.
+  - **⚠️ 로컬 환경에 Java가 없어 `npm run test:rules`(Firestore 에뮬레이터)를
+    이번 세션에서 직접 돌리지 못했다** — 규칙 자체는 코드 리뷰로 안전성을
+    확인했고 회귀 테스트도 추가해 뒀지만, 이 세션이 지켜온 "규칙 변경은 테스트
+    통과 후 배포" 원칙대로 **`firestore.rules` 배포는 사용자 확인 후 진행**
+    (커밋만 하고 `firebase deploy --only firestore:rules`는 아직 안 함).
