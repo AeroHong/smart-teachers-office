@@ -1511,7 +1511,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onDragOver={e => e.preventDefault()}
         data-placeholder={placeholder}
         sx={{
-          minHeight: 320, px: { xs: 0, sm: 1 }, py: 1,
+          // 오른쪽 여백을 왼쪽보다 넉넉히 둔다 — 반응(이모지 리액션) 묶음이 블록 오른쪽
+          // 바깥(rect.right + 8, position:fixed)에 뜨는데, 본문이 칸 끝까지 꽉 차 있으면
+          // 그 자리가 없어 여백 없이 텍스트에 바짝 붙어 보인다(사용자 지적, 2026-08-26).
+          minHeight: 320, pl: { xs: 0, sm: 1 }, pr: { xs: 1, sm: 7 }, py: 1,
           fontSize: '0.95rem', lineHeight: 1.8,
           outline: 'none', bgcolor: 'background.paper',
           '&:empty::before': {
