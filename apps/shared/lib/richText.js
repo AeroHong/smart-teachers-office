@@ -35,6 +35,9 @@ const ALLOWED_ATTR = [
   // contenteditable="false"는 편집기 안에서 통째로 하나의 덩어리로 다루려는 것 —
   // 안에 글자를 따로 못 치게 막아 실수로 카드 안 내용이 깨지지 않게 한다.
   'data-date', 'data-canvas-ref', 'data-canvas-title', 'data-canvas-channel', 'contenteditable',
+  // 채널 메시지의 #채널 · @사람 인라인 조각(channelMentionChip.js) — 같은 이유로
+  // contenteditable="false"를 함께 쓴다.
+  'data-channel-ref', 'data-mention-uid', 'data-mention-name',
 ]
 
 const STYLE_ATTR = /\sstyle="([^"]*)"/gi

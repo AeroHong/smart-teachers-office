@@ -232,6 +232,13 @@ export default function Channels() {
     return uid => byUid.get(uid) || '(명단에 없음)'
   }, [members])
 
+  // 메시지 입력칸의 '@' 자동완성 — 학교 전체가 아니라 이 채널 참여자로 좁힌다
+  // (ChannelMessages.jsx).
+  const channelMembers = useMemo(() => {
+    const uids = new Set(active?.memberUids || [])
+    return members.filter(m => uids.has(m.uid))
+  }, [members, active])
+
   // 이름 중복 검사에는 보관·나간 채널까지 넣는다. 보관함에 '성적-마감'이 있는데 같은
   // 이름으로 새로 만들 수 있으면, 나중에 보관을 푸는 순간 사이드바에 같은 이름이 둘이 된다.
   const allNames = useMemo(
@@ -653,6 +660,11 @@ export default function Channels() {
                 canPost={canPost}
                 onOpenCanvas={to => navigate(to)}
                 canvases={active.posts || []}
+                // '#' 자동완성은 이 채널 목록에서 고른다(DM은 안 보여준다 — 다른 사람과의
+                // 1:1 대화를 채널 메시지에 노출하는 셈이 된다). '@'는 학교 전체가 아니라
+                // 이 채널 참여자로 좁힌다 — 없는 사람을 멘션하게 두지 않는다.
+                channels={channels}
+                members={channelMembers}
                 empty={isSelfDm ? (
                   <Box sx={{ py: 4, px: 3, textAlign: 'center' }}>
                     <Typography fontWeight={800} fontSize="0.92rem" sx={{ mb: 0.8 }}>

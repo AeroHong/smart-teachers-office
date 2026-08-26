@@ -18,12 +18,20 @@
  * 걸리지 않고 쿼리 안전성도 증명된다. requests는 채널을 가로질러 조회되고 채널 없는 글도
  * 있어서 최상위에 두고 비정규화했는데, 여기서는 그럴 필요가 없다. 의도된 비대칭이다.
  *
- * ── 본문은 평문이다 ─────────────────────────────────────────
+ * ── 본문은 서식 있는 HTML이다 (2026-08-26부터) ─────────────────
  *
- * comments.js와 같은 판단이다. 서식을 허용하면 편집기·정화기·저장 형식이 한 벌 더 늘고,
- * sanitizeHtml을 한 군데라도 빠뜨리면 그대로 XSS가 된다. 긴 내용은 업무 글(캔버스)로 쓰고
- * 메시지는 그것을 가리킨다 — refRequestId가 그 자리다.
+ * 처음엔 평문이었다(comments.js와 같은 판단 — 정화기를 새로 늘리지 않으려고). 그런데
+ * 그 정화기(richText.js의 sanitizeHtml)는 캔버스(requests.bodyHtml)·쪽지에서 이미
+ * 쓰고 있던 것이라 "한 벌 더 느는" 게 아니라 세 번째로 같이 쓰는 것이었다. Slack처럼
+ * 굵게·목록·#채널·@사람을 메시지에도 쓰고 싶다는 요청으로 bodyHtml을 추가했다.
+ *
+ * bodyHtml이 있으면 그게 진짜 내용이고, body는 htmlToText로 뽑아낸 평문 사본이다
+ * (검색·미리보기·상한 검사용 — 지금 이걸 읽는 코드는 아직 없지만 나중에 필요해질 때
+ * 다시 HTML을 파싱하지 않아도 되게 미리 채워 둔다). bodyHtml이 없는 문서는 옛 평문
+ * 메시지다 — 화면에서 body를 줄바꿈만 살려 그대로 보여준다(richText.js의 "옛 글은
+ * bodyHtml이 없다" 처리와 같은 방식).
  */
+import { htmlToText } from './richText.js'
 
 /** 메시지 본문 상한. 이보다 길어지면 업무 글로 쓸 내용이다. */
 export const MESSAGE_BODY_MAX = 2000
@@ -42,18 +50,30 @@ export const SHARE_NOTE_MAX = 200
  * authorName을 함께 저장하는 이유: 목록을 그릴 때마다 uid로 이름을 조회하면 메시지 수만큼
  * 읽기가 늘어난다. 보낸 시점의 이름을 박아두는 것은 업무 글·댓글과 같은 방식이다.
  *
+ * @param {string} [bodyHtml] 서식 있는 본문(MessageComposer.jsx). **정화는 호출부 책임이다**
+ *   (PostComposer.jsx가 캔버스에서 하는 것과 같은 자리 — sanitizeHtml은 DOMPurify가
+ *   window를 요구해 이 파일처럼 Node 테스트에서도 도는 순수 함수 안에 넣을 수 없다).
+ *   여기서는 htmlToText(순수 문자열 처리, DOM 불필요)로 평문만 뽑는다. 안 주면
+ *   (channelActions.js의 전달·알림처럼 평문만 있는 호출부) body를 그대로 쓴다.
  * @param {string} [refRequestId] 이 메시지가 가리키는 업무 글. "쪽지=포인터, 업무 글=캔버스"
  *   원칙에 따라, 긴 내용을 붙여넣는 대신 캔버스를 가리킬 때 쓴다.
+ * @param {object} [attachment] 이 메시지에 붙인 파일 — {url, name, size, kind}. 본문
+ *   HTML에 섞지 않고 캔버스 참조처럼 별도 필드로 둔다(같은 이유: 메시지를 그릴 때마다
+ *   파일을 다시 찾지 않아도 되고, 지우면 이 필드만 비운다).
  * @returns {object} Firestore에 넣을 필드 (createdAt은 호출부에서 serverTimestamp)
  */
 export function newMessagePayload({
-  authorUid, authorName = '', body,
-  refRequestId = null, refTitle = '', refChannelId = null,
+  authorUid, authorName = '', body, bodyHtml = null,
+  refRequestId = null, refTitle = '', refChannelId = null, attachment = null,
 }) {
+  const text = bodyHtml
+    ? htmlToText(bodyHtml).slice(0, MESSAGE_BODY_MAX)
+    : String(body || '').trim().slice(0, MESSAGE_BODY_MAX)
   return {
     authorUid,
     authorName,
-    body: String(body || '').trim().slice(0, MESSAGE_BODY_MAX),
+    body: text,
+    bodyHtml: bodyHtml || null,
     refRequestId: refRequestId || null,
     // 제목과 원래 채널을 함께 박아둔다. 안 그러면 메시지를 그릴 때마다 가리키는 글을
     // 하나씩 읽어야 하는데, 그 글이 다른 채널에 있으면 목록 쿼리로 묶을 수조차 없다
@@ -64,6 +84,7 @@ export function newMessagePayload({
     // 지키므로, 읽을 수 없는 사람이 링크를 눌러도 열리지 않는다.
     refTitle: refRequestId ? String(refTitle || '').trim().slice(0, 120) : '',
     refChannelId: refRequestId ? (refChannelId || null) : null,
+    attachment: attachment || null,
   }
 }
 

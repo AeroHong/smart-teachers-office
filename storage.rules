@@ -61,6 +61,19 @@ service firebase.storage {
                    && request.resource.size < 20 * 1024 * 1024;
     }
 
+    // 채널 메시지 첨부 파일. 폴더 = 메시지 문서 ID(uploadAttachment의 docId로 미리
+    // 만들어 둔 ID — MessageComposer.jsx 참고).
+    //
+    // DM 메시지도 여기 섞인다. 정확히는 "이 채널 참여자만" 읽어야 맞지만, 위 notices와
+    // 같은 이유로 Storage 규칙에서 Firestore 채널 멤버 목록을 가로질러 확인할 수 없어
+    // (firestore.get()이 이 프로젝트에서 동작하지 않음, 위 주석) 교직원 전체 읽기로
+    // 타협한다. 다운로드 토큰 URL이 규칙을 우회하는 것도 notices와 같은 한계다.
+    match /schools/{schoolId}/messages/{messageId}/{fileName} {
+      allow read: if isSuperAdmin() || isMemberOf(schoolId);
+      allow write: if (isSuperAdmin() || isStaffOf(schoolId))
+                   && request.resource.size < 20 * 1024 * 1024;
+    }
+
     // 교수학습 및 평가 운영 계획 원본(hwpx). 폴더 = evaluationPlans 문서 ID.
     // 업로드는 교직원 전체(제출 주체가 교사), 실질적인 조회 범위 통제는 Firestore
     // evaluationPlans 문서의 읽기 규칙(제출자 본인 + 업무 담당자 + 관리자)이 담당한다.

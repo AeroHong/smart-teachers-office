@@ -54,4 +54,14 @@ export const RICH_TEXT_SX = {
     bgcolor: 'action.hover',
     '&:hover': { borderColor: 'primary.light' },
   },
+  // #채널 · @사람 인라인 조각(channelMentionChip.js) — 카드가 아니라 문장 속에 섞이는
+  // 조각이라 알약보다도 더 가볍게, 굵기와 색만으로 도드라지게 한다.
+  '& [data-channel-ref]': {
+    fontWeight: 700, color: 'primary.main', cursor: 'pointer',
+    '&:hover': { textDecoration: 'underline' },
+  },
+  '& [data-mention-uid]': {
+    fontWeight: 700, color: 'primary.main', bgcolor: 'action.hover',
+    px: '0.3em', borderRadius: 4,
+  },
 }

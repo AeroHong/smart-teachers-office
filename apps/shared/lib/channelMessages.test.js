@@ -27,6 +27,31 @@ test('메시지는 앞뒤 공백을 떼고 상한에서 자른다', () => {
   )
 })
 
+test('bodyHtml이 있으면 그대로 저장하고, body는 거기서 뽑아낸 평문이다', () => {
+  // 정화(sanitizeHtml)는 호출부 책임이다 — DOMPurify가 window를 요구해 여기 넣을 수
+  // 없다(PostComposer.jsx가 캔버스에서 하는 것과 같은 자리, 위 함수 주석 참고).
+  const m = newMessagePayload({ authorUid: 'u1', bodyHtml: '<p><b>굵게</b> 안녕</p>' })
+  assert.equal(m.bodyHtml, '<p><b>굵게</b> 안녕</p>')
+  assert.equal(m.body, '굵게 안녕')
+})
+
+test('bodyHtml이 없으면 옛 방식대로 body만 평문으로 남는다', () => {
+  const m = newMessagePayload({ authorUid: 'u1', body: '안녕' })
+  assert.equal(m.bodyHtml, null)
+  assert.equal(m.body, '안녕')
+})
+
+test('bodyHtml의 상한은 태그를 뺀 실제 글자 수 기준이다', () => {
+  const html = `<p>${'x'.repeat(MESSAGE_BODY_MAX + 500)}</p>`
+  assert.equal(newMessagePayload({ authorUid: 'u1', bodyHtml: html }).body.length, MESSAGE_BODY_MAX)
+})
+
+test('첨부 파일은 refRequestId와 별개 필드다 — 둘 다 없어도 되고 둘 다 있어도 된다', () => {
+  assert.equal(newMessagePayload({ authorUid: 'u1', body: '안녕' }).attachment, null)
+  const file = { name: 'a.hwp', size: 100, path: 'p', url: 'u' }
+  assert.deepEqual(newMessagePayload({ authorUid: 'u1', body: '안녕', attachment: file }).attachment, file)
+})
+
 test('가리키는 업무 글이 없으면 null로 둔다 — undefined는 Firestore가 거부한다', () => {
   assert.equal(newMessagePayload({ authorUid: 'u1', body: '안녕' }).refRequestId, null)
   assert.equal(
