@@ -17,6 +17,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -102,6 +103,18 @@ const BLOCK_CONVERT_OPTIONS = [
 
 /** 변환 메뉴 자체를 보여줄지 — 표·이미지가 든 문단·콜아웃·구분선·상세는 대상 밖. */
 const CONVERTIBLE_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'BLOCKQUOTE'])
+
+/** 콜아웃 배경색 — TEXT_COLORS처럼 몇 가지만 둔다. null(기본)이 richTextStyles.js의
+ *  기본 회색이다. */
+const CALLOUT_COLORS = [
+  { id: null, label: '기본', swatch: '#e5e7eb' },
+  { id: 'red', label: '빨강', swatch: '#fdecea' },
+  { id: 'orange', label: '주황', swatch: '#fff3e0' },
+  { id: 'yellow', label: '노랑', swatch: '#fffde7' },
+  { id: 'green', label: '초록', swatch: '#e8f5e9' },
+  { id: 'blue', label: '파랑', swatch: '#e3f2fd' },
+  { id: 'purple', label: '보라', swatch: '#f3e5f5' },
+]
 
 /**
  * 제목을 이 컴포넌트 안에서 그린다(2026-08-26부터) — 예전엔 부모(PostComposer)가
@@ -679,6 +692,17 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     emit()
   }
 
+  /** 콜아웃 배경색 — data-callout-color만 바꾼다(richTextStyles.js가 실제 색을 정한다). */
+  const setCalloutColor = (colorId) => {
+    const el = blockMenu?.el
+    if (!el) return
+    if (colorId) el.setAttribute('data-callout-color', colorId)
+    else el.removeAttribute('data-callout-color')
+    closeBlockMenu()
+    setHoveredBlock(null)
+    emit()
+  }
+
   /**
    * 손잡이 pointerdown — 살짝 누르기만 하면(움직임이 거의 없으면) 클릭으로 보고
    * 메뉴를 연다. 일정 거리 이상 끌면 드래그로 보고 재배치 모드로 들어간다. 같은
@@ -1062,10 +1086,17 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     emit()
   }
 
+  /**
+   * 우클릭 — 예전엔 '/'와 같은 삽입 메뉴가 떴는데, 새 블록을 끼우는 것과 "지금 고른
+   * 블록에 뭔가를 한다"는 서로 다른 일이다(사용자 지적, 2026-08-26). 이제 손잡이
+   * (⋮⋮) 클릭과 같은 blockMenu를 연다 — 우클릭한 자리(y좌표)의 블록을 찾아서.
+   */
   const handleContextMenu = (e) => {
     e.preventDefault()
     setSlash(null)
-    setMenuRect({ top: e.clientY, bottom: e.clientY, left: e.clientX, right: e.clientX, width: 0, height: 0 })
+    const block = findTopBlockAtY(e.clientY)
+    if (!block) return
+    setBlockMenu({ el: block, anchor: { top: e.clientY, left: e.clientX } })
   }
 
   useEffect(() => {
@@ -1345,8 +1376,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         }} />
       )}
 
-      {/* 블록 메뉴 — 삭제·복제·변환. 변환은 문단·제목·목록·인용류일 때만 보여준다
-          (표·이미지·콜아웃·구분선에는 뜻이 없다). */}
+      {/* 블록 메뉴 — 우클릭과 손잡이(⋮⋮) 클릭이 같이 쓴다(사용자 요청, 2026-08-26 —
+          "지금 고른 블록에 뭔가를 한다"는 하나의 메뉴). 삭제·복제는 항상, 변환은
+          문단·제목·목록·인용류일 때만(표·이미지·콜아웃·구분선에는 뜻이 없다),
+          배경색은 콜아웃일 때만 보여준다. */}
       <Menu anchorReference="anchorPosition" anchorPosition={blockMenu?.anchor} open={!!blockMenu} onClose={closeBlockMenu}>
         <MenuItem sx={{ fontSize: '0.85rem', gap: 1 }} onClick={duplicateBlock}>
           <ContentCopyIcon sx={{ fontSize: 17 }} />복제
@@ -1362,6 +1395,26 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             <TitleIcon sx={{ fontSize: 17 }} />다른 블록으로 변환
           </MenuItem>
         )}
+        {blockMenu?.el?.tagName === 'ASIDE' && [
+          <Divider key="d" sx={{ my: 0.5 }} />,
+          <Typography key="l" sx={{ px: 2, py: 0.3, fontSize: '0.7rem', fontWeight: 800, color: 'text.disabled' }}>
+            배경 색상
+          </Typography>,
+          <Box key="swatches" sx={{ display: 'flex', gap: 0.6, px: 2, py: 0.5 }}>
+            {CALLOUT_COLORS.map(c => (
+              <Tooltip key={c.id || 'default'} title={c.label}>
+                <Box
+                  onClick={() => setCalloutColor(c.id)}
+                  sx={{
+                    width: 20, height: 20, borderRadius: '50%', cursor: 'pointer',
+                    bgcolor: c.swatch, border: '1px solid', borderColor: 'divider',
+                    '&:hover': { boxShadow: theme => `0 0 0 2px ${theme.palette.primary.main}` },
+                  }}
+                />
+              </Tooltip>
+            ))}
+          </Box>,
+        ]}
       </Menu>
       <Menu anchorEl={convertSubmenuAnchor} open={!!convertSubmenuAnchor} onClose={() => setConvertSubmenuAnchor(null)}>
         {BLOCK_CONVERT_OPTIONS.map(o => (

@@ -34,6 +34,15 @@ export const RICH_TEXT_SX = {
   // 넣으면 제목의 위 여백 때문에 상자가 위아래로 벌어져 보이기 때문이다.
   '& aside > *': { marginTop: 0, marginBottom: 0 },
   '& aside > * + *': { marginTop: '0.45em' },
+  // 콜아웃 배경색(우클릭 메뉴, CanvasEditor.jsx의 CALLOUT_COLORS) — data-callout-color
+  // 값별로 색만 바꿔친다. style의 background-color는 저장 시 걸러지므로(richText.js)
+  // data-* 이름표 방식을 쓴다.
+  '& aside[data-callout-color="red"]': { bgcolor: '#fdecea', borderColor: '#e57373' },
+  '& aside[data-callout-color="orange"]': { bgcolor: '#fff3e0', borderColor: '#ffb74d' },
+  '& aside[data-callout-color="yellow"]': { bgcolor: '#fffde7', borderColor: '#fdd835' },
+  '& aside[data-callout-color="green"]': { bgcolor: '#e8f5e9', borderColor: '#81c784' },
+  '& aside[data-callout-color="blue"]': { bgcolor: '#e3f2fd', borderColor: '#64b5f6' },
+  '& aside[data-callout-color="purple"]': { bgcolor: '#f3e5f5', borderColor: '#ba68c8' },
   // 표 — sanitizeHtml이 style 중 color만 남기므로(richText.js) 테두리·간격은 여기서
   // 태그 선택자로 준다. inline style로 넣으면 저장하는 순간 지워진다.
   // tableLayout:'fixed' — 칸 너비를 첫 행의 width 속성이 정하게 한다(칸 너비

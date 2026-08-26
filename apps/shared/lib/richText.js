@@ -38,6 +38,10 @@ const ALLOWED_ATTR = [
   // 채널 메시지의 #채널 · @사람 인라인 조각(channelMentionChip.js) — 같은 이유로
   // contenteditable="false"를 함께 쓴다.
   'data-channel-ref', 'data-mention-uid', 'data-mention-name',
+  // 콜아웃 배경색(CanvasEditor.jsx의 우클릭 메뉴) — style의 background-color는
+  // sanitizeHtml이 color 말고는 다 걸러내 못 쓴다(위 STYLE_ATTR 참고). 값 자체가
+  // 아니라 몇 가지 이름(red/orange/...)만 저장해 richTextStyles.js가 색을 정한다.
+  'data-callout-color',
 ]
 
 const STYLE_ATTR = /\sstyle="([^"]*)"/gi
