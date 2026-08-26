@@ -546,19 +546,29 @@ const CanvasEditor = forwardRef(function CanvasEditor({
 
   // ── 블록 손잡이(⋮⋮) — 호버·메뉴·드래그 재배치 ──────────────────────────
   //
-  // "블록"은 에디터의 직계 자식이다. 콜아웃(aside) 안에는 문단이 한 겹 더 있는데
-  // (SlashMenu.jsx의 callout html 참고), 그 안쪽 문단에 마우스를 올려도 손잡이는
-  // 콜아웃 전체에 떠야 한다. e.target 히트테스트 대신 **커서의 y좌표가 어느 직계
-  // 자식의 세로 범위 안에 있는지**로 찾는다 — 왼쪽·오른쪽 여백(패딩)에 마우스가
-  // 있으면 e.target이 편집기 루트 자신이 되어(자식 엘리먼트가 거기까지 안 넓혀져
-  // 있어서) 블록을 못 찾았다(사용자 지적, 2026-08-26) — 그 줄의 세로 범위 안이면
-  // 가로 위치와 무관하게 잡히게 한다.
+  // "블록"은 기본적으로 에디터의 직계 자식이다. e.target 히트테스트 대신 **커서의
+  // y좌표가 어느 직계 자식의 세로 범위 안에 있는지**로 찾는다 — 왼쪽·오른쪽
+  // 여백(패딩)에 마우스가 있으면 e.target이 편집기 루트 자신이 되어(자식
+  // 엘리먼트가 거기까지 안 넓혀져 있어서) 블록을 못 찾았다(사용자 지적,
+  // 2026-08-26) — 그 줄의 세로 범위 안이면 가로 위치와 무관하게 잡히게 한다.
+  //
+  // 콜아웃·인용문 "안"에 든 블록은 한 단 더 들어가서 찾는다 — 안 그러면 드래그로
+  // 그 안에 넣은 블록을 다시 꺼낼 손잡이가 아예 안 뜬다(사용자 지적, 2026-08-26).
+  // 두 단계까지만 본다 — 컨테이너 안에 또 컨테이너를 넣는 것까지는 다루지 않는다.
+  const CONTAINER_TAGS = ['ASIDE', 'BLOCKQUOTE']
   const findTopBlockAtY = useCallback((y) => {
     const el = editorRef.current
     if (!el) return null
     for (const child of el.children) {
       const r = child.getBoundingClientRect()
-      if (y >= r.top && y <= r.bottom) return child
+      if (y < r.top || y > r.bottom) continue
+      if (CONTAINER_TAGS.includes(child.tagName)) {
+        for (const inner of child.children) {
+          const ir = inner.getBoundingClientRect()
+          if (y >= ir.top && y <= ir.bottom) return inner
+        }
+      }
+      return child
     }
     return null
   }, [])
@@ -729,7 +739,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     const startX = e.clientX
     const startY = e.clientY
     const anchorPos = { top: startY + 8, left: startX + 8 }
-    const siblings = [...el.children]
+    // 콜아웃·인용문 "안"에서 시작한 드래그면, 지금 부모(homeParent)가 컨테이너다.
+    // 커서가 그 컨테이너 밖으로 나가는 순간 최상위 기준으로 다시 계산해 "꺼내기"가
+    // 되게 한다(사용자 지적, 2026-08-26 — 넣은 걸 다시 못 뺐다).
+    const homeParent = block.parentElement
+    const isNested = homeParent !== el
     let moved = false
 
     const onMove = (ev) => {
@@ -737,6 +751,19 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         if (Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return
         moved = true
       }
+
+      let referenceParent = homeParent
+      if (isNested) {
+        const homeRect = homeParent.getBoundingClientRect()
+        const escaped = ev.clientY < homeRect.top - 6 || ev.clientY > homeRect.bottom + 6
+        referenceParent = escaped ? el : homeParent
+      }
+      const siblings = [...referenceParent.children]
+      // 컨테이너 "안"으로 들여보내는 것(dropInto)은 최상위에서 재배치 중일 때만
+      // 판단한다 — 컨테이너 안에서 또 다른 컨테이너로 들어가는 이중 중첩은
+      // 다루지 않는다(범위 밖).
+      const canDropInto = referenceParent === el
+
       // 콜아웃·인용문 위 가운데(위아래 25%씩은 빼고)에서 놓으면 형제로 끼우는 게
       // 아니라 그 블록 "안"으로 들어간다(사용자 요청, 2026-08-26 — 체크리스트나
       // 문단을 콜아웃/인용문 안에 넣고 싶다는 것). 가장자리는 그대로 형제 재배치로
@@ -747,7 +774,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       for (const sib of siblings) {
         if (sib === block) continue
         const r = sib.getBoundingClientRect()
-        const isContainer = sib.tagName === 'ASIDE' || sib.tagName === 'BLOCKQUOTE'
+        const isContainer = canDropInto && (sib.tagName === 'ASIDE' || sib.tagName === 'BLOCKQUOTE')
         if (isContainer && ev.clientY >= r.top + r.height * 0.25 && ev.clientY <= r.bottom - r.height * 0.25) {
           dropInto = sib
           break
@@ -758,7 +785,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         const last = siblings[siblings.length - 1]
         indicatorTop = (last === block ? block : last).getBoundingClientRect().bottom
       }
-      setBlockDrag({ dropInto, insertBeforeEl, indicatorTop })
+      setBlockDrag({ dropInto, insertBeforeEl, indicatorTop, referenceParent })
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
@@ -766,9 +793,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       if (moved) {
         setBlockDrag(prev => {
           if (prev) {
+            const target = prev.referenceParent || el
             if (prev.dropInto) prev.dropInto.appendChild(block)
-            else if (prev.insertBeforeEl) el.insertBefore(block, prev.insertBeforeEl)
-            else el.appendChild(block)
+            else if (prev.insertBeforeEl) target.insertBefore(block, prev.insertBeforeEl)
+            else target.appendChild(block)
             emit()
           }
           return null
@@ -1493,10 +1521,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           zIndex: 1300, pointerEvents: 'none',
         }} />
       ) : blockDrag && (
+        // 컨테이너 안에서 재배치 중이면 그 컨테이너 폭만큼만, 아니면 편집기 전체 폭.
         <Box sx={{
           position: 'fixed', top: blockDrag.indicatorTop - 1,
-          left: (editorRef.current?.getBoundingClientRect().left ?? 0),
-          width: editorRef.current?.getBoundingClientRect().width ?? 0,
+          left: (blockDrag.referenceParent ?? editorRef.current)?.getBoundingClientRect().left ?? 0,
+          width: (blockDrag.referenceParent ?? editorRef.current)?.getBoundingClientRect().width ?? 0,
           height: 2, bgcolor: 'primary.main', zIndex: 1300, pointerEvents: 'none',
           borderRadius: 1,
         }} />
