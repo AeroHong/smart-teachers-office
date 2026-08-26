@@ -1563,6 +1563,12 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       {hoveredBlock && !menuRect && !slash
         && !blockReactions[hoveredBlock.el.getAttribute('data-block-id')] && (
         <Box
+          // data-block-handle — ⋮⋮ 손잡이와 같은 표식. handleEditorMouseMove가 이걸 보면
+          // 재배정을 멈춘다(아래 주석). 이게 없으면 단추 쪽으로 마우스를 살짝만 내려도
+          // (블록 아래쪽 여백을 지나며) findTopBlockAtY가 다음 블록을 찾아버려 hoveredBlock이
+          // 바뀌고, 단추가 그 블록 자리로 튀어 커서를 피해 도망가 버렸다(사용자 확인,
+          // 2026-08-26 — "마우스커서를 살짝 내리면 아래 줄로 넘어가 버리네").
+          data-block-handle="true"
           sx={{ position: 'fixed', top: hoveredBlock.rect.top, left: hoveredBlock.rect.right + 8, zIndex: 1200 }}
           onMouseEnter={cancelHoverClear}
           onMouseLeave={scheduleHoverClear}
@@ -1579,9 +1585,16 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       )}
 
       {/* 이미 반응이 하나라도 달린 블록은 호버와 무관하게 늘 알약 줄을 보여준다 — 손잡이처럼
-          호버해야만 보이면 "이 글에 누가 반응을 남겼다"는 걸 훑어보기 어렵다. */}
+          호버해야만 보이면 "이 글에 누가 반응을 남겼다"는 걸 훑어보기 어렵다. 이 줄도
+          data-block-handle을 달아 위와 같은 이유로 마우스가 위에 있는 동안은 hoveredBlock이
+          안 바뀌게 한다(이 줄 자체는 hoveredBlock에 안 매여 있어 튀지는 않지만, 마우스가
+          여기 있는 동안 손잡이·다른 블록의 반응 단추가 엉뚱하게 뜨는 걸 막는다). */}
       {reactionRects.map(({ blockId, rect }) => (
-        <Box key={blockId} sx={{ position: 'fixed', top: rect.top, left: rect.right + 8, zIndex: 1150 }}>
+        <Box
+          key={blockId} data-block-handle="true"
+          onMouseEnter={cancelHoverClear} onMouseLeave={scheduleHoverClear}
+          sx={{ position: 'fixed', top: rect.top, left: rect.right + 8, zIndex: 1150 }}
+        >
           <BlockReactionRow
             data={blockReactions[blockId]}
             uid={reactionUid}
