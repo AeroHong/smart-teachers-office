@@ -1,0 +1,81 @@
+# 캔버스 에디터 — 노션 스타일 블록 편집
+
+## Context
+
+캔버스 편집기(`CanvasEditor.jsx`)는 지금까지 "문단을 통째로 입력하는 일반
+편집기"에 가까웠다 — 텍스트를 드래그로 고르면 서식 버블이 뜨고 `/`나 하단
+알약 `+`로 블록을 끼워 넣을 수 있었지만, 문단 하나하나를 독립된 단위로
+다루는 기능(호버 손잡이, 손잡이로 순서 바꾸기, 삭제·복제·변환)은 없었다.
+사용자가 노션·Slack 캔버스를 보여주며 "완전 업데이트"를 요청(2026-08-26,
+본인 표현 "프로그램의 디테일을 결정하는 결정적인 업데이트").
+
+여러 차례 질문으로 범위를 4단계로 확정(자세한 조사 근거는 Claude Code
+plan 파일 히스토리 참고, 요약만 아래):
+
+- 블록 메뉴: 삭제·복제·변환 (색상/배경은 없음)
+- 기존 "텍스트 드래그 선택 → 서식 버블"은 그대로 유지, 완전히 별개 기능
+- 체크리스트(할 일) 블록도 같이
+- 손잡이 영역 오른쪽에 반응(이모지 리액션)
+- 블록 댓글 — 3단 오른쪽 사이드바, 입력은 MessageComposer.jsx 재사용
+
+## 재사용한 기존 패턴
+
+- `picked`/`measure()`/`clipRect()`(이미지 리사이즈 손잡이) — "떠 있는 요소를
+  특정 DOM 노드 rect에 고정, scroll/resize에 재측정"하는 패턴을 블록 손잡이에도
+  그대로 씀.
+- `startResize`의 포인터 기반 드래그(`pointermove`/`pointerup`, HTML5
+  Drag-and-Drop API 안 씀 — contentEditable 안에서 텍스트 선택 드래그와
+  충돌 위험).
+- `applyBlock`/`applyList`의 태그 집합 — 다만 커서 위치(`readLine()`) 대신
+  손잡이로 고른 블록을 직접 받는 새 버전(`convertBlock`)을 씀.
+- `PostComments.jsx`/`apps/shared/lib/comments.js`(`requests/{id}/comments`) —
+  블록 댓글은 이 시스템을 `blockId` 필드로 확장(Phase 4).
+- `richText.js`의 `data-*` 허용 속성 패턴(dateChips.js·canvasRefCard.js·
+  channelMentionChip.js와 같은 자리) — 체크리스트·블록 ID도 여기 추가.
+
+## Phase 1 — 블록 호버 손잡이 + 메뉴(삭제·복제·변환) + 드래그 재배치 ✅ 완료(2026-08-26)
+
+- **대상**: 에디터 직계 자식만(목록 항목 개별 드래그는 범위 밖).
+- **호버 감지**: `findTopBlock()` — 태그 선택자가 아니라 "부모가 정확히
+  에디터 루트인 조상까지 거슬러 올라가는" 방식. 콜아웃(aside) 안에 문단이
+  한 겹 더 있어서(SlashMenu.jsx의 callout html) 태그 선택자로는 안쪽 문단이
+  잡혀버린다.
+- **손잡이**: `⋮⋮`(DragIndicatorIcon) — `hoveredBlock.rect` 왼쪽에 고정.
+- **클릭 vs 드래그 구분**: `handleHandlePointerDown`에서 4px 이상 움직이면
+  드래그, 아니면 클릭(메뉴).
+- **메뉴**: 복제(`cloneNode` + `after`) · 삭제(`remove`) · 변환(문단·제목
+  3단계·목록 2종·인용만, `CONVERTIBLE_TAGS`로 표·이미지·콜아웃·구분선은
+  변환 항목 자체를 숨김).
+- **드래그**: 형제 rect 중간값과 커서 y좌표를 비교해 삽입 위치 계산, 얇은
+  파란 선으로 표시, `pointerup`에서 실제 `insertBefore`/`appendChild`.
+- 배포 완료(`hosting:dashboard`). 브라우저 로그인이 안 돼 직접 클릭 검증은
+  못 함 — 코드 리뷰로 안전성 확인 후 배포, 사용자가 실사용 확인 예정.
+
+## Phase 2 — 체크리스트(할 일) 블록 (예정)
+
+`CANVAS_EXTRA_ITEMS`의 "리스트"(지금 `action:'comingSoon'`)를 실제 구현.
+`<li data-todo data-checked="false">` + `richTextStyles.js` CSS로 체크
+표시, 클릭 시 `data-checked` 토글. `<input type="checkbox">` 대신 `data-*`를
+쓰는 이유는 `ALLOWED_TAGS`에 `input`을 새로 안 늘리려는 것.
+
+## Phase 3 — 블록 ID + 반응(이모지 리액션) (예정)
+
+`data-block-id` 부여(반응을 처음 누를 때만, 없으면 그때 생성해 즉시 저장).
+`requests/{id}/blockReactions/{blockId}` 서브컬렉션, `{[emoji]: [uid,...]}`,
+`arrayUnion`/`arrayRemove`로 토글. **자동저장(PostComposer 700ms 디바운스)과
+같은 문서에 안 넣는 이유**: 다른 사람의 반응 클릭과 글쓴이의 자동저장이
+같은 문서에서 겹치면 서로 덮어쓴다 — 댓글과 같은 이유로 서브컬렉션 분리.
+
+## Phase 4 — 블록 댓글(3단 오른쪽 사이드바) (예정)
+
+`comments.js`의 `newCommentPayload`에 `blockId=null` 추가(전체 댓글은
+`null` 유지, 컬렉션은 하나). 입력창은 `MessageComposer.jsx` 재사용(사용자
+명시 요청) — `bodyHtml` 확장은 채널 메시지 때와 같은 패턴
+(`channelMessages.js` 참고). 패널은 `Channels.jsx`가 `WorkspaceLayout`의
+`children` 영역 안에서 캔버스 옆에 조건부로 그리는 4번째 칸(320px 안팎).
+
+## 이번 계획에서 안 하는 것
+
+- 목록 항목(li) 개별 드래그, 블록 배경색.
+- 읽기 화면(PostDetail)에서 체크리스트 토글(편집 중에만).
+- 반응·댓글 알림(데스크톱 알림 연동) — 다음 라운드.
