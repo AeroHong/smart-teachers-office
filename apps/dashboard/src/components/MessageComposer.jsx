@@ -167,7 +167,64 @@ export default function MessageComposer({
     onSubmit()
   }
 
+  /** 지금 커서가 들어있는 li — 글머리 기호·번호 목록 안에서 Shift+Enter를 다룰 때 쓴다. */
+  const currentListItem = () => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return null
+    let node = sel.anchorNode
+    if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement
+    const li = node?.closest?.('li')
+    return li && editorRef.current?.contains(li) ? li : null
+  }
+
+  /** 항목 안 커서 위치에서 잘라 새 항목을 만든다 — Enter=보내기라 목록 안에서는 새 줄이
+   *  Shift+Enter로 들어오는데, 브라우저 기본 Shift+Enter는 항목 하나 안에 <br>만 넣어
+   *  글머리 기호·번호가 안 이어진다. 일반 에디터의 Enter-목록-안 동작을 여기서 직접
+   *  만든다(CanvasEditor.jsx 체크리스트의 Enter 분리와 같은 방식). */
+  const splitListItem = (li) => {
+    const sel = window.getSelection()
+    const range = sel.getRangeAt(0)
+    const afterRange = document.createRange()
+    afterRange.setStart(range.startContainer, range.startOffset)
+    afterRange.setEndAfter(li.lastChild)
+    const remainder = afterRange.extractContents()
+    if (!li.hasChildNodes()) li.appendChild(document.createElement('br'))
+    const newLi = document.createElement('li')
+    newLi.appendChild(remainder)
+    if (!newLi.hasChildNodes()) newLi.appendChild(document.createElement('br'))
+    li.after(newLi)
+    const r = document.createRange()
+    r.setStart(newLi, 0)
+    r.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(r)
+  }
+
+  /** 빈 항목에서 Shift+Enter — 목록을 끝내고 그 자리에서 평범한 줄로 이어 쓴다. */
+  const exitListItem = (li) => {
+    const list = li.parentElement
+    li.remove()
+    const br = document.createElement('br')
+    list.after(br)
+    if (!list.childElementCount) list.remove()
+    const r = document.createRange()
+    r.setStartBefore(br)
+    r.collapse(true)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(r)
+  }
+
   const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && e.shiftKey && !e.nativeEvent.isComposing) {
+      const li = currentListItem()
+      if (!li) return   // 목록 밖의 Shift+Enter는 기본 동작(줄바꿈)에 맡긴다
+      e.preventDefault()
+      if (li.textContent.trim()) splitListItem(li)
+      else exitListItem(li)
+      emit()
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !trigger) {
       e.preventDefault()
       submit()
