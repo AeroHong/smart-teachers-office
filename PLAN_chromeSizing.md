@@ -261,3 +261,29 @@ Pantone 팔레트(Cloud Dancer 등 8색) 중 **Cloud Dancer(11-4201, 오프화�
   라운드에.
 - Pantone 실제 hex는 화면 캡처로 눈대중 근사값을 썼다(#f0eee4 등) — 실물
   화면에서 보고 톤이 다르면 다음 라운드에서 조정.
+
+## 5차 — 인디고 전면 금지 (2026-08-26)
+
+"2·3단 크롬만"으로 범위를 확정했던 것과 달리, 사용자가 이어서 "인디고 색상도
+바꿔줘, 앱 전체에서 인디고 금지"로 범위를 명시적으로 앱 전체로 확장. 이번엔
+질문 없이 바로 진행(직전 라운드에서 이미 좁은 범위 vs 전체 범위를 물어봤고,
+이번 발화가 그 답이라 다시 물을 이유가 없었음).
+
+- `apps/shared/theme.js`의 전역 `primary`를 Pantone **18-4218 Blue Fusion**
+  (#3d5872, 짙은 슬레이트 블루)으로 교체 — Cloud Dancer와 같은 팔레트에서
+  고른 짝. `light/dark/contrastText`도 같이 재정의.
+- theme.js 토큰을 안 쓰고 화면마다 직접 박아넣은 인디고 hex(#4f46e5/#6366f1,
+  파생 tint #eef2ff/#f5f4ff, 테두리 #c7d2fe/#a5b4fc, `rgba(79,70,229,*)`
+  그림자까지)를 apps/portal 15개 파일 + apps/kiosk/CallInput.jsx +
+  apps/shared/DeskIcon.jsx에서 전부 교체. **`apps/portal`(출결·연수·관리자
+  등, 이번 세션에서 처음 손댄 영역)** 스윕은 fork 에이전트에게 맡기고
+  (`npm test`+`npm run build`+`build:kiosk` 통과 확인 후) 결과를 diff로
+  직접 검수 — fork가 못 잡은 `rgba(79,70,229,*)` 그림자·`#6366f1`/`#f5f4ff`/
+  `#a5b4fc` 변형은 재검수 중 발견해 직접 마저 고쳤다.
+- **의도적으로 안 건드림**: 관리자 모드 강조색(Layout.jsx `/admin` 링크,
+  EvalPlan `ACCENT`)에 쓰인 보라(violet) 계열(#ddd6fe/#ede9fe/#7c3aed 등) —
+  인디고와 다른 별개의 의도된 보조색. `apps/*/public/favicon.svg` 3개(앱
+  아이콘 그래픽 자체, 색 배열 바꾸는 건 더 큰 브랜드 결정) — **사용자
+  확인 필요, 아직 안 물어봄**.
+- 대시보드·포털·키오스크 전부 배포 완료(`hosting:dashboard`,
+  `hosting:seonyoo,smart-school`, `hosting:kiosk`).
