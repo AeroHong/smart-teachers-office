@@ -87,12 +87,18 @@ plan 파일 히스토리 참고, 요약만 아래):
 - 블록 손잡이는 원래 아이콘(⋮⋮) 유지, 표 안 행·열 손잡이만 회색 막대
   디자인으로 분리.
 
-## Phase 2 — 체크리스트(할 일) 블록 (예정)
+## Phase 2 — 체크리스트(할 일) 블록 ✅ 완료(2026-08-26)
 
-`CANVAS_EXTRA_ITEMS`의 "리스트"(지금 `action:'comingSoon'`)를 실제 구현.
-`<li data-todo data-checked="false">` + `richTextStyles.js` CSS로 체크
-표시, 클릭 시 `data-checked` 토글. `<input type="checkbox">` 대신 `data-*`를
-쓰는 이유는 `ALLOWED_TAGS`에 `input`을 새로 안 늘리려는 것.
+`CANVAS_EXTRA_ITEMS`의 "리스트"(`action:'comingSoon'` 스텁)를 실제 구현 —
+`/`·`+` 알약·하단 리스트 아이콘 세 경로 모두 `insertChecklist()`로 연결.
+`<li data-todo data-checked="false"><span data-todo-check
+contenteditable="false"></span>...</li>` + `richTextStyles.js` CSS로 체크
+표시(`::after`), 클릭 시 `data-checked` 토글(`handleEditorClick` 우선 분기).
+`<input type="checkbox">` 대신 `data-*`를 쓴 이유는 `ALLOWED_TAGS`에 `input`을
+새로 안 늘리고 기존 토글 패턴(dateChips.js)과 통일하려는 것. Enter 키를
+가로채 새 항목을 직접 구성(브라우저 기본 li 복제는 체크박스 누락·완료 상태
+복사 문제) — 빈 항목에서 Enter는 목록을 빠져나감. 읽기 화면(PostDetail)에서
+클릭해 체크하는 것은 이번 범위 밖(편집 중에만).
 
 ## Phase 3 — 블록 ID + 반응(이모지 리액션) (예정)
 
