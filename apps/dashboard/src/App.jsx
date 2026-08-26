@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from '@shared/components/ProtectedRoute'
 import ToastProvider from './components/ToastProvider'
+import ProfileCardProvider from './components/ProfileCardProvider'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import DesktopNotifications from './components/DesktopNotifications'
@@ -22,6 +23,8 @@ export default function App() {
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       {/* 저장·전송 실패를 어느 화면에서든 같은 방식으로 알린다 */}
       <ToastProvider>
+      {/* 동료 프로필 카드 — 어느 화면에서든 useProfileCard().open(uid, anchorEl)로 띄운다 */}
+      <ProfileCardProvider>
         {/* Cmd/Ctrl+K — 어느 화면에서든 뜨도록 라우트 바깥에 둔다 */}
         <CommandPalette />
         {/* Electron 트레이 알림 — window.smartOfficeDesktop 없으면 완전히 no-op */}
@@ -86,6 +89,7 @@ export default function App() {
           <Route path="/calls" element={<Navigate to="/" replace />} />
         </Routes>
         </ErrorBoundary>
+      </ProfileCardProvider>
       </ToastProvider>
     </BrowserRouter>
   )

@@ -32,3 +32,11 @@ export function channelMentionTarget(el) {
   if (!node) return null
   return `/channels/${node.getAttribute('data-channel-ref')}`
 }
+
+/** @사람 조각을 클릭했을 때의 uid. 조각이 아니면 null(프로필 카드를 여는 자리 —
+ *  ChannelMessages.jsx·PostComments.jsx 참고). */
+export function userMentionTarget(el) {
+  const node = el?.closest?.('[data-mention-uid]')
+  if (!node) return null
+  return node.getAttribute('data-mention-uid')
+}

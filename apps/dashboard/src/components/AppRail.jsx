@@ -23,6 +23,7 @@ import { isDoneBy } from '@shared/lib/workRequests'
 import { portalLink } from '../lib/portalUrl'
 import useUnreadNotices from '../lib/useUnreadNotices'
 import useMyRequests from '../lib/useMyRequests'
+import PersonAvatar from './PersonAvatar'
 
 const RAIL_WIDTH = 64
 
@@ -78,7 +79,7 @@ function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
 }
 
 export default function AppRail() {
-  const { user, userName, logout, isAdmin } = useAuth()
+  const { user, userName, photoURL, logout, isAdmin } = useAuth()
   const { pathname } = useLocation()
   const unreadNotices = useUnreadNotices()
   const myRequests = useMyRequests()
@@ -149,12 +150,16 @@ export default function AppRail() {
       <Box sx={{ flexGrow: 1 }} />
 
       <RailButton icon={LaunchIcon} label="포털" href={portalLink('/')} />
+      {/* 내 프로필 사진 — 누르면 구성원 화면(사진 바꾸기가 거기 있다)으로 이동한다.
+          위에 이미 "구성원" 아이콘이 있지만, 여기는 Slack처럼 "내 사진을 누르면 나"라는
+          익숙한 자리를 하나 더 두는 것뿐이다. */}
       <Tooltip title={userName || ''} placement="right">
-        <Box sx={{ width: 30, height: 30, my: 0.6, borderRadius: '50%',
-          bgcolor: 'primary.main', color: 'primary.contrastText',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '0.8rem', fontWeight: 700, cursor: 'default' }}>
-          {(userName || '?').trim().slice(-2)}
+        <Box
+          component={Link} to="/members"
+          sx={{ my: 0.6, display: 'flex', borderRadius: '50%' }}
+          aria-label="내 프로필"
+        >
+          <PersonAvatar name={userName} photoURL={photoURL} size={30} />
         </Box>
       </Tooltip>
       <RailButton icon={LogoutIcon} label="로그아웃" onClick={logout} />

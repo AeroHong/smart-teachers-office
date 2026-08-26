@@ -80,6 +80,7 @@ export function buildTargetMembers({ users = [], assignments = [], teacherSubjec
     return {
       uid: u.uid,
       name: u.name || '(이름 없음)',
+      photoURL: u.photoURL || null,
       office: (a.office || '').trim(),
       department: (a.department || '').trim(),
       subject: (a.subject || '').trim(),

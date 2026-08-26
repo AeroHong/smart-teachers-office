@@ -35,11 +35,13 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { canDeleteComment, commentsForBlock, newCommentPayload, sortComments, validateComment } from '@shared/lib/comments'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
+import { userMentionTarget } from '@shared/lib/channelMentionChip'
 import { ListSkeleton } from './widgetUi'
 import { useToast } from './ToastProvider'
 import { formatRelative } from '../lib/formatTime'
 import MessageComposer from './MessageComposer'
 import { RICH_TEXT_SX } from './richTextStyles'
+import { useProfileCard } from './ProfileCardProvider'
 
 export default function PostComments({
   requestId, blockId = null, members = [], channels = [],
@@ -48,6 +50,7 @@ export default function PostComments({
 }) {
   const { user, userName, schoolId, isAdmin } = useAuth()
   const toast = useToast()
+  const { open: openProfile } = useProfileCard()
 
   const [comments, setComments] = useState([])
   const [loaded, setLoaded] = useState(false)
@@ -133,7 +136,15 @@ export default function PostComments({
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, mb: 0.3 }}>
-            <Typography fontSize="0.8rem" fontWeight={700}>
+            <Typography
+              component="button" type="button"
+              onClick={e => openProfile(comment.authorUid, e.currentTarget)}
+              sx={{
+                fontSize: '0.8rem', fontWeight: 700, border: 0, background: 'none', p: 0,
+                fontFamily: 'inherit', cursor: 'pointer', color: 'inherit',
+                '&:hover': { textDecoration: 'underline' },
+              }}
+            >
               {comment.authorName || '(이름 없음)'}
             </Typography>
             <Typography fontSize="0.72rem" color="text.secondary">
@@ -154,8 +165,13 @@ export default function PostComments({
           </Box>
           {comment.bodyHtml ? (
             // 저장 시점에 이미 한 번 걸렀지만(newCommentPayload 호출 전 submit에서),
-            // 그리기 직전에 다시 거른다 — richText.js와 같은 이중 정화.
+            // 그리기 직전에 다시 거른다 — richText.js와 같은 이중 정화. @멘션 조각도
+            // 눌러 프로필을 열 수 있다(ChannelMessages.jsx의 handleBodyClick과 같은 방식).
             <Box
+              onClick={e => {
+                const uid = userMentionTarget(e.target)
+                if (uid) openProfile(uid, e.target.closest('[data-mention-uid]'))
+              }}
               sx={{ fontSize: '0.85rem', lineHeight: 1.6, ...RICH_TEXT_SX }}
               dangerouslySetInnerHTML={{ __html: sanitizeHtml(comment.bodyHtml) }}
             />

@@ -50,7 +50,9 @@ export default function useSchoolMembers() {
       getDocs(query(collection(db, ...schoolPath(sid, COL.TEACHER_SUBJECTS)), where('year', '==', year))),
     ])
     return buildTargetMembers({
-      users: usersSnap.docs.map(d => ({ uid: d.id, name: d.data().name || d.data().email })),
+      users: usersSnap.docs.map(d => ({
+        uid: d.id, name: d.data().name || d.data().email, photoURL: d.data().photoURL || null,
+      })),
       assignments: assignSnap.docs.map(d => d.data()),
       teacherSubjects: subjectsSnap.docs.map(d => d.data()),
       semester,

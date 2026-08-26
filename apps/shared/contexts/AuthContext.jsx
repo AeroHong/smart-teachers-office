@@ -37,6 +37,11 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [userName, setUserName] = useState('')
+  // users/{uid}.photoURL(직접 올린 사진 있으면 그것, 없으면 로그인 시 동기화된 구글
+  // 사진) — Firebase Auth user.photoURL은 구글 쪽 값 그대로라 직접 올린 사진을 못
+  // 반영한다. AppRail 같은 화면들이 매번 구성원 목록을 새로 구독하지 않도록 여기서
+  // 함께 들고 있는다.
+  const [photoURL, setPhotoURL] = useState(null)
   const [schoolId, setSchoolId] = useState(null)
   const [schoolName, setSchoolName] = useState('')
   const [coverApiUrl, setCoverApiUrl] = useState(null)
@@ -58,6 +63,7 @@ export function AuthProvider({ children }) {
     if (email.toLowerCase() === SUPER_ADMIN_EMAIL) {
       setUser(firebaseUser)
       setUserName(displayName || '')
+      setPhotoURL(firebaseUser.photoURL || null)
       setRole('super_admin')
       setIsSuperAdmin(true)
       setSchoolId(null)
@@ -92,6 +98,7 @@ export function AuthProvider({ children }) {
             const schoolData = await fetchSchoolData(regSchoolId)
             setUser(firebaseUser)
             setUserName(displayName || data.name || regName || '')
+            setPhotoURL(data.photoURL || firebaseUser.photoURL || null)
             setRole('student')
             setSchoolId(regSchoolId)
             setSchoolName(schoolData.name || regSchoolId)
@@ -115,12 +122,26 @@ export function AuthProvider({ children }) {
           updateDoc(userRef, { name: displayName }).catch(() => {})
         }
 
+        // 구글 계정 사진을 기본 아바타로 동기화 — 직접 사진을 올린 사람(photoSource
+        // 'custom')은 여기서 안 건드린다. 안 그러면 로그인할 때마다 애써 올린 사진이
+        // 구글 사진으로 되돌아간다.
+        if (firebaseUser.photoURL && data.photoSource !== 'custom'
+          && firebaseUser.photoURL !== data.photoURL) {
+          updateDoc(userRef, { photoURL: firebaseUser.photoURL, photoSource: 'google' }).catch(() => {})
+        }
+
         // studentId: user doc 우선, 없으면 이메일 패턴(하위 호환)
         const parsedEmail = parseStudentEmail(email)
         const resolvedStudentId = data.studentId || (parsedEmail.isStudent ? parsedEmail.studentId : null)
+        // 위에서 막 동기화를 걸었어도 그 결과는 다음 스냅샷에야 오므로, 지금 상태값은
+        // 여기서 바로 계산한다(구글 사진 우선, 직접 올린 사진이면 그대로 유지).
+        const resolvedPhotoURL = data.photoSource === 'custom'
+          ? (data.photoURL || null)
+          : (firebaseUser.photoURL || data.photoURL || null)
 
         setUser(firebaseUser)
         setUserName(displayName || data.name || '')
+        setPhotoURL(resolvedPhotoURL)
         setRole(data.role)
         setSchoolId(existingSchoolId)
         setSchoolName(schoolData.name || existingSchoolId)
@@ -143,11 +164,14 @@ export function AuthProvider({ children }) {
           role: 'student',
           schoolId: regSchoolId,
           studentId: regStudentId,
+          photoURL: firebaseUser.photoURL || null,
+          photoSource: firebaseUser.photoURL ? 'google' : null,
           createdAt: serverTimestamp(),
         })
         const schoolData = await fetchSchoolData(regSchoolId)
         setUser(firebaseUser)
         setUserName(displayName || regName || '')
+        setPhotoURL(firebaseUser.photoURL || null)
         setRole('student')
         setSchoolId(regSchoolId)
         setSchoolName(schoolData.name || regSchoolId)
@@ -179,11 +203,14 @@ export function AuthProvider({ children }) {
               role: preRole || 'teacher',
               schoolId: domainSchoolId,
               staffType: staffType || '교사',
+              photoURL: firebaseUser.photoURL || null,
+              photoSource: firebaseUser.photoURL ? 'google' : null,
               createdAt: serverTimestamp(),
             })
             const schoolData = await fetchSchoolData(domainSchoolId)
             setUser(firebaseUser)
             setUserName(displayName || preName || '')
+            setPhotoURL(firebaseUser.photoURL || null)
             setRole(preRole || 'teacher')
             setSchoolId(domainSchoolId)
             setSchoolName(schoolData.name || domainSchoolId)
@@ -202,6 +229,7 @@ export function AuthProvider({ children }) {
     // 등록된 학생 아님 → SchoolSetup
     setUser(firebaseUser)
     setUserName(displayName || '')
+    setPhotoURL(firebaseUser.photoURL || null)
     setNeedsSchoolSetup(true)
     setRole(null)
     setSchoolId(null)
@@ -261,6 +289,7 @@ export function AuthProvider({ children }) {
         } else {
           setUser(null)
           setUserName('')
+          setPhotoURL(null)
           setSchoolId(null)
           setSchoolName('')
           setCoverApiUrl(null)
@@ -273,6 +302,7 @@ export function AuthProvider({ children }) {
         console.error('인증 처리 오류:', err)
         setUser(null)
         setUserName('')
+        setPhotoURL(null)
         setRole(null)
         setSchoolId(null)
         setSchoolName('')
@@ -293,7 +323,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, userName, schoolId, schoolName, coverApiUrl, role, studentId,
+      user, userName, photoURL, schoolId, schoolName, coverApiUrl, role, studentId,
       isSuperAdmin,
       isAdmin: role === 'admin' || role === 'school_admin',
       isPrincipal: role === 'principal',

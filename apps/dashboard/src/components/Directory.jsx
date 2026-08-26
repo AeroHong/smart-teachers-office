@@ -26,6 +26,8 @@ import {
   autoGroups, filterMembers, groupToMemberRule, homeroomLabel, memberSubtitle, sortMembers,
 } from '@shared/lib/directory'
 import { SidebarEmpty, SidebarSection } from './sidebarUi'
+import PersonAvatar from './PersonAvatar'
+import { useProfileCard } from './ProfileCardProvider'
 
 export default function Directory({
   members, membersLoading, myUid, busy,
@@ -149,6 +151,7 @@ function PeopleTab({ members, loading, myUid, busy, onStartDm }) {
 function MemberCard({ member, isMe, busy, onStartDm }) {
   const subtitle = memberSubtitle(member)
   const homeroom = homeroomLabel(member)
+  const { open: openProfile } = useProfileCard()
 
   return (
     <Box sx={{
@@ -156,9 +159,21 @@ function MemberCard({ member, isMe, busy, onStartDm }) {
       bgcolor: 'background.paper', px: 1.3, py: 1.1,
       display: 'flex', flexDirection: 'column', gap: 0.4,
     }}>
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6, minWidth: 0 }}>
-        <Typography fontSize="0.92rem" fontWeight={700} noWrap>{member.name}</Typography>
-        {isMe && <Typography fontSize="0.7rem" color="text.disabled">나</Typography>}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, minWidth: 0 }}>
+        {/* 아바타를 누르면 프로필 카드 — 이름 자체는 안 눌려도 되게 아바타에만 건다
+            (카드 전체를 누르면 아래 '대화' 버튼과 눌림 영역이 겹친다). */}
+        <Box
+          component="button" type="button"
+          onClick={e => openProfile(member.uid, e.currentTarget)}
+          sx={{ border: 0, background: 'none', p: 0, cursor: 'pointer', lineHeight: 0, flexShrink: 0 }}
+          aria-label={`${member.name} 프로필`}
+        >
+          <PersonAvatar name={member.name} photoURL={member.photoURL} size={28} />
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6, minWidth: 0 }}>
+          <Typography fontSize="0.92rem" fontWeight={700} noWrap>{member.name}</Typography>
+          {isMe && <Typography fontSize="0.7rem" color="text.disabled">나</Typography>}
+        </Box>
       </Box>
       {subtitle && (
         <Typography fontSize="0.76rem" color="text.secondary" noWrap>{subtitle}</Typography>

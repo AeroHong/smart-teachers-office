@@ -83,6 +83,14 @@ service firebase.storage {
                    && request.resource.size < 20 * 1024 * 1024;
     }
 
+    // 프로필 사진(아바타). 폴더 = 본인 uid. 본인만 자기 사진을 쓸 수 있고, 읽기는
+    // 교직원 전체(동료 프로필 카드에서 서로의 사진을 봐야 한다).
+    match /schools/{schoolId}/avatars/{uid}/{fileName} {
+      allow read: if isSuperAdmin() || isMemberOf(schoolId);
+      allow write: if (isSuperAdmin() || (isMemberOf(schoolId) && request.auth.uid == uid))
+                   && request.resource.size < 5 * 1024 * 1024;
+    }
+
     // 그 밖의 학교 파일 — 관리자만 쓰기.
     match /schools/{schoolId}/{allPaths=**} {
       allow read: if isSuperAdmin() || isMemberOf(schoolId);

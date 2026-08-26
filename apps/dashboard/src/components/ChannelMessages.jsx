@@ -24,7 +24,7 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { hasCanvasRef, validateMessage } from '@shared/lib/channelMessages'
-import { channelMentionTarget } from '@shared/lib/channelMentionChip'
+import { channelMentionTarget, userMentionTarget } from '@shared/lib/channelMentionChip'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
 import { fileKind, formatBytes, uploadAttachment } from '@shared/lib/requestAttachments'
 import { formatDateTime } from '../lib/formatTime'
@@ -32,6 +32,7 @@ import { useToast } from './ToastProvider'
 import useChannelMessages from '../lib/useChannelMessages'
 import MessageComposer from './MessageComposer'
 import { RICH_TEXT_SX } from './richTextStyles'
+import { useProfileCard } from './ProfileCardProvider'
 
 /** 같은 사람이 이 시간 안에 연달아 보내면 한 덩어리로 본다. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -42,6 +43,7 @@ export default function ChannelMessages({
 }) {
   const { schoolId } = useAuth()
   const toast = useToast()
+  const { open: openProfile } = useProfileCard()
   const { messages, loading, send, newMessageId } = useChannelMessages(channelId)
   const [draftHtml, setDraftHtml] = useState('')
   const [sending, setSending] = useState(false)
@@ -120,11 +122,13 @@ export default function ChannelMessages({
     }
   }
 
-  // 메시지 본문 안의 #채널 조각을 눌렀을 때. 캔버스 카드 클릭(onOpenCanvas)과 같은
-  // 자리이지만 대상이 채널이라 목적지 계산이 다르다.
+  // 메시지 본문 안의 #채널·@사람 조각을 눌렀을 때. 캔버스 카드 클릭(onOpenCanvas)과
+  // 같은 자리이지만 대상이 채널·사람이라 하는 일이 다르다.
   const handleBodyClick = (e) => {
-    const target = channelMentionTarget(e.target)
-    if (target) onOpenCanvas?.(target)
+    const channelTarget = channelMentionTarget(e.target)
+    if (channelTarget) { onOpenCanvas?.(channelTarget); return }
+    const uid = userMentionTarget(e.target)
+    if (uid) openProfile(uid, e.target.closest('[data-mention-uid]'))
   }
 
   return (
@@ -143,7 +147,17 @@ export default function ChannelMessages({
           <Box key={m.id} sx={{ mb: m.grouped ? 0.2 : 1.2 }}>
             {!m.grouped && (
               <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.8, mb: 0.2 }}>
-                <Typography fontSize="0.82rem" fontWeight={700}>{m.authorName || '(이름 없음)'}</Typography>
+                <Typography
+                  component="button" type="button"
+                  onClick={e => openProfile(m.authorUid, e.currentTarget)}
+                  sx={{
+                    fontSize: '0.82rem', fontWeight: 700, border: 0, background: 'none', p: 0,
+                    fontFamily: 'inherit', cursor: 'pointer', color: 'inherit',
+                    '&:hover': { textDecoration: 'underline' },
+                  }}
+                >
+                  {m.authorName || '(이름 없음)'}
+                </Typography>
                 <Typography fontSize="0.7rem" color="text.disabled">{formatDateTime(m.createdAt)}</Typography>
               </Box>
             )}
