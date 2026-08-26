@@ -99,8 +99,9 @@
     끝나서 데스크톱 앱도 곧바로 최신 화면을 받는다(데스크톱은 `DASHBOARD_URL`을 그대로
     불러오는 얇은 셸이라 별도 빌드 없이도 웹 배포가 그대로 반영된다).
   - **`main.js` 변경은 다르다** — 이건 데스크톱 앱 자체의 코드라, 이미 설치된 PC에
-    반영되려면 실제로 새 설치본을 만들어(`npm run release:desktop`, electron-builder로
-    NSIS 설치파일 빌드 + `firebase deploy --only hosting:desktop-updates`로 업데이트
-    피드 갱신 → electron-updater가 실행 중인 앱들에 자동 배포) 버전을 올려 릴리스해야
-    한다. 코드는 커밋해 뒀지만 **릴리스는 아직 안 돌렸다** — 실제 설치본을 새로 찍어
-    배포하는 일이라 사용자 확인 후 진행하기로 함.
+    반영되려면 실제로 새 설치본을 만들어 버전을 올려 릴리스해야 한다. 사용자에게
+    먼저 확인받은 뒤 진행: `apps/desktop/package.json` **0.1.7 → 0.1.8**,
+    `npm run release:desktop`(electron-builder로 NSIS 설치파일 빌드 + `firebase
+    deploy --only hosting:desktop-updates`로 업데이트 피드 갱신) 실행 ✅
+    **완료(2026-08-26)**. 이미 설치된 PC들은 electron-updater가 다음 확인 때 0.1.8을
+    받아간다.
