@@ -266,9 +266,9 @@ export default function Layout({ children, wide = false }) {
             userSelect: 'none',
             '&:hover': {
               width: 20,
-              bgcolor: '#eef2ff',
-              color: '#4f46e5',
-              boxShadow: '3px 2px 12px rgba(79,70,229,0.18)',
+              bgcolor: '#e7edf1',
+              color: '#3d5872',
+              boxShadow: '3px 2px 12px rgba(61,88,114,0.18)',
             },
           }}
         >
@@ -386,16 +386,16 @@ export default function Layout({ children, wide = false }) {
                         pl: 2, pr: 1.25,
                         py: 0.55,
                         borderRadius: '0 8px 8px 0',
-                        borderLeft: active ? '2.5px solid #4f46e5' : '2.5px solid transparent',
+                        borderLeft: active ? '2.5px solid #3d5872' : '2.5px solid transparent',
                         textDecoration: 'none',
                         fontSize: '0.8rem',
                         fontWeight: active ? 600 : 400,
-                        color: active ? '#4f46e5' : '#64748b',
-                        bgcolor: active ? '#eef2ff' : 'transparent',
+                        color: active ? '#3d5872' : '#64748b',
+                        bgcolor: active ? '#e7edf1' : 'transparent',
                         transition: 'all 0.15s',
                         '&:hover': {
-                          bgcolor: active ? '#eef2ff' : '#f8fafc',
-                          color: active ? '#4f46e5' : '#1e293b',
+                          bgcolor: active ? '#e7edf1' : '#f8fafc',
+                          color: active ? '#3d5872' : '#1e293b',
                         },
                       }}
                     >
@@ -525,7 +525,7 @@ export default function Layout({ children, wide = false }) {
           >
             {user?.photoURL
               ? <Avatar src={user.photoURL} sx={{ width: 32, height: 32 }} />
-              : <Avatar sx={{ width: 32, height: 32, bgcolor: '#4f46e5', fontSize: '0.8rem' }}>
+              : <Avatar sx={{ width: 32, height: 32, bgcolor: '#3d5872', fontSize: '0.8rem' }}>
                   {user?.displayName?.[0]}
                 </Avatar>
             }
@@ -602,9 +602,9 @@ export default function Layout({ children, wide = false }) {
                   border: '1.5px solid #e2e8f0',
                   borderRadius: '50%',
                   '&:hover': {
-                    color: '#4f46e5',
-                    borderColor: '#c7d2fe',
-                    bgcolor: '#eef2ff',
+                    color: '#3d5872',
+                    borderColor: '#b9c9d6',
+                    bgcolor: '#e7edf1',
                   },
                 }}
               >
@@ -681,7 +681,7 @@ export default function Layout({ children, wide = false }) {
             component={RouterLink}
             to="/privacy-policy"
             fontSize="0.72rem"
-            sx={{ color: '#94a3b8', textDecoration: 'none', '&:hover': { color: '#4f46e5' } }}
+            sx={{ color: '#94a3b8', textDecoration: 'none', '&:hover': { color: '#3d5872' } }}
           >
             개인정보처리방침
           </Typography>

@@ -230,7 +230,7 @@ export default function SchoolSetup() {
                 <Typography variant="caption" fontWeight={600} color="primary" sx={{ display: 'block', mb: 0.5 }}>
                   추천 학교 (@{domain})
                 </Typography>
-                <Paper variant="outlined" sx={{ borderColor: '#c7d2fe' }}>
+                <Paper variant="outlined" sx={{ borderColor: '#b9c9d6' }}>
                   <List dense disablePadding>
                     {domainSchools.map((s, i) => (
                       <Box key={s.id}>
@@ -238,7 +238,7 @@ export default function SchoolSetup() {
                         <ListItemButton
                           selected={selected?.id === s.id}
                           onClick={() => setSelected(s)}
-                          sx={{ '&.Mui-selected': { bgcolor: '#eef2ff' } }}
+                          sx={{ '&.Mui-selected': { bgcolor: '#e7edf1' } }}
                         >
                           <ListItemText
                             primary={s.name}

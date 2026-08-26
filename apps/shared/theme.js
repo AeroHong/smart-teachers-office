@@ -2,10 +2,17 @@ import { createTheme } from '@mui/material/styles'
 
 export const theme = createTheme({
   palette: {
+    /**
+     * Pantone 18-4218 Blue Fusion — 짙은 슬레이트 블루. 기존 인디고(#4f46e5)가
+     * "AI가 기본값으로 준 색"처럼 보인다는 지적(2026-08-26)으로 앱 전체 primary를
+     * 이걸로 바꿨다. 채도를 낮춘 남색이라 인디고 특유의 보라기가 없고, 흰 글자
+     * 버튼에도 대비가 충분하다. 같은 자리에서 나온 Cloud Dancer(오프화이트,
+     * apps/dashboard/src/components/WorkspaceLayout.jsx)와 한 팔레트에서 고른 짝이다.
+     */
     primary: {
-      main: '#4f46e5',
-      light: '#818cf8',
-      dark: '#3730a3',
+      main: '#3d5872',
+      light: '#6a83a0',
+      dark: '#28394a',
       contrastText: '#ffffff',
     },
     secondary: { main: '#06b6d4' },
@@ -20,8 +27,9 @@ export const theme = createTheme({
     /**
      * 대시보드 좌측 레일 — 화면에서 유일하게 어두운 영역.
      *
-     * Slack의 자주색(#3F0E40)은 쓰지 않는다. 포털·키오스크가 인디고(#4f46e5) 계열이라
-     * 자주색을 넣으면 앱마다 색이 따로 논다. 같은 색조의 짙은 슬레이트로 맞춘다.
+     * Slack의 자주색(#3F0E40)은 쓰지 않는다. 포털·키오스크의 primary가 짙은 슬레이트
+     * 블루(Pantone Blue Fusion, 위 참고) 계열이라 자주색을 넣으면 앱마다 색이 따로
+     * 논다. 같은 색조의 짙은 슬레이트로 맞춘다.
      * 명단 패널은 어둡게 하지 않는다 — 60명 목록은 밝은 배경이 훨씬 읽기 쉽다.
      */
     rail: {

@@ -90,7 +90,7 @@ export default function SuperAdminLayout({ children }) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.5 }}>
             {user?.photoURL
               ? <Avatar src={user.photoURL} sx={{ width: 32, height: 32 }} />
-              : <Avatar sx={{ width: 32, height: 32, bgcolor: '#4f46e5', fontSize: '0.8rem' }}>
+              : <Avatar sx={{ width: 32, height: 32, bgcolor: '#3d5872', fontSize: '0.8rem' }}>
                   {user?.displayName?.[0]}
                 </Avatar>
             }

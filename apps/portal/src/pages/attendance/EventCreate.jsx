@@ -434,7 +434,7 @@ const styles = {
   periodSelect: { padding: '0.35rem 0.4rem', border: '1px solid #ddd', borderRadius: '6px', fontSize: '0.88rem', minWidth: '68px' },
   timeToggleLabel: { display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', padding: '0.2rem 0.5rem', borderRadius: '6px', backgroundColor: '#f0f4ff', border: '1px solid #c7d7fa', flexShrink: 0 },
   timeToggleCheck: { cursor: 'pointer', margin: 0 },
-  timeToggleText: { fontSize: '0.8rem', color: '#4f46e5', fontWeight: 600, userSelect: 'none' },
+  timeToggleText: { fontSize: '0.8rem', color: '#3d5872', fontWeight: 600, userSelect: 'none' },
   timeInput: { padding: '0.35rem 0.4rem', border: '1px solid #ddd', borderRadius: '6px', fontSize: '0.88rem', width: '90px' },
   timeSep: { color: '#888', fontSize: '0.85rem', flexShrink: 0 },
   removeBtn: { marginLeft: 'auto', padding: '0.2rem 0.5rem', border: 'none', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '5px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 700, flexShrink: 0 },

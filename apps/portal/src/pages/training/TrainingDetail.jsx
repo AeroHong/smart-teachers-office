@@ -572,7 +572,7 @@ function SignatureStatus({ training, signatures, id, schoolId, canManage }) {
                     position: 'absolute', right: -3, top: 0, bottom: 0,
                     width: 6, cursor: 'col-resize', zIndex: 3,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    '&:hover .rh': { bgcolor: '#4f46e5' },
+                    '&:hover .rh': { bgcolor: '#3d5872' },
                   }}
                 >
                   <Box className="rh" sx={{ width: 2, height: '55%', bgcolor: '#cbd5e1', borderRadius: 1, transition: 'background 0.15s' }} />
@@ -677,7 +677,7 @@ function SignatureStatus({ training, signatures, id, schoolId, canManage }) {
                     sx={{
                       cursor: canManage ? 'pointer' : 'default',
                       width: '100%',
-                      '&:hover': canManage ? { color: '#4f46e5' } : {},
+                      '&:hover': canManage ? { color: '#3d5872' } : {},
                     }}
                   >
                     {note || (canManage ? '+ 비고 입력' : '—')}
@@ -827,8 +827,8 @@ function MySignature({ id, user, training, signatures, schoolId }) {
           </Box>
         ) : SignaturePad && canvasWidth > 0 ? (
           <Box sx={{
-            border: '2px solid #4f46e5', borderRadius: 2,
-            boxShadow: '0 2px 16px rgba(79,70,229,0.14)',
+            border: '2px solid #3d5872', borderRadius: 2,
+            boxShadow: '0 2px 16px rgba(61,88,114,0.14)',
             overflow: 'hidden', touchAction: 'none',
           }}>
             <SignaturePad

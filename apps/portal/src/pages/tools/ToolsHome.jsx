@@ -14,8 +14,8 @@ const TOOLS = [
     title: 'QR 안내문 생성기',
     description: '고교학점제 QR 그리드 PDF와 안내문 양식을 업로드하면 학생별 안내문을 자동으로 생성합니다.',
     path: '/tools/qr-notice',
-    color: '#4f46e5',
-    bgColor: '#eef2ff',
+    color: '#3d5872',
+    bgColor: '#e7edf1',
   },
   {
     icon: '📊',

@@ -286,13 +286,13 @@ export default function OfficeLayoutEditor({ schoolId, year, office }) {
         {guides.x !== null && (
           <div style={{
             position: 'absolute', left: `${guides.x * 100}%`, top: 0, bottom: 0,
-            width: 1, backgroundColor: '#6366f1', opacity: 0.7, pointerEvents: 'none', zIndex: 10,
+            width: 1, backgroundColor: '#3d5872', opacity: 0.7, pointerEvents: 'none', zIndex: 10,
           }} />
         )}
         {guides.y !== null && (
           <div style={{
             position: 'absolute', top: `${guides.y * 100}%`, left: 0, right: 0,
-            height: 1, backgroundColor: '#6366f1', opacity: 0.7, pointerEvents: 'none', zIndex: 10,
+            height: 1, backgroundColor: '#3d5872', opacity: 0.7, pointerEvents: 'none', zIndex: 10,
           }} />
         )}
 
@@ -394,7 +394,7 @@ const SEAT_CARD_CSS = `
 const ellipsis = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
 const cardText = {
   name:     { ...ellipsis, fontSize: '1rem', fontWeight: 700, lineHeight: 1.3, color: '#111827' },
-  position: { ...ellipsis, fontSize: '0.75rem', fontWeight: 600, color: '#6366f1', lineHeight: 1.35 },
+  position: { ...ellipsis, fontSize: '0.75rem', fontWeight: 600, color: '#3d5872', lineHeight: 1.35 },
   subject:  { ...ellipsis, fontSize: '0.75rem', color: '#8a94a6', lineHeight: 1.35 },
 }
 

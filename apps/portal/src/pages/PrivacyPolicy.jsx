@@ -164,7 +164,7 @@ export default function PrivacyPolicy() {
         <Box
           component={Link}
           to="/"
-          sx={{ fontSize: '0.82rem', color: '#94a3b8', textDecoration: 'none', '&:hover': { color: '#4f46e5' } }}
+          sx={{ fontSize: '0.82rem', color: '#94a3b8', textDecoration: 'none', '&:hover': { color: '#3d5872' } }}
         >
           ← 홈으로
         </Box>
@@ -182,7 +182,7 @@ export default function PrivacyPolicy() {
       <Divider sx={{ mb: 4 }} />
 
       {/* 개요 */}
-      <Box sx={{ mb: 4, p: 2.5, bgcolor: '#f8fafc', borderRadius: 2, borderLeft: '4px solid #4f46e5' }}>
+      <Box sx={{ mb: 4, p: 2.5, bgcolor: '#f8fafc', borderRadius: 2, borderLeft: '4px solid #3d5872' }}>
         <Typography variant="body2" color="text.secondary" lineHeight={1.9}>
           선유고등학교 스마트 교무실(이하 "서비스")은 개인정보보호법 및 관련 법령에 따라 이용자의 개인정보를 보호하고,
           이와 관련한 고충을 신속하고 원활하게 처리하기 위하여 다음과 같이 개인정보처리방침을 수립·공개합니다.

@@ -17,8 +17,8 @@ const SERVICES = [
     title: '스마트 출결',
     description: 'QR 코드 기반 실시간 출결 관리 시스템입니다.',
     path: '/attendance',
-    color: '#4f46e5',
-    bgColor: '#eef2ff',
+    color: '#3d5872',
+    bgColor: '#e7edf1',
     status: '운영중',
     statusColor: 'secondary',
   },
@@ -217,7 +217,7 @@ const CHANGELOG = [
 ]
 
 const TYPE_STYLE = {
-  major:       { label: '신규', bg: '#eef2ff', color: '#4f46e5', border: '#c7d2fe' },
+  major:       { label: '신규', bg: '#e7edf1', color: '#3d5872', border: '#b9c9d6' },
   improvement: { label: '개선', bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' },
   fix:         { label: '수정', bg: '#fff7ed', color: '#ea580c', border: '#fed7aa' },
   bugfix:      { label: '버그수정', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
@@ -296,7 +296,7 @@ export default function Home() {
           <Chip
             label={CHANGELOG[0].version}
             size="small"
-            sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 700, fontSize: '0.75rem' }}
+            sx={{ bgcolor: '#e7edf1', color: '#3d5872', fontWeight: 700, fontSize: '0.75rem' }}
           />
         </Box>
 

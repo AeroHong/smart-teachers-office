@@ -595,7 +595,7 @@ export default function SuperAdmin() {
                   <TableCell sx={{ whiteSpace: 'nowrap', px: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       {userCount !== null && userCount !== undefined
-                        ? <Chip label={`${userCount}명`} size="small" sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 600 }} />
+                        ? <Chip label={`${userCount}명`} size="small" sx={{ bgcolor: '#e7edf1', color: '#3d5872', fontWeight: 600 }} />
                         : <Typography variant="caption" color="text.disabled">—</Typography>
                       }
                       <Tooltip title={userCount > 0 ? '구성원 관리' : '구성원 없음'}>
@@ -604,7 +604,7 @@ export default function SuperAdmin() {
                             size="small"
                             disabled={!userCount}
                             onClick={() => openMemberDialog(schoolId, schoolName)}
-                            sx={{ color: '#4f46e5', opacity: userCount > 0 ? 1 : 0.3 }}
+                            sx={{ color: '#3d5872', opacity: userCount > 0 ? 1 : 0.3 }}
                           >
                             <PeopleAltIcon sx={{ fontSize: 16 }} />
                           </IconButton>

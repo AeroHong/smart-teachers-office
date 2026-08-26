@@ -217,7 +217,7 @@ export default function AsaSupportCutoffs() {
         <Chip
           label={`${selectedYear}년 ${selectedSemester}학기`}
           size="small"
-          sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 700 }}
+          sx={{ bgcolor: '#e7edf1', color: '#3d5872', fontWeight: 700 }}
         />
       </Box>
 

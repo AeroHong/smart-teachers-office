@@ -200,7 +200,7 @@ export default function SuperAdminDomainSetup() {
         {/* ── 도메인 목록 ── */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
           <Typography variant="subtitle1" fontWeight={600}>등록된 도메인 목록</Typography>
-          <Chip label={`${domains.length}개`} size="small" sx={{ bgcolor: '#eef2ff', color: '#4f46e5', fontWeight: 700 }} />
+          <Chip label={`${domains.length}개`} size="small" sx={{ bgcolor: '#e7edf1', color: '#3d5872', fontWeight: 700 }} />
           <Tooltip title="새로고침">
             <IconButton size="small" onClick={loadDomains} disabled={loadingDomains}>
               <RefreshIcon fontSize="small" sx={{ color: '#888' }} />

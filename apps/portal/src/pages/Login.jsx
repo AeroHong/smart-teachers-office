@@ -56,8 +56,8 @@ const FEATURES = [
   },
   {
     icon: '📋',
-    color: '#4f46e5',
-    bg: '#eef2ff',
+    color: '#3d5872',
+    bg: '#e7edf1',
     title: '스마트 출결',
     points: [
       '학생 QR 직접 체크인',

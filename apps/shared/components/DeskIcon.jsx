@@ -5,7 +5,7 @@
  * 모니터 → 책상 상판 → 의자 순으로 위에서 아래로 배치해 자리 방향이 드러나게 했다.
  */
 export default function DeskIcon({ size = 38, tone = '#94a3b8', active = false }) {
-  const color = active ? '#4f46e5' : tone
+  const color = active ? '#3d5872' : tone
   return (
     <svg
       width={size}

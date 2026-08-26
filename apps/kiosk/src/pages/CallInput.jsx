@@ -175,7 +175,7 @@ export default function CallInput() {
         <Typography fontWeight={800} fontSize="2rem" lineHeight={1.2} color="#111827">
           {device.office}
         </Typography>
-        <Typography fontWeight={700} fontSize="1rem" sx={{ color: '#6366f1' }}>
+        <Typography fontWeight={700} fontSize="1rem" sx={{ color: '#3d5872' }}>
           선생님 호출
         </Typography>
       </Box>
@@ -217,9 +217,9 @@ export default function CallInput() {
 
           <Box sx={{
             px: 2, py: 1.2, mb: blockedReason ? 1.2 : 2, borderRadius: 2,
-            bgcolor: blockedReason ? '#fff7ed' : teacher ? '#eef2ff' : '#f1f5f9',
+            bgcolor: blockedReason ? '#fff7ed' : teacher ? '#e7edf1' : '#f1f5f9',
             border: '1px solid',
-            borderColor: blockedReason ? '#fdba74' : teacher ? '#c7d2fe' : '#e2e8f0',
+            borderColor: blockedReason ? '#fdba74' : teacher ? '#b9c9d6' : '#e2e8f0',
           }}>
             {teacher ? (
               <>
@@ -265,7 +265,7 @@ export default function CallInput() {
             {Array.from({ length: STUDENT_ID_LENGTH }).map((_, i) => (
               <Box key={i} sx={{
                 width: 52, height: 62, borderRadius: 2,
-                border: '2px solid', borderColor: studentId[i] ? '#4f46e5' : '#e2e8f0',
+                border: '2px solid', borderColor: studentId[i] ? '#3d5872' : '#e2e8f0',
                 bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '1.9rem', fontWeight: 700,
               }}>
@@ -369,16 +369,16 @@ const deskCardSx = (active) => ({
   cursor: 'pointer',
   borderRadius: '14px',
   overflow: 'hidden',
-  bgcolor: active ? '#f5f4ff' : '#fff',
+  bgcolor: active ? '#e7edf1' : '#fff',
   border: '1px solid',
-  borderColor: active ? '#c7d2fe' : '#ececf1',
-  boxShadow: active ? '0 8px 20px rgba(79,70,229,.18)' : 'none',
+  borderColor: active ? '#b9c9d6' : '#ececf1',
+  boxShadow: active ? '0 8px 20px rgba(61,88,114,.18)' : 'none',
   transform: active ? 'translateY(-2px)' : 'none',
   transition: 'transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s ease, border-color .18s ease, background-color .18s ease',
   '&:hover': {
     transform: 'translateY(-4px)',
-    boxShadow: active ? '0 12px 26px rgba(79,70,229,.22)' : '0 12px 26px rgba(15,23,42,.13)',
-    borderColor: active ? '#a5b4fc' : 'transparent',
+    boxShadow: active ? '0 12px 26px rgba(61,88,114,.22)' : '0 12px 26px rgba(15,23,42,.13)',
+    borderColor: active ? '#b9c9d6' : 'transparent',
     zIndex: 5,
   },
   '&:active': { transform: 'translateY(-1px)' },
@@ -408,7 +408,7 @@ function DeskCardText({ teacher, status, blocked }) {
         {status && <PresenceDot status={status} />}
       </Box>
       {teacher.positionLabel && (
-        <Typography fontSize="0.75rem" fontWeight={600} lineHeight={1.35} sx={{ color: '#6366f1' }} noWrap>
+        <Typography fontSize="0.75rem" fontWeight={600} lineHeight={1.35} sx={{ color: '#3d5872' }} noWrap>
           {teacher.positionLabel}
         </Typography>
       )}
@@ -495,8 +495,8 @@ function TeacherChip({ teacher, selected, onSelect }) {
       onClick={() => onSelect(teacher)}
       sx={{
         px: 1.5, py: 0.8, cursor: 'pointer', borderRadius: 5,
-        border: '2px solid', borderColor: selected ? '#4f46e5' : '#e2e8f0',
-        bgcolor: selected ? '#eef2ff' : '#fff',
+        border: '2px solid', borderColor: selected ? '#3d5872' : '#e2e8f0',
+        bgcolor: selected ? '#e7edf1' : '#fff',
       }}
     >
       <Typography fontWeight={600} fontSize="0.95rem" component="span">{teacher.name}</Typography>
@@ -517,7 +517,7 @@ function KeypadButton({ children, onClick, muted }) {
         height: 62, fontSize: muted ? '1rem' : '1.55rem', fontWeight: 700, borderRadius: 2,
         bgcolor: muted ? '#f1f5f9' : '#fff', color: muted ? '#64748b' : '#1e293b',
         border: '1px solid #e2e8f0', minWidth: 0,
-        '&:hover': { bgcolor: muted ? '#e2e8f0' : '#eef2ff' },
+        '&:hover': { bgcolor: muted ? '#e2e8f0' : '#e7edf1' },
       }}
     >
       {children}

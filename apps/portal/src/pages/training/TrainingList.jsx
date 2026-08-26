@@ -75,7 +75,7 @@ function TrainingCard({ training: t, onClick }) {
   const metaStr = [t.date, timeStr, t.location].filter(Boolean).join(' · ')
 
   return (
-    <Card sx={{ borderLeft: `4px solid ${isClosed ? '#94a3b8' : '#4f46e5'}` }}>
+    <Card sx={{ borderLeft: `4px solid ${isClosed ? '#94a3b8' : '#3d5872'}` }}>
       <CardActionArea onClick={onClick}>
         <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>

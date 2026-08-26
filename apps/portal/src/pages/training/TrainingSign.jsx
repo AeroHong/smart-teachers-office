@@ -109,7 +109,7 @@ function SignLayout({ children, schoolName }) {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{
-        bgcolor: '#4f46e5', color: '#fff',
+        bgcolor: '#3d5872', color: '#fff',
         px: 2.5, py: 1.5,
         display: 'flex', alignItems: 'center',
         flexShrink: 0,
@@ -279,8 +279,8 @@ function MobileSignaturePad({ id, user, training, signatures, schoolId }) {
         ) : SignaturePad && canvasWidth > 0 ? (
           <>
             <Box sx={{
-              border: '2px solid #4f46e5', borderRadius: 2, mb: 2,
-              boxShadow: '0 2px 16px rgba(79,70,229,0.14)',
+              border: '2px solid #3d5872', borderRadius: 2, mb: 2,
+              boxShadow: '0 2px 16px rgba(61,88,114,0.14)',
               overflow: 'hidden', touchAction: 'none',
             }}>
               <SignaturePad

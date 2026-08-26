@@ -23,7 +23,7 @@ const TYPES = ['시험', '휴업일', '행사', '기타']
 const TYPE_STYLE = {
   시험: { bg: '#fdecea', fg: '#d32f2f' },
   휴업일: { bg: '#e8f5e9', fg: '#2e7d32' },
-  행사: { bg: '#eef2ff', fg: '#4f46e5' },
+  행사: { bg: '#e7edf1', fg: '#3d5872' },
 }
 const DEFAULT_STYLE = { bg: '#f1f3f4', fg: '#5f6368' }
 
