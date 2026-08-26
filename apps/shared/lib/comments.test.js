@@ -8,7 +8,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  COMMENT_ERRORS, MAX_COMMENT_LENGTH, canDeleteComment, commentLength,
+  COMMENT_ERRORS, MAX_COMMENT_LENGTH, canDeleteComment, commentLength, commentsForBlock,
   newCommentPayload, normalizeCommentBody, sortComments, validateComment,
 } from './comments.js'
 
@@ -95,6 +95,43 @@ test('본문이 평문으로 저장된다 — 태그를 넣어도 해석 없이 
   // "정화했겠지" 하고 어딘가에서 dangerouslySetInnerHTML로 그리는 실수를 막을 수 있다.
   const raw = '<script>alert(1)</script>'
   assert.equal(newCommentPayload({ body: raw, authorUid: 'u1' }).body, raw)
+})
+
+test('bodyHtml을 주면 body는 거기서 뽑은 평문으로 덮어써진다', () => {
+  const payload = newCommentPayload({
+    body: '이건 안 쓰인다', bodyHtml: '<p>성적 마감은 <b>금요일</b>까지인가요?</p>',
+    authorUid: 'u1', authorName: '김국어',
+  })
+  assert.equal(payload.body, '성적 마감은 금요일까지인가요?')
+  assert.equal(payload.bodyHtml, '<p>성적 마감은 <b>금요일</b>까지인가요?</p>')
+})
+
+test('bodyHtml이 없으면 bodyHtml 필드는 null — 옛 평문 댓글과 새 댓글을 구분하는 근거', () => {
+  assert.equal(newCommentPayload({ body: '확인', authorUid: 'u1' }).bodyHtml, null)
+})
+
+test('bodyHtml만 있고 실제 글자가 없으면(빈 <p> 등) 빈 댓글로 막힌다', () => {
+  assert.throws(
+    () => newCommentPayload({ bodyHtml: '<p><br></p>', authorUid: 'u1' }),
+    { message: COMMENT_ERRORS.empty },
+  )
+})
+
+test('blockId를 안 주면 글 전체 댓글(null)이고, 주면 그 블록 댓글이다', () => {
+  assert.equal(newCommentPayload({ body: 'x', authorUid: 'u1' }).blockId, null)
+  assert.equal(newCommentPayload({ body: 'x', authorUid: 'u1', blockId: 'b_abc' }).blockId, 'b_abc')
+})
+
+test('commentsForBlock — blockId가 없으면 글 전체 댓글만, 있으면 그 블록 댓글만', () => {
+  const list = [
+    { id: '1', blockId: null, body: '전체 댓글' },
+    { id: '2', blockId: 'b_1', body: '블록1 댓글' },
+    { id: '3', blockId: 'b_2', body: '블록2 댓글' },
+    { id: '4', body: '옛 댓글(blockId 필드 자체가 없음)' },
+  ]
+  assert.deepEqual(commentsForBlock(list, null).map(c => c.id), ['1', '4'])
+  assert.deepEqual(commentsForBlock(list, 'b_1').map(c => c.id), ['2'])
+  assert.deepEqual(commentsForBlock(list).map(c => c.id), ['1', '4'])   // blockId 생략 == null
 })
 
 const comment = { authorUid: 'u1', body: '확인했습니다' }

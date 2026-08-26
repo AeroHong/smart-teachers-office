@@ -114,9 +114,13 @@ function dueLabel(value) {
  * @param {boolean} membersLoading
  * @param {(to: string) => void} onOpenCanvasRef 본문 안 '캔버스 삽입' 카드를 눌렀을 때
  *   그 글로 이동한다. ChannelMessages.jsx가 CanvasCard에 쓰는 onOpenCanvas와 같은 역할.
+ * @param {({requestId, blockId}) => void} [onOpenBlockComments] 캔버스 블록 손잡이의
+ *   댓글 아이콘을 눌렀을 때 — CanvasEditor는 blockId만 알므로 여기서 이 글의 requestId를
+ *   더해 Channels.jsx에 넘긴다(3단 오른쪽 4번째 칸을 여는 것은 그쪽 소관).
  */
 export default function PostComposer({
   channel, editingId, onSaved, onCancel, members, membersLoading, onOpenCanvasRef,
+  onOpenBlockComments,
 }) {
   const { user, userName, schoolId } = useAuth()
   const toast = useToast()
@@ -495,6 +499,7 @@ export default function PostComposer({
           placeholder="무엇을 어떻게 하면 되는지 적어주세요. '+'로 이미지·표·날짜·다른 업무 글도 넣을 수 있습니다."
           title={title}
           onTitleChange={setTitle}
+          onOpenBlockComments={blockId => onOpenBlockComments?.({ requestId, blockId })}
         />
       </Box>
 

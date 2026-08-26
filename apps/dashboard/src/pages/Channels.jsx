@@ -59,6 +59,7 @@ import DmDialog from '../components/DmDialog'
 import ShareCanvasDialog from '../components/ShareCanvasDialog'
 import PostComposer from '../components/PostComposer'
 import PostDetail from '../components/PostDetail'
+import BlockCommentsPanel from '../components/BlockCommentsPanel'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
 import useChannelPrefs from '../lib/useChannelPrefs'
@@ -114,6 +115,10 @@ export default function Channels() {
   const [sideView, setSideView] = useState('messages')   // 'messages' | 'archive'
   const [moreAnchor, setMoreAnchor] = useState(null)
   const [sharing, setSharing] = useState(false)   // 캔버스 넘기기 대화상자
+  // 3단 오른쪽 4번째 칸(블록 댓글, PLAN_canvasBlocks.md Phase 4) — 어느 캔버스의 어느
+  // 블록을 보고 있는지. WorkspaceLayout.jsx 자체는 안 건드리고 이 페이지가 캔버스 옆에
+  // 조건부로 그린다(항상 있는 레일·사이드바와 달리 블록 하나를 고를 때만 뜨는 칸이라).
+  const [blockComments, setBlockComments] = useState(null)   // { requestId, blockId } | null
   const { markRead } = useChannelPrefs()
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
@@ -210,6 +215,10 @@ export default function Channels() {
   // 채널을 옮기면 대화로 돌아온다. 보관 목록에 머물러 있으면, 다음 채널을 열었을 때
   // 끝난 글부터 보이고 지금 오가는 말은 한 번 더 눌러야 나온다.
   useEffect(() => { setSideView('messages') }, [channelId])
+
+  // 보던 캔버스(또는 편집 중인 글)가 바뀌면 블록 댓글 패널도 닫는다 — 안 그러면 다른
+  // 글로 넘어갔는데 방금 전 블록의 댓글이 그대로 떠 있어 어느 글 얘기인지 헷갈린다.
+  useEffect(() => { setBlockComments(null) }, [requestId, editingPostId, composingNew])
 
   /**
    * 저장된 참여자와 조건을 지금 다시 푼 결과의 차이.
@@ -611,27 +620,55 @@ export default function Channels() {
               // PostComposer가 height:100% 세로 flex를 스스로 관리한다(제목·설정은
               // 고정, 본문만 스크롤, 저장 버튼은 아래 고정) — PostDetail처럼 바깥에서
               // overflowY:auto로 한 번 더 감싸면 저장 버튼까지 함께 스크롤돼 버린다.
-              <PostComposer
-                channel={active}
-                editingId={editingPostId}
-                members={members}
-                membersLoading={membersLoading}
-                // 자동저장이 새 글을 처음 만든 순간 1회 — 주소를 /new에서 /edit로 조용히
-                // 바꾼다. 보기 주소(/edit 없는)로 보내면 PostComposer 대신 PostDetail이
-                // 그려져, 한창 쓰는 중인 화면이 읽기 화면으로 튕겨버린다.
-                onSaved={id => navigate(`/channels/${active.id}/${id}/edit`, { replace: true })}
-                onCancel={() => navigate(editingPostId ? `/channels/${active.id}/${editingPostId}` : `/channels/${active.id}`)}
-                onOpenCanvasRef={to => navigate(to)}
-              />
+              //
+              // 블록 댓글 패널(4번째 칸, PLAN_canvasBlocks.md Phase 4)은 이 칸 안에서
+              // 캔버스 옆에만 조건부로 뜬다 — WorkspaceLayout.jsx의 레일·사이드바처럼
+              // 늘 있는 칸이 아니라서 그쪽을 고치지 않고 여기서 이렇게 다룬다.
+              <Box sx={{ display: 'flex', height: '100%', minHeight: 0 }}>
+                <Box sx={{ flexGrow: 1, minWidth: 0, height: '100%' }}>
+                  <PostComposer
+                    channel={active}
+                    editingId={editingPostId}
+                    members={members}
+                    membersLoading={membersLoading}
+                    // 자동저장이 새 글을 처음 만든 순간 1회 — 주소를 /new에서 /edit로 조용히
+                    // 바꾼다. 보기 주소(/edit 없는)로 보내면 PostComposer 대신 PostDetail이
+                    // 그려져, 한창 쓰는 중인 화면이 읽기 화면으로 튕겨버린다.
+                    onSaved={id => navigate(`/channels/${active.id}/${id}/edit`, { replace: true })}
+                    onCancel={() => navigate(editingPostId ? `/channels/${active.id}/${editingPostId}` : `/channels/${active.id}`)}
+                    onOpenCanvasRef={to => navigate(to)}
+                    onOpenBlockComments={setBlockComments}
+                  />
+                </Box>
+                {blockComments && (
+                  <BlockCommentsPanel
+                    requestId={blockComments.requestId}
+                    blockId={blockComments.blockId}
+                    members={members}
+                    onClose={() => setBlockComments(null)}
+                  />
+                )}
+              </Box>
             ) : requestId ? (
               // 캔버스 하나. 탭 바는 위에 그대로 남는다 — 글을 열 때마다 채널 머리가
               // 통째로 사라지면, 돌아오려고 뒤로 가기를 눌러야 하고 옆 캔버스로 바로
               // 건너뛸 수도 없다.
-              <Box sx={{ height: '100%', overflowY: 'auto' }}>
-                <PostDetail
-                  requestId={requestId}
-                  onDeleted={() => navigate(`/channels/${active.id}`)}
-                />
+              <Box sx={{ display: 'flex', height: '100%', minHeight: 0 }}>
+                <Box sx={{ flexGrow: 1, minWidth: 0, height: '100%', overflowY: 'auto' }}>
+                  <PostDetail
+                    requestId={requestId}
+                    onDeleted={() => navigate(`/channels/${active.id}`)}
+                    onOpenBlockComments={setBlockComments}
+                  />
+                </Box>
+                {blockComments && (
+                  <BlockCommentsPanel
+                    requestId={blockComments.requestId}
+                    blockId={blockComments.blockId}
+                    members={members}
+                    onClose={() => setBlockComments(null)}
+                  />
+                )}
               </Box>
             ) : !dm && sideView === 'archive' ? (
               <Box sx={{ height: '100%', overflowY: 'auto', px: 2, pb: 2 }}>

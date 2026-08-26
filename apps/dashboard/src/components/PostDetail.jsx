@@ -43,8 +43,10 @@ import PostComments from './PostComments'
 import RequestMaterials from './RequestMaterials'
 import BlockReactionRow from './BlockReactionRow'
 import ReactionPicker from './ReactionPicker'
+import BlockCommentButton from './BlockCommentButton'
 import useBlockReactions from './useBlockReactions'
 import useBlockReactionRects from './useBlockReactionRects'
+import useBlockCommentCounts from './useBlockCommentCounts'
 import { ListSkeleton, ToneChip } from './widgetUi'
 import { RICH_TEXT_SX } from './richTextStyles'
 import { useToast } from './ToastProvider'
@@ -56,7 +58,7 @@ import {
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
-export default function PostDetail({ requestId, onDeleted }) {
+export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }) {
   const { user, userName, schoolId } = useAuth()
   const navigate = useNavigate()
   const toast = useToast()
@@ -96,6 +98,12 @@ export default function PostDetail({ requestId, onDeleted }) {
   // 이모지 고르는 팝오버 자리 — CanvasEditor와 같은 이유로 별도 상태로 둔다(마우스가
   // 움직여도 이미 연 팝오버는 안 닫혀야 한다).
   const [reactionPicker, setReactionPicker] = useState(null)   // { blockId, anchor: {top,left} }
+
+  // 블록 댓글(PLAN_canvasBlocks.md Phase 4) — 반응과 같은 이유로 이미 댓글 달린 블록만
+  // 대상으로 한다. 패널을 여는 건 이 컴포넌트가 아니라 Channels.jsx(3단 오른쪽 4번째
+  // 칸) 몫이라 onOpenBlockComments로 위임한다.
+  const commentCounts = useBlockCommentCounts({ schoolId, requestId })
+  const commentRects = useBlockReactionRects(bodyRef, Object.keys(commentCounts), request?.bodyHtml)
 
   /** 본문 안 캔버스 삽입 카드를 누르면 그 글을 연다(canvasRefCard.js). */
   const handleBodyClick = (e) => {
@@ -229,6 +237,23 @@ export default function PostDetail({ requestId, onDeleted }) {
               setReactionPicker(null)
             }}
           />
+          {/* 댓글이 달린 블록도 같은 자리(블록 왼쪽 아래)에 늘 보여준다 — 그 블록에 이미
+              반응이 있으면 반응 줄 아래로 한 칸 내려 겹치지 않게 한다. */}
+          {commentRects.map(({ blockId, rect }) => (
+            <Box
+              key={`c-${blockId}`}
+              sx={{
+                position: 'fixed',
+                top: rect.bottom + (blockReactions[blockId] ? 30 : 2),
+                left: rect.left, zIndex: 5,
+              }}
+            >
+              <BlockCommentButton
+                count={commentCounts[blockId] || 0}
+                onClick={() => onOpenBlockComments?.({ requestId, blockId })}
+              />
+            </Box>
+          ))}
           <Box sx={{ mb: 3 }}>
             <RequestMaterials attachments={request.attachments} links={request.links} />
           </Box>
@@ -404,8 +429,10 @@ export default function PostDetail({ requestId, onDeleted }) {
         )}
 
         {/* 댓글은 누가 열든 보인다 — 되묻는 말은 담당자에게만 생기는 것이 아니고,
-            같은 질문에 대한 답을 대상 전원이 함께 보는 것이 이 기능의 요점이다. */}
-        <PostComments requestId={requestId} />
+            같은 질문에 대한 답을 대상 전원이 함께 보는 것이 이 기능의 요점이다.
+            blockId를 안 줘 글 전체 댓글(null)만 보여준다 — 블록 댓글은 3단 오른쪽
+            패널(BlockCommentsPanel)에서 따로 본다. */}
+        <PostComments requestId={requestId} members={members} />
       </Box>
 
       {/* 되돌릴 수 없는 동작이라 확인을 받는다. window.confirm은 앱과 모양이 따로 놀고

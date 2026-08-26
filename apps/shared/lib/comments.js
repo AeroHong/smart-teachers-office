@@ -1,5 +1,5 @@
 /**
- * 업무 글 댓글.
+ * 업무 글 댓글 — 글 전체에 대한 것과 캔버스 블록 하나에 대한 것을 같은 컬렉션에 담는다.
  *
  * 업무 글은 "누가 했나"를 집계하지만, 실제로 오가는 말은 대부분 완료 여부가 아니라
  * 되묻는 것이다 — "양식이 어디 있나요", "저는 대상이 아닌 것 같은데요". 이 질문이
@@ -7,25 +7,38 @@
  * 글 아래에 붙여두면 한 번 답한 것이 모두에게 남는다.
  *
  * ─────────────────────────────────────────────────────────────
- *  본문을 평문으로 저장하는 이유
+ *  본문은 서식 있는 HTML이다 (PLAN_canvasBlocks.md Phase 4부터)
  * ─────────────────────────────────────────────────────────────
- * 업무 글 본문(bodyHtml)은 서식 있는 HTML이라 그릴 때마다 richText.js의 sanitizeHtml을
- * 거쳐야 한다. 댓글에 같은 구조를 쓰면 편집기·정화기·저장 형식이 한 벌 더 늘고,
- * 정화를 한 군데라도 빠뜨리면 그대로 XSS가 된다.
+ * 처음엔 평문이었다(정화기를 새로 늘리지 않으려고). 그런데 입력창을 MessageComposer.jsx로
+ * 바꾸면서(사용자 명시 요청 — 채널 메시지와 같은 입력 경험) channelMessages.js와 같은
+ * 이유로 bodyHtml을 들였다: 그 정화기(richText.js의 sanitizeHtml)는 캔버스·쪽지·채널
+ * 메시지가 이미 쓰고 있어 "한 벌 더 느는" 게 아니다.
  *
- * 댓글은 한두 줄짜리 되묻기라 굵게·목록·이미지를 넣을 이유가 없다. 서식을 포기하면
- * 저장된 값은 항상 그냥 문자열이고, 화면은 dangerouslySetInnerHTML 없이 텍스트로만
- * 그리면 되므로 정화를 잊을 자리 자체가 사라진다. 줄바꿈은 CSS(white-space)로 살린다.
+ * bodyHtml이 있으면 그게 진짜 내용이고, body는 htmlToText로 뽑아낸 평문 사본이다(길이
+ * 검사·목록 미리보기용). bodyHtml이 없는 문서는 옛 평문 댓글이다 — 줄바꿈만 살려 그린다.
+ *
+ * ─────────────────────────────────────────────────────────────
+ *  blockId — 글 전체 댓글과 블록 댓글을 같은 컬렉션에 두는 이유
+ * ─────────────────────────────────────────────────────────────
+ * "이 글에 달린 모든 이야기"라는 성격은 같아서 컬렉션을 나누지 않았다. blockId가
+ * null이면 글 전체 댓글(PostDetail 맨 아래), 블록 ID(CanvasEditor.jsx의 data-block-id)면
+ * 그 블록에 단 댓글(3단 오른쪽 패널, BlockCommentsPanel.jsx)이다 — commentsForBlock()으로
+ * 걸러 보여준다.
  *
  * 저장 구조
  *   schools/{schoolId}/requests/{requestId}/comments/{commentId}   ← auto-ID
- *     body         평문 (HTML 아님)
+ *     body         평문(htmlToText로 뽑은 사본, 옛 문서는 이것만 있음)
+ *     bodyHtml     서식 있는 본문 — 없으면 옛 평문 댓글
+ *     blockId      null이면 글 전체, 아니면 그 블록의 댓글
  *     authorUid    작성자 uid — 삭제 권한 판정의 근거
  *     authorName   작성 시점 이름 스냅샷 (계정이 지워져도 누구였는지 남는다)
  *     createdAt    호출부가 serverTimestamp()로 채운다
  *
- * Firestore에 의존하지 않는 순수 함수로 둔다. (comments.test.js)
+ * Firestore에 의존하지 않는 순수 함수로 둔다. (comments.test.js) htmlToText는 richText.js의
+ * DOM 없는 순수 함수라 여기서 불러도 node --test가 깨지지 않는다(channelMessages.js와 같음).
+ * sanitizeHtml(DOMPurify가 window를 요구)은 호출부(PostComments.jsx) 책임이다.
  */
+import { htmlToText } from './richText.js'
 
 /**
  * 본문 길이 상한.
@@ -81,15 +94,31 @@ export function validateComment(body) {
  *
  * 검증에 걸리면 값을 만들지 않고 던진다. 화면에서 이미 막고 있지만, 그 막이 뚫렸을 때
  * 빈 댓글이 조용히 저장되는 것보다 저장이 실패하는 편이 낫다.
+ *
+ * @param {string} [bodyHtml] 서식 있는 본문(MessageComposer.jsx). 있으면 body는 이걸로
+ *   덮어쓴다(htmlToText) — 호출부가 평문과 HTML을 따로 맞춰 넘길 필요가 없다
+ *   (channelMessages.js의 newMessagePayload와 같은 방식).
+ * @param {string|null} [blockId] 캔버스 블록 하나에 단 댓글이면 그 블록 ID, 글 전체
+ *   댓글이면 null(기본값).
  */
-export function newCommentPayload({ body, authorUid, authorName }) {
-  const result = validateComment(body)
+export function newCommentPayload({ body, bodyHtml = null, authorUid, authorName, blockId = null }) {
+  const text = bodyHtml ? htmlToText(bodyHtml) : body
+  const result = validateComment(text)
   if (!result.ok) throw new Error(result.error)
   return {
     body: result.body,
+    bodyHtml: bodyHtml || null,
     authorUid,
     authorName: authorName || '',
+    blockId: blockId || null,
   }
+}
+
+/** blockId로 거른다 — null이면 글 전체 댓글만, 블록 ID면 그 블록 댓글만(둘을 같은
+ *  화면에 섞지 않는다 — 어느 블록 얘기인지 문맥 없이 떠 있으면 오히려 헷갈린다). */
+export function commentsForBlock(comments = [], blockId = null) {
+  const target = blockId || null
+  return comments.filter(c => (c?.blockId || null) === target)
 }
 
 /**

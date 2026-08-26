@@ -59,6 +59,8 @@ import useBlockReactions from './useBlockReactions'
 import useBlockReactionRects from './useBlockReactionRects'
 import BlockReactionRow from './BlockReactionRow'
 import ReactionPicker from './ReactionPicker'
+import BlockCommentButton from './BlockCommentButton'
+import useBlockCommentCounts from './useBlockCommentCounts'
 
 /** '+'와 '/'가 함께 여는 메뉴에 얹는 캔버스 전용 항목. 표·목차 등 지금 뜻이 없는 것과
  *  갈라, 쪽지 쪽 RichTextEditor·SlashMenu에는 안 넘긴다(SlashMenu.jsx extraItems). */
@@ -154,6 +156,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   docId, folder = 'requests', value, onChange, onImageUploaded, onFileUploaded, onOpenCanvasRef,
   canvasOptions = [], placeholder,
   title, onTitleChange, titlePlaceholder = '제목',
+  onOpenBlockComments,
 }, ref) {
   const { schoolId } = useAuth()
   const toast = useToast()
@@ -205,6 +208,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   // hoveredBlock에 매어 두면, 팝오버를 연 다음 마우스가 살짝만 움직여도(다른 블록으로
   // 인식되면) 칸 전체가 사라지며 막 연 팝오버까지 닫혀버린다(사용자 확인, 2026-08-26).
   const [reactionPicker, setReactionPicker] = useState(null)   // { blockId, anchor: {top,left} }
+  // 블록 댓글(PLAN_canvasBlocks.md Phase 4) — 이미 댓글 달린 블록에 늘 뜨는 개수 표시용.
+  // 패널을 여는 것 자체는 이 컴포넌트가 하지 않는다 — onOpenBlockComments(blockId)로
+  // 부모(PostComposer→Channels.jsx)에 위임한다. 3단 오른쪽 4번째 칸은 채널 워크스페이스
+  // 레이아웃 소관이라 편집기가 알 필요가 없다.
+  const commentCounts = useBlockCommentCounts({ schoolId, requestId: docId })
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
@@ -1587,7 +1595,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         && !blockReactions[hoveredBlock.el.getAttribute('data-block-id')] && (
         <Box
           data-block-handle="true"
-          sx={{ position: 'fixed', top: hoveredBlock.rect.top, left: hoveredBlock.rect.right + 8, zIndex: 1200 }}
+          sx={{
+            position: 'fixed', top: hoveredBlock.rect.top, left: hoveredBlock.rect.right + 8, zIndex: 1200,
+            display: 'flex', alignItems: 'center', gap: 0.4,
+          }}
           onMouseEnter={cancelHoverClear}
           onMouseLeave={scheduleHoverClear}
         >
@@ -1603,6 +1614,15 @@ const CanvasEditor = forwardRef(function CanvasEditor({
               openReactionPicker(id, e)
             }}
           />
+          {/* 댓글 — 반응과 같은 자리, 바로 옆(PLAN_canvasBlocks.md Phase 4: "손잡이
+              영역의 댓글 아이콘"). 반응처럼 처음 누르는 사람이 이 블록의 ID를 확정한다. */}
+          <BlockCommentButton
+            count={commentCounts[hoveredBlock.el.getAttribute('data-block-id')] || 0}
+            onClick={() => {
+              const id = ensureHoveredBlockId()
+              if (id) onOpenBlockComments?.(id)
+            }}
+          />
         </Box>
       )}
 
@@ -1612,13 +1632,20 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         <Box
           key={blockId} data-block-handle="true"
           onMouseEnter={cancelHoverClear} onMouseLeave={scheduleHoverClear}
-          sx={{ position: 'fixed', top: rect.top, left: rect.right + 8, zIndex: 1150 }}
+          sx={{
+            position: 'fixed', top: rect.top, left: rect.right + 8, zIndex: 1150,
+            display: 'flex', alignItems: 'center', gap: 0.4,
+          }}
         >
           <BlockReactionRow
             data={blockReactions[blockId]}
             uid={reactionUid}
             onToggle={emoji => toggleReaction(blockId, emoji)}
             onAddClick={e => openReactionPicker(blockId, e)}
+          />
+          <BlockCommentButton
+            count={commentCounts[blockId] || 0}
+            onClick={() => onOpenBlockComments?.(blockId)}
           />
         </Box>
       ))}
