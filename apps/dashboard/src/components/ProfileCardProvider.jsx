@@ -1,5 +1,5 @@
 /**
- * 동료 프로필 카드 — 어디서든 `useProfileCard().open(uid, anchorEl)` 한 줄로 띄운다.
+ * 프로필 카드 — 어디서든 `useProfileCard().open(uid, anchorEl)` 한 줄로 띄운다.
  * ToastProvider.jsx와 같은 모양(Context + 최상위 한 번 마운트, App.jsx)이다.
  *
  * 구성원 목록은 이 컴포넌트가 직접 useSchoolMembers()로 구독한다 — uid 하나만 따로
@@ -7,8 +7,13 @@
  * 막힌다. 이미 list 쿼리로 전체를 읽어 오는 이 훅의 결과에서 uid로 찾아야 한다
  * (PLAN 조사 참고).
  *
- * 사진을 바꾸는 기능은 여기 없다 — 정보를 보여주기만 한다. 내 프로필도 Members.jsx
- * 상세 칸에서 고친다(한 자리 원칙, PLAN 참고).
+ * ── 내 프로필일 때는 사진을 바로 바꿀 수 있다(2026-08-27) ──────────────
+ * 처음엔 "카드는 보여주기만, 사진은 Members.jsx에서"로 좁혔는데, 정작 왼쪽 아래
+ * 내 아바타를 눌렀을 때 그냥 구성원 화면으로 튕겨서 "편집할 데가 없다"는 지적을
+ * 받았다(Slack은 아바타를 누르면 그 자리에서 바로 사진을 바꿀 수 있는 카드가 뜬다).
+ * useMyAvatar.js(Members.jsx와 같은 훅)로 이 카드 자체에서 EditableAvatar를 쓴다.
+ * 이름·부서·교과 등은 관리자가 배정하는 값(teacherAssignments)이라 이 앱에서 본인이
+ * 직접 고치는 자리가 아니다 — 그래서 사진만 편집 가능하고 나머지는 그대로 보여준다.
  */
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -16,8 +21,11 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Popover from '@mui/material/Popover'
 import Typography from '@mui/material/Typography'
+import { useAuth } from '@shared/contexts/AuthContext'
 import PersonAvatar from './PersonAvatar'
+import EditableAvatar from './EditableAvatar'
 import useSchoolMembers from '../lib/useSchoolMembers'
+import useMyAvatar from '../lib/useMyAvatar'
 
 const ProfileCardContext = createContext(null)
 
@@ -29,7 +37,8 @@ export function useProfileCard() {
 const NOOP = { open: () => {} }
 
 export default function ProfileCardProvider({ children }) {
-  const { members } = useSchoolMembers()
+  const { user } = useAuth()
+  const { members, refetch } = useSchoolMembers()
   const navigate = useNavigate()
   const [state, setState] = useState(null)   // { uid, anchorEl }
 
@@ -41,6 +50,9 @@ export default function ProfileCardProvider({ children }) {
 
   const api = useMemo(() => ({ open }), [open])
   const member = state ? members.find(m => m.uid === state.uid) : null
+  const isMe = !!member && member.uid === user?.uid
+
+  const { uploading, uploadAvatar, resetToGoogleAvatar } = useMyAvatar({ onChanged: refetch })
 
   return (
     <ProfileCardContext.Provider value={api}>
@@ -54,7 +66,14 @@ export default function ProfileCardProvider({ children }) {
         {member && (
           <Box sx={{ p: 2, width: 260 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, mb: 1.5 }}>
-              <PersonAvatar name={member.name} photoURL={member.photoURL} size={48} />
+              {isMe ? (
+                <EditableAvatar
+                  name={member.name} photoURL={member.photoURL} size={48}
+                  uploading={uploading} onPick={uploadAvatar}
+                />
+              ) : (
+                <PersonAvatar name={member.name} photoURL={member.photoURL} size={48} />
+              )}
               <Box sx={{ minWidth: 0 }}>
                 <Typography fontSize="0.98rem" fontWeight={800} noWrap>{member.name}</Typography>
                 {member.positionLabel && (
@@ -64,6 +83,15 @@ export default function ProfileCardProvider({ children }) {
                 )}
               </Box>
             </Box>
+
+            {isMe && member.photoSource === 'custom' && user?.photoURL && (
+              <Button
+                size="small" onClick={resetToGoogleAvatar}
+                sx={{ fontSize: '0.72rem', minWidth: 0, px: 0, mb: 1 }}
+              >
+                구글 계정 사진으로 되돌리기
+              </Button>
+            )}
 
             {member.department || member.subject || member.office || member.isHomeroom ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 1.5 }}>

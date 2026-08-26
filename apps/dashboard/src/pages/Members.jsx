@@ -12,7 +12,7 @@
  * 업무 요청 대상 지정과 다른 점: 이쪽은 조건이 아니라 사람을 직접 고른다. 조건으로
  * 뽑아야 할 일이면 애초에 쪽지가 아니라 업무 요청으로 보내는 편이 맞다.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -21,31 +21,27 @@ import Chip from '@mui/material/Chip'
 import InputAdornment from '@mui/material/InputAdornment'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import CircularProgress from '@mui/material/CircularProgress'
 import SearchIcon from '@mui/icons-material/Search'
 import SendIcon from '@mui/icons-material/Send'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { USERS } from '@shared/lib/schema'
-import { uploadAttachment } from '@shared/lib/requestAttachments'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
 import NoticeComposeModal from '../components/NoticeComposeModal'
 import PersonAvatar from '../components/PersonAvatar'
-import { useToast } from '../components/ToastProvider'
+import EditableAvatar from '../components/EditableAvatar'
 import useSchoolMembers from '../lib/useSchoolMembers'
+import useMyAvatar from '../lib/useMyAvatar'
 import { ROOT_GROUPS, buildRosterTree, defaultExpanded, memberSubtitle, nodeId, searchMembers } from '../lib/rosterTree'
 
 export default function Members() {
-  const { user, schoolId } = useAuth()
-  const toast = useToast()
+  const { user } = useAuth()
   const { members, loading, refetch } = useSchoolMembers()
   const [expanded, setExpanded] = useState(null)
   const [keyword, setKeyword] = useState('')
   const [selected, setSelected] = useState(null)
   const [compose, setCompose] = useState(null)
-  const [uploadingAvatar, setUploadingAvatar] = useState(false)
-  const avatarInputRef = useRef(null)
   // 여러 명 고르기 — 켜면 이름을 눌러도 상세로 가지 않고 담긴다
   const [picking, setPicking] = useState(false)
   const [picked, setPicked] = useState([])   // [{ uid, name }]
@@ -112,40 +108,15 @@ export default function Members() {
   // 이름을 누르면 — 고르는 중이면 담고, 아니면 상세를 연다
   const onMemberClick = (m) => (picking ? togglePick(m) : setSelected(m))
 
-  /**
-   * 내 프로필 사진 바꾸기 — "내 프로필도 여기서 고친다"는 한 자리 원칙(PLAN 참고).
-   * uploadAttachment(requestAttachments.js)를 그대로 재사용 — folder를 'avatars'로
-   * 주면 storage.rules의 새 avatars/{uid} 경로와 맞아떨어진다.
-   *
-   * useSchoolMembers()는 한 번만 읽으므로 업로드 후 refetch()로 다시 읽어야 방금 바꾼
-   * 사진이 이 화면(selected)에도 반영된다 — 훅 자체의 주석에 적힌 "쓰기로 이어지는
-   * 자리는 refetch" 원칙과 같다.
-   */
-  const applyAvatar = async (patch) => {
-    if (!user) return
-    try {
-      await updateDoc(doc(db, USERS, user.uid), patch)
+  // 내 프로필 사진 — useMyAvatar.js가 실제 업로드·저장을 한다. useSchoolMembers()는
+  // 한 번만 읽으므로 바뀐 뒤 refetch()로 다시 읽어야 이 화면(selected)에도 반영된다
+  // (훅 주석의 "쓰기로 이어지는 자리는 refetch" 원칙).
+  const { uploading: uploadingAvatar, uploadAvatar, resetToGoogleAvatar } = useMyAvatar({
+    onChanged: async () => {
       const fresh = await refetch()
-      setSelected(fresh.find(m => m.uid === user.uid) || selected)
-    } catch (e) {
-      toast.error('사진을 바꾸지 못했습니다.', e)
-    }
-  }
-
-  const handleAvatarFile = async (file) => {
-    if (!file || !user || !schoolId) return
-    setUploadingAvatar(true)
-    try {
-      const uploaded = await uploadAttachment({ schoolId, docId: user.uid, folder: 'avatars', file })
-      await applyAvatar({ photoURL: uploaded.url, photoSource: 'custom' })
-    } catch (e) {
-      toast.error('사진을 올리지 못했습니다.', e)
-    } finally {
-      setUploadingAvatar(false)
-    }
-  }
-
-  const resetToGoogleAvatar = () => applyAvatar({ photoURL: user?.photoURL || null, photoSource: 'google' })
+      setSelected(prev => fresh.find(m => m.uid === user?.uid) || prev)
+    },
+  })
 
   const sidebar = (
     <>
@@ -241,41 +212,12 @@ export default function Members() {
         <Box sx={{ p: 2.5, maxWidth: 560 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
             {/* 본인 사진만 바꿀 수 있다 — 눌러도 아무 일 없는 사진은 오히려 "고장 났나"로
-                읽힌다, 그래서 본인일 때만 버튼처럼 보이게 한다. */}
+                읽힌다, 그래서 본인일 때만 EditableAvatar(눌러서 바꾸기)를 쓴다. */}
             {selected.uid === user?.uid ? (
-              <Box
-                component="button" type="button"
-                onClick={() => avatarInputRef.current?.click()}
-                disabled={uploadingAvatar}
-                sx={{
-                  position: 'relative', border: 0, background: 'none', p: 0, borderRadius: '50%',
-                  cursor: uploadingAvatar ? 'default' : 'pointer', flexShrink: 0,
-                  '&:hover .avatar-hint': { opacity: 1 },
-                }}
-                aria-label="프로필 사진 바꾸기"
-              >
-                <PersonAvatar name={selected.name} photoURL={selected.photoURL} size={56} />
-                {uploadingAvatar ? (
-                  <Box sx={{
-                    position: 'absolute', inset: 0, borderRadius: '50%',
-                    bgcolor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <CircularProgress size={20} sx={{ color: '#fff' }} />
-                  </Box>
-                ) : (
-                  <Box
-                    className="avatar-hint"
-                    sx={{
-                      position: 'absolute', inset: 0, borderRadius: '50%',
-                      bgcolor: 'rgba(0,0,0,0.35)', color: '#fff',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '0.62rem', fontWeight: 700, opacity: 0, transition: 'opacity .12s ease',
-                    }}
-                  >
-                    바꾸기
-                  </Box>
-                )}
-              </Box>
+              <EditableAvatar
+                name={selected.name} photoURL={selected.photoURL} size={56}
+                uploading={uploadingAvatar} onPick={uploadAvatar}
+              />
             ) : (
               <PersonAvatar name={selected.name} photoURL={selected.photoURL} size={56} />
             )}
@@ -294,12 +236,6 @@ export default function Members() {
               )}
             </Box>
           </Box>
-          {selected.uid === user?.uid && (
-            <input
-              ref={avatarInputRef} type="file" accept="image/*" hidden
-              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; handleAvatarFile(f) }}
-            />
-          )}
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8, mb: 2.5 }}>
             <Field label="사무실" value={selected.office} />

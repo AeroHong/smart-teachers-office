@@ -24,6 +24,7 @@ import { portalLink } from '../lib/portalUrl'
 import useUnreadNotices from '../lib/useUnreadNotices'
 import useMyRequests from '../lib/useMyRequests'
 import PersonAvatar from './PersonAvatar'
+import { useProfileCard } from './ProfileCardProvider'
 
 const RAIL_WIDTH = 64
 
@@ -81,6 +82,7 @@ function RailButton({ icon: Icon, label, active, onClick, to, href, badge }) {
 export default function AppRail() {
   const { user, userName, photoURL, logout, isAdmin } = useAuth()
   const { pathname } = useLocation()
+  const { open: openProfile } = useProfileCard()
   const unreadNotices = useUnreadNotices()
   const myRequests = useMyRequests()
   const pendingCount = myRequests.filter(r => !isDoneBy(r, user?.uid)).length
@@ -150,13 +152,14 @@ export default function AppRail() {
       <Box sx={{ flexGrow: 1 }} />
 
       <RailButton icon={LaunchIcon} label="포털" href={portalLink('/')} />
-      {/* 내 프로필 사진 — 누르면 구성원 화면(사진 바꾸기가 거기 있다)으로 이동한다.
-          위에 이미 "구성원" 아이콘이 있지만, 여기는 Slack처럼 "내 사진을 누르면 나"라는
-          익숙한 자리를 하나 더 두는 것뿐이다. */}
+      {/* 내 프로필 사진 — 누르면 그 자리에서 카드가 뜬다(ProfileCardProvider, Slack처럼
+          "내 사진을 누르면 나"). /members로 그냥 이동만 시켰더니 "편집할 데가 없다"는
+          지적을 받았다(2026-08-27) — 카드 자체에서 사진을 바로 바꿀 수 있다. */}
       <Tooltip title={userName || ''} placement="right">
         <Box
-          component={Link} to="/members"
-          sx={{ my: 0.6, display: 'flex', borderRadius: '50%' }}
+          component="button" type="button"
+          onClick={e => user && openProfile(user.uid, e.currentTarget)}
+          sx={{ my: 0.6, display: 'flex', border: 0, background: 'none', p: 0, borderRadius: '50%', cursor: 'pointer' }}
           aria-label="내 프로필"
         >
           <PersonAvatar name={userName} photoURL={photoURL} size={30} />
