@@ -1226,7 +1226,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         <Box
           onClick={() => toast.success('표지 추가 기능은 준비 중입니다.')}
           sx={{
-            height: 28, mb: 0.5, borderRadius: 1, cursor: 'pointer',
+            height: 96, mb: 0.5, borderRadius: 1, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: 'text.disabled', fontSize: '0.78rem', fontWeight: 600,
             opacity: 0, transition: 'opacity .12s ease, background-color .12s ease',
