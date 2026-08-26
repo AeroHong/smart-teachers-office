@@ -33,6 +33,7 @@ import useChannelMessages from '../lib/useChannelMessages'
 import MessageComposer from './MessageComposer'
 import { RICH_TEXT_SX } from './richTextStyles'
 import { useProfileCard } from './ProfileCardProvider'
+import PersonAvatar from './PersonAvatar'
 
 /** 같은 사람이 이 시간 안에 연달아 보내면 한 덩어리로 본다. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -146,19 +147,36 @@ export default function ChannelMessages({
         ) : rows.map(m => (
           <Box key={m.id} sx={{ mb: m.grouped ? 0.2 : 1.2 }}>
             {!m.grouped && (
-              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.8, mb: 0.2 }}>
-                <Typography
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, mb: 0.3 }}>
+                {/* 이름 글자 높이(0.82rem)의 두 배 크기 아바타(사용자 요청, 2026-08-27) —
+                    채널 안 다른 구성원 목록(members)에서 uid로 찾는다. 채널을 나간
+                    사람의 옛 메시지는 못 찾아도 PersonAvatar가 이름 첫 글자로 대신한다. */}
+                <Box
                   component="button" type="button"
                   onClick={e => openProfile(m.authorUid, e.currentTarget)}
-                  sx={{
-                    fontSize: '0.82rem', fontWeight: 700, border: 0, background: 'none', p: 0,
-                    fontFamily: 'inherit', cursor: 'pointer', color: 'inherit',
-                    '&:hover': { textDecoration: 'underline' },
-                  }}
+                  sx={{ border: 0, background: 'none', p: 0, cursor: 'pointer', lineHeight: 0, flexShrink: 0 }}
+                  aria-label={`${m.authorName || '이름 없음'} 프로필`}
                 >
-                  {m.authorName || '(이름 없음)'}
-                </Typography>
-                <Typography fontSize="0.7rem" color="text.disabled">{formatDateTime(m.createdAt)}</Typography>
+                  <PersonAvatar
+                    name={m.authorName}
+                    photoURL={members.find(mem => mem.uid === m.authorUid)?.photoURL}
+                    size={26}
+                  />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.8 }}>
+                  <Typography
+                    component="button" type="button"
+                    onClick={e => openProfile(m.authorUid, e.currentTarget)}
+                    sx={{
+                      fontSize: '0.82rem', fontWeight: 700, border: 0, background: 'none', p: 0,
+                      fontFamily: 'inherit', cursor: 'pointer', color: 'inherit',
+                      '&:hover': { textDecoration: 'underline' },
+                    }}
+                  >
+                    {m.authorName || '(이름 없음)'}
+                  </Typography>
+                  <Typography fontSize="0.7rem" color="text.disabled">{formatDateTime(m.createdAt)}</Typography>
+                </Box>
               </Box>
             )}
             {m.bodyHtml ? (
