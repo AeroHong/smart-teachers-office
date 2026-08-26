@@ -38,6 +38,7 @@ import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import ContentCopyIcon from '@mui/icons-material/ContentCopyOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import TitleIcon from '@mui/icons-material/Title'
@@ -1248,16 +1249,16 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onChange={e => { handleDocFiles(e.target.files); e.target.value = '' }}
       />
 
-      {/* 블록 손잡이 — 지금 마우스가 올라간 블록의 왼쪽 바깥에 뜬다. picked(이미지
+      {/* 블록 손잡이(⋮⋮) — 지금 마우스가 올라간 블록의 왼쪽 바깥에 뜬다. picked(이미지
           손잡이)와 같은 자리 계산 방식이지만, 이건 잘라 보여줄 이유가 없어(overflow
           없음) clip 상자 없이 바로 그린다. 메뉴가 열려 있는 동안에도 계속 보이게 둔다 —
           누른 블록이 어디였는지 잊게 하지 않으려고.
 
-          아이콘(⋮⋮) 대신 짙어지는 회색 막대로 바꿨다 — 표 안 행 손잡이와 같은 자리에
-          뜨면 아이콘 두 개가 겹쳐 보였다(사용자 지적, 2026-08-26). 막대는 실제
-          누르는 자리(18px 폭)보다 얇게(4px) 그려서, 두 손잡이가 있어도 서로 다른
-          레인(이 손잡이는 표 바로 옆 안쪽 레인, 행 손잡이는 그 바깥 레인)에 놓이면
-          시각적으로 안 겹친다. */}
+          아이콘은 원래대로 유지한다 — 회색 막대로 바꾼 건 표 안 행·열 손잡이만이다
+          (사용자 지적, 2026-08-26: "블록 손잡이 자체는 기존 아이콘 그대로, 표에서의
+          손잡이만 바꿔야지"). 표를 고른 상태에서 이 손잡이와 행 손잡이가 같은 줄에
+          같이 뜰 수 있는데, 서로 다른 레인(이 손잡이가 안쪽, 행 손잡이가 바깥쪽)에
+          두고 모양도 아이콘 vs 막대로 달라 헷갈리지 않는다. */}
       {hoveredBlock && !menuRect && !slash && (
         <Box
           data-block-handle="true"
@@ -1266,18 +1267,16 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           onMouseLeave={scheduleHoverClear}
           sx={{
             position: 'fixed',
-            top: hoveredBlock.rect.top, left: hoveredBlock.rect.left - 20,
-            zIndex: 1200, width: 16, height: hoveredBlock.rect.height,
+            top: hoveredBlock.rect.top + 1,
+            left: hoveredBlock.rect.left - 26,
+            zIndex: 1200, width: 22, height: 22, borderRadius: 0.75,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'grab',
-            '&:hover .handle-bar': { bgcolor: 'text.secondary' },
+            cursor: 'grab', color: 'text.disabled',
+            bgcolor: blockMenu?.el === hoveredBlock.el ? 'action.hover' : 'transparent',
+            '&:hover': { bgcolor: 'action.hover', color: 'text.secondary' },
           }}
         >
-          <Box className="handle-bar" sx={{
-            width: 4, height: '70%', borderRadius: 2,
-            bgcolor: blockMenu?.el === hoveredBlock.el ? 'text.secondary' : 'action.disabled',
-            transition: 'background-color .1s ease',
-          }} />
+          <DragIndicatorIcon sx={{ fontSize: 17 }} />
         </Box>
       )}
 
