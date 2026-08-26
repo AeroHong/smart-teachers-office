@@ -737,18 +737,28 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         if (Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return
         moved = true
       }
+      // 콜아웃·인용문 위 가운데(위아래 25%씩은 빼고)에서 놓으면 형제로 끼우는 게
+      // 아니라 그 블록 "안"으로 들어간다(사용자 요청, 2026-08-26 — 체크리스트나
+      // 문단을 콜아웃/인용문 안에 넣고 싶다는 것). 가장자리는 그대로 형제 재배치로
+      // 남겨 둔다 — 안 그러면 콜아웃 바로 앞/뒤에 놓을 방법이 없어진다.
+      let dropInto = null
       let insertBeforeEl = null
       let indicatorTop = null
       for (const sib of siblings) {
         if (sib === block) continue
         const r = sib.getBoundingClientRect()
+        const isContainer = sib.tagName === 'ASIDE' || sib.tagName === 'BLOCKQUOTE'
+        if (isContainer && ev.clientY >= r.top + r.height * 0.25 && ev.clientY <= r.bottom - r.height * 0.25) {
+          dropInto = sib
+          break
+        }
         if (ev.clientY < r.top + r.height / 2) { insertBeforeEl = sib; indicatorTop = r.top; break }
       }
-      if (indicatorTop === null) {
+      if (!dropInto && indicatorTop === null) {
         const last = siblings[siblings.length - 1]
         indicatorTop = (last === block ? block : last).getBoundingClientRect().bottom
       }
-      setBlockDrag({ insertBeforeEl, indicatorTop })
+      setBlockDrag({ dropInto, insertBeforeEl, indicatorTop })
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
@@ -756,7 +766,8 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       if (moved) {
         setBlockDrag(prev => {
           if (prev) {
-            if (prev.insertBeforeEl) el.insertBefore(block, prev.insertBeforeEl)
+            if (prev.dropInto) prev.dropInto.appendChild(block)
+            else if (prev.insertBeforeEl) el.insertBefore(block, prev.insertBeforeEl)
             else el.appendChild(block)
             emit()
           }
@@ -1468,8 +1479,20 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         </Box>
       )}
 
-      {/* 드래그로 블록을 끄는 동안 삽입될 자리를 보여주는 얇은 선. */}
-      {blockDrag && (
+      {/* 드래그로 블록을 끄는 동안 삽입될 자리를 보여준다 — 콜아웃·인용문 "안"으로
+          들어가는 중이면 그 블록 전체를 테두리로 감싸고, 아니면 형제 사이 얇은 선. */}
+      {blockDrag?.dropInto ? (
+        <Box sx={{
+          position: 'fixed',
+          top: blockDrag.dropInto.getBoundingClientRect().top - 2,
+          left: blockDrag.dropInto.getBoundingClientRect().left - 2,
+          width: blockDrag.dropInto.getBoundingClientRect().width + 4,
+          height: blockDrag.dropInto.getBoundingClientRect().height + 4,
+          border: '2px solid', borderColor: 'primary.main', borderRadius: 1.5,
+          bgcolor: 'primary.main', opacity: 0.08,
+          zIndex: 1300, pointerEvents: 'none',
+        }} />
+      ) : blockDrag && (
         <Box sx={{
           position: 'fixed', top: blockDrag.indicatorTop - 1,
           left: (editorRef.current?.getBoundingClientRect().left ?? 0),
