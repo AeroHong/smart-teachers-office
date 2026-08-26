@@ -4,18 +4,20 @@
  * 하므로(PLAN_canvasBlocks.md Phase 3, "여러 명이 같은 이모지에 반응"), 편집기 안 손잡이
  * 오버레이 전용이 아니라 두 화면에서 재사용 가능한 순수 표시 컴포넌트로 뺐다.
  *
- * 실제 위치(고정 좌표)는 부르는 쪽이 정한다 — CanvasEditor는 손잡이처럼 hoveredBlock 옆에,
- * PostDetail은 useBlockReactionRects로 잰 블록 rect 옆에 띄운다.
+ * 이모지 고르는 팝오버는 이 컴포넌트가 직접 열지 않는다("반응 추가" 단추는 onAddClick만
+ * 부른다) — 부르는 쪽(CanvasEditor/PostDetail)이 자기 최상위 상태(reactionPicker)로 연다.
+ * 예전에는 이 컴포넌트 안 useState로 팝오버를 관리했는데, 그 팝오버가 들어있던 칸이
+ * hoveredBlock에 매여 있어서 마우스가 살짝만 움직여도(다른 블록으로 인식되면) 칸 전체가
+ * 사라지며 막 열었던 팝오버까지 함께 닫혀버렸다(사용자 확인, 2026-08-26 — "그때부터는
+ * 마우스가 움직여도 계속 해당 이모지 창이 떠있어야 함"). 팝오버 상태를 hoveredBlock과
+ * 무관한 자리로 옮겨야 이 문제가 없어진다.
  */
-import { useState } from 'react'
 import Box from '@mui/material/Box'
-import Popover from '@mui/material/Popover'
 import Tooltip from '@mui/material/Tooltip'
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined'
-import { REACTION_EMOJIS, summarizeReactions } from '@shared/lib/blockReactions'
+import { summarizeReactions } from '@shared/lib/blockReactions'
 
-export default function BlockReactionRow({ data, uid, onToggle }) {
-  const [anchor, setAnchor] = useState(null)
+export default function BlockReactionRow({ data, uid, onToggle, onAddClick }) {
   const pills = summarizeReactions(data, uid)
 
   return (
@@ -39,7 +41,7 @@ export default function BlockReactionRow({ data, uid, onToggle }) {
       <Tooltip title="반응 추가">
         <Box
           component="button" type="button"
-          onClick={e => { e.stopPropagation(); setAnchor(e.currentTarget) }}
+          onClick={e => { e.stopPropagation(); onAddClick(e) }}
           sx={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             width: 20, height: 20, border: '1px dashed', borderColor: 'divider',
@@ -51,26 +53,6 @@ export default function BlockReactionRow({ data, uid, onToggle }) {
           <AddReactionOutlinedIcon sx={{ fontSize: 13 }} />
         </Box>
       </Tooltip>
-      <Popover
-        open={!!anchor} anchorEl={anchor} onClose={() => setAnchor(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      >
-        <Box sx={{ display: 'flex', gap: 0.3, p: 0.6 }}>
-          {REACTION_EMOJIS.map(emoji => (
-            <Box
-              key={emoji} component="button" type="button"
-              onClick={() => { onToggle(emoji); setAnchor(null) }}
-              sx={{
-                border: 0, background: 'none', cursor: 'pointer', fontSize: '1.15rem',
-                borderRadius: 0.75, p: 0.35, lineHeight: 1,
-                '&:hover': { bgcolor: 'action.hover' },
-              }}
-            >
-              {emoji}
-            </Box>
-          ))}
-        </Box>
-      </Popover>
     </Box>
   )
 }

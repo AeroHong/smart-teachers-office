@@ -42,6 +42,7 @@ import { hydrateDateChips } from '@shared/lib/dateChips'
 import PostComments from './PostComments'
 import RequestMaterials from './RequestMaterials'
 import BlockReactionRow from './BlockReactionRow'
+import ReactionPicker from './ReactionPicker'
 import useBlockReactions from './useBlockReactions'
 import useBlockReactionRects from './useBlockReactionRects'
 import { ListSkeleton, ToneChip } from './widgetUi'
@@ -92,6 +93,9 @@ export default function PostDetail({ requestId, onDeleted }) {
     schoolId, requestId,
   })
   const reactionRects = useBlockReactionRects(bodyRef, Object.keys(blockReactions), request?.bodyHtml)
+  // 이모지 고르는 팝오버 자리 — CanvasEditor와 같은 이유로 별도 상태로 둔다(마우스가
+  // 움직여도 이미 연 팝오버는 안 닫혀야 한다).
+  const [reactionPicker, setReactionPicker] = useState(null)   // { blockId, anchor: {top,left} }
 
   /** 본문 안 캔버스 삽입 카드를 누르면 그 글을 연다(canvasRefCard.js). */
   const handleBodyClick = (e) => {
@@ -208,9 +212,23 @@ export default function PostDetail({ requestId, onDeleted }) {
                 data={blockReactions[blockId]}
                 uid={reactionUid}
                 onToggle={emoji => toggleReaction(blockId, emoji)}
+                onAddClick={e => {
+                  const r = e.currentTarget.getBoundingClientRect()
+                  setReactionPicker({ blockId, anchor: { top: r.bottom + 4, left: r.left } })
+                }}
               />
             </Box>
           ))}
+          {/* 팝오버는 reactionRects와 무관한 별도 상태로 연다 — CanvasEditor와 같은 이유
+              (마우스가 움직여 rect 목록이 다시 계산돼도 이미 연 팝오버는 안 닫혀야 한다). */}
+          <ReactionPicker
+            anchor={reactionPicker?.anchor}
+            onClose={() => setReactionPicker(null)}
+            onPick={emoji => {
+              if (reactionPicker) toggleReaction(reactionPicker.blockId, emoji)
+              setReactionPicker(null)
+            }}
+          />
           <Box sx={{ mb: 3 }}>
             <RequestMaterials attachments={request.attachments} links={request.links} />
           </Box>

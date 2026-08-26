@@ -58,6 +58,7 @@ import { RICH_TEXT_SX } from './richTextStyles'
 import useBlockReactions from './useBlockReactions'
 import useBlockReactionRects from './useBlockReactionRects'
 import BlockReactionRow from './BlockReactionRow'
+import ReactionPicker from './ReactionPicker'
 
 /** '+'와 '/'가 함께 여는 메뉴에 얹는 캔버스 전용 항목. 표·목차 등 지금 뜻이 없는 것과
  *  갈라, 쪽지 쪽 RichTextEditor·SlashMenu에는 안 넘긴다(SlashMenu.jsx extraItems). */
@@ -195,11 +196,15 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   // 손잡이를 끌어 블록을 옮기는 중 — 삽입될 자리를 얇은 선으로 보여준다.
   const [blockDrag, setBlockDrag] = useState(null)   // { indicatorTop }
   // 블록 반응(이모지 리액션, PLAN_canvasBlocks.md Phase 3) — 이 글 전체의 반응을 한 번에
-  // 구독한다(블록마다 따로 구독하지 않는다). 반응 추가 팝오버를 연 블록.
+  // 구독한다(블록마다 따로 구독하지 않는다).
   const { byBlock: blockReactions, toggle: toggleReaction, uid: reactionUid } = useBlockReactions({
     schoolId, requestId: docId,
   })
   const reactionRects = useBlockReactionRects(editorRef, Object.keys(blockReactions), value)
+  // 이모지 고르는 팝오버 — hoveredBlock과 따로 둔다(blockMenu와 같은 이유). 손잡이 칸처럼
+  // hoveredBlock에 매어 두면, 팝오버를 연 다음 마우스가 살짝만 움직여도(다른 블록으로
+  // 인식되면) 칸 전체가 사라지며 막 연 팝오버까지 닫혀버린다(사용자 확인, 2026-08-26).
+  const [reactionPicker, setReactionPicker] = useState(null)   // { blockId, anchor: {top,left} }
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
@@ -643,7 +648,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   }
 
   const handleEditorMouseLeave = () => {
-    if (!blockDrag && !blockMenu && !rowDrag && !colDrag) scheduleHoverClear()
+    if (!blockDrag && !blockMenu && !rowDrag && !colDrag && !reactionPicker) scheduleHoverClear()
   }
 
   // 손잡이가 떠 있는 동안 스크롤·창 크기 변화에 다시 잰다 — picked(이미지 손잡이)와
@@ -770,6 +775,14 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       emit()
     }
     return el.getAttribute('data-block-id')
+  }
+
+  /** 반응 팝오버를 연다 — 클릭한 자리(좌표)만 기억한다. blockId는 이 순간 확정해 둔다
+   *  (그 뒤로 hoveredBlock이 바뀌어도 팝오버는 이 블록을 계속 가리켜야 하므로). */
+  const openReactionPicker = (blockId, e) => {
+    if (!blockId) return
+    const r = e.currentTarget.getBoundingClientRect()
+    setReactionPicker({ blockId, anchor: { top: r.bottom + 4, left: r.left } })
   }
 
   /**
@@ -1559,15 +1572,17 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       {/* 블록 반응(이모지 리액션) — 손잡이(왼쪽)와 마주 보는 오른쪽에 둔다. 이미 반응이
           달린 블록은 아래(reactionRects)가 늘 보여주므로, 여기서는 "아직 반응이 없는
           블록에 처음 반응을 남기는" 경우만 호버 중에 다룬다(둘 다 그리면 같은 블록에
-          알약 줄이 두 번 뜬다). */}
+          알약 줄이 두 번 뜬다).
+          data-block-handle — ⋮⋮ 손잡이와 같은 표식. handleEditorMouseMove가 이걸 보면
+          hoveredBlock 재배정을 멈춘다 — 이게 없으면 단추 쪽으로 마우스를 살짝만 내려도
+          (블록 아래쪽 여백을 지나며) findTopBlockAtY가 다음 블록을 찾아버려 hoveredBlock이
+          바뀌고, 단추가 그 블록 자리로 튀어 커서를 피해 도망가 버렸다(사용자 확인,
+          2026-08-26 — "마우스커서를 살짝 내리면 아래 줄로 넘어가 버리네"). 팝오버를 연
+          뒤에는(reactionPicker) 이 칸이 사라져도 팝오버 자체는 안 닫힌다 — 아래
+          ReactionPicker 참고. */}
       {hoveredBlock && !menuRect && !slash
         && !blockReactions[hoveredBlock.el.getAttribute('data-block-id')] && (
         <Box
-          // data-block-handle — ⋮⋮ 손잡이와 같은 표식. handleEditorMouseMove가 이걸 보면
-          // 재배정을 멈춘다(아래 주석). 이게 없으면 단추 쪽으로 마우스를 살짝만 내려도
-          // (블록 아래쪽 여백을 지나며) findTopBlockAtY가 다음 블록을 찾아버려 hoveredBlock이
-          // 바뀌고, 단추가 그 블록 자리로 튀어 커서를 피해 도망가 버렸다(사용자 확인,
-          // 2026-08-26 — "마우스커서를 살짝 내리면 아래 줄로 넘어가 버리네").
           data-block-handle="true"
           sx={{ position: 'fixed', top: hoveredBlock.rect.top, left: hoveredBlock.rect.right + 8, zIndex: 1200 }}
           onMouseEnter={cancelHoverClear}
@@ -1580,15 +1595,16 @@ const CanvasEditor = forwardRef(function CanvasEditor({
               const id = ensureHoveredBlockId()
               if (id) toggleReaction(id, emoji)
             }}
+            onAddClick={e => {
+              const id = ensureHoveredBlockId()
+              openReactionPicker(id, e)
+            }}
           />
         </Box>
       )}
 
       {/* 이미 반응이 하나라도 달린 블록은 호버와 무관하게 늘 알약 줄을 보여준다 — 손잡이처럼
-          호버해야만 보이면 "이 글에 누가 반응을 남겼다"는 걸 훑어보기 어렵다. 이 줄도
-          data-block-handle을 달아 위와 같은 이유로 마우스가 위에 있는 동안은 hoveredBlock이
-          안 바뀌게 한다(이 줄 자체는 hoveredBlock에 안 매여 있어 튀지는 않지만, 마우스가
-          여기 있는 동안 손잡이·다른 블록의 반응 단추가 엉뚱하게 뜨는 걸 막는다). */}
+          호버해야만 보이면 "이 글에 누가 반응을 남겼다"는 걸 훑어보기 어렵다. */}
       {reactionRects.map(({ blockId, rect }) => (
         <Box
           key={blockId} data-block-handle="true"
@@ -1599,9 +1615,22 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             data={blockReactions[blockId]}
             uid={reactionUid}
             onToggle={emoji => toggleReaction(blockId, emoji)}
+            onAddClick={e => openReactionPicker(blockId, e)}
           />
         </Box>
       ))}
+
+      {/* 이모지 고르는 팝오버 — hoveredBlock과 무관한 별도 상태(reactionPicker)로 열려
+          있는 동안은 위 두 칸이 사라져도(마우스가 움직여 hoveredBlock이 바뀌거나 비어도)
+          그대로 떠 있는다. blockMenu(Menu, anchorPosition)와 같은 이유·같은 방식. */}
+      <ReactionPicker
+        anchor={reactionPicker?.anchor}
+        onClose={() => setReactionPicker(null)}
+        onPick={emoji => {
+          if (reactionPicker) toggleReaction(reactionPicker.blockId, emoji)
+          setReactionPicker(null)
+        }}
+      />
 
       {/* 드래그로 블록을 끄는 동안 삽입될 자리를 보여준다 — 콜아웃·인용문 "안"으로
           들어가는 중이면 그 블록 전체를 테두리로 감싸고, 아니면 형제 사이 얇은 선. */}
