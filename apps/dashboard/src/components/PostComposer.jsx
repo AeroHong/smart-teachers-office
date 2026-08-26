@@ -120,7 +120,6 @@ export default function PostComposer({
 }) {
   const { user, userName, schoolId } = useAuth()
   const toast = useToast()
-  const canvasEditorRef = useRef(null)
 
   // 새 글은 첨부 경로에 쓸 ID를 미리 만들고, 고칠 때는 이미 있는 문서를 그대로 쓴다
   const draftId = useMemo(
@@ -483,22 +482,10 @@ export default function PostComposer({
         {/* 제목도 캔버스 영역으로 내렸다(사용자 요청, 2026-08-26) — 노션처럼 페이지를
             열면 곧바로 "제목을 쓰는 상태"가 되도록. 위 대상·요청/안내·마감일은 설정값이라
             그대로 고정 칸에 남지만, 제목은 글의 일부라 캔버스 흐름 맨 위에 둔다.
-            테두리·밑줄을 없애 입력 상자가 아니라 캔버스 위의 큰 제목처럼 보이게 한다. */}
-        <TextField
-          fullWidth autoFocus variant="standard"
-          placeholder="제목"
-          value={title} onChange={e => setTitle(e.target.value)}
-          InputProps={{ disableUnderline: true }}
-          inputProps={{ style: { fontSize: '1.6rem', fontWeight: 800 } }}
-          sx={{ mb: 1 }}
-          // 제목을 쓰고 Enter를 치면 본문으로 이어지는 게 자연스럽다 — 지금은 한 줄
-          // 입력창이라 Enter가 아무 일도 안 하고 있었다.
-          onKeyDown={e => {
-            if (e.key === 'Enter') { e.preventDefault(); canvasEditorRef.current?.focus() }
-          }}
-        />
+            제목 입력창 자체는 CanvasEditor.jsx 안에서 그린다(목차와 같은 칸을 써야
+            본문과 왼쪽 여백이 맞는다 — 예전엔 여기서 따로 그려서 목차가 있는 글은
+            제목·본문 왼쪽 여백이 서로 달랐다, 사용자 지적 2026-08-26). */}
         <CanvasEditor
-          ref={canvasEditorRef}
           docId={requestId}
           value={bodyHtml}
           onChange={setBodyHtml}
@@ -506,6 +493,8 @@ export default function PostComposer({
           onOpenCanvasRef={onOpenCanvasRef}
           canvasOptions={canvasOptions}
           placeholder="무엇을 어떻게 하면 되는지 적어주세요. '+'로 이미지·표·날짜·다른 업무 글도 넣을 수 있습니다."
+          title={title}
+          onTitleChange={setTitle}
         />
       </Box>
 

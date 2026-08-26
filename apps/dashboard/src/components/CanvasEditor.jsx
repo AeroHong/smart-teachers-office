@@ -104,13 +104,19 @@ const BLOCK_CONVERT_OPTIONS = [
 const CONVERTIBLE_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'BLOCKQUOTE'])
 
 /**
- * ref로 `focus()`를 내준다 — 제목 입력창에서 Enter를 치면 본문으로 이어서 쓸 수 있어야
- * 하는데, 그 처리는 부모(PostComposer)의 제목 필드에 있고 본문 DOM은 여기 안에 갇혀
- * 있어서다(`useImperativeHandle`).
+ * 제목을 이 컴포넌트 안에서 그린다(2026-08-26부터) — 예전엔 부모(PostComposer)가
+ * 캔버스 바로 위에 따로 그렸는데, 그러면 제목의 왼쪽 여백과 본문의 왼쪽 여백이
+ * 서로 다른 값이 됐다(본문은 목차 칸+간격만큼 오른쪽으로 밀린다, 아래 참고). 제목을
+ * 목차와 같은 줄(본문 칸) 맨 위로 옮기면 항상 같은 칸을 공유해 여백이 저절로
+ * 맞는다(사용자 지적, 2026-08-26). ref로 `focus()`를 계속 내주는 이유: 제목에서
+ * Enter를 치면 본문으로 이어서 써야 하는데, 지금은 그 처리를 내부에서 하지만
+ * (onTitleKeyDown) 다른 화면이 이 컴포넌트 바깥에서 본문에 포커스를 주고 싶을 때를
+ * 위해 남겨둔다.
  */
 const CanvasEditor = forwardRef(function CanvasEditor({
   docId, folder = 'requests', value, onChange, onImageUploaded, onFileUploaded, onOpenCanvasRef,
   canvasOptions = [], placeholder,
+  title, onTitleChange, titlePlaceholder = '제목',
 }, ref) {
   const { schoolId } = useAuth()
   const toast = useToast()
@@ -411,8 +417,14 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     return found
   }
 
-  /** 행 손잡이(표 왼쪽) — 끌면 이 표 안에서만 행 순서를 바꾼다. 블록 드래그와 같은
-   *  방식(형제 rect 중간값과 커서 y좌표 비교)이지만 대상이 tr이고 범위가 표 하나뿐이다. */
+  /**
+   * 행 손잡이(표 왼쪽) — 끌면 이 표 안에서만 행 순서를 바꾼다. 블록 드래그와 같은
+   * 방식(형제 rect 중간값과 커서 y좌표 비교)이지만 대상이 tr이고 범위가 표 하나뿐이다.
+   *
+   * 얇은 삽입선만으로는 "무엇을 옮기는지"가 잘 안 보인다는 지적(2026-08-26)에, 실제
+   * 행 내용을 커서에 붙여 떠다니게 하는 미리보기를 더했다(rowDrag.rowHtml) — 원본
+   * 행은 옮기는 동안 흐리게 해서 "그 자리에서 빠져나와 옮겨지는" 느낌을 준다.
+   */
   const startRowDrag = (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -420,6 +432,9 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     const row = hoveredRow?.el
     if (!table || !row) return
     const siblings = [...table.rows]
+    const grabOffsetY = e.clientY - row.getBoundingClientRect().top
+    const rowHtml = row.innerHTML
+    row.style.opacity = '0.25'
 
     const onMove = (ev) => {
       let insertBeforeEl = null
@@ -433,11 +448,12 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         const last = siblings[siblings.length - 1]
         indicatorTop = (last === row ? row : last).getBoundingClientRect().bottom
       }
-      setRowDrag({ insertBeforeEl, indicatorTop })
+      setRowDrag({ insertBeforeEl, indicatorTop, ghostTop: ev.clientY - grabOffsetY, rowHtml })
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      row.style.opacity = ''
       setRowDrag(prev => {
         if (prev) {
           // row.parentElement를 쓴다(table이 아니라) — HTML을 문자열로 만들어 넣으면
@@ -1195,6 +1211,25 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         </Box>
       )}
 
+      {/* 목차와 같은 칸(flexGrow:1) 안에 제목을 먼저 두고, 그 아래 본문을 둔다 —
+          제목과 본문이 항상 같은 왼쪽 위치를 공유하게 하려고(위 컴포넌트 설명 참고).
+          onTitleChange가 없으면(이 컴포넌트를 제목 없이 쓰는 다른 화면이 생기면) 그냥
+          안 그린다. */}
+      <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {onTitleChange && (
+          <TextField
+            fullWidth autoFocus variant="standard"
+            placeholder={titlePlaceholder}
+            value={title} onChange={e => onTitleChange(e.target.value)}
+            InputProps={{ disableUnderline: true }}
+            inputProps={{ style: { fontSize: '1.6rem', fontWeight: 800 } }}
+            sx={{ mb: 1, px: { xs: 0, sm: 1 } }}
+            // 제목을 쓰고 Enter를 치면 본문으로 이어지는 게 자연스럽다.
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); editorRef.current?.focus() }
+            }}
+          />
+        )}
       {/* onMouseMove/onMouseLeave는 편집기(안쪽 Box)가 아니라 이 바깥 칸에 건다 —
           손잡이(⋮⋮)가 편집기 rect 왼쪽 바깥에 fixed로 뜨는데, 편집기에 리스너를
           달면 마우스가 글자 위에서 손잡이 쪽으로 움직이는 순간 편집기의
@@ -1202,7 +1237,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           2026-08-26). 손잡이는 이 바깥 칸의 자식이라, 여기 걸면 "편집기 → 손잡이"
           이동은 이 칸 안에서의 이동일 뿐이라 leave가 안 터진다. */}
       <Box
-        sx={{ position: 'relative', flexGrow: 1, minWidth: 0 }}
+        sx={{ position: 'relative' }}
         onMouseMove={handleEditorMouseMove}
         onMouseLeave={handleEditorMouseLeave}
       >
@@ -1487,10 +1522,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           })}
 
           {/* 행 손잡이 — 표 왼쪽 바깥, 지금 마우스가 있는 행 옆. 끌면 이 표 안에서만
-              행 순서가 바뀐다(블록 드래그와 같은 모양, 범위만 표 안). 표도 캔버스의
-              한 블록이라 블록 손잡이와 같은 줄에 함께 뜬다 — 그래서 더 바깥 레인
-              (표에서 더 먼 자리)에 둬서 안쪽 레인의 블록 손잡이와 안 겹치게 한다
-              (사용자 지적, 2026-08-26). 디자인도 블록 손잡이와 맞춰 회색 막대로. */}
+              행 순서가 바뀐다(블록 드래그와 같은 모양, 범위만 표 안). 표에서 더 먼
+              바깥 레인에 뒀더니 표와 멀어 보여 직관성이 떨어진다는 지적(2026-08-26)에
+              표 바로 옆으로 다시 붙였다 — 모양(막대 vs 아이콘)이 이미 블록 손잡이와
+              다르니 자리가 겹쳐도 헷갈리지 않는다. */}
           {hoveredRow && !rowDrag && !colDrag && (
             <Box
               data-table-handle="true"
@@ -1499,7 +1534,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
               onMouseLeave={scheduleHoverClear}
               sx={{
                 position: 'fixed', top: hoveredRow.rect.top,
-                left: pickedTable.rect.left - 40, zIndex: 1250,
+                left: pickedTable.rect.left - 22, zIndex: 1250,
                 width: 16, height: hoveredRow.rect.height,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'grab',
@@ -1535,6 +1570,25 @@ const CanvasEditor = forwardRef(function CanvasEditor({
                 width: '70%', height: 4, borderRadius: 2, bgcolor: 'action.disabled',
                 transition: 'background-color .1s ease',
               }} />
+            </Box>
+          )}
+
+          {/* 행 드래그 중 커서를 따라다니는 미리보기 — 실제 행 내용을 그대로 보여줘
+              "이 행을 들어서 옮기는 중"임을 알 수 있게 한다. tbody에 <tr>로 감싸
+              넣는 이유는 td가 table 파싱 맥락 밖에서는 제대로 안 만들어지기 때문. */}
+          {rowDrag?.rowHtml != null && (
+            <Box sx={{
+              position: 'fixed', top: rowDrag.ghostTop, left: pickedTable.rect.left,
+              width: pickedTable.rect.width, zIndex: 1400, pointerEvents: 'none',
+              opacity: 0.95, boxShadow: 4, borderRadius: 1, overflow: 'hidden',
+              border: '2px solid', borderColor: 'primary.main', bgcolor: 'background.paper',
+            }}>
+              <Box
+                component="table"
+                sx={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}
+              >
+                <tbody dangerouslySetInnerHTML={{ __html: `<tr>${rowDrag.rowHtml}</tr>` }} />
+              </Box>
             </Box>
           )}
 
@@ -1713,6 +1767,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onClose={() => { setSlash(null); setMenuRect(null) }}
         extraItems={CANVAS_EXTRA_ITEMS}
       />
+      </Box>
       </Box>
     </Box>
   )
