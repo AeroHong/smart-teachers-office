@@ -93,6 +93,8 @@ export const COL = {
   REQUESTS: 'requests',
   REQUEST_COMPLETIONS: 'completions',       // requests/{id}/completions/{uid} — ID가 곧 uid
   REQUEST_COMMENTS: 'comments',             // requests/{id}/comments/{commentId} — auto-ID
+  // requests/{id}/blockReactions/{blockId} — ID는 캔버스 블록의 data-block-id(blockReactions.js)
+  REQUEST_BLOCK_REACTIONS: 'blockReactions',
 
   // 채널 — 업무 글이 모이는 곳. requests.channelId 로 연결한다.
   // 글에 붙는 이름표일 뿐이라 별도 글 컬렉션을 두지 않았다 (channels.js 참고).

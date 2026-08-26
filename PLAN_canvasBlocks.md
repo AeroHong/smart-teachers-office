@@ -100,13 +100,42 @@ contenteditable="false"></span>...</li>` + `richTextStyles.js` CSS로 체크
 복사 문제) — 빈 항목에서 Enter는 목록을 빠져나감. 읽기 화면(PostDetail)에서
 클릭해 체크하는 것은 이번 범위 밖(편집 중에만).
 
-## Phase 3 — 블록 ID + 반응(이모지 리액션) (예정)
+## Phase 3 — 블록 ID + 반응(이모지 리액션) ✅ 완료(2026-08-26)
 
-`data-block-id` 부여(반응을 처음 누를 때만, 없으면 그때 생성해 즉시 저장).
 `requests/{id}/blockReactions/{blockId}` 서브컬렉션, `{[emoji]: [uid,...]}`,
 `arrayUnion`/`arrayRemove`로 토글. **자동저장(PostComposer 700ms 디바운스)과
 같은 문서에 안 넣는 이유**: 다른 사람의 반응 클릭과 글쓴이의 자동저장이
 같은 문서에서 겹치면 서로 덮어쓴다 — 댓글과 같은 이유로 서브컬렉션 분리.
+
+**계획 대비 바뀐 점 — ID 부여 시점.** 원래 "반응을 처음 누를 때만 생성"으로
+적었지만, 구현하다 보니 그 방식은 "여러 명이 반응"과 충돌한다는 게 드러났다
+— 반응은 캔버스를 쓴 사람(글쓴이)만이 아니라 채널의 누구나 남길 수 있어야
+하는데, 다른 사람은 읽기 화면(PostDetail)만 보고 bodyHtml을 저장할 권한이
+없어 자기가 처음 반응을 누른 블록에 ID를 새로 박아 저장할 방법이 없다.
+그래서 `CanvasEditor.jsx`의 `emit()`마다(`ensureBlockIds`) 직계 자식 블록
+전부에 미리 `data-block-id`를 매겨 저장하도록 바꿨다 — 글쓴이가 뭐라도
+고칠 때마다 모든 블록에 ID가 이미 있는 상태가 되고, 그 뒤로는 누가 반응을
+눌러도(읽기 화면 포함) 기존 ID에 반응 문서만 붙이면 된다. `duplicateBlock`은
+복제본의 ID를 지워 다음 emit()이 새로 매기게 하고, `convertBlock`은 태그를
+바꿔도 기존 ID를 새 엘리먼트로 옮겨 반응이 고아가 되지 않게 한다.
+`richText.js`의 `ALLOWED_ATTR`에 `data-block-id` 추가.
+
+**UI 배치.** 손잡이(⋮⋮, 왼쪽)와 마주 보는 블록 오른쪽에 반응 묶음을 둔다.
+이미 반응이 하나라도 달린 블록은 호버와 무관하게 늘 알약 줄("👍 3")을
+보여준다(`useBlockReactionRects` — picked/pickedTable과 같은 "rect에 고정"
+패턴, scroll/resize/본문 변경마다 다시 잰다). 아직 반응이 없는 블록은
+CanvasEditor에서 호버 중일 때만 "+반응" 단추가 뜬다(처음 반응은 글쓴이가
+편집 중에 남기는 경로로 좁혔다 — 읽기 화면에 모든 블록마다 옅은 "+"를 늘
+띄우면 산만해진다는 판단, 사용자 확인 없이 구현 중 내린 보수적 선택이라
+나중에 바꿀 수 있음). `BlockReactionRow`/`useBlockReactions` 컴포넌트를
+CanvasEditor·PostDetail 양쪽에서 재사용 — 읽기 화면은 이미 반응이 달린
+블록만 보여준다(같은 이유).
+
+**Firestore 규칙.** `comments`처럼 삭제 규칙은 없다(orphan 허용, 같은 이유).
+쓰기는 `completedUids`와 같은 `selfOnlyUidChange` 패턴을 이모지 6개 각각에
+반복 적용 — 한 번에 정해진 이모지 필드 하나에서만 내 uid를 넣고 뺄 수 있다.
+이 PC에 Java가 없어 `npm run test:rules`를 못 돌렸다(기존 라운드들과 같은
+제약) — 코드 리뷰로 안전성을 확인하고 배포 전 사용자 확인을 거쳤다.
 
 ## Phase 4 — 블록 댓글(3단 오른쪽 사이드바) (예정)
 

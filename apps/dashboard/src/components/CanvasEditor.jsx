@@ -52,8 +52,12 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { isImageFile, uploadAttachment } from '@shared/lib/requestAttachments'
 import { canvasRefCardHtml, canvasRefTarget } from '@shared/lib/canvasRefCard'
 import { dateChipHtml, hydrateDateChips } from '@shared/lib/dateChips'
+import { makeBlockId } from '@shared/lib/blockReactions'
 import { useToast } from './ToastProvider'
 import { RICH_TEXT_SX } from './richTextStyles'
+import useBlockReactions from './useBlockReactions'
+import useBlockReactionRects from './useBlockReactionRects'
+import BlockReactionRow from './BlockReactionRow'
 
 /** '+'와 '/'가 함께 여는 메뉴에 얹는 캔버스 전용 항목. 표·목차 등 지금 뜻이 없는 것과
  *  갈라, 쪽지 쪽 RichTextEditor·SlashMenu에는 안 넘긴다(SlashMenu.jsx extraItems). */
@@ -118,6 +122,24 @@ const CALLOUT_COLORS = [
 ]
 
 /**
+ * 직계 자식 블록마다 data-block-id를 매긴다(이미 있으면 그대로 둔다) — 반응(이모지
+ * 리액션)이 붙을 자리를 미리 마련해 둔다.
+ *
+ * "반응을 처음 누른 사람에게만 새로 매긴다"는 더 좁은 방식 대신 매 emit()마다 모든
+ * 블록에 미리 매기는 이유: 반응은 글쓴이만이 아니라 채널의 누구나 남길 수 있어야 하는데
+ * (PLAN_canvasBlocks.md Phase 3), 읽기 화면(PostDetail)의 다른 사람은 bodyHtml을 저장할
+ * 권한이 없다 — 자기가 처음 반응을 누른 블록에 ID를 새로 박아 저장할 방법이 없다는 뜻.
+ * 그래서 글쓴이가 무엇이든 고칠 때마다 모든 블록에 미리 ID를 매겨 두면, 그 뒤로는 누가
+ * 반응을 눌러도(읽기 화면 포함) 이미 있는 ID에 반응 문서만 붙이면 된다.
+ */
+function ensureBlockIds(el) {
+  if (!el) return
+  for (const child of el.children) {
+    if (!child.hasAttribute('data-block-id')) child.setAttribute('data-block-id', makeBlockId())
+  }
+}
+
+/**
  * 제목을 이 컴포넌트 안에서 그린다(2026-08-26부터) — 예전엔 부모(PostComposer)가
  * 캔버스 바로 위에 따로 그렸는데, 그러면 제목의 왼쪽 여백과 본문의 왼쪽 여백이
  * 서로 다른 값이 됐다(본문은 목차 칸+간격만큼 오른쪽으로 밀린다, 아래 참고). 제목을
@@ -172,6 +194,12 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const [convertSubmenuAnchor, setConvertSubmenuAnchor] = useState(null)
   // 손잡이를 끌어 블록을 옮기는 중 — 삽입될 자리를 얇은 선으로 보여준다.
   const [blockDrag, setBlockDrag] = useState(null)   // { indicatorTop }
+  // 블록 반응(이모지 리액션, PLAN_canvasBlocks.md Phase 3) — 이 글 전체의 반응을 한 번에
+  // 구독한다(블록마다 따로 구독하지 않는다). 반응 추가 팝오버를 연 블록.
+  const { byBlock: blockReactions, toggle: toggleReaction, uid: reactionUid } = useBlockReactions({
+    schoolId, requestId: docId,
+  })
+  const reactionRects = useBlockReactionRects(editorRef, Object.keys(blockReactions), value)
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
@@ -203,6 +231,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   }, [value])
 
   const emit = useCallback(() => {
+    ensureBlockIds(editorRef.current)
     onChange(editorRef.current?.innerHTML || '')
     syncHeadings()
     // 날짜 칩의 "D-2" 문구는 저장하지 않고 매번 다시 계산한다(dateChips.js) — 오늘 기준으로
@@ -675,7 +704,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const duplicateBlock = () => {
     const el = blockMenu?.el
     if (!el) return
-    el.after(el.cloneNode(true))
+    const clone = el.cloneNode(true)
+    // data-block-id까지 복제하면 두 블록이 같은 반응 문서를 가리키게 된다 — 지워서
+    // 다음 emit()의 ensureBlockIds가 새 ID를 매기게 한다.
+    clone.removeAttribute('data-block-id')
+    el.after(clone)
     closeBlockMenu()
     emit()
   }
@@ -706,6 +739,9 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       }
       if (!created.hasChildNodes()) created.appendChild(document.createElement('br'))
     }
+    // 이미 반응이 달려 있던 블록이면 새 태그로도 그 ID를 그대로 옮겨, 반응이 엉뚱한
+    // 블록(이제는 없는 옛 엘리먼트)에 남겨진 채 고아가 되지 않게 한다.
+    if (el.hasAttribute('data-block-id')) created.setAttribute('data-block-id', el.getAttribute('data-block-id'))
     el.replaceWith(created)
     closeBlockMenu()
     setHoveredBlock(null)
@@ -721,6 +757,19 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     closeBlockMenu()
     setHoveredBlock(null)
     emit()
+  }
+
+  /** 지금 마우스가 올라간 블록의 반응 ID. 아직 한 번도 반응이 안 달려 ID가 없으면 이 순간
+   *  새로 매기고 즉시 저장한다(emit()) — 안 그러면 새로고침 후 ID가 사라져 방금 남긴
+   *  반응이 다음번엔 엉뚱한(또는 없는) 블록을 가리킨다. */
+  const ensureHoveredBlockId = () => {
+    const el = hoveredBlock?.el
+    if (!el) return null
+    if (!el.hasAttribute('data-block-id')) {
+      el.setAttribute('data-block-id', makeBlockId())
+      emit()
+    }
+    return el.getAttribute('data-block-id')
   }
 
   /**
@@ -1506,6 +1555,40 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           <DragIndicatorIcon sx={{ fontSize: 17 }} />
         </Box>
       )}
+
+      {/* 블록 반응(이모지 리액션) — 손잡이(왼쪽)와 마주 보는 오른쪽에 둔다. 이미 반응이
+          달린 블록은 아래(reactionRects)가 늘 보여주므로, 여기서는 "아직 반응이 없는
+          블록에 처음 반응을 남기는" 경우만 호버 중에 다룬다(둘 다 그리면 같은 블록에
+          알약 줄이 두 번 뜬다). */}
+      {hoveredBlock && !menuRect && !slash
+        && !blockReactions[hoveredBlock.el.getAttribute('data-block-id')] && (
+        <Box
+          sx={{ position: 'fixed', top: hoveredBlock.rect.top, left: hoveredBlock.rect.right + 8, zIndex: 1200 }}
+          onMouseEnter={cancelHoverClear}
+          onMouseLeave={scheduleHoverClear}
+        >
+          <BlockReactionRow
+            data={null}
+            uid={reactionUid}
+            onToggle={emoji => {
+              const id = ensureHoveredBlockId()
+              if (id) toggleReaction(id, emoji)
+            }}
+          />
+        </Box>
+      )}
+
+      {/* 이미 반응이 하나라도 달린 블록은 호버와 무관하게 늘 알약 줄을 보여준다 — 손잡이처럼
+          호버해야만 보이면 "이 글에 누가 반응을 남겼다"는 걸 훑어보기 어렵다. */}
+      {reactionRects.map(({ blockId, rect }) => (
+        <Box key={blockId} sx={{ position: 'fixed', top: rect.top, left: rect.right + 8, zIndex: 1150 }}>
+          <BlockReactionRow
+            data={blockReactions[blockId]}
+            uid={reactionUid}
+            onToggle={emoji => toggleReaction(blockId, emoji)}
+          />
+        </Box>
+      ))}
 
       {/* 드래그로 블록을 끄는 동안 삽입될 자리를 보여준다 — 콜아웃·인용문 "안"으로
           들어가는 중이면 그 블록 전체를 테두리로 감싸고, 아니면 형제 사이 얇은 선. */}

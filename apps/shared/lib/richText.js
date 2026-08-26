@@ -48,6 +48,9 @@ const ALLOWED_ATTR = [
   // data-todo-check는 li 안의 체크박스 자리(contenteditable="false")를 가리킨다 —
   // 클릭을 감지할 별도 엘리먼트가 있어야 글자 커서 배치와 안 부딪힌다.
   'data-todo', 'data-checked', 'data-todo-check',
+  // 블록 반응(이모지 리액션, blockReactions.js)이 어느 블록을 가리키는지 — 반응 자체는
+  // 본문(bodyHtml)이 아니라 별도 서브컬렉션에 저장되고, 이 속성은 그 문서의 ID만 담는다.
+  'data-block-id',
 ]
 
 const STYLE_ATTR = /\sstyle="([^"]*)"/gi

@@ -41,6 +41,9 @@ import { canvasRefTarget } from '@shared/lib/canvasRefCard'
 import { hydrateDateChips } from '@shared/lib/dateChips'
 import PostComments from './PostComments'
 import RequestMaterials from './RequestMaterials'
+import BlockReactionRow from './BlockReactionRow'
+import useBlockReactions from './useBlockReactions'
+import useBlockReactionRects from './useBlockReactionRects'
 import { ListSkeleton, ToneChip } from './widgetUi'
 import { RICH_TEXT_SX } from './richTextStyles'
 import { useToast } from './ToastProvider'
@@ -79,6 +82,16 @@ export default function PostDetail({ requestId, onDeleted }) {
   useEffect(() => {
     hydrateDateChips(bodyRef.current)
   }, [request?.bodyHtml])
+
+  // 블록 반응(이모지 리액션, PLAN_canvasBlocks.md Phase 3) — 편집기(CanvasEditor)와 같은
+  // 훅을 쓴다. 이미 반응이 달린 블록만(다) 대상으로 한다 — 아직 하나도 없는 블록에 첫
+  // 반응을 남기는 것은 편집기 쪽(글쓴이가 손잡이 옆에서) 몫으로 남겨 뒀다. 읽기 화면은
+  // 캔버스처럼 마우스로 블록을 훑는 장치가 없어, 모든 블록마다 옅은 "+" 단추를 늘
+  // 띄우면 글이 훨씬 산만해진다 — 이미 누가 반응을 남긴 블록만 보여주는 편이 안전하다.
+  const { byBlock: blockReactions, toggle: toggleReaction, uid: reactionUid } = useBlockReactions({
+    schoolId, requestId,
+  })
+  const reactionRects = useBlockReactionRects(bodyRef, Object.keys(blockReactions), request?.bodyHtml)
 
   /** 본문 안 캔버스 삽입 카드를 누르면 그 글을 연다(canvasRefCard.js). */
   const handleBodyClick = (e) => {
@@ -187,6 +200,17 @@ export default function PostDetail({ requestId, onDeleted }) {
           ) : request.description ? (
             <Typography sx={{ whiteSpace: 'pre-wrap', mb: 2 }}>{request.description}</Typography>
           ) : null}
+          {/* 반응이 달린 블록마다 그 자리 아래에 알약 줄을 fixed로 띄운다(useBlockReactionRects
+              — CanvasEditor의 손잡이·이미지 리사이즈와 같은 "rect에 고정" 패턴). */}
+          {reactionRects.map(({ blockId, rect }) => (
+            <Box key={blockId} sx={{ position: 'fixed', top: rect.bottom + 2, left: rect.left, zIndex: 5 }}>
+              <BlockReactionRow
+                data={blockReactions[blockId]}
+                uid={reactionUid}
+                onToggle={emoji => toggleReaction(blockId, emoji)}
+              />
+            </Box>
+          ))}
           <Box sx={{ mb: 3 }}>
             <RequestMaterials attachments={request.attachments} links={request.links} />
           </Box>
