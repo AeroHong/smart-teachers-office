@@ -1,25 +1,31 @@
 /**
- * 이니셜 아바타 순수 함수.
+ * 이름표 아바타 순수 함수.
  *   node --test apps/shared/lib/avatars.test.js
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { colorForName, initialFor } from './avatars.js'
+import { colorForName, givenNameFor } from './avatars.js'
 
-test('이름 첫 글자를 돌려준다', () => {
-  assert.equal(initialFor('김민수'), '김')
-  assert.equal(initialFor('Smith'), 'S')
+test('성을 뺀 나머지를 돌려준다 — 성 하나만 쓰면 겹치는 사람이 많다', () => {
+  assert.equal(givenNameFor('홍창기'), '창기')
+  assert.equal(givenNameFor('김민수'), '민수')
+  assert.equal(givenNameFor('Smith'), 'mith')
 })
 
-test('앞뒤 공백은 무시하고 첫 글자를 잡는다', () => {
-  assert.equal(initialFor('  김민수  '), '김')
+test('앞뒤 공백은 무시하고 성을 뺀다', () => {
+  assert.equal(givenNameFor('  홍창기  '), '창기')
 })
 
-test('이름이 없으면 물음표 — 빈 원 대신 정보 없음이 드러나야 한다', () => {
-  assert.equal(initialFor(''), '?')
-  assert.equal(initialFor(null), '?')
-  assert.equal(initialFor(undefined), '?')
-  assert.equal(initialFor('   '), '?')
+test('한 글자짜리 이름(외자·닉네임)은 그 글자를 그대로 쓴다', () => {
+  assert.equal(givenNameFor('A'), 'A')
+  assert.equal(givenNameFor('강'), '강')
+})
+
+test('이름이 없으면 물음표 — 빈 상자 대신 정보 없음이 드러나야 한다', () => {
+  assert.equal(givenNameFor(''), '?')
+  assert.equal(givenNameFor(null), '?')
+  assert.equal(givenNameFor(undefined), '?')
+  assert.equal(givenNameFor('   '), '?')
 })
 
 test('같은 이름은 항상 같은 색 — 새로고침마다 바뀌면 사람을 못 알아본다', () => {
