@@ -137,13 +137,58 @@ CanvasEditor·PostDetail 양쪽에서 재사용 — 읽기 화면은 이미 반�
 이 PC에 Java가 없어 `npm run test:rules`를 못 돌렸다(기존 라운드들과 같은
 제약) — 코드 리뷰로 안전성을 확인하고 배포 전 사용자 확인을 거쳤다.
 
-## Phase 4 — 블록 댓글(3단 오른쪽 사이드바) (예정)
+### Phase 3 피드백 라운드 — 2026-08-26
 
-`comments.js`의 `newCommentPayload`에 `blockId=null` 추가(전체 댓글은
-`null` 유지, 컬렉션은 하나). 입력창은 `MessageComposer.jsx` 재사용(사용자
-명시 요청) — `bodyHtml` 확장은 채널 메시지 때와 같은 패턴
-(`channelMessages.js` 참고). 패널은 `Channels.jsx`가 `WorkspaceLayout`의
-`children` 영역 안에서 캔버스 옆에 조건부로 그리는 4번째 칸(320px 안팎).
+- 반응 단추가 마우스를 피해 도망감 — ⋮⋮ 손잡이에는 있던 `data-block-handle`
+  표식이 반응 단추엔 없어, 단추 위에서도 `handleEditorMouseMove`가 계속
+  `findTopBlockAtY`로 블록을 다시 찾다가 다음 블록으로 넘어가 버렸다(사용자
+  확인, "마우스커서를 살짝 내리면 아래 줄로 넘어가 버리네"). 손잡이와 같은
+  표식을 달아 마우스가 위에 있는 동안 재배정을 멈추게 했다.
+- 이모지 팝오버가 열자마자 마우스만 움직여도 닫힘 — 팝오버를 반응 단추
+  컴포넌트 자체의 상태로 관리했는데, 그 단추가 `hoveredBlock` 조건부 렌더
+  칸 안에 있어서 마우스가 살짝만 움직여 `hoveredBlock`이 바뀌면 칸째로
+  사라지며 팝오버도 같이 닫혔다(사용자 확인, "그때부터는 마우스가 움직여도
+  계속 해당 이모지 창이 떠있어야 함"). `blockMenu`(Menu, anchorPosition)와
+  같은 방식으로 팝오버 상태(`reactionPicker`)를 `hoveredBlock`과 무관한
+  최상위 상태로 옮기고, 새 `ReactionPicker` 컴포넌트로 독립적으로 렌더한다.
+- 반응 묶음이 본문 오른쪽 끝에 바짝 붙어 보임 — 본문이 칸 끝까지 꽉 차 있어
+  자리가 없었다. `CanvasEditor.jsx` 편집 영역의 오른쪽 padding만 늘렸다
+  (왼쪽은 그대로 — 표지·제목과 왼쪽 여백을 맞춰야 한다).
+
+## Phase 4 — 블록 댓글(3단 오른쪽 4번째 칸) ✅ 완료(2026-08-26)
+
+`comments.js`에 `bodyHtml`(서식 있는 본문 — `channelMessages.js`의
+`newMessagePayload`와 같은 방식으로 `htmlToText`가 평문 사본 `body`를 뽑는다)
+과 `blockId`(null이면 글 전체 댓글, 있으면 그 블록 댓글)를 추가했다. 컬렉션은
+하나로 유지하고 새 `commentsForBlock()`으로 걸러 보여준다 — "이 글에 달린
+모든 이야기"라는 성격은 같다. `firestore.rules`의 `comments` 규칙은 필드
+목록을 제한하지 않는 규칙이라(`hasOnly` 없음) **변경 없이 그대로 통과한다.**
+
+`PostComments.jsx`의 입력창을 `TextField`에서 `MessageComposer.jsx`로
+바꿨다(사용자 명시 요청) — 굵게·목록·`@`멘션을 댓글에도 쓸 수 있다(`#`채널은
+목록을 안 넘겨 사실상 안 씀). `compact` prop으로 글 상세 맨 아래(기존 모양,
+문서 흐름을 따라 스크롤)와 오른쪽 패널(목록만 스크롤, 입력창 고정 — `ChannelMessages.jsx`
+와 같은 뼈대) 두 모양을 같은 컴포넌트로 그린다 — 갈라 만들면 목록·삭제·정화
+로직을 두 벌 유지해야 한다.
+
+새 `BlockCommentsPanel.jsx`가 3단 오른쪽 4번째 칸이다. `WorkspaceLayout.jsx`
+자체는 안 건드렸다 — 레일·사이드바처럼 늘 있는 칸이 아니라 블록 하나를 고를
+때만 뜨는 칸이라, `Channels.jsx`가 `PostComposer`/`PostDetail`을 감싸는
+바깥에서 조건부로 그린다(원래 계획대로).
+
+**댓글 아이콘 배치 — 반응(Phase 3)과 같은 트레이드오프.** `CanvasEditor`
+(글쓴이, 편집 중)는 손잡이 영역에서 호버 중인 블록마다 반응 옆에 댓글
+아이콘이 뜬다 — 처음 누르는 사람이 그 블록의 ID를 확정한다(반응과 같은
+`ensureHoveredBlockId`). `PostDetail`(읽기 화면)은 **이미 댓글이 달린
+블록에만** 늘 보이는 아이콘을 띄운다(`useBlockCommentCounts` +
+`useBlockReactionRects`를 그대로 재사용 — 이름은 반응 전용처럼 보이지만
+`[data-block-id]` rect를 재는 범용 훅이라 그대로 썼다). **아직 댓글이
+하나도 없는 블록에 첫 댓글을 남기는 것은 이번에도 편집기 쪽(글쓴이) 몫으로
+좁혔다** — PostDetail에는 캔버스처럼 마우스로 블록을 훑는 장치가 없어, 모든
+블록마다 옅은 "+"를 늘 띄우면 산만해진다는 같은 판단(사용자 확인 없이
+구현 중 내린 보수적 선택, 나중에 바꿀 수 있음). 반응과 마찬가지로 "되묻는
+말"이 글쓴이가 아닌 사람에게서 더 많이 나올 수 있다는 점에서 아쉬운 제약
+이지만, 일단 이 범위로 배포하고 필요하면 다음 라운드에서 넓힌다.
 
 ## 이번 계획에서 안 하는 것
 
