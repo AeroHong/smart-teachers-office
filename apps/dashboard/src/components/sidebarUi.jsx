@@ -20,11 +20,13 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
  * 섹션마다 다른 아이콘을 쓴다. 전부 같은 꺾쇠면 목록이 세 덩어리로 나뉘어 있다는 것만
  * 알 뿐 어느 덩어리인지는 글자를 읽어야 안다. 접힌 상태는 아이콘을 흐리게 해서 알린다.
  *
- * 꺾쇠는 아이콘이 있어도 함께 그린다. 아이콘이 대신하던 자리라 전부 접고 펼 수 있는데도
- * 그렇게 보이지 않았다(사용자 지적, 2026-08-26) — 이 목록이 눌러서 접히는 줄이라는
- * 신호를 아이콘 유무와 상관없이 항상 남겨 둔다.
+ * 꺾쇠는 아이콘 자리 위에 겹쳐 두고 평소엔 숨긴다 — 아이콘과 꺾쇠를 나란히 늘 띄웠더니
+ * 아이콘 두 개가 붙어 있는 것처럼 붐볐다(사용자 지적, 2026-08-26). 대신 그 자리에
+ * 마우스를 올리면 아이콘이 꺾쇠로 바뀐다 — "여기가 접는 자리"라는 신호는 그대로 주면서
+ * 평소엔 아이콘만 깔끔하게 보인다.
  *
- * @param {React.ElementType} [icon] 이 섹션을 나타내는 아이콘. 꺾쇠 옆에 함께 그린다.
+ * @param {React.ElementType} [icon] 이 섹션을 나타내는 아이콘. 평소엔 이게 보이고,
+ *   올리면 꺾쇠로 바뀐다.
  * @param {boolean} [actionOnHover] 딸린 단추를 평소엔 숨긴다. 사용자가 만든 섹션처럼
  *   관리 단추가 늘 떠 있으면 오른쪽의 건수를 가리고 목록이 시끄러워지는 경우에 쓴다.
  * @param {boolean} [actionActive] 메뉴가 열려 있는 동안처럼 계속 보여야 할 때.
@@ -44,6 +46,7 @@ export function SidebarSection({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
+        className="sidebar-section-head"
         sx={{
           display: 'flex', alignItems: 'center', gap: 0.3, width: '100%',
           border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
@@ -51,28 +54,37 @@ export function SidebarSection({
           '&:hover': { bgcolor: 'action.hover' },
         }}
       >
-        <ExpandMoreIcon
-          sx={{
-            fontSize: 16, color: 'text.disabled', flexShrink: 0,
-            transform: open ? 'none' : 'rotate(-90deg)',
-            transition: 'transform .15s ease',
-            ...(Icon && { mr: -0.3 }),
-          }}
-        />
-        {Icon && (
-          <Icon sx={{
-            fontSize: 16, flexShrink: 0, mr: 0.3,
-            color: open ? 'text.secondary' : 'text.disabled',
-            transition: 'color .15s ease',
-          }} />
-        )}
+        {/* 아이콘과 꺾쇠를 같은 자리에 겹쳐 두고 CSS만으로 hover 시 바꿔치기한다 —
+            JS 상태 없이 즉시 반응한다. Icon이 없으면(호출부가 안 넘기면) 꺾쇠만
+            늘 보인다(이 코드베이스의 모든 SidebarSection이 지금은 icon을 주지만,
+            나중에 안 주는 곳이 생겨도 그대로 동작하도록). */}
+        <Box sx={{ position: 'relative', width: 16, height: 16, flexShrink: 0, mr: 0.3 }}>
+          {Icon && (
+            <Icon sx={{
+              position: 'absolute', inset: 0, fontSize: 16,
+              color: open ? 'text.primary' : 'text.secondary',
+              transition: 'opacity .1s ease',
+              '.sidebar-section-head:hover &': { opacity: 0 },
+            }} />
+          )}
+          <ExpandMoreIcon
+            sx={{
+              position: 'absolute', inset: 0, fontSize: 16, color: 'text.secondary',
+              transform: open ? 'none' : 'rotate(-90deg)',
+              transition: 'transform .15s ease, opacity .1s ease',
+              opacity: Icon ? 0 : 1,
+              ...(Icon && { '.sidebar-section-head:hover &': { opacity: 1 } }),
+            }}
+          />
+        </Box>
         {/* Slack은 제목과 항목 글자 크기가 거의 같고 볼드·색으로만 위계를 준다 —
             제목이 항목(0.9rem)보다 작으면 "제목"답지 않다(사용자 지적, 2026-08-26).
-            0.88rem으로 항목에 근접시키고 볼드·자간으로 구분한다. */}
+            0.88rem으로 항목에 근접시키고 볼드·자간으로 구분한다. 색은 어두운
+            사이드바에서 더 또렷하게 흰 쪽으로(사용자 지적, 2026-08-26).*/}
         <Typography
           sx={{
             fontSize: '0.88rem', fontWeight: 800, letterSpacing: '.01em',
-            color: open ? 'text.secondary' : 'text.disabled',
+            color: open ? 'text.primary' : 'text.secondary',
           }}
           noWrap
         >

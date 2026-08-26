@@ -49,7 +49,10 @@ import { useToast } from './ToastProvider'
 import useChannelPrefs from '../lib/useChannelPrefs'
 import { EXTERNAL_LINKS } from '../lib/externalLinks'
 
-const GROUP_ICON = { favorites: StarIcon, section: FolderIcon }
+// 'default'(기본 "채널" 묶음)에 아이콘이 없어서 디렉터리·섹션·다이렉트 메시지·보관함·
+// 바로가기는 다 아이콘이 있는데 채널만 없었다(사용자 지적, 2026-08-26). 개별 채널
+// 줄과 같은 태그(#) 아이콘을 준다.
+const GROUP_ICON = { favorites: StarIcon, section: FolderIcon, default: TagIcon }
 
 export default function ChannelSidebar({
   channels, archivedChannels, leftChannels, dms = [], myUid,

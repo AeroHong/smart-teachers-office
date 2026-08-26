@@ -11,6 +11,7 @@
  *
  * 스크롤은 사이드바와 상세가 각자 한다. 함께 움직이면 목록을 내리는 동안 읽던 글이 사라진다.
  */
+import { useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import AppRail from './AppRail'
@@ -19,9 +20,12 @@ import CallAlert from './CallAlert'
 import UpdateBanner from './UpdateBanner'
 import { CLOUD_DANCER, CLOUD_DANCER_LIGHT, CLOUD_DANCER_DARK, CLOUD_DANCER_TEXT } from '../lib/pantone'
 
-// 268 → 240. Slack과 나란히 놓고 보니 우리 쪽이 더 넓으면서 글자는 더 작았다
-// (sidebarUi.jsx가 그만큼 커진다) — 폭을 줄이고 글자를 키워 밀도를 맞춘다.
-const SIDEBAR_WIDTH = 240
+// 268 → 240을 기본값으로 두되, 사용자가 오른쪽 가장자리를 끌어 직접 조절할 수 있게
+// 한다(사용자 요청, 2026-08-26). localStorage에 저장해 다음에 열 때도 같은 폭으로.
+const SIDEBAR_WIDTH_DEFAULT = 240
+const SIDEBAR_WIDTH_MIN = 180
+const SIDEBAR_WIDTH_MAX = 420
+const SIDEBAR_WIDTH_KEY = 'sidebarWidth'
 
 /**
  * 사이드바(2단) 전용 다크 테마 — 1단(rail.bg)과 같은 계열, 한 단계 밝은 rail.border를
@@ -60,7 +64,45 @@ const sidebarTheme = (outer) => createTheme(outer, {
   },
 })
 
+/** 저장된 폭을 읽는다 — 없거나 범위 밖이면 기본값. */
+function loadSidebarWidth() {
+  try {
+    const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY))
+    if (saved >= SIDEBAR_WIDTH_MIN && saved <= SIDEBAR_WIDTH_MAX) return saved
+  } catch { /* localStorage 접근 불가(사생활 보호 모드 등) — 기본값으로 */ }
+  return SIDEBAR_WIDTH_DEFAULT
+}
+
 export default function WorkspaceLayout({ sidebar, children }) {
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
+  const [resizing, setResizing] = useState(false)
+  const navRef = useRef(null)
+
+  /** 오른쪽 가장자리를 잡아 폭을 바꾼다 — CanvasEditor.jsx의 이미지·표 크기조절과
+   *  같은 포인터 드래그 방식. 드래그가 끝나야 저장한다(매 픽셀마다 쓰기를 안 하려고). */
+  const startResize = (e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = navRef.current?.getBoundingClientRect().width || sidebarWidth
+    setResizing(true)
+
+    const onMove = (ev) => {
+      const next = Math.round(Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, startWidth + (ev.clientX - startX))))
+      setSidebarWidth(next)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setResizing(false)
+      setSidebarWidth(w => {
+        try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w)) } catch { /* 저장 실패는 무시 — 다음에 기본값으로 열릴 뿐 */ }
+        return w
+      })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
       <AppRail />
@@ -75,9 +117,10 @@ export default function WorkspaceLayout({ sidebar, children }) {
               268px가 아무 것도 없이 낭비된다. */}
           {sidebar && (
             <Box
+              ref={navRef}
               component="nav"
               sx={{
-                width: SIDEBAR_WIDTH, flexShrink: 0,
+                width: sidebarWidth, flexShrink: 0, position: 'relative',
                 bgcolor: 'rail.border',
                 overflowY: 'auto', py: 1, px: 0.75,
                 display: { xs: 'none', sm: 'block' },
@@ -86,6 +129,18 @@ export default function WorkspaceLayout({ sidebar, children }) {
               <ThemeProvider theme={sidebarTheme}>
                 {sidebar}
               </ThemeProvider>
+              {/* 폭 조절 손잡이 — 평소엔 안 보이다가 올리면(또는 끄는 중이면) 살짝
+                  파랗게. 사이드바 안 스크롤 영역 위에 겹쳐 그리므로 z-index를 준다. */}
+              <Box
+                onPointerDown={startResize}
+                sx={{
+                  position: 'absolute', top: 0, right: -3, bottom: 0, width: 6,
+                  cursor: 'col-resize', zIndex: 30,
+                  bgcolor: resizing ? 'primary.main' : 'transparent',
+                  opacity: resizing ? 0.6 : 1,
+                  '&:hover': { bgcolor: 'primary.main', opacity: 0.4 },
+                }}
+              />
             </Box>
           )}
 
