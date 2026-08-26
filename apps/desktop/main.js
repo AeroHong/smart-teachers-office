@@ -208,6 +208,19 @@ if (!gotLock) {
       width: 1280,
       height: 860,
       icon: ICON_PATH,
+      // OS 기본 제목줄("업무 대시보드 · 스마트교무실" 글자 + 아이콘)을 없앤다 — Slack처럼
+      // 메뉴가 곧바로 시작되는 인상을 준다(사용자 요청, 2026-08-26). frame:false만 쓰면
+      // 최소화·최대화·닫기 버튼까지 같이 사라져 창을 다룰 방법이 없어지므로, Windows가
+      // 그 버튼만 오른쪽 위에 겹쳐 그리게 하는 titleBarOverlay를 쓴다. 색은
+      // apps/shared/theme.js의 rail.bg/rail.icon과 맞춰 우리 레일과 이어져 보이게 했다.
+      // 대신 OS가 그리던 "잡아서 창을 옮기는" 영역이 사라지므로, 대시보드 쪽
+      // TopBar.jsx에 -webkit-app-region: drag를 넣어 웹 콘텐츠 쪽에서 대신 담당한다.
+      titleBarStyle: 'hidden',
+      titleBarOverlay: {
+        color: '#0f172a',
+        symbolColor: '#94a3b8',
+        height: 44,
+      },
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,

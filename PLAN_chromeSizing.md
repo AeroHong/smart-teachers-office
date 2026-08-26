@@ -74,3 +74,33 @@
 
 값은 "근거 있는 1차 조정값"이라 실제로 보고 다음 라운드에서 미세조정하기로 했다
 (이 세션 전체가 배포 → 실사용 확인 → 다음 라운드로 진행돼 왔다). 사용자 피드백 대기 중.
+
+## 2차 피드백 (2026-08-26)
+
+- **검색창이 너무 좁았다.** 원인: `1fr auto 1fr` grid에서 가운데 칸이 `auto`라 내용
+  칸이 실제로 넓어질 이유가 없었다(버튼에 준 `width:'100%', maxWidth:480`은 채울
+  트랙 자체가 좁으니 소용없었다). `gridTemplateColumns`를 `1fr minmax(320px, 640px)
+  1fr`로 바꿔 가운데 칸 자체가 320~640px를 차지하게 고쳤다.
+- **앱 최상단이 Slack과 다르다** — 우리는 OS 기본 제목줄("업무 대시보드 · 스마트교무실"
+  글자 + 창 조절 버튼)이 그대로 보이는데 Slack은 그게 없이 곧바로 메뉴가 시작된다.
+  이건 웹 화면(dashboard) 문제가 아니라 **데스크톱 앱 셸**(`apps/desktop/main.js`)의
+  `BrowserWindow` 설정 문제였다 — `titleBarStyle`을 아예 안 줘서 OS 기본 제목줄을
+  그대로 썼다.
+  - `main.js`: `titleBarStyle: 'hidden'` + `titleBarOverlay`(색은 `apps/shared/
+    theme.js`의 `rail.bg`/`rail.icon`과 맞춤, `height: 44`)로 바꿨다. `frame: false`만
+    쓰면 최소화·최대화·닫기 버튼까지 같이 사라져 창을 다룰 수 없게 되므로, Windows가
+    그 버튼만 오른쪽 위에 겹쳐 그리게 하는 `titleBarOverlay`를 썼다.
+  - OS가 그리던 "잡아서 창을 옮기는" 영역도 같이 사라지므로, `TopBar.jsx`의 빈
+    공간에 `-webkit-app-region: drag`를 주고 그 안의 버튼들(검색·호출벨·이름·재실
+    상태)에는 `no-drag`를 걸어 클릭이 여전히 먹히게 했다. 오른쪽 그룹에는
+    `titleBarOverlay` 버튼 폭(약 138px)만큼 오른쪽 여백도 더해 겹치지 않게 했다.
+    이 CSS는 일반 브라우저 탭에서는 그냥 무시된다(웹 사용자에게 영향 없음).
+  - **웹 쪽 변경(검색창 폭, TopBar CSS)은 이미 배포됨** — `firebase deploy`만으로
+    끝나서 데스크톱 앱도 곧바로 최신 화면을 받는다(데스크톱은 `DASHBOARD_URL`을 그대로
+    불러오는 얇은 셸이라 별도 빌드 없이도 웹 배포가 그대로 반영된다).
+  - **`main.js` 변경은 다르다** — 이건 데스크톱 앱 자체의 코드라, 이미 설치된 PC에
+    반영되려면 실제로 새 설치본을 만들어(`npm run release:desktop`, electron-builder로
+    NSIS 설치파일 빌드 + `firebase deploy --only hosting:desktop-updates`로 업데이트
+    피드 갱신 → electron-updater가 실행 중인 앱들에 자동 배포) 버전을 올려 릴리스해야
+    한다. 코드는 커밋해 뒀지만 **릴리스는 아직 안 돌렸다** — 실제 설치본을 새로 찍어
+    배포하는 일이라 사용자 확인 후 진행하기로 함.
