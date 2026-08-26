@@ -64,6 +64,7 @@ import CanvasEditor from './CanvasEditor'
 import { useToast } from './ToastProvider'
 import { updatePostContent } from '../lib/requestActions'
 import { shareCanvasToChannel } from '../lib/channelActions'
+import { CLOUD_DANCER } from '../lib/pantone'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
 
@@ -573,7 +574,10 @@ function SegChoice({ value, onChange, options }) {
               border: 0, borderRadius: 0.75, py: 0.4, px: 1, cursor: 'pointer',
               fontFamily: 'inherit', fontSize: '0.8rem',
               fontWeight: on ? 700 : 500,
-              bgcolor: on ? 'background.paper' : 'transparent',
+              // 흰색 대신 Cloud Dancer — 사이드바 선택 줄과 같은 톤으로 한번
+              // 맞춰봤다(사용자 요청, 2026-08-26). 순백보다 살짝 따뜻해서
+              // 선택된 쪽이 더 또렷하게 뜬다.
+              bgcolor: on ? CLOUD_DANCER : 'transparent',
               boxShadow: on ? 1 : 0,
               color: on ? 'primary.main' : 'text.secondary',
             }}

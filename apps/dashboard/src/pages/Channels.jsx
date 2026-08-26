@@ -30,7 +30,9 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
 import AddIcon from '@mui/icons-material/Add'
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import EditIcon from '@mui/icons-material/EditOutlined'
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -525,15 +527,28 @@ export default function Channels() {
                   }}
                   variant="scrollable" scrollButtons={false}
                   sx={{
-                    minHeight: 36, flexGrow: 1, minWidth: 0,
-                    '& .MuiTab-root': { minHeight: 36, fontSize: '0.82rem', fontWeight: 700, maxWidth: 180 },
+                    minHeight: 36, minWidth: 0, flexShrink: 1,
+                    '& .MuiTab-root': {
+                      minHeight: 36, fontSize: '0.82rem', fontWeight: 700, maxWidth: 180,
+                      // 기본 text.secondary가 흐려서 진하게 지정한다(사용자 지적,
+                      // 2026-08-26) — 선택된 탭은 그대로 primary(Blue Fusion)를 쓴다.
+                      color: 'text.primary', minWidth: 0, gap: 0.5,
+                    },
                   }}
                 >
                   {/* '대화'가 아니라 '메시지' — 쿨메신저를 쓰던 사람에게 '대화'는 1:1 창을
                       가리키는 말이라 DM과 뜻이 겹친다(PLAN_composer.md §3 용어 정리) */}
-                  <Tab value="messages" label="메시지" />
+                  <Tab
+                    value="messages" label="메시지"
+                    icon={<ForumOutlinedIcon sx={{ fontSize: 16 }} />} iconPosition="start"
+                  />
                   {canvas.tabs.map(p => (
-                    <Tab key={p.id} value={p.id} label={p.title} />
+                    <Tab
+                      key={p.id} value={p.id} label={p.title}
+                      // 캔버스마다 고를 수 있는 아이콘은 다음 라운드로 미룬다 — 지금은
+                      // 전부 같은 문서 아이콘(canvasRefCard.js의 📄와 같은 의미).
+                      icon={<DescriptionOutlinedIcon sx={{ fontSize: 16 }} />} iconPosition="start"
+                    />
                   ))}
                   {/* 새 글을 쓰는 동안만 뜨는 임시 탭. 저장하면 진짜 캔버스 탭이 그 자리를
                       대신하고, 취소하거나 다른 탭으로 옮기면 그냥 사라진다 — 초안을 남기지
@@ -548,18 +563,24 @@ export default function Channels() {
 
                 {/* 새 캔버스 만들기 — Slack의 탭 줄 '＋'와 같은 자리(PLAN_composer.md §2).
                     공지 전용 채널의 참여자에게는 애초에 안 보인다 — 눌러도 규칙에 막혀
-                    튕기면 기능이 고장 난 것으로 읽는다. */}
+                    튕기면 기능이 고장 난 것으로 읽는다. Tabs가 flexGrow를 더는 안 가져가서
+                    (바로 위 sx 참고) 마지막 탭 바로 옆에 붙는다 — 예전엔 Tabs 박스 전체가
+                    폭을 다 차지해 이 버튼이 줄 맨 끝으로 밀려났다(사용자 지적, 2026-08-26). */}
                 {canPost && !composingNew && (
                   <Tooltip title="새 글">
                     <IconButton
                       size="small"
                       onClick={() => navigate(`/channels/${active.id}/new`)}
-                      sx={{ flexShrink: 0 }}
+                      sx={{ flexShrink: 0, color: 'text.primary' }}
                     >
                       <AddIcon sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
                 )}
+
+                {/* 남는 폭을 여기서 흡수한다 — '더보기'만 줄 오른쪽 끝에 고정하고
+                    싶은데, 그 역할을 Tabs가 대신 하던 게 위 버그의 원인이었다. */}
+                <Box sx={{ flexGrow: 1 }} />
 
                 {(canvas.folded.length > 0 || canvas.archived.length > 0) && (
                   <Button
@@ -572,6 +593,10 @@ export default function Channels() {
                 )}
               </Box>
             )}
+
+            {/* 탭 줄과 아래 목록을 가르는 연한 구분선(사용자 요청, 2026-08-26) —
+                DM에는 탭이 없어 !dm 블록 밖, 헤더 전체(제목 포함) 아래에 하나만 둔다. */}
+            <Divider sx={{ mt: 1.5 }} />
           </Box>
 
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
