@@ -51,7 +51,8 @@ export default function useSchoolMembers() {
     ])
     return buildTargetMembers({
       users: usersSnap.docs.map(d => ({
-        uid: d.id, name: d.data().name || d.data().email, photoURL: d.data().photoURL || null,
+        uid: d.id, name: d.data().name || d.data().email, email: d.data().email || '',
+        photoURL: d.data().photoURL || null,
       })),
       assignments: assignSnap.docs.map(d => d.data()),
       teacherSubjects: subjectsSnap.docs.map(d => d.data()),
