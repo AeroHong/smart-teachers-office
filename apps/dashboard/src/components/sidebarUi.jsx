@@ -43,7 +43,7 @@ export function SidebarSection({
         sx={{
           display: 'flex', alignItems: 'center', gap: 0.3, width: '100%',
           border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
-          px: 0.6, py: 0.45, borderRadius: 0.75,
+          px: 0.5, py: 0.45, borderRadius: 0.75,
           '&:hover': { bgcolor: 'action.hover' },
         }}
       >
@@ -64,7 +64,7 @@ export function SidebarSection({
         )}
         <Typography
           sx={{
-            fontSize: '0.73rem', fontWeight: 800, letterSpacing: '.03em',
+            fontSize: '0.76rem', fontWeight: 800, letterSpacing: '.03em',
             color: open ? 'text.secondary' : 'text.disabled',
           }}
           noWrap
@@ -135,7 +135,7 @@ export function SidebarItem({
       sx={{
         display: 'flex', alignItems: 'center', gap: 0.7, width: '100%',
         border: 0, cursor: 'pointer', textAlign: 'left',
-        pl: 1.7 + indent, pr: 0.7, py: 0.4, borderRadius: 0.75,
+        pl: 1.3 + indent, pr: 0.6, py: 0.4, borderRadius: 0.75,
         bgcolor: selected ? 'primary.main' : 'transparent',
         color: selected ? 'primary.contrastText' : muted ? 'text.disabled' : 'text.primary',
         opacity: muted && !selected ? 0.7 : 1,
@@ -154,7 +154,7 @@ export function SidebarItem({
         noWrap
         sx={{
           flexGrow: 1, minWidth: 0,
-          fontSize: '0.83rem',
+          fontSize: '0.88rem',
           fontWeight: strong && !muted ? 700 : 500,
           textDecoration: muted ? 'line-through' : 'none',
         }}
@@ -191,7 +191,7 @@ export function SidebarItem({
 /** 섹션 안이 비었을 때. 한 줄로 끝낸다. */
 export function SidebarEmpty({ children }) {
   return (
-    <Typography sx={{ pl: 1.7, pr: 0.7, py: 0.4, fontSize: '0.78rem', color: 'text.disabled' }}>
+    <Typography sx={{ pl: 1.3, pr: 0.6, py: 0.4, fontSize: '0.8rem', color: 'text.disabled' }}>
       {children}
     </Typography>
   )

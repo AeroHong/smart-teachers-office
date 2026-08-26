@@ -18,7 +18,9 @@ import TopBar from './TopBar'
 import CallAlert from './CallAlert'
 import UpdateBanner from './UpdateBanner'
 
-const SIDEBAR_WIDTH = 268
+// 268 → 240. Slack과 나란히 놓고 보니 우리 쪽이 더 넓으면서 글자는 더 작았다
+// (sidebarUi.jsx가 그만큼 커진다) — 폭을 줄이고 글자를 키워 밀도를 맞춘다.
+const SIDEBAR_WIDTH = 240
 
 export default function WorkspaceLayout({ sidebar, children }) {
   return (
