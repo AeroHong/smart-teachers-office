@@ -1142,28 +1142,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   }
 
   return (
-    <Box>
-      {/* 표지 자리 — 나중에 이미지를 올리는 기능이 붙을 자리를 지금 미리 비워 둔다
-          (사용자 요청, 2026-08-26: "표지 있는 부분이 목차 있는 곳이고 제목은 그
-          아래"). 평소엔 아예 안 보이다가(모든 글에 빈 회색 띠가 늘 떠 있으면
-          거슬린다) 이 영역에 마우스를 올리면 "+표지 추가"가 옅게 나타난다 —
-          노션의 빈 커버 자리와 같은 방식. 지금은 눌러도 기능이 없어 안내만 뜬다 —
-          실제 업로드는 다음 라운드. 목차·제목보다 위, 캔버스 폭 전체를 차지해야
-          해서(목차 칸까지 포함) 그 둘을 감싸는 flex 줄 바깥에 둔다. */}
-      <Box
-        onClick={() => toast.success('표지 추가 기능은 준비 중입니다.')}
-        sx={{
-          height: 28, mb: 0.5, borderRadius: 1, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'text.disabled', fontSize: '0.78rem', fontWeight: 600,
-          opacity: 0, transition: 'opacity .12s ease, background-color .12s ease',
-          '&:hover': { opacity: 1, bgcolor: 'action.hover' },
-        }}
-      >
-        + 표지 추가
-      </Box>
-
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
       {/* 제목 기반 목차 — 제목이 하나도 없으면 아예 안 그린다. 늘 자리를 차지하면
           짧은 글을 쓰는 사람에게는 빈 칼럼만 남는다. 스크롤은 부모가 하므로 sticky로
           붙여 두면 긴 글에서도 계속 보인다.
@@ -1232,11 +1211,30 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         </Box>
       )}
 
-      {/* 목차와 같은 칸(flexGrow:1) 안에 제목을 먼저 두고, 그 아래 본문을 둔다 —
-          제목과 본문이 항상 같은 왼쪽 위치를 공유하게 하려고(위 컴포넌트 설명 참고).
-          onTitleChange가 없으면(이 컴포넌트를 제목 없이 쓰는 다른 화면이 생기면) 그냥
-          안 그린다. */}
+      {/* 목차와 같은 칸(flexGrow:1) 안에 표지 자리 → 제목 → 본문 순으로 둔다 —
+          목차가 표지와 같은 줄에서 시작해야 한다는 지적(2026-08-26, "표지가
+          목차 있는 곳에 함께 들어가 있어야 함")에 따라, 표지를 목차 바깥(전체
+          폭 별도 줄)이 아니라 이 칸 맨 위에 둔다 — 목차 칸과 이 칸은 같은
+          flex 줄의 형제라 표지·목차가 같은 높이에서 시작한다. 제목·본문은
+          항상 이 칸을 공유해 왼쪽 위치가 표지와도 맞는다.
+
+          표지는 나중에 이미지를 올리는 기능이 붙을 자리를 지금 미리 비워
+          둔 것 — 평소엔 안 보이다가 마우스를 올리면 "+표지 추가"가 옅게
+          나타난다(노션의 빈 커버 자리와 같은 방식). 지금은 눌러도 안내만
+          뜬다 — 실제 업로드는 다음 라운드(PLAN_canvasEditor.md Phase 4). */}
       <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <Box
+          onClick={() => toast.success('표지 추가 기능은 준비 중입니다.')}
+          sx={{
+            height: 28, mb: 0.5, borderRadius: 1, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'text.disabled', fontSize: '0.78rem', fontWeight: 600,
+            opacity: 0, transition: 'opacity .12s ease, background-color .12s ease',
+            '&:hover': { opacity: 1, bgcolor: 'action.hover' },
+          }}
+        >
+          + 표지 추가
+        </Box>
         {onTitleChange && (
           <TextField
             fullWidth autoFocus variant="standard"
@@ -1788,7 +1786,6 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onClose={() => { setSlash(null); setMenuRect(null) }}
         extraItems={CANVAS_EXTRA_ITEMS}
       />
-      </Box>
       </Box>
       </Box>
     </Box>
