@@ -120,10 +120,14 @@ export default function ChannelSidebar({
       // 표시할 이유가 없어 보이지만, 여기서 글을 쓰면 어디까지 퍼지는지가 달라진다.
       label={(
         <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, minWidth: 0 }}>
+          {/* opacity로 흐리게 하지 않는다 — 아이콘마다 다른 opacity를 주다 보니 진하기가
+              제각각이었다(사용자 지적, 2026-08-26). color를 지정하지 않고 줄 색을
+              그대로 상속해, 선택된 줄(크림 알약 위 짙은 글자)에서도 자동으로 맞는
+              색이 된다. */}
           {isPrivateChannel(c) ? (
-            <LockIcon sx={{ fontSize: 13, flexShrink: 0, opacity: 0.75 }} />
+            <LockIcon sx={{ fontSize: 14, flexShrink: 0 }} />
           ) : (
-            <TagIcon sx={{ fontSize: 14, flexShrink: 0, opacity: 0.65 }} />
+            <TagIcon sx={{ fontSize: 15, flexShrink: 0 }} />
           )}
           <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</Box>
         </Box>
@@ -163,7 +167,7 @@ export default function ChannelSidebar({
       <SidebarItem
         label={(
           <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6 }}>
-            <GroupsIcon sx={{ fontSize: 15, flexShrink: 0, opacity: 0.8 }} />
+            <GroupsIcon sx={{ fontSize: 16, flexShrink: 0 }} />
             디렉터리
           </Box>
         )}
@@ -205,14 +209,18 @@ export default function ChannelSidebar({
 
       {/* 채널 추가 — 목록 아래. 위에 두면 목록보다 먼저 눈에 띄어, 매일 쓰는 목록을
           훑기 전에 "새로 만들기"부터 마주친다(사용자 요청, 2026-08-26 — Slack도
-          목록 아래에 둔다). */}
-      <Button
-        fullWidth size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+          목록 아래에 둔다). Button이 아니라 SidebarItem으로 그린다 — MUI 기본
+          Button은 primary(파란) 색에 hover 박스가 도드라져 목록과 따로 논다.
+          Slack의 "+채널 추가"도 다른 줄과 같은 모양이다(사용자 지적, 2026-08-26). */}
+      <SidebarItem
+        label={(
+          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, color: 'text.secondary' }}>
+            <AddIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+            새 채널
+          </Box>
+        )}
         onClick={onNewChannel}
-        sx={{ justifyContent: 'flex-start', mt: 0.3 }}
-      >
-        새 채널
-      </Button>
+      />
 
       {channels.length > 0 && sections.length < SECTION_MAX && (
         <Button
@@ -240,7 +248,7 @@ export default function ChannelSidebar({
         <SidebarItem
           label={(
             <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, minWidth: 0 }}>
-              <BookmarkIcon sx={{ fontSize: 14, flexShrink: 0, opacity: 0.7 }} />
+              <BookmarkIcon sx={{ fontSize: 15, flexShrink: 0 }} />
               <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>나와의 대화</Box>
             </Box>
           )}
@@ -249,7 +257,7 @@ export default function ChannelSidebar({
           onClick={() => (selfDm ? navigate(`/channels/${selfDm.id}`) : onSelfDm?.())}
         />
         {otherDms.length === 0 ? (
-          <SidebarEmpty>아래 '새 대화 시작'으로 대화를 시작하세요</SidebarEmpty>
+          <SidebarEmpty>대화가 없습니다</SidebarEmpty>
         ) : otherDms.map(c => (
           <SidebarItem
             key={c.id}
@@ -259,13 +267,15 @@ export default function ChannelSidebar({
             onClick={() => navigate(`/channels/${c.id}`)}
           />
         ))}
-        <Button
-          fullWidth size="small" startIcon={<AddIcon sx={{ fontSize: 15 }} />}
+        <SidebarItem
+          label={(
+            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, color: 'text.secondary' }}>
+              <AddIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+              새 대화 시작
+            </Box>
+          )}
           onClick={onNewDm}
-          sx={{ justifyContent: 'flex-start', color: 'text.disabled', fontSize: '0.8rem', mt: 0.2 }}
-        >
-          새 대화 시작
-        </Button>
+        />
       </SidebarSection>
 
       {leftChannels.length > 0 && (

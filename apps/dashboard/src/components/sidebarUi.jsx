@@ -47,13 +47,13 @@ export function SidebarSection({
         sx={{
           display: 'flex', alignItems: 'center', gap: 0.3, width: '100%',
           border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
-          px: 0.5, py: 0.55, borderRadius: 0.75,
+          px: 0.5, py: 0.65, borderRadius: 0.75,
           '&:hover': { bgcolor: 'action.hover' },
         }}
       >
         <ExpandMoreIcon
           sx={{
-            fontSize: 15, color: 'text.disabled', flexShrink: 0,
+            fontSize: 16, color: 'text.disabled', flexShrink: 0,
             transform: open ? 'none' : 'rotate(-90deg)',
             transition: 'transform .15s ease',
             ...(Icon && { mr: -0.3 }),
@@ -61,14 +61,17 @@ export function SidebarSection({
         />
         {Icon && (
           <Icon sx={{
-            fontSize: 15, flexShrink: 0, mr: 0.3,
+            fontSize: 16, flexShrink: 0, mr: 0.3,
             color: open ? 'text.secondary' : 'text.disabled',
             transition: 'color .15s ease',
           }} />
         )}
+        {/* Slack은 제목과 항목 글자 크기가 거의 같고 볼드·색으로만 위계를 준다 —
+            제목이 항목(0.9rem)보다 작으면 "제목"답지 않다(사용자 지적, 2026-08-26).
+            0.88rem으로 항목에 근접시키고 볼드·자간으로 구분한다. */}
         <Typography
           sx={{
-            fontSize: '0.82rem', fontWeight: 800, letterSpacing: '.02em',
+            fontSize: '0.88rem', fontWeight: 800, letterSpacing: '.01em',
             color: open ? 'text.secondary' : 'text.disabled',
           }}
           noWrap
@@ -139,7 +142,7 @@ export function SidebarItem({
       sx={{
         display: 'flex', alignItems: 'center', gap: 0.7, width: '100%',
         border: 0, cursor: 'pointer', textAlign: 'left',
-        pl: 1.3 + indent, pr: 0.6, py: 0.6, borderRadius: 0.75,
+        pl: 1.3 + indent, pr: 0.6, py: 0.7, borderRadius: 0.75,
         bgcolor: selected ? 'primary.main' : 'transparent',
         color: selected ? 'primary.contrastText' : muted ? 'text.disabled' : 'text.primary',
         opacity: muted && !selected ? 0.7 : 1,

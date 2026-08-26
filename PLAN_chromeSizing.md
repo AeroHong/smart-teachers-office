@@ -218,4 +218,43 @@ SIDE_COLUMN_WIDTH(360px)`. 좌우 칸을 **고정폭**으로 주면 가운데(�
     이번 세션에서 직접 돌리지 못했다** — 규칙 자체는 코드 리뷰로 안전성을
     확인했고 회귀 테스트도 추가해 뒀지만, 이 세션이 지켜온 "규칙 변경은 테스트
     통과 후 배포" 원칙대로 **`firestore.rules` 배포는 사용자 확인 후 진행**
-    (커밋만 하고 `firebase deploy --only firestore:rules`는 아직 안 함).
+    (커밋만 하고 `firebase deploy --only firestore:rules`는 아직 안 함). 사용자가
+    "추가 디자인 변경 작업 후 배포"로 결정 — 아래 4차 라운드가 끝나면 함께 배포.
+
+## 4차 피드백 — Slack 비교 스크린샷, 가독성·색상 (2026-08-26)
+
+사용자가 Slack과 우리 2단을 나란히 캡처해 비교: "가독성에서 너무 차이 난다."
+분석 결과와 반영:
+
+- **아이콘 opacity가 제각각**(Tag 0.65 / Lock 0.75 / Bookmark 0.7 / Groups 0.8)이라
+  진하기가 들쭉날쭉했다 — 전부 제거하고 줄 자체의 색(`color: inherit`)을 그대로
+  쓰게 했다. 선택된 줄(크림 알약, 아래 항목)에서도 자동으로 짙은 색으로 뒤집힌다.
+- **섹션 제목이 항목보다 작았다**(0.82rem < 0.9rem 항목) — Slack은 제목·항목
+  글자 크기가 거의 같고 볼드·색으로만 위계를 준다. 제목을 0.88rem으로 올려
+  항목에 근접시켰다.
+- **줄 높이**를 한 번 더 늘렸다(항목 py 0.6→0.7, 섹션 머리 py 0.55→0.65).
+- **"+새 채널"/"+새 대화 시작"이 MUI Button(파란 hover 박스)이라 목록과 따로
+  놀았다** — Slack의 "+채널 추가"/"+사용자 초대"는 다른 줄과 완전히 같은
+  모양이다. 둘 다 `SidebarItem`으로 바꿔 다른 항목과 동일한 줄 스타일로
+  통일(아이콘 "+", 색만 `text.secondary`로 살짝 낮춤).
+- **DM 빈 상태 문구가 2줄로 꺾였다** — "아래 '새 대화 시작'으로..." → "대화가
+  없습니다"로 줄여 한 줄에 맞춤.
+
+**색상 — "너무 AI스러운 파란색"**: `apps/shared/theme.js`의 전역 `primary`
+(#4f46e5, 인디고)가 선택된 채널 줄의 배경색으로 쓰이고 있었다. 사용자가 제시한
+Pantone 팔레트(Cloud Dancer 등 8색) 중 **Cloud Dancer(11-4201, 오프화이트)**를
+포인트로 채택 — 단, 적용 범위는 명시적으로 확인받음: **2·3단 크롬만**
+(`WorkspaceLayout.jsx`·`TopBar.jsx`·`ChannelSidebar.jsx`·`sidebarUi.jsx`), 다른
+화면(출결·학사일정·요청 현황 등)의 전역 `primary`는 그대로 둔다.
+
+- `WorkspaceLayout.jsx`: `CLOUD_DANCER`(#f0eee4) 상수 정의. `sidebarTheme`의
+  `palette.primary`를 이 톤(+ 짙은 대비 텍스트 `#2b2620`)으로 덮어써 선택된
+  채널/DM 줄이 인디고 알약 대신 **크림색 알약 + 짙은 텍스트**로 바뀐다(요청
+  1번 — "선택된 항목만 흰 배경+어두운 텍스트"). 3단(`component="main"`)
+  배경도 순백 대신 Cloud Dancer로 — `background.paper` 전역 토큰은 안 건드리고
+  이 Box에만 직접 색을 줘서, 그 안의 흰 Card들은 이 배경 위에서 옅게 뜬다.
+- 나머지 7색(Baltic Sea·Golden Mist·Quiet Violet·Cloud Cover·Hematite·Blue
+  Fusion·Veiled Vista)은 이번엔 안 씀 — 필요해지면(예: 즐겨찾기 강조색) 다음
+  라운드에.
+- Pantone 실제 hex는 화면 캡처로 눈대중 근사값을 썼다(#f0eee4 등) — 실물
+  화면에서 보고 톤이 다르면 다음 라운드에서 조정.

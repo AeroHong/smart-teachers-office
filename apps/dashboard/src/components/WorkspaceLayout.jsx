@@ -23,6 +23,19 @@ import UpdateBanner from './UpdateBanner'
 const SIDEBAR_WIDTH = 240
 
 /**
+ * Pantone 11-4201 Cloud Dancer — 2·3단 크롬 전용 포인트 색(사용자 요청, 2026-08-26).
+ * 기존 인디고(#4f46e5, apps/shared/theme.js의 전역 primary)가 "AI가 만든 기본 템플릿"
+ * 처럼 보인다는 지적 — 저장·승인 버튼처럼 전 화면이 걸린 색은 그대로 두고, 이 파일이
+ * 다스리는 2·3단(사이드바 선택 표시·상세 배경)에서만 이 톤으로 바꿔치기한다. 다른
+ * 화면(출결·학사일정·요청 현황 등)의 primary는 영향받지 않는다 — 사용자가 범위를
+ * "2·3단 크롬만"으로 확정.
+ */
+const CLOUD_DANCER = '#f0eee4'
+const CLOUD_DANCER_LIGHT = '#f8f7f2'
+const CLOUD_DANCER_DARK = '#d8d5c6'
+const CLOUD_DANCER_TEXT = '#2b2620'
+
+/**
  * 사이드바(2단) 전용 다크 테마 — 1단(rail.bg)과 같은 계열, 한 단계 밝은 rail.border를
  * 배경으로 쓴다(사용자 요청, 2026-08-26). sidebarUi.jsx·ChannelSidebar.jsx는 손대지
  * 않았다 — 그 파일들이 이미 text.primary/secondary/disabled·action.hover 같은 의미
@@ -50,6 +63,12 @@ const sidebarTheme = (outer) => createTheme(outer, {
       disabledBackground: 'rgba(255,255,255,0.12)',
     },
     divider: 'rgba(255,255,255,0.09)',
+    // SidebarItem의 selected 줄(bgcolor: 'primary.main')이 이 값을 그대로 받는다 —
+    // 인디고 알약 대신 크림색 알약 + 짙은 텍스트로, 어두운 목록 위에서 또렷하게 뜬다.
+    primary: {
+      main: CLOUD_DANCER, light: CLOUD_DANCER_LIGHT, dark: CLOUD_DANCER_DARK,
+      contrastText: CLOUD_DANCER_TEXT,
+    },
   },
 })
 
@@ -82,14 +101,16 @@ export default function WorkspaceLayout({ sidebar, children }) {
             </Box>
           )}
 
-          {/* 3단은 흰 배경을 유지하고, 바깥 어두운 프레임(1단·상단바)과 맞닿는 오른쪽·
-              아래 가장자리에만 같은 색 테두리를 둘렀다 — 어두운 틀 안에 흰 카드가 얹힌
-              인상. 위·왼쪽은 상단바·사이드바가 이미 어두워 경계가 저절로 생겨 테두리가
-              필요 없다(사용자 요청, 2026-08-26). */}
+          {/* 3단은 순백 대신 Cloud Dancer 톤을 쓰고, 바깥 어두운 프레임(1단·상단바)과
+              맞닿는 오른쪽·아래 가장자리에만 같은 색 테두리를 둘렀다 — 어두운 틀 안에
+              크림색 카드가 얹힌 인상. 위·왼쪽은 상단바·사이드바가 이미 어두워 경계가
+              저절로 생겨 테두리가 필요 없다(사용자 요청, 2026-08-26). background.paper
+              토큰은 그대로 두고(다른 화면의 흰 카드에 영향 없이) 이 Box에만 직접 색을
+              준다 — 그 안의 실제 흰 Card·Paper들은 이 배경 위에서 옅게 떠 보인다.*/}
           <Box
             component="main"
             sx={{
-              flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: 'background.paper',
+              flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: CLOUD_DANCER,
               // 1px는 화면에서 거의 안 보였다(사용자 확인, 2026-08-26) — 두께만 올린다.
               borderRight: '3px solid', borderBottom: '3px solid', borderColor: 'rail.bg',
               borderTopRightRadius: 10, borderBottomRightRadius: 10,
