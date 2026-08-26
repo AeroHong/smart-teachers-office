@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { collection, query, where, getDocs, setDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { COL, USERS, schoolPath, teacherAssignmentId, currentSchoolYear } from '@shared/lib/schema'
@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Select from '@mui/material/Select'
+import Autocomplete from '@mui/material/Autocomplete'
 import MenuItem from '@mui/material/MenuItem'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
@@ -43,6 +44,21 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
   const [assignParsedRows, setAssignParsedRows] = useState([])
   const [assignUploadMsg, setAssignUploadMsg] = useState('')
   const [savingAssignUpload, setSavingAssignUpload] = useState(false)
+
+  // 부서·교과 드롭다운 보기 목록 — 지금 이 학년도에 실제로 쓰이고 있는 값만 모은다
+  // (고정 목록을 따로 안 둔다 — 학교마다 부서 이름이 달라 여기서 못 박으면 오히려
+  // 안 맞는 학교가 생긴다). 그래도 자유 입력(freeSolo)은 열어 둔다 — 새로 생긴
+  // 부서·교과는 관리자가 그대로 타이핑해 만들 수 있어야 한다. 목적은 "이미 있는
+  // 값을 골라 쓰면 오타가 안 난다"는 것이지, 새 값 자체를 막는 게 아니다
+  // (사용자 요청, 2026-08-27 — "관리자가 잘못 입력한 경우도 있으니").
+  const departmentOptions = useMemo(() => (
+    [...new Set(assignmentRows.map(r => r.assignment?.department).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'ko'))
+  ), [assignmentRows])
+  const subjectOptions = useMemo(() => (
+    [...new Set(assignmentRows.map(r => r.assignment?.subject).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'ko'))
+  ), [assignmentRows])
 
   useEffect(() => {
     if (!schoolId) return
@@ -522,19 +538,23 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
               placeholder="예: 교무부장"
               fullWidth
             />
-            <TextField
-              label="부서"
+            <Autocomplete
+              freeSolo
+              options={departmentOptions}
               value={editingAssignment?.department || ''}
-              onChange={e => setEditingAssignment(prev => ({ ...prev, department: e.target.value }))}
-              placeholder="예: 교무부"
-              fullWidth
+              onInputChange={(e, newValue) => setEditingAssignment(prev => ({ ...prev, department: newValue }))}
+              renderInput={(params) => (
+                <TextField {...params} label="부서" placeholder="예: 교무부" fullWidth />
+              )}
             />
-            <TextField
-              label="담당 교과"
+            <Autocomplete
+              freeSolo
+              options={subjectOptions}
               value={editingAssignment?.subject || ''}
-              onChange={e => setEditingAssignment(prev => ({ ...prev, subject: e.target.value }))}
-              placeholder="예: 수학"
-              fullWidth
+              onInputChange={(e, newValue) => setEditingAssignment(prev => ({ ...prev, subject: newValue }))}
+              renderInput={(params) => (
+                <TextField {...params} label="담당 교과" placeholder="예: 수학" fullWidth />
+              )}
             />
 
             <FormControlLabel
@@ -603,8 +623,8 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             {[
               { key: 'positionLabel', label: '직함', placeholder: '예: 교무부장' },
-              { key: 'department', label: '부서', placeholder: '예: 교무부' },
-              { key: 'subject', label: '담당 교과', placeholder: '예: 수학' },
+              { key: 'department', label: '부서', placeholder: '예: 교무부', options: departmentOptions },
+              { key: 'subject', label: '담당 교과', placeholder: '예: 수학', options: subjectOptions },
               { key: 'office', label: '사무실', placeholder: '예: 교무실' },
             ].map(f => (
               <Box key={f.key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -612,15 +632,28 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                   checked={bulkFields?.[f.key]?.on || false}
                   onChange={e => setBulkFields(prev => ({ ...prev, [f.key]: { ...prev[f.key], on: e.target.checked } }))}
                 />
-                <TextField
-                  label={f.label}
-                  value={bulkFields?.[f.key]?.value || ''}
-                  onChange={e => setBulkFields(prev => ({ ...prev, [f.key]: { ...prev[f.key], value: e.target.value } }))}
-                  placeholder={f.placeholder}
-                  disabled={!bulkFields?.[f.key]?.on}
-                  fullWidth
-                  size="small"
-                />
+                {f.options ? (
+                  <Autocomplete
+                    freeSolo
+                    fullWidth
+                    size="small"
+                    options={f.options}
+                    value={bulkFields?.[f.key]?.value || ''}
+                    disabled={!bulkFields?.[f.key]?.on}
+                    onInputChange={(e, newValue) => setBulkFields(prev => ({ ...prev, [f.key]: { ...prev[f.key], value: newValue } }))}
+                    renderInput={(params) => <TextField {...params} label={f.label} placeholder={f.placeholder} />}
+                  />
+                ) : (
+                  <TextField
+                    label={f.label}
+                    value={bulkFields?.[f.key]?.value || ''}
+                    onChange={e => setBulkFields(prev => ({ ...prev, [f.key]: { ...prev[f.key], value: e.target.value } }))}
+                    placeholder={f.placeholder}
+                    disabled={!bulkFields?.[f.key]?.on}
+                    fullWidth
+                    size="small"
+                  />
+                )}
               </Box>
             ))}
 

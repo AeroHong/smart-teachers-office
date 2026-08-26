@@ -26,6 +26,7 @@ import { PRESENCE, PRESENCE_ORDER } from '@shared/lib/presence'
 import { openCommandPalette } from './CommandPalette'
 import CallBell from './CallBell'
 import usePresence from '../lib/usePresence'
+import { useProfileCard } from './ProfileCardProvider'
 
 // 검색창이 가운데를 차지하는 만큼, 좌우 칸은 오른쪽 묶음(호출벨+이름+재실 상태 ≈ 195px)이
 // + titleBarOverlay 버튼 자리(138px)를 더해도 절대 잘리지 않을 폭을 고정으로 준다.
@@ -47,7 +48,8 @@ const darkGroupTheme = (outer) => createTheme(outer, {
 })
 
 export default function TopBar() {
-  const { userName } = useAuth()
+  const { user, userName } = useAuth()
+  const { open: openProfile } = useProfileCard()
   const { current, setStatus, saving } = usePresence()
   const [anchor, setAnchor] = useState(null)
   const p = PRESENCE[current] || PRESENCE.unknown
@@ -103,7 +105,20 @@ export default function TopBar() {
         }}>
           {/* 호출은 지금 학생이 기다린다는 신호라 어느 화면에 있든 눈에 들어와야 한다 */}
           <CallBell />
-          <Typography fontSize="0.86rem" fontWeight={600} noWrap sx={{ ml: 0.5, color: 'text.primary' }}>
+          {/* 내 이름 — 눌러서 프로필 카드를 연다(사용자 지적, 2026-08-27: "이름 아이콘을
+              눌러도 프로필로 안넘어감" — AppRail의 아바타만 연결해 두고 이 자리는
+              빠뜨렸었다). */}
+          <Typography
+            component="button" type="button"
+            onClick={e => user && openProfile(user.uid, e.currentTarget)}
+            sx={{
+              fontSize: '0.86rem', fontWeight: 600, ml: 0.5, color: 'text.primary',
+              border: 0, background: 'none', p: 0, fontFamily: 'inherit', cursor: 'pointer',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              WebkitAppRegion: 'no-drag',
+              '&:hover': { textDecoration: 'underline' },
+            }}
+          >
             {userName}
           </Typography>
           <Button

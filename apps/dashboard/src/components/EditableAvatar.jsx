@@ -6,10 +6,11 @@
 import { useRef } from 'react'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
-import PersonAvatar from './PersonAvatar'
+import PersonAvatar, { avatarRadius } from './PersonAvatar'
 
 export default function EditableAvatar({ name, photoURL, size = 56, uploading, onPick }) {
   const inputRef = useRef(null)
+  const radius = avatarRadius(size)
 
   return (
     <Box
@@ -17,7 +18,7 @@ export default function EditableAvatar({ name, photoURL, size = 56, uploading, o
       onClick={() => inputRef.current?.click()}
       disabled={uploading}
       sx={{
-        position: 'relative', border: 0, background: 'none', p: 0, borderRadius: '50%',
+        position: 'relative', border: 0, background: 'none', p: 0, borderRadius: `${radius}px`,
         cursor: uploading ? 'default' : 'pointer', flexShrink: 0,
         '&:hover .avatar-hint': { opacity: 1 },
       }}
@@ -26,7 +27,7 @@ export default function EditableAvatar({ name, photoURL, size = 56, uploading, o
       <PersonAvatar name={name} photoURL={photoURL} size={size} />
       {uploading ? (
         <Box sx={{
-          position: 'absolute', inset: 0, borderRadius: '50%',
+          position: 'absolute', inset: 0, borderRadius: `${radius}px`,
           bgcolor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <CircularProgress size={Math.round(size * 0.36)} sx={{ color: '#fff' }} />
@@ -35,7 +36,7 @@ export default function EditableAvatar({ name, photoURL, size = 56, uploading, o
         <Box
           className="avatar-hint"
           sx={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
+            position: 'absolute', inset: 0, borderRadius: `${radius}px`,
             bgcolor: 'rgba(0,0,0,0.35)', color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '0.62rem', fontWeight: 700, opacity: 0, transition: 'opacity .12s ease',

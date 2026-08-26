@@ -23,7 +23,7 @@ import { isDoneBy } from '@shared/lib/workRequests'
 import { portalLink } from '../lib/portalUrl'
 import useUnreadNotices from '../lib/useUnreadNotices'
 import useMyRequests from '../lib/useMyRequests'
-import PersonAvatar from './PersonAvatar'
+import PersonAvatar, { avatarRadius } from './PersonAvatar'
 import { useProfileCard } from './ProfileCardProvider'
 
 const RAIL_WIDTH = 64
@@ -159,7 +159,7 @@ export default function AppRail() {
         <Box
           component="button" type="button"
           onClick={e => user && openProfile(user.uid, e.currentTarget)}
-          sx={{ my: 0.6, display: 'flex', border: 0, background: 'none', p: 0, borderRadius: '50%', cursor: 'pointer' }}
+          sx={{ my: 0.6, display: 'flex', border: 0, background: 'none', p: 0, borderRadius: `${avatarRadius(30)}px`, cursor: 'pointer' }}
           aria-label="내 프로필"
         >
           <PersonAvatar name={userName} photoURL={photoURL} size={30} />
