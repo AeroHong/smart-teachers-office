@@ -38,7 +38,6 @@ import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import ContentCopyIcon from '@mui/icons-material/ContentCopyOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import TitleIcon from '@mui/icons-material/Title'
@@ -674,9 +673,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     const block = hoveredBlock?.el
     const el = editorRef.current
     if (!block || !el) return
-    const anchorRect = e.currentTarget.getBoundingClientRect()
+    // 메뉴는 누른 자리(clientX/Y) 기준으로 띄운다 — 손잡이 상자 자체의 rect를 쓰면
+    // (블록 전체 높이만큼 길다) 짧게 클릭해도 메뉴가 블록 맨 아래에서 열려버린다.
     const startX = e.clientX
     const startY = e.clientY
+    const anchorPos = { top: startY + 8, left: startX + 8 }
     const siblings = [...el.children]
     let moved = false
 
@@ -712,7 +713,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         })
         setHoveredBlock(null)
       } else {
-        setBlockMenu({ el: block, anchor: { top: anchorRect.bottom, left: anchorRect.left } })
+        setBlockMenu({ el: block, anchor: anchorPos })
       }
     }
     window.addEventListener('pointermove', onMove)
@@ -1247,10 +1248,16 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onChange={e => { handleDocFiles(e.target.files); e.target.value = '' }}
       />
 
-      {/* 블록 손잡이(⋮⋮) — 지금 마우스가 올라간 블록의 왼쪽 바깥에 뜬다. picked(이미지
+      {/* 블록 손잡이 — 지금 마우스가 올라간 블록의 왼쪽 바깥에 뜬다. picked(이미지
           손잡이)와 같은 자리 계산 방식이지만, 이건 잘라 보여줄 이유가 없어(overflow
           없음) clip 상자 없이 바로 그린다. 메뉴가 열려 있는 동안에도 계속 보이게 둔다 —
-          누른 블록이 어디였는지 잊게 하지 않으려고. */}
+          누른 블록이 어디였는지 잊게 하지 않으려고.
+
+          아이콘(⋮⋮) 대신 짙어지는 회색 막대로 바꿨다 — 표 안 행 손잡이와 같은 자리에
+          뜨면 아이콘 두 개가 겹쳐 보였다(사용자 지적, 2026-08-26). 막대는 실제
+          누르는 자리(18px 폭)보다 얇게(4px) 그려서, 두 손잡이가 있어도 서로 다른
+          레인(이 손잡이는 표 바로 옆 안쪽 레인, 행 손잡이는 그 바깥 레인)에 놓이면
+          시각적으로 안 겹친다. */}
       {hoveredBlock && !menuRect && !slash && (
         <Box
           data-block-handle="true"
@@ -1259,16 +1266,18 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           onMouseLeave={scheduleHoverClear}
           sx={{
             position: 'fixed',
-            top: hoveredBlock.rect.top + 1,
-            left: hoveredBlock.rect.left - 26,
-            zIndex: 1200, width: 22, height: 22, borderRadius: 0.75,
+            top: hoveredBlock.rect.top, left: hoveredBlock.rect.left - 20,
+            zIndex: 1200, width: 16, height: hoveredBlock.rect.height,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'grab', color: 'text.disabled',
-            bgcolor: blockMenu?.el === hoveredBlock.el ? 'action.hover' : 'transparent',
-            '&:hover': { bgcolor: 'action.hover', color: 'text.secondary' },
+            cursor: 'grab',
+            '&:hover .handle-bar': { bgcolor: 'text.secondary' },
           }}
         >
-          <DragIndicatorIcon sx={{ fontSize: 17 }} />
+          <Box className="handle-bar" sx={{
+            width: 4, height: '70%', borderRadius: 2,
+            bgcolor: blockMenu?.el === hoveredBlock.el ? 'text.secondary' : 'action.disabled',
+            transition: 'background-color .1s ease',
+          }} />
         </Box>
       )}
 
@@ -1479,7 +1488,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           })}
 
           {/* 행 손잡이 — 표 왼쪽 바깥, 지금 마우스가 있는 행 옆. 끌면 이 표 안에서만
-              행 순서가 바뀐다(블록 드래그와 같은 모양, 범위만 표 안). */}
+              행 순서가 바뀐다(블록 드래그와 같은 모양, 범위만 표 안). 표도 캔버스의
+              한 블록이라 블록 손잡이와 같은 줄에 함께 뜬다 — 그래서 더 바깥 레인
+              (표에서 더 먼 자리)에 둬서 안쪽 레인의 블록 손잡이와 안 겹치게 한다
+              (사용자 지적, 2026-08-26). 디자인도 블록 손잡이와 맞춰 회색 막대로. */}
           {hoveredRow && !rowDrag && !colDrag && (
             <Box
               data-table-handle="true"
@@ -1487,21 +1499,24 @@ const CanvasEditor = forwardRef(function CanvasEditor({
               onMouseEnter={cancelHoverClear}
               onMouseLeave={scheduleHoverClear}
               sx={{
-                position: 'fixed', top: hoveredRow.rect.top + hoveredRow.rect.height / 2 - 9,
-                left: pickedTable.rect.left - 22, zIndex: 1250,
-                width: 18, height: 18, borderRadius: 0.75,
+                position: 'fixed', top: hoveredRow.rect.top,
+                left: pickedTable.rect.left - 40, zIndex: 1250,
+                width: 16, height: hoveredRow.rect.height,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'grab', color: 'text.disabled', bgcolor: 'background.paper',
-                border: '1px solid', borderColor: 'divider',
-                '&:hover': { color: 'text.secondary' },
+                cursor: 'grab',
+                '&:hover .handle-bar': { bgcolor: 'text.secondary' },
               }}
             >
-              <DragIndicatorIcon sx={{ fontSize: 14 }} />
+              <Box className="handle-bar" sx={{
+                width: 4, height: '70%', borderRadius: 2, bgcolor: 'action.disabled',
+                transition: 'background-color .1s ease',
+              }} />
             </Box>
           )}
 
           {/* 열 손잡이 — 표 위쪽 바깥, 지금 마우스가 있는 열 위. 끌면 모든 행에서
-              그 칸이 함께 옮겨진다. */}
+              그 칸이 함께 옮겨진다. 가로 막대 — 세로 손잡이들과 축을 다르게 해서
+              "이건 옆으로 움직인다"는 것이 모양만 봐도 드러나게 했다. */}
           {hoveredCol && !rowDrag && !colDrag && (
             <Box
               data-table-handle="true"
@@ -1509,16 +1524,18 @@ const CanvasEditor = forwardRef(function CanvasEditor({
               onMouseEnter={cancelHoverClear}
               onMouseLeave={scheduleHoverClear}
               sx={{
-                position: 'fixed', top: pickedTable.rect.top - 22,
-                left: hoveredCol.rect.left + hoveredCol.rect.width / 2 - 9, zIndex: 1250,
-                width: 18, height: 18, borderRadius: 0.75,
+                position: 'fixed', top: pickedTable.rect.top - 20,
+                left: hoveredCol.rect.left, zIndex: 1250,
+                width: hoveredCol.rect.width, height: 16,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'grab', color: 'text.disabled', bgcolor: 'background.paper',
-                border: '1px solid', borderColor: 'divider', transform: 'rotate(90deg)',
-                '&:hover': { color: 'text.secondary' },
+                cursor: 'grab',
+                '&:hover .handle-bar': { bgcolor: 'text.secondary' },
               }}
             >
-              <DragIndicatorIcon sx={{ fontSize: 14 }} />
+              <Box className="handle-bar" sx={{
+                width: '70%', height: 4, borderRadius: 2, bgcolor: 'action.disabled',
+                transition: 'background-color .1s ease',
+              }} />
             </Box>
           )}
 
