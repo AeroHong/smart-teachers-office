@@ -20,7 +20,11 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
  * 섹션마다 다른 아이콘을 쓴다. 전부 같은 꺾쇠면 목록이 세 덩어리로 나뉘어 있다는 것만
  * 알 뿐 어느 덩어리인지는 글자를 읽어야 안다. 접힌 상태는 아이콘을 흐리게 해서 알린다.
  *
- * @param {React.ElementType} [icon] 이 섹션을 나타내는 아이콘. 없으면 꺾쇠를 쓴다.
+ * 꺾쇠는 아이콘이 있어도 함께 그린다. 아이콘이 대신하던 자리라 전부 접고 펼 수 있는데도
+ * 그렇게 보이지 않았다(사용자 지적, 2026-08-26) — 이 목록이 눌러서 접히는 줄이라는
+ * 신호를 아이콘 유무와 상관없이 항상 남겨 둔다.
+ *
+ * @param {React.ElementType} [icon] 이 섹션을 나타내는 아이콘. 꺾쇠 옆에 함께 그린다.
  * @param {boolean} [actionOnHover] 딸린 단추를 평소엔 숨긴다. 사용자가 만든 섹션처럼
  *   관리 단추가 늘 떠 있으면 오른쪽의 건수를 가리고 목록이 시끄러워지는 경우에 쓴다.
  * @param {boolean} [actionActive] 메뉴가 열려 있는 동안처럼 계속 보여야 할 때.
@@ -43,28 +47,28 @@ export function SidebarSection({
         sx={{
           display: 'flex', alignItems: 'center', gap: 0.3, width: '100%',
           border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
-          px: 0.5, py: 0.45, borderRadius: 0.75,
+          px: 0.5, py: 0.55, borderRadius: 0.75,
           '&:hover': { bgcolor: 'action.hover' },
         }}
       >
-        {Icon ? (
+        <ExpandMoreIcon
+          sx={{
+            fontSize: 15, color: 'text.disabled', flexShrink: 0,
+            transform: open ? 'none' : 'rotate(-90deg)',
+            transition: 'transform .15s ease',
+            ...(Icon && { mr: -0.3 }),
+          }}
+        />
+        {Icon && (
           <Icon sx={{
-            fontSize: 16, flexShrink: 0, mr: 0.35,
+            fontSize: 15, flexShrink: 0, mr: 0.3,
             color: open ? 'text.secondary' : 'text.disabled',
             transition: 'color .15s ease',
           }} />
-        ) : (
-          <ExpandMoreIcon
-            sx={{
-              fontSize: 16, color: 'text.disabled', flexShrink: 0,
-              transform: open ? 'none' : 'rotate(-90deg)',
-              transition: 'transform .15s ease',
-            }}
-          />
         )}
         <Typography
           sx={{
-            fontSize: '0.76rem', fontWeight: 800, letterSpacing: '.03em',
+            fontSize: '0.82rem', fontWeight: 800, letterSpacing: '.02em',
             color: open ? 'text.secondary' : 'text.disabled',
           }}
           noWrap
@@ -135,7 +139,7 @@ export function SidebarItem({
       sx={{
         display: 'flex', alignItems: 'center', gap: 0.7, width: '100%',
         border: 0, cursor: 'pointer', textAlign: 'left',
-        pl: 1.3 + indent, pr: 0.6, py: 0.4, borderRadius: 0.75,
+        pl: 1.3 + indent, pr: 0.6, py: 0.6, borderRadius: 0.75,
         bgcolor: selected ? 'primary.main' : 'transparent',
         color: selected ? 'primary.contrastText' : muted ? 'text.disabled' : 'text.primary',
         opacity: muted && !selected ? 0.7 : 1,
@@ -154,7 +158,7 @@ export function SidebarItem({
         noWrap
         sx={{
           flexGrow: 1, minWidth: 0,
-          fontSize: '0.88rem',
+          fontSize: '0.9rem',
           fontWeight: strong && !muted ? 700 : 500,
           textDecoration: muted ? 'line-through' : 'none',
         }}

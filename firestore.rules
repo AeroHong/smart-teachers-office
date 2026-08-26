@@ -74,15 +74,18 @@ service cloud.firestore {
     // 못 박아 둔 것이 규칙에서도 쓸모가 있다 — 같은 상대와 DM이 두 개 생기지 않는다는
     // 보장이 클라이언트의 약속이 아니라 서버의 조건이 된다.
     //
-    // 정렬 순서(memberUids[0] < memberUids[1])까지 검사하는 이유: 정렬하지 않으면 같은
+    // 정렬 순서(memberUids[0] <= memberUids[1])까지 검사하는 이유: 정렬하지 않으면 같은
     // 두 사람이 dm_A_B와 dm_B_A 두 문서를 만들 수 있고, 그러면 대화가 둘로 갈라진 뒤
     // 어느 쪽에 답했는지 알 수 없게 된다. 규칙에는 정렬 함수가 없어 비교로 대신한다.
+    // 등호(<=)를 쓰는 이유: '나와의 대화'(자기 자신과의 DM)는 두 값이 같으므로(memberUids
+    // == [uid, uid]) 엄격한 부등호로는 막힌다. 서로 다른 두 사람 사이에서는 <=가 <와 똑같이
+    // 동작해 기존 정렬 보장은 그대로 유지된다.
     function isValidDmCreate(channelId) {
       let d = request.resource.data;
       return d.type == 'dm' &&
              d.visibility == 'private' &&
              d.memberUids.size() == 2 &&
-             d.memberUids[0] < d.memberUids[1] &&
+             d.memberUids[0] <= d.memberUids[1] &&
              request.auth.uid in d.memberUids &&
              channelId == 'dm_' + d.memberUids[0] + '_' + d.memberUids[1];
     }

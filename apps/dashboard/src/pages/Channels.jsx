@@ -185,6 +185,10 @@ export default function Channels() {
   }, [composingNew, requestId, sideView, canvas])
 
   const dm = isDm(active)
+  // 나와의 대화 — memberUids가 나뿐인 DM. 헤더·빈 대화 문구를 "둘만"에서 "나만"으로
+  // 바꿔야 한다 — 데이터모델은 같아도 실제로 보는 사람이 한 명뿐이라 문구가 틀리면
+  // 여기가 메모장이라는 것이 아무 데도 드러나지 않는다.
+  const isSelfDm = dm && (active?.memberUids || []).every(uid => uid === user?.uid)
   // 전교직원 채널은 학교 공지가 도착하는 유일한 자리라 나가기·보관을 막는다. 한 번 끊으면
   // 그 뒤로 오는 공지를 못 보는데 화면에는 아무 일도 없어 보인다(channels.js 참고).
   const allStaff = isAllStaffChannel(active)
@@ -387,6 +391,7 @@ export default function Channels() {
       directoryActive={directory}
       onNewChannel={() => { setPreset(null); setEditing('new') }}
       onNewDm={() => setPickingDm(true)}
+      onSelfDm={() => startDm({ uid: user.uid, name: userName })}
     />
   )
 
@@ -432,8 +437,9 @@ export default function Channels() {
               <Typography fontSize="0.76rem" color="text.secondary">
                 {dm ? (
                   // 관리자도 못 읽는다는 사실을 적어 둔다. 업무 채널과 생김새가 같아서
-                  // 여기가 둘만 보는 자리라는 것이 달리 드러날 곳이 없다(데이터모델 §10).
-                  '둘만 보는 대화입니다. 관리자도 읽지 않습니다.'
+                  // 여기가 둘만(혹은 나만) 보는 자리라는 것이 달리 드러날 곳이 없다
+                  // (데이터모델 §10).
+                  isSelfDm ? '나만 보는 공간입니다. 관리자도 읽지 않습니다.' : '둘만 보는 대화입니다. 관리자도 읽지 않습니다.'
                 ) : (
                   <>
                     {isPrivateChannel(active) && '비공개 · '}
@@ -622,7 +628,18 @@ export default function Channels() {
                 canPost={canPost}
                 onOpenCanvas={to => navigate(to)}
                 canvases={active.posts || []}
-                empty={dm ? (
+                empty={isSelfDm ? (
+                  <Box sx={{ py: 4, px: 3, textAlign: 'center' }}>
+                    <Typography fontWeight={800} fontSize="0.92rem" sx={{ mb: 0.8 }}>
+                      나와의 대화
+                    </Typography>
+                    <Typography color="text.secondary" fontSize="0.83rem" sx={{ lineHeight: 1.6 }}>
+                      나만 쓰는 공간입니다. 메모를 남기거나 할 일을 적어두거나 링크·파일을
+                      간편하게 보관해 보세요. 혼잣말도 괜찮지만, 대화를 주고받으려면 스스로
+                      묻고 답해야 한다는 점만 참고해 주세요.
+                    </Typography>
+                  </Box>
+                ) : dm ? (
                   <Typography color="text.secondary" fontSize="0.88rem" sx={{ py: 4, textAlign: 'center' }}>
                     아직 대화가 없습니다. 여기에 적은 말은 둘만 봅니다.
                   </Typography>

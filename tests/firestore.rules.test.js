@@ -338,6 +338,14 @@ test('[DM] 명단이 정렬돼 있지 않으면 못 만든다 — 정렬이 ID�
   })))
 })
 
+test('[DM] 나와의 대화(자기 자신과의 DM)는 만들 수 있다 ★', async () => {
+  // memberUids가 [A, A]라 정렬 검사(<=)가 엄격한 부등호(<)였다면 여기서 막혔다 —
+  // '나와의 대화' 기능이 이 한 줄에 걸려 있다.
+  await assertSucceeds(setDoc(doc(as(A), ...path('channels', `dm_${A}_${A}`)), dmDoc({
+    memberUids: [A, A], memberNames: { [A]: 'A' },
+  })))
+})
+
 test('[DM] 내가 끼지 않은 DM은 못 만든다', async () => {
   await assertFails(setDoc(doc(as(A), ...path('channels', `dm_${B}_${C}`)), dmDoc({
     memberUids: [B, C].sort(), createdBy: A,

@@ -25,6 +25,7 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Inventory2Outlined'
+import BookmarkIcon from '@mui/icons-material/BookmarkBorder'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolderOutlined'
 import FolderIcon from '@mui/icons-material/FolderOutlined'
 import ForumIcon from '@mui/icons-material/ForumOutlined'
@@ -35,6 +36,7 @@ import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
+import TagIcon from '@mui/icons-material/Tag'
 import { dmTitle, isPrivateChannel } from '@shared/lib/channels'
 import { hasUnread } from '@shared/lib/channelMessages'
 import {
@@ -51,7 +53,7 @@ const GROUP_ICON = { favorites: StarIcon, section: FolderIcon }
 
 export default function ChannelSidebar({
   channels, archivedChannels, leftChannels, dms = [], myUid,
-  loading, activeChannelId, directoryActive, onNewChannel, onNewDm,
+  loading, activeChannelId, directoryActive, onNewChannel, onNewDm, onSelfDm,
 }) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -70,6 +72,15 @@ export default function ChannelSidebar({
 
   const groups = useMemo(() => groupChannels(channels, prefs), [channels, prefs])
   const sections = prefs.sections
+
+  // 나와의 대화 — memberUids가 [나, 나]뿐인 DM(자기 자신과의 DM). 목록에 자연스럽게
+  // 섞이면 lastMessageAt 정렬에 따라 자리가 흔들린다 — 메모장처럼 쓰는 자리라 늘 같은
+  // 자리(맨 위)에 있어야 찾기 쉽다. 그래서 목록에서 빼내 별도로 그린다.
+  const selfDm = useMemo(
+    () => dms.find(c => (c.memberUids || []).every(uid => uid === myUid)),
+    [dms, myUid],
+  )
+  const otherDms = selfDm ? dms.filter(c => c.id !== selfDm.id) : dms
 
   // 실패를 삼키면 즐겨찾기를 눌렀는데 아무 일도 안 일어난 것처럼 보이고, 사용자는 계속 누른다.
   const run = (fn, failure) => update(fn).catch(e => toast.error(failure, e))
@@ -107,12 +118,16 @@ export default function ChannelSidebar({
       key={c.id}
       // 비공개 채널은 목록에서도 자물쇠로 구분한다. 참여자에게만 보이는 줄이라 굳이
       // 표시할 이유가 없어 보이지만, 여기서 글을 쓰면 어디까지 퍼지는지가 달라진다.
-      label={isPrivateChannel(c) ? (
+      label={(
         <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, minWidth: 0 }}>
-          <LockIcon sx={{ fontSize: 13, flexShrink: 0, opacity: 0.75 }} />
+          {isPrivateChannel(c) ? (
+            <LockIcon sx={{ fontSize: 13, flexShrink: 0, opacity: 0.75 }} />
+          ) : (
+            <TagIcon sx={{ fontSize: 14, flexShrink: 0, opacity: 0.65 }} />
+          )}
           <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</Box>
         </Box>
-      ) : c.name}
+      )}
       selected={c.id === activeChannelId}
       // 안 읽은 대화가 있으면 굵게. 점을 따로 찍지 않는 이유는 오른쪽에 이미 마감·진행 중
       // 칩이 있어서다 — 표시가 둘이면 어느 쪽이 급한 것인지 매번 다시 읽어야 한다.
@@ -143,14 +158,6 @@ export default function ChannelSidebar({
 
   return (
     <>
-      <Button
-        fullWidth size="small" startIcon={<AddIcon sx={{ fontSize: 17 }} />}
-        onClick={onNewChannel}
-        sx={{ justifyContent: 'flex-start', mb: 0.5 }}
-      >
-        새 채널
-      </Button>
-
       {/* 디렉터리 — 채널 목록 위에 고정. 이 화면에 오는 이유가 "아직 내 목록에 없는 것을
           찾는다"라서, 내 목록 아래에 두면 정작 목록이 빈 사람에게 제일 안 보인다. */}
       <SidebarItem
@@ -196,11 +203,22 @@ export default function ChannelSidebar({
         )
       })}
 
+      {/* 채널 추가 — 목록 아래. 위에 두면 목록보다 먼저 눈에 띄어, 매일 쓰는 목록을
+          훑기 전에 "새로 만들기"부터 마주친다(사용자 요청, 2026-08-26 — Slack도
+          목록 아래에 둔다). */}
+      <Button
+        fullWidth size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+        onClick={onNewChannel}
+        sx={{ justifyContent: 'flex-start', mt: 0.3 }}
+      >
+        새 채널
+      </Button>
+
       {channels.length > 0 && sections.length < SECTION_MAX && (
         <Button
           fullWidth size="small" startIcon={<CreateNewFolderIcon sx={{ fontSize: 16 }} />}
           onClick={() => openNameDialog('new')}
-          sx={{ justifyContent: 'flex-start', color: 'text.disabled', fontSize: '0.76rem', mt: 0.3 }}
+          sx={{ justifyContent: 'flex-start', color: 'text.disabled', fontSize: '0.8rem', mt: 0.1 }}
         >
           새 섹션
         </Button>
@@ -214,18 +232,25 @@ export default function ChannelSidebar({
         label="다이렉트 메시지" icon={ForumIcon} count={dms.length}
         // 접었을 때도 안 읽은 대화가 몇 개인지는 보여야 한다. 채널 줄과 달리 DM은 굵은
         // 글씨가 접힘 뒤로 사라지면 온 줄도 모른다.
-        badge={openDms ? 0 : dms.filter(c => hasUnread(c, reads)).length}
+        badge={openDms ? 0 : otherDms.filter(c => hasUnread(c, reads)).length}
         open={openDms} onToggle={() => setOpenDms(v => !v)}
-        actionActive
-        action={(
-          <IconButton size="small" aria-label="새 대화" onClick={onNewDm} sx={{ p: 0.25 }}>
-            <AddIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        )}
       >
-        {dms.length === 0 ? (
-          <SidebarEmpty>＋로 대화를 시작하세요</SidebarEmpty>
-        ) : dms.map(c => (
+        {/* 나와의 대화 — 늘 맨 위 고정. 아직 만들어지지 않았어도(첫 방문) 눌러 바로
+            만들 수 있어야 발견된다 — 채널 목록에 안 뜨는 것을 찾아 헤매게 두지 않는다. */}
+        <SidebarItem
+          label={(
+            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, minWidth: 0 }}>
+              <BookmarkIcon sx={{ fontSize: 14, flexShrink: 0, opacity: 0.7 }} />
+              <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>나와의 대화</Box>
+            </Box>
+          )}
+          selected={!!selfDm && selfDm.id === activeChannelId}
+          strong={!!selfDm && hasUnread(selfDm, reads)}
+          onClick={() => (selfDm ? navigate(`/channels/${selfDm.id}`) : onSelfDm?.())}
+        />
+        {otherDms.length === 0 ? (
+          <SidebarEmpty>아래 '새 대화 시작'으로 대화를 시작하세요</SidebarEmpty>
+        ) : otherDms.map(c => (
           <SidebarItem
             key={c.id}
             label={dmTitle(c, myUid)}
@@ -234,6 +259,13 @@ export default function ChannelSidebar({
             onClick={() => navigate(`/channels/${c.id}`)}
           />
         ))}
+        <Button
+          fullWidth size="small" startIcon={<AddIcon sx={{ fontSize: 15 }} />}
+          onClick={onNewDm}
+          sx={{ justifyContent: 'flex-start', color: 'text.disabled', fontSize: '0.8rem', mt: 0.2 }}
+        >
+          새 대화 시작
+        </Button>
       </SidebarSection>
 
       {leftChannels.length > 0 && (

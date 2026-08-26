@@ -30,13 +30,25 @@ const SIDEBAR_WIDTH = 240
  * 바꿔치기하면 하위 컴포넌트 전체가 자동으로 뒤집힌다(sidebarUi를 쓰는 다른 화면 —
  * 내 활동·학사일정·요청 현황·쪽지·구성원도 전부 같은 방식으로 반영됨). 팝업 메뉴도
  * React context를 통해 이 테마를 물려받아 함께 어두워진다.
+ *
+ * createTheme(outer, override) 형태로 쓰면 override는 outer.palette를 통째로 다시
+ * 계산하지 않고 얕게 덧씌우기만 한다 — mode를 'dark'로 바꿔도 action.active처럼 여기서
+ * 직접 안 적은 토큰은 outer(밝은 테마)의 값(거의 검정)이 그대로 남는다. 색을 지정하지
+ * 않은 아이콘 버튼(+·⋮)이 어두운 배경 위에서 안 보인 원인이 이것이었다(사용자 확인,
+ * 2026-08-26) — action 전체를 다크 기본값으로 명시한다.
  */
 const sidebarTheme = (outer) => createTheme(outer, {
   palette: {
     mode: 'dark',
     background: { paper: outer.palette.rail.border },
     text: { primary: '#e2e8f0', secondary: '#94a3b8', disabled: '#64748b' },
-    action: { hover: 'rgba(255,255,255,0.06)', selected: 'rgba(255,255,255,0.12)' },
+    action: {
+      active: '#e2e8f0',
+      hover: 'rgba(255,255,255,0.06)',
+      selected: 'rgba(255,255,255,0.12)',
+      disabled: 'rgba(255,255,255,0.3)',
+      disabledBackground: 'rgba(255,255,255,0.12)',
+    },
     divider: 'rgba(255,255,255,0.09)',
   },
 })
