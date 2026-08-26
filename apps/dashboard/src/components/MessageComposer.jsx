@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
+import Popover from '@mui/material/Popover'
 import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
 import AlternateEmailIcon from '@mui/icons-material/AlternateEmail'
@@ -42,14 +43,29 @@ const TOOLS = [
   { cmd: 'insertOrderedList', label: '번호 매기기', Icon: FormatListNumberedIcon },
 ]
 
+/** 메시지에 끼워 넣을 이모지 — 검색·카테고리 탭 없는 고정 그리드(TEXT_COLORS·
+ *  CALLOUT_COLORS처럼 이 코드베이스가 이미 쓰는 "몇 가지만 고정" 방식). 라이브러리
+ *  없이 자주 쓰는 것만 직접 나열한다 — 표정 12 · 손동작 6 · 하트 6 · 기호 6, 5×6 그리드. */
+const EMOJI_PICKER_ITEMS = [
+  '😀', '😂', '😊', '😍', '🥲', '😢',
+  '😮', '😅', '🤔', '😴', '😎', '🙄',
+  '👍', '👎', '👏', '🙌', '🙏', '💪',
+  '❤️', '💛', '💚', '💙', '💜', '🖤',
+  '🎉', '🔥', '✨', '💯', '✅', '❌',
+]
+
 export default function MessageComposer({
   value, onChange, onSubmit, disabled,
   channels = [], members = [], placeholder = '메시지를 입력하세요',
-  onPlusClick, onEmojiClick,
+  onPlusClick,
 }) {
   const editorRef = useRef(null)
   // '#'·'@' 둘 다 같은 모양이라 하나의 상태로 다룬다 — { trigger:'#'|'@', query, length, rect }
   const [trigger, setTrigger] = useState(null)
+  // 이모지 피커 — 연 단추의 자리(anchorEl). 부모(ChannelMessages.jsx)로 안 올린다 —
+  // 커서 위치에 바로 넣어야 해서(insertAtCursor) 편집기 ref를 쥔 이 컴포넌트 안에서
+  // 끝내는 게 자연스럽다(멘션 '@' 단추와 같은 자리).
+  const [emojiAnchor, setEmojiAnchor] = useState(null)
 
   useEffect(() => {
     const el = editorRef.current
@@ -164,6 +180,31 @@ export default function MessageComposer({
     syncTrigger()
   }
 
+  // 이모지 피커는 팝오버라 여는 순간 포커스가 팝오버 쪽으로 옮겨간다(MUI Popover의
+  // 접근성 동작) — '@' 단추처럼 클릭 즉시 넣는 게 아니라, 그 사이 커서 위치를 잃는다.
+  // CanvasEditor.jsx의 날짜 칩 팝오버(savedRangeRef)와 같은 방식으로, 열 때 커서
+  // 자리를 미리 저장해 뒀다가 이모지를 고른 순간 되살려 그 자리에 넣는다.
+  const savedRangeRef = useRef(null)
+
+  const openEmojiPicker = (e) => {
+    const sel = window.getSelection()
+    savedRangeRef.current = sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)
+      ? sel.getRangeAt(0).cloneRange()
+      : null
+    setEmojiAnchor(e.currentTarget)
+  }
+
+  const pickEmoji = (emoji) => {
+    editorRef.current?.focus()
+    if (savedRangeRef.current) {
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
+    document.execCommand('insertText', false, emoji)
+    setEmojiAnchor(null)
+  }
+
   return (
     <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
       <Box sx={{
@@ -225,8 +266,8 @@ export default function MessageComposer({
             <AddIcon sx={{ fontSize: 19 }} />
           </IconButton>
         </Tooltip>
-        <Tooltip title="이모지 (준비 중)">
-          <IconButton size="small" onClick={onEmojiClick}>
+        <Tooltip title="이모지">
+          <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={openEmojiPicker}>
             <InsertEmoticonIcon sx={{ fontSize: 19 }} />
           </IconButton>
         </Tooltip>
@@ -240,6 +281,31 @@ export default function MessageComposer({
           <SendIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Box>
+
+      <Popover
+        open={!!emojiAnchor}
+        anchorEl={emojiAnchor}
+        onClose={() => setEmojiAnchor(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 0.2, p: 0.7 }}>
+          {EMOJI_PICKER_ITEMS.map(emoji => (
+            <Box
+              key={emoji} component="button" type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => pickEmoji(emoji)}
+              sx={{
+                border: 0, background: 'none', cursor: 'pointer', fontSize: '1.2rem',
+                width: 32, height: 32, borderRadius: 0.75, lineHeight: 1,
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              {emoji}
+            </Box>
+          ))}
+        </Box>
+      </Popover>
 
       <MentionMenu
         open={trigger?.trigger === '#'}

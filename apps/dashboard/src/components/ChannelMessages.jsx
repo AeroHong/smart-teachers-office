@@ -181,7 +181,6 @@ export default function ChannelMessages({
             channels={channels}
             members={members}
             onPlusClick={e => setPickerAnchor(e.currentTarget)}
-            onEmojiClick={() => toast.success('이모지 선택 기능은 준비 중입니다.')}
           />
 
           {(attached || attachedFile || uploadingFile) && (
