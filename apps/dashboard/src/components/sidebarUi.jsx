@@ -91,7 +91,10 @@ export function SidebarSection({
           {label}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
-        {badge != null && badge > 0 ? (
+        {/* 전체 개수(count)는 뺐다 — 제목 옆 숫자가 굳이 필요 없다는 지적(2026-08-26).
+            안 읽음 배지(badge)는 남긴다 — 접힌 DM 섹션처럼 "새로 온 게 있다"는 신호는
+            개수 표시와 뜻이 달라서다. */}
+        {badge != null && badge > 0 && (
           <Box sx={{
             minWidth: 17, height: 17, px: 0.5, borderRadius: 5,
             bgcolor: 'error.main', color: '#fff',
@@ -100,8 +103,6 @@ export function SidebarSection({
           }}>
             {badge}
           </Box>
-        ) : count != null && (
-          <Typography sx={{ fontSize: '0.72rem', color: 'text.disabled' }}>{count}</Typography>
         )}
       </Box>
       {/* 머리 줄 위에 겹쳐 놓는다. 접기 단추 안에 중첩하면 버튼 안의 버튼이 되어
