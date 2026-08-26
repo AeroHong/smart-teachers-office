@@ -78,7 +78,8 @@ export default function WorkspaceLayout({ sidebar, children }) {
             component="main"
             sx={{
               flexGrow: 1, minWidth: 0, overflowY: 'auto', bgcolor: 'background.paper',
-              borderRight: '1px solid', borderBottom: '1px solid', borderColor: 'rail.bg',
+              // 1px는 화면에서 거의 안 보였다(사용자 확인, 2026-08-26) — 두께만 올린다.
+              borderRight: '3px solid', borderBottom: '3px solid', borderColor: 'rail.bg',
               borderTopRightRadius: 10, borderBottomRightRadius: 10,
             }}
           >
