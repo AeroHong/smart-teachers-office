@@ -141,9 +141,13 @@ export function SidebarSection({
  *   마우스를 떼는 순간 단추가 사라져 메뉴만 허공에 뜬 것처럼 보인다.
  * @param {string} [href] 바깥 사이트로 나가는 줄. 진짜 <a>로 그린다 — 버튼에 window.open을
  *   달면 가운데 클릭·Ctrl 클릭·'새 탭에서 열기'가 전부 안 먹는다.
+ * @param {React.ReactNode} [avatar] 이름 앞에 붙는 작은 아바타(PersonAvatar 등). 안 주면
+ *   기존 화면들(홈·쪽지·학사일정 등)은 그대로다 — 구성원 화면만 이걸 쓴다(사용자 요청,
+ *   2026-08-27).
  */
 export function SidebarItem({
   label, chip, selected, strong, muted, onClick, indent = 0, checked, action, actionActive, href,
+  avatar,
 }) {
   const CheckIcon = checked ? CheckBoxIcon : CheckBoxOutlineBlankIcon
   const linkProps = href
@@ -170,6 +174,7 @@ export function SidebarItem({
           color: checked ? 'primary.main' : 'text.disabled',
         }} />
       )}
+      {avatar}
       <Typography
         noWrap
         sx={{

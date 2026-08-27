@@ -153,6 +153,7 @@ export default function Members() {
             <SidebarItem
               key={m.uid}
               label={m.name}
+              avatar={<PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />}
               selected={!picking && selected?.uid === m.uid}
               onClick={() => onMemberClick(m)}
               chip={picking ? <PickMark on={isPicked(m.uid)} /> : null}
@@ -186,6 +187,7 @@ export default function Members() {
                 <SidebarItem
                   key={`${g.id}:${m.uid}`}
                   label={m.name}
+                  avatar={<PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />}
                   indent={1.2}
                   selected={!picking && selected?.uid === m.uid}
                   onClick={() => onMemberClick(m)}
