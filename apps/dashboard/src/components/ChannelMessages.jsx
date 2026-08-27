@@ -204,29 +204,31 @@ export default function ChannelMessages({
             </Typography>
           )
         ) : rows.map(m => (
-          <MessageRow
-            key={m.id}
-            message={m}
-            members={members}
-            channels={channels}
-            onOpenProfile={openProfile}
-            onOpenCanvas={onOpenCanvas}
-            onBodyClick={handleBodyClick}
-            reactionData={reactionsByMessage[m.id]}
-            reactionUid={reactionUid}
-            onToggleReaction={toggleReaction}
-            onOpenReactionPicker={openReactionPicker}
-            hovered={hoveredMessageId === m.id}
-            onMouseEnter={() => setHoveredMessageId(m.id)}
-            onMouseLeave={() => setHoveredMessageId(null)}
-            onOpenThread={onOpenThread}
-            onOpenMenu={openMessageMenu}
-            editing={editingMessageId === m.id}
-            editDraft={editDraft}
-            onEditChange={setEditDraft}
-            onSaveEdit={saveEdit}
-            onCancelEdit={cancelEdit}
-          />
+          <Box key={m.id}>
+            {m.dayLabel && <DayDivider label={m.dayLabel} />}
+            <MessageRow
+              message={m}
+              members={members}
+              channels={channels}
+              onOpenProfile={openProfile}
+              onOpenCanvas={onOpenCanvas}
+              onBodyClick={handleBodyClick}
+              reactionData={reactionsByMessage[m.id]}
+              reactionUid={reactionUid}
+              onToggleReaction={toggleReaction}
+              onOpenReactionPicker={openReactionPicker}
+              hovered={hoveredMessageId === m.id}
+              onMouseEnter={() => setHoveredMessageId(m.id)}
+              onMouseLeave={() => setHoveredMessageId(null)}
+              onOpenThread={onOpenThread}
+              onOpenMenu={openMessageMenu}
+              editing={editingMessageId === m.id}
+              editDraft={editDraft}
+              onEditChange={setEditDraft}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}
+            />
+          </Box>
         ))}
         <div ref={bottomRef} />
         {/* 팝오버는 hoveredMessageId와 무관한 별도 상태로 연다 — 마우스가 움직여
@@ -400,10 +402,18 @@ export function MessageRow({
   onOpenThread, onOpenMenu,
   editing, editDraft, onEditChange, onSaveEdit, onCancelEdit,
   showReplyIndicator = true,
+  // 줄 강조가 좌우로 번져 컨테이너 옆 여백까지 채우는 양 — 부르는 쪽의 스크롤 컨테이너
+  // px와 맞춰야 한다(ChannelMessages.jsx는 2, ThreadPanel.jsx는 1.5). 안 맞으면 강조
+  // 배경이 패널 테두리를 넘어가거나 안쪽에서 어중간하게 끊긴다.
+  bleed = 2,
 }) {
   return (
     <Box
-      sx={{ mb: m.grouped ? 0.2 : 1.2, position: 'relative' }}
+      sx={{
+        mb: m.grouped ? 0.2 : 1.2, mx: -bleed, px: bleed, py: 0.2, borderRadius: 1, position: 'relative',
+        // 줄 전체를 옅게 강조한다(사용자 요청, 2026-08-27, 슬랙 참고).
+        '&:hover': { bgcolor: 'action.hover' },
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -524,9 +534,11 @@ export function MessageRow({
       )}
 
       {/* 그룹으로 묶인 메시지도 각자 반응 가능 — !m.grouped 제약 없음(계획서
-          "메시지 리액션은 줄마다 필요"). 이미 반응이 있으면 늘 보이고, 없으면
-          이 줄에 마우스를 올렸을 때만 "반응 추가" 단추가 뜬다. */}
-      {!editing && (reactionData || hovered) && (
+          "메시지 리액션은 줄마다 필요"). 이미 반응이 있는 메시지만 이 줄(알약+추가
+          단추)을 보여준다 — "반응 추가" 입구는 이제 호버 툴바 하나로 통일했다.
+          예전엔 호버만 해도 이 줄이 빈 알약 상태로 함께 떠서 위 호버 툴바와 반응
+          추가 단추가 두 번 보였다(사용자 지적, 2026-08-27). */}
+      {!editing && reactionData && (
         <Box sx={{ mt: 0.4 }}>
           <BlockReactionRow
             data={reactionData}
@@ -626,22 +638,64 @@ function FileCard({ attachment }) {
   )
 }
 
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+
+function startOfDay(d) {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+/** 날짜 구분선 글자 — 오늘/어제는 이름으로, 그 밖엔 "M월 D일 요일"(사용자 요청,
+ *  2026-08-27, 슬랙 참고). */
+function formatDayLabel(date) {
+  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000)
+  if (diffDays === 0) return '오늘'
+  if (diffDays === 1) return '어제'
+  return `${date.getMonth() + 1}월 ${date.getDate()}일 ${WEEKDAYS[date.getDay()]}요일`
+}
+
 /**
  * 연달아 온 같은 사람의 메시지를 한 덩어리로 묶는다(이름·시각을 한 번만 그리도록).
  *
  * 시각이 아직 안 붙은 메시지(방금 보내 서버 시각을 기다리는 중)는 묶지 않는다 —
  * 시간을 모르는 것을 "5분 안"으로 칠 수 없다.
+ *
+ * 날짜가 바뀌면 dayLabel을 붙인다(그 메시지 위에 구분선을 그리라는 신호) —
+ * 그룹 여부와 무관하게 새 날짜의 첫 메시지는 늘 이름·시각을 다시 보여준다(어제
+ * 마지막 말과 오늘 첫 말이 이어 붙어 보이면 안 된다).
  */
 export function groupMessages(messages) {
   let prev = null
   return messages.map((m) => {
     const at = m.createdAt?.toMillis?.() ?? 0
     const prevAt = prev?.createdAt?.toMillis?.() ?? 0
-    const grouped = !!prev
+    const date = at ? new Date(at) : null
+    const prevDate = prevAt ? new Date(prevAt) : null
+    const newDay = !prevDate || !date || startOfDay(date).getTime() !== startOfDay(prevDate).getTime()
+    const grouped = !newDay
+      && !!prev
       && prev.authorUid === m.authorUid
       && at > 0 && prevAt > 0
       && at - prevAt < GROUP_WINDOW_MS
     prev = m
-    return { ...m, grouped }
+    return { ...m, grouped, dayLabel: (newDay && date) ? formatDayLabel(date) : null }
   })
+}
+
+/** 요일 구분선 — 선 사이에 날짜 알약(사용자 요청, 2026-08-27, 슬랙 참고). */
+export function DayDivider({ label }) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, my: 1.4 }}>
+      <Divider sx={{ flexGrow: 1 }} />
+      <Typography sx={{
+        flexShrink: 0, fontSize: '0.72rem', fontWeight: 700, color: 'text.secondary',
+        border: '1px solid', borderColor: 'divider', borderRadius: 999,
+        px: 1.4, py: 0.3, bgcolor: 'background.paper',
+      }}>
+        {label}
+      </Typography>
+      <Divider sx={{ flexGrow: 1 }} />
+    </Box>
+  )
 }

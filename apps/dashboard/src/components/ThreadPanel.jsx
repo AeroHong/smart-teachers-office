@@ -36,7 +36,7 @@ import useThreadMessages from '../lib/useThreadMessages'
 import useMessageActions from '../lib/useMessageActions'
 import MessageComposer from './MessageComposer'
 import ReactionPicker from './ReactionPicker'
-import { MessageRow, groupMessages } from './ChannelMessages'
+import { DayDivider, MessageRow, groupMessages } from './ChannelMessages'
 
 export default function ThreadPanel({
   channelId, parentMessageId, members = [], channels = [],
@@ -104,6 +104,9 @@ export default function ThreadPanel({
     editing: editingMessageId === m.id,
     editDraft, onEditChange: setEditDraft, onSaveEdit: saveEdit, onCancelEdit: cancelEdit,
     showReplyIndicator: false,
+    // 이 패널의 스크롤 컨테이너는 px:1.5라 메인 목록(px:2)과 다르다 — 줄 강조가
+    // 패널 테두리에 맞게 번지려면 MessageRow에 이 값을 맞춰 넘겨야 한다.
+    bleed: 1.5,
     ...opts,
   })
 
@@ -138,7 +141,12 @@ export default function ThreadPanel({
             )}
           </>
         )}
-        {rows.map(m => <MessageRow key={m.id} {...rowProps(m)} />)}
+        {rows.map(m => (
+          <Box key={m.id}>
+            {m.dayLabel && <DayDivider label={m.dayLabel} />}
+            <MessageRow {...rowProps(m)} />
+          </Box>
+        ))}
 
         <ReactionPicker
           anchor={reactionPicker?.anchor}
