@@ -29,7 +29,7 @@ import InsertEmoticonIcon from '@mui/icons-material/InsertEmoticonOutlined'
 import LinkIcon from '@mui/icons-material/Link'
 import SendIcon from '@mui/icons-material/Send'
 import StrikethroughSIcon from '@mui/icons-material/StrikethroughS'
-import { channelMentionHtml, userMentionHtml } from '@shared/lib/channelMentionChip'
+import { channelMentionHtml, channelWideMentionHtml, userMentionHtml } from '@shared/lib/channelMentionChip'
 import MentionMenu from './MentionMenu'
 import { RICH_TEXT_SX } from './richTextStyles'
 
@@ -155,11 +155,20 @@ export default function MessageComposer({
       .slice(0, 8)
       .map(c => ({ id: c.id, label: `#${c.name}`, _channel: c }))
     : []
+  // 채널 전체 호출(@전체) — 특정 uid가 아니라 합성 항목이라 people 목록 맨 앞에 끼워
+  // 넣는다. query가 비었거나 "전체"/"channel"을 포함할 때만 후보에 든다 — 사람 이름
+  // 검색 중에 늘 맨 위를 차지하면 오히려 원하는 사람을 찾기 방해된다.
+  const channelWideItem = { id: '__channel__', label: '전체', sublabel: '채널 전체에게 알림' }
   const memberItems = trigger?.trigger === '@'
-    ? members
-      .filter(m => m.name?.toLowerCase().includes((trigger.query || '').toLowerCase()))
-      .slice(0, 8)
-      .map(m => ({ id: m.uid, label: m.name, sublabel: m.department, _member: m }))
+    ? [
+      ...(!(trigger.query || '') || '전체'.startsWith(trigger.query) || 'channel'.startsWith((trigger.query || '').toLowerCase())
+        ? [channelWideItem]
+        : []),
+      ...members
+        .filter(m => m.name?.toLowerCase().includes((trigger.query || '').toLowerCase()))
+        .slice(0, 8)
+        .map(m => ({ id: m.uid, label: m.name, sublabel: m.department, _member: m })),
+    ]
     : []
 
   const submit = () => {
@@ -377,7 +386,7 @@ export default function MessageComposer({
         anchorRect={trigger?.rect}
         items={memberItems}
         emptyText="이 채널에 없는 사람입니다"
-        onSelect={item => applyTrigger(userMentionHtml(item._member))}
+        onSelect={item => applyTrigger(item.id === '__channel__' ? channelWideMentionHtml() : userMentionHtml(item._member))}
         onClose={() => setTrigger(null)}
       />
     </Box>

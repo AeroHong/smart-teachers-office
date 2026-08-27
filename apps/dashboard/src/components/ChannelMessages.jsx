@@ -24,7 +24,7 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { hasCanvasRef, validateMessage } from '@shared/lib/channelMessages'
-import { channelMentionTarget, userMentionTarget } from '@shared/lib/channelMentionChip'
+import { channelMentionTarget, isChannelWideMention, userMentionTarget } from '@shared/lib/channelMentionChip'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
 import { fileKind, formatBytes, uploadAttachment } from '@shared/lib/requestAttachments'
 import { formatDateTime } from '../lib/formatTime'
@@ -142,6 +142,8 @@ export default function ChannelMessages({
   const handleBodyClick = (e) => {
     const channelTarget = channelMentionTarget(e.target)
     if (channelTarget) { onOpenCanvas?.(channelTarget); return }
+    // @전체는 특정 사람을 가리키지 않아 열 프로필이 없다 — 눌러도 아무 일 없이 지나간다.
+    if (isChannelWideMention(e.target)) return
     const uid = userMentionTarget(e.target)
     if (uid) openProfile(uid, e.target.closest('[data-mention-uid]'))
   }

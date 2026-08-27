@@ -26,6 +26,17 @@ export function userMentionHtml(member) {
   return `<span data-mention-uid="${member.uid}" data-mention-name="${label}" contenteditable="false">@${label}</span>&nbsp;`
 }
 
+/** @전체 조각 — 채널 구성원 전체를 부른다. 특정 uid가 없어 data-mention-uid 대신
+ *  전용 속성(data-mention-channel)을 쓴다(PLAN_channels.md P4-B). */
+export function channelWideMentionHtml() {
+  return `<span data-mention-channel contenteditable="false">@전체</span>&nbsp;`
+}
+
+/** @전체 조각을 클릭했는지. 프로필을 열 대상이 없어 그냥 무시하는 자리에서 쓴다. */
+export function isChannelWideMention(el) {
+  return !!el?.closest?.('[data-mention-channel]')
+}
+
 /** #채널 조각을 클릭했을 때 이동할 주소. 조각이 아니면 null. */
 export function channelMentionTarget(el) {
   const node = el?.closest?.('[data-channel-ref]')
