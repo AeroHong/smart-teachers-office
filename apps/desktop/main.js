@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, session, Notification, powerMonitor } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, session, Notification, powerMonitor, shell } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 
@@ -236,6 +236,16 @@ if (!gotLock) {
     })
 
     mainWindow.loadURL(DASHBOARD_URL)
+
+    // 캔버스 탭 우클릭 "새 창에서 열기"(2026-08-27) — window.open()이 기본적으로
+    // 막혀 있어(Electron 14+ 기본 정책, 처리기 없으면 무시) 그대로 두면 웹에서만 되고
+    // 데스크톱 앱에선 아무 일도 안 일어난다. 새 Electron 창을 또 띄우지 않고 OS
+    // 기본 브라우저로 넘긴다 — 창 두 개를 나란히 놓고 비교해 보는 용도라 별개
+    // 프로그램(브라우저)에서 여는 편이 두 창을 자유롭게 배치하기 더 쉽다.
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      shell.openExternal(url)
+      return { action: 'deny' }
+    })
 
     // 닫기(X)는 종료가 아니라 트레이로 최소화. 완전 종료는 트레이 메뉴에서만.
     // 단 트레이가 없으면 숨긴 창을 되살릴 수단이 없어 앱이 유령이 되므로 그냥 종료한다.

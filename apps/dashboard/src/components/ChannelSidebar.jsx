@@ -27,6 +27,7 @@ import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Inventory2Outlined'
 import BookmarkIcon from '@mui/icons-material/BookmarkBorder'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolderOutlined'
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import FolderIcon from '@mui/icons-material/FolderOutlined'
 import ForumIcon from '@mui/icons-material/ForumOutlined'
 import GroupsIcon from '@mui/icons-material/Groups'
@@ -39,17 +40,19 @@ import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import TagIcon from '@mui/icons-material/Tag'
+import { useAuth } from '@shared/contexts/AuthContext'
 import { dmTitle, isPrivateChannel } from '@shared/lib/channels'
 import { hasUnread } from '@shared/lib/channelMessages'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
-  createSection, groupChannels, isCollapsed, isFavorite, isMuted, moveToSection,
-  removeSection, renameSection, sectionOf, toggleCollapsed, toggleFavorite, toggleMuted,
-  validateSectionName,
+  createSection, favoritedPostIds, groupChannels, isCollapsed, isFavorite, isMuted,
+  moveToSection, removeSection, renameSection, sectionOf, toggleCollapsed, toggleFavorite,
+  toggleMuted, validateSectionName,
 } from '@shared/lib/channelPrefs'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from './sidebarUi'
 import { useToast } from './ToastProvider'
 import useChannelPrefs from '../lib/useChannelPrefs'
+import useFavoritedPosts from '../lib/useFavoritedPosts'
 import { EXTERNAL_LINKS } from '../lib/externalLinks'
 
 // 'default'(기본 "채널" 묶음)에 아이콘이 없어서 디렉터리·섹션·다이렉트 메시지·보관함·
@@ -63,7 +66,11 @@ export default function ChannelSidebar({
 }) {
   const navigate = useNavigate()
   const toast = useToast()
+  const { schoolId } = useAuth()
   const { prefs, reads, update } = useChannelPrefs()
+  // 즐겨찾기·섹션에 캔버스(업무 글)가 들어있으면 그 최신 title 등을 가져온다
+  // (channelPrefs.js favoritedPostIds 주석 참고 — 학교 전체 글이 아니라 이것만 구독).
+  const favoritedPosts = useFavoritedPosts(schoolId, favoritedPostIds(prefs))
 
   const [rowMenu, setRowMenu] = useState(null)        // { anchor, channelId }
   const [sectionMenu, setSectionMenu] = useState(null) // { anchor, sectionId }
@@ -76,7 +83,10 @@ export default function ChannelSidebar({
   // 안읽음 표시가 있는 줄이 한 번 더 눌러야 보인다.
   const [openDms, setOpenDms] = useState(true)
 
-  const groups = useMemo(() => groupChannels(channels, prefs), [channels, prefs])
+  const groups = useMemo(
+    () => groupChannels(channels, prefs, favoritedPosts),
+    [channels, prefs, favoritedPosts],
+  )
   const sections = prefs.sections
 
   // 나와의 대화 — memberUids가 [나, 나]뿐인 DM(자기 자신과의 DM). 목록에 자연스럽게
@@ -167,6 +177,27 @@ export default function ChannelSidebar({
     />
   )
 
+  /**
+   * 즐겨찾기·섹션 안의 캔버스(업무 글) 줄 — 채널 줄과 같은 SidebarItem이지만 아이콘·
+   * 클릭 동작이 다르다(그 채널의 그 글로 바로 이동). 뺄 때는 즐겨찾기 자체를
+   * 해제하는 것만 지원한다(캔버스 탭 우클릭 쪽 즐겨찾기 토글과 같은 함수) — 섹션
+   * 이동 등 자체 메뉴는 다음 라운드(PLAN 참고).
+   */
+  const postRow = (p) => (
+    <SidebarItem
+      key={`post:${p.id}`}
+      label={(
+        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, minWidth: 0 }}>
+          <DescriptionOutlinedIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {p.title || '(제목 없음)'}
+          </Box>
+        </Box>
+      )}
+      onClick={() => navigate(`/channels/${p.channelId}/${p.id}`)}
+    />
+  )
+
   const menuChannel = channels.find(c => c.id === rowMenu?.channelId) || null
   const menuFavorite = menuChannel ? isFavorite(prefs, menuChannel.id) : false
   const menuMuted = menuChannel ? isMuted(prefs, menuChannel.id) : false
@@ -215,7 +246,7 @@ export default function ChannelSidebar({
           >
             {g.channels.length === 0 ? (
               <SidebarEmpty>채널의 ⋮ 에서 이 섹션으로 옮기세요</SidebarEmpty>
-            ) : g.channels.map(c => channelRow(c))}
+            ) : g.channels.map(c => (c.kind === 'post' ? postRow(c) : channelRow(c)))}
           </SidebarSection>
         )
       })}

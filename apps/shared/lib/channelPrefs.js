@@ -30,7 +30,31 @@ export const SECTION_MAX = 12
 export const FAVORITES_ID = '__favorites'
 export const DEFAULT_ID = '__default'
 
-const EMPTY = Object.freeze({ favorites: [], sections: [], collapsed: [], mutedChannelIds: [] })
+/**
+ * 즐겨찾기·섹션에 캔버스(업무 글)도 넣을 수 있다(2026-08-27, 사용자 요청 —
+ * "채널만 추가하는게 아니고 캔버스도 추가할 수 있으면"). 필드 이름(`favorites`/
+ * `channelIds`)은 그대로 두고(기존 저장 데이터와 하위호환), 캔버스 항목만
+ * `post:{postId}` 접두사로 같은 배열에 섞는다 — Firestore auto-ID·채널ID 어디에도
+ * `:` 문자가 없어 충돌하지 않는다.
+ */
+const POST_REF_PREFIX = 'post:'
+export function isPostRef(id) {
+  return typeof id === 'string' && id.startsWith(POST_REF_PREFIX)
+}
+export function postRefId(id) {
+  return id.slice(POST_REF_PREFIX.length)
+}
+export function postRef(postId) {
+  return `${POST_REF_PREFIX}${postId}`
+}
+
+const EMPTY = Object.freeze({
+  favorites: [], sections: [], collapsed: [], mutedChannelIds: [],
+  // 채널ID → 정렬된 postId 배열(캔버스 탭을 끌어서 바꾼 순서, 나뿐인 개인 설정).
+  canvasTabOrder: {},
+  // 채널ID → 숨긴 postId 배열("탭 제거" — 글 자체는 안 지워지고 내 탭 바에만 안 보임).
+  hiddenTabIds: {},
+})
 
 /**
  * Firestore에서 읽은 값을 안전한 모양으로 다듬는다.
@@ -44,6 +68,8 @@ export function normalizePrefs(raw) {
   const favorites = uniqueStrings(raw.favorites)
   const collapsed = uniqueStrings(raw.collapsed)
   const mutedChannelIds = uniqueStrings(raw.mutedChannelIds)
+  const canvasTabOrder = normalizeIdListMap(raw.canvasTabOrder)
+  const hiddenTabIds = normalizeIdListMap(raw.hiddenTabIds)
 
   const seenIds = new Set()
   const sections = (Array.isArray(raw.sections) ? raw.sections : [])
@@ -57,7 +83,18 @@ export function normalizePrefs(raw) {
       channelIds: uniqueStrings(s.channelIds).filter(id => !favorites.includes(id)),
     }))
 
-  return { favorites, sections, collapsed, mutedChannelIds }
+  return { favorites, sections, collapsed, mutedChannelIds, canvasTabOrder, hiddenTabIds }
+}
+
+/** {채널ID: [id,...]} 모양 정리 — 객체가 아니면 빈 객체, 각 값은 문자열 배열만. */
+function normalizeIdListMap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out = {}
+  for (const [key, value] of Object.entries(raw)) {
+    const list = uniqueStrings(value)
+    if (list.length) out[key] = list
+  }
+  return out
 }
 
 /**
@@ -73,22 +110,30 @@ export function normalizePrefs(raw) {
  * 그룹 안의 채널 순서는 넘겨받은 순서를 그대로 쓴다. 호출부가 sortChannels로 급한 순
  * (마감 지남 → 진행 중 → 조용함)을 이미 매겨두었고, 그 순서가 개인 취향보다 유용하다.
  *
+ * 즐겨찾기·섹션 항목은 채널뿐 아니라 캔버스(업무 글)일 수도 있다(`postRef()`로 만든
+ * `post:{id}` 문자열) — `posts`에서 찾은 것은 결과 항목에 `kind:'post'`가 붙는다
+ * (채널은 `kind:'channel'`). ChannelSidebar.jsx가 이 태그로 다르게 그린다.
+ *
  * @param {object[]} channels 활성 채널 (이미 정렬된 상태)
  * @param {object} prefs normalizePrefs를 거친 값
+ * @param {object[]} [posts] 즐겨찾기·섹션에 들어간 캔버스만 넘기면 된다(학교 전체 글이
+ *   아니라) — 채널처럼 {id, title, channelId, ...} 모양.
  * @returns {{id: string, name: string, kind: 'favorites'|'section'|'default', channels: object[]}[]}
  */
-export function groupChannels(channels = [], prefs = EMPTY) {
+export function groupChannels(channels = [], prefs = EMPTY, posts = []) {
   const { favorites, sections } = normalizePrefs(prefs)
-  const byId = new Map(channels.map(c => [c.id, c]))
+  const byId = new Map(channels.map(c => [c.id, { ...c, kind: 'channel' }]))
+  const postsById = new Map(posts.map(p => [p.id, { ...p, kind: 'post' }]))
   const taken = new Set()
 
   const pick = (ids) => {
     const out = []
     for (const id of ids) {
-      const c = byId.get(id)
-      if (!c || taken.has(id)) continue
+      if (taken.has(id)) continue
+      const item = isPostRef(id) ? postsById.get(postRefId(id)) : byId.get(id)
+      if (!item) continue
       taken.add(id)
-      out.push(c)
+      out.push(item)
     }
     return out
   }
@@ -100,8 +145,11 @@ export function groupChannels(channels = [], prefs = EMPTY) {
     id: s.id,
     name: s.name,
     kind: 'section',
+    // 캔버스 항목은 채널 순서 기준이 없어 그대로, 채널 항목만 급한 순으로 재정렬한다.
     channels: sortLike(pick(s.channelIds), channels),
   }))
+  // taken은 채널ID·post: 접두사 문자열이 섞여 있다 — 기본 그룹(채널만)은 순수 채널ID로
+  // 걸러야 하므로 c.id(접두사 없음)만 확인한다.
   const rest = channels.filter(c => !taken.has(c.id))
 
   const groups = []
@@ -117,6 +165,17 @@ export function groupChannels(channels = [], prefs = EMPTY) {
     groups.push({ id: DEFAULT_ID, name: '채널', kind: 'default', channels: rest })
   }
   return groups
+}
+
+/**
+ * 즐겨찾기·섹션에 들어간 캔버스(업무 글)의 postId만 뽑는다 — groupChannels()에 넘길
+ * `posts` 목록을 구독하려면 "무엇을 구독해야 하는지"부터 알아야 한다(학교 전체 글을
+ * 구독하는 건 과하다). Channels.jsx가 이 목록으로 최소한만 구독한다.
+ */
+export function favoritedPostIds(prefs) {
+  const { favorites, sections } = normalizePrefs(prefs)
+  const all = [...favorites, ...sections.flatMap(s => s.channelIds)]
+  return [...new Set(all.filter(isPostRef).map(postRefId))]
 }
 
 /** 넘겨받은 전체 순서(급한 순)를 기준으로 다시 정렬한다. */
@@ -159,6 +218,37 @@ export function toggleMuted(prefs, channelId) {
 
 export function isMuted(prefs, channelId) {
   return normalizePrefs(prefs).mutedChannelIds.includes(channelId)
+}
+
+/**
+ * 캔버스 탭 순서(끌어서 바꾼 것)를 저장한다 — 채널 하나에 한 배열, 나뿐인 개인 설정
+ * (사용자 확정, 2026-08-27). `orderedIds`는 이 채널의 탭에 지금 보이는 postId 전체를
+ * 원하는 순서대로 넘긴다.
+ */
+export function setCanvasTabOrder(prefs, channelId, orderedIds) {
+  const next = normalizePrefs(prefs)
+  next.canvasTabOrder = { ...next.canvasTabOrder, [channelId]: uniqueStrings(orderedIds) }
+  return next
+}
+
+export function canvasTabOrderFor(prefs, channelId) {
+  return normalizePrefs(prefs).canvasTabOrder[channelId] || []
+}
+
+/** 캔버스 탭 숨기기 토글("탭 제거") — 글은 안 지워지고 내 탭 바에만 안 보인다. */
+export function toggleCanvasTabHidden(prefs, channelId, postId) {
+  const next = normalizePrefs(prefs)
+  const current = next.hiddenTabIds[channelId] || []
+  const hiddenNow = current.includes(postId)
+  const updated = hiddenNow ? current.filter(id => id !== postId) : [...current, postId]
+  next.hiddenTabIds = { ...next.hiddenTabIds }
+  if (updated.length) next.hiddenTabIds[channelId] = updated
+  else delete next.hiddenTabIds[channelId]
+  return next
+}
+
+export function isTabHidden(prefs, channelId, postId) {
+  return (normalizePrefs(prefs).hiddenTabIds[channelId] || []).includes(postId)
 }
 
 /** 이 채널이 들어 있는 섹션 ID. 없으면 null. */

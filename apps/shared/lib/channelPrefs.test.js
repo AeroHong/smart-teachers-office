@@ -11,8 +11,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
-  createSection, groupChannels, isCollapsed, isFavorite, isMuted, moveToSection, normalizePrefs,
-  removeSection, renameSection, sectionOf, toggleCollapsed, toggleFavorite, toggleMuted,
+  createSection, favoritedPostIds, groupChannels, isCollapsed, isFavorite, isMuted, isTabHidden,
+  moveToSection, normalizePrefs, postRef, removeSection, renameSection, sectionOf,
+  setCanvasTabOrder, toggleCanvasTabHidden, toggleCollapsed, toggleFavorite, toggleMuted,
   validateSectionName,
 } from './channelPrefs.js'
 
@@ -28,6 +29,8 @@ test('설정이 없는 사용자도 빈 모양으로 받는다 — 화면 코드
     assert.deepEqual(p.sections, [])
     assert.deepEqual(p.collapsed, [])
     assert.deepEqual(p.mutedChannelIds, [])
+    assert.deepEqual(p.canvasTabOrder, {})
+    assert.deepEqual(p.hiddenTabIds, {})
   }
 })
 
@@ -82,6 +85,31 @@ test('한 채널은 한 그룹에만 나온다 — 즐겨찾기 > 섹션 > 기�
   assert.deepEqual(groups.find(g => g.id === FAVORITES_ID).channels.map(c => c.id), ['a'])
   assert.deepEqual(groups.find(g => g.id === 's1').channels.map(c => c.id), ['b'])
   assert.deepEqual(groups.find(g => g.id === DEFAULT_ID).channels.map(c => c.id), ['c', 'd'])
+})
+
+test('즐겨찾기·섹션에 캔버스(업무 글)도 섞을 수 있다 — post: 접두사', () => {
+  const posts = [{ id: 'p1', title: '캔버스1', channelId: 'a' }]
+  const prefs = { favorites: ['a', postRef('p1')] }
+  const groups = groupChannels(CHANNELS, prefs, posts)
+  const fav = groups.find(g => g.id === FAVORITES_ID)
+  assert.deepEqual(fav.channels.map(c => c.id), ['a', 'p1'])
+  assert.equal(fav.channels[0].kind, 'channel')
+  assert.equal(fav.channels[1].kind, 'post')
+  assert.equal(fav.channels[1].title, '캔버스1')
+})
+
+test('즐겨찾기의 캔버스가 posts 목록에 없으면(안 넘겼거나 지워짐) 조용히 빠진다', () => {
+  const prefs = { favorites: ['a', postRef('없는글')] }
+  const groups = groupChannels(CHANNELS, prefs, [])
+  assert.deepEqual(groups[0].channels.map(c => c.id), ['a'])
+})
+
+test('favoritedPostIds는 즐겨찾기·섹션에 흩어진 캔버스 참조를 전부 모은다', () => {
+  const prefs = {
+    favorites: ['a', postRef('p1')],
+    sections: [{ id: 's1', name: '고사', channelIds: [postRef('p2'), postRef('p1'), 'b'] }],
+  }
+  assert.deepEqual(favoritedPostIds(prefs).sort(), ['p1', 'p2'])
 })
 
 test('즐겨찾기가 비면 그 그룹은 아예 그리지 않는다', () => {
@@ -146,6 +174,20 @@ test('뮤트 토글은 넣고 빼기가 모두 되고, 즐겨찾기·섹션과 �
   assert.equal(isFavorite(p, 'a'), true, '뮤트해도 즐겨찾기 소속은 그대로다')
   p = toggleMuted(p, 'a')
   assert.equal(isMuted(p, 'a'), false)
+})
+
+test('캔버스 탭 순서는 채널별로 따로 저장된다', () => {
+  let p = setCanvasTabOrder({}, 'ch1', ['p3', 'p1', 'p2'])
+  p = setCanvasTabOrder(p, 'ch2', ['q1'])
+  assert.deepEqual(normalizePrefs(p).canvasTabOrder, { ch1: ['p3', 'p1', 'p2'], ch2: ['q1'] })
+})
+
+test('캔버스 탭 숨기기 토글은 넣고 빼기가 모두 되고, 채널별로 따로 쌓인다', () => {
+  let p = toggleCanvasTabHidden({}, 'ch1', 'p1')
+  assert.equal(isTabHidden(p, 'ch1', 'p1'), true)
+  assert.equal(isTabHidden(p, 'ch2', 'p1'), false, '다른 채널엔 영향 없다')
+  p = toggleCanvasTabHidden(p, 'ch1', 'p1')
+  assert.equal(isTabHidden(p, 'ch1', 'p1'), false)
 })
 
 test('섹션으로 옮기면 즐겨찾기와 이전 섹션에서 빠진다', () => {

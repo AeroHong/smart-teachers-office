@@ -11,7 +11,7 @@
  * 보관함과 '나간 채널'은 비어 있으면 아예 그리지 않는다. 대부분의 사람에게는 평생 빈
  * 칸이라, 늘 자리를 차지하면 268px 사이드바에서 정작 볼 채널이 밀려 내려간다.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import Box from '@mui/material/Box'
@@ -48,6 +48,10 @@ import {
   isAllStaffChannel, isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
 } from '@shared/lib/channels'
 import { completionStats, dueState, isRequest } from '@shared/lib/workRequests'
+import {
+  canvasTabOrderFor, isFavorite, postRef as favPostRef, setCanvasTabOrder,
+  toggleCanvasTabHidden, toggleFavorite,
+} from '@shared/lib/channelPrefs'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip } from '../components/sidebarUi'
 import ChannelDialog from '../components/ChannelDialog'
@@ -67,8 +71,8 @@ import useChannelPrefs from '../lib/useChannelPrefs'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import usePublicChannels from '../lib/usePublicChannels'
 import {
-  joinPublicChannel, openDm, refreshChannelMembers, setChannelArchived, setChannelLeft,
-  setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
+  duplicatePost, joinPublicChannel, openDm, refreshChannelMembers, setChannelArchived,
+  setChannelLeft, setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
 } from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -123,7 +127,7 @@ export default function Channels() {
   // 스레드(답장) 패널 — blockComments와 같은 자리·같은 이유(PLAN_channels.md 2026-08-27,
   // "제대로: 슬랙식 스레드 창"). 값은 스레드의 부모 메시지 id다.
   const [activeThread, setActiveThread] = useState(null)
-  const { markRead } = useChannelPrefs()
+  const { prefs: channelPrefs, update: updateChannelPrefs, markRead } = useChannelPrefs()
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
   // 죽으면, 쿨메신저로 돌던 채널 주소가 어느 날 갑자기 안 열린다.
@@ -172,15 +176,29 @@ export default function Channels() {
    * 어디에도 없어서, 지금 뭘 보고 있는지가 화면에서 사라진다.
    */
   const canvas = useMemo(() => {
-    const live = sortCanvasTabs((active?.posts || []).filter(p => isLivePost(p)))
-    const shown = live.slice(0, CANVAS_TAB_MAX)
-    const folded = live.slice(CANVAS_TAB_MAX)
+    // "탭 제거"(숨기기, 2026-08-27)로 뺀 것은 애초에 live에서 걸러진다 — 지금 보고 있는
+    // 탭이었다면 아래 open 처리가 그래도 다시 붙여준다(보관·접힘 글과 같은 fallback).
+    const hiddenIds = new Set(active ? (channelPrefs.hiddenTabIds?.[active.id] || []) : [])
+    const live = sortCanvasTabs((active?.posts || []).filter(p => isLivePost(p) && !hiddenIds.has(p.id)))
+
+    // 드래그로 바꾼 순서(개인 설정, 2026-08-27)를 적용한다 — 순서에 없는 새 탭은 뒤로
+    // 안정 정렬(원래 최신순 상대 위치 유지).
+    const orderIds = active ? canvasTabOrderFor(channelPrefs, active.id) : []
+    const orderIndex = new Map(orderIds.map((id, i) => [id, i]))
+    const fallbackRank = orderIds.length + live.length + 1
+    const ordered = orderIds.length === 0 ? live : [...live].sort((a, b) => (
+      (orderIndex.has(a.id) ? orderIndex.get(a.id) : fallbackRank)
+      - (orderIndex.has(b.id) ? orderIndex.get(b.id) : fallbackRank)
+    ))
+
+    const shown = ordered.slice(0, CANVAS_TAB_MAX)
+    const folded = ordered.slice(CANVAS_TAB_MAX)
     const archived = sortCanvasTabs((active?.posts || []).filter(p => !isLivePost(p)))
 
     const open = requestId ? (active?.posts || []).find(p => p.id === requestId) : null
     const tabs = open && !shown.some(p => p.id === open.id) ? [...shown, open] : shown
     return { tabs, folded, archived, open }
-  }, [active, requestId])
+  }, [active, requestId, channelPrefs])
 
   /**
    * MUI Tabs에 넘길 값. 어느 탭에도 없는 값을 주면 콘솔 경고가 뜨고 밑줄이 사라진다.
@@ -194,6 +212,105 @@ export default function Channels() {
     if (sideView === 'archive') return canvas.archived.length > 0 ? 'archive' : 'messages'
     return 'messages'
   }, [composingNew, requestId, sideView, canvas])
+
+  /**
+   * 캔버스 탭 드래그 순서 바꾸기(개인 설정, 2026-08-27) — 포인터를 누른 채 좌우로
+   * 끌면 그 즉시 순서가 바뀐다(WorkspaceLayout.jsx의 사이드바 폭 조절과 같은 포인터
+   * 드래그 패턴, HTML5 DnD 아님). 드는 동안은 `dragTab.order`로 화면만 미리 바꾸고,
+   * 손을 떼야 channelPrefs에 저장한다.
+   */
+  const [dragTab, setDragTab] = useState(null) // { postId, order: string[] } | null
+  const tabNodesRef = useRef(new Map())         // postId → DOM 노드(드래그 중 위치 계산용)
+  // 드래그가 실제로 순서를 바꾼 뒤에 손을 떼면, 그 pointerup이 곧바로 MUI Tabs의
+  // onChange(클릭 이동)를 함께 유발할 수 있다 — 이번 클릭 하나만 무시하라는 신호.
+  const suppressTabClickRef = useRef(false)
+
+  const displayedCanvasTabs = useMemo(() => {
+    if (!dragTab) return canvas.tabs
+    const byId = new Map(canvas.tabs.map(p => [p.id, p]))
+    return dragTab.order.map(id => byId.get(id)).filter(Boolean)
+  }, [canvas.tabs, dragTab])
+
+  const handleTabPointerDown = (postId, e) => {
+    if (e.button !== 0) return // 왼쪽 버튼만 — 드래그도, 그 뒤 눌러서 이동하는 것도 왼쪽 클릭이다
+    const startOrder = canvas.tabs.map(p => p.id)
+    let moved = false
+    setDragTab({ postId, order: startOrder })
+
+    const onMove = (ev) => {
+      setDragTab((prev) => {
+        if (!prev) return prev
+        const nodes = prev.order.map(id => tabNodesRef.current.get(id)).filter(Boolean)
+        let newIdx = prev.order.length - 1
+        for (let i = 0; i < nodes.length; i++) {
+          const rect = nodes[i].getBoundingClientRect()
+          if (ev.clientX < rect.left + rect.width / 2) { newIdx = i; break }
+        }
+        const curIdx = prev.order.indexOf(prev.postId)
+        if (newIdx === curIdx) return prev
+        const nextOrder = [...prev.order]
+        nextOrder.splice(curIdx, 1)
+        nextOrder.splice(newIdx, 0, prev.postId)
+        moved = true
+        return { ...prev, order: nextOrder }
+      })
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setDragTab((current) => {
+        if (moved && current && active) {
+          suppressTabClickRef.current = true
+          updateChannelPrefs(p => setCanvasTabOrder(p, active.id, current.order))
+            .catch(e => toast.error('탭 순서를 저장하지 못했습니다.', e))
+        }
+        return null
+      })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  // 캔버스 탭 우클릭 메뉴 — 복제·새 창에서 열기·탭 제거(숨기기)·즐겨찾기(2026-08-27).
+  const [tabMenu, setTabMenu] = useState(null) // { post, anchor: {top,left} } | null
+  const openTabMenu = (post, e) => {
+    e.preventDefault()
+    setTabMenu({ post, anchor: { top: e.clientY, left: e.clientX } })
+  }
+  const closeTabMenu = () => setTabMenu(null)
+
+  const handleDuplicateTab = async () => {
+    const post = tabMenu.post
+    closeTabMenu()
+    try {
+      const newId = await duplicatePost({ schoolId, requestId: post.id, uid: user.uid, userName })
+      navigate(`/channels/${active.id}/${newId}/edit`)
+    } catch (e) {
+      toast.error('복제하지 못했습니다.', e)
+    }
+  }
+  const handleOpenTabInNewWindow = () => {
+    const post = tabMenu.post
+    closeTabMenu()
+    // 데스크톱 앱은 apps/desktop/main.js에 setWindowOpenHandler를 새로 넣어야 열린다
+    // (Electron 기본 정책상 처리기가 없으면 window.open이 막힌다) — 앱을 다시
+    // 빌드·배포해야 반영되므로 지금 당장은 웹(브라우저 탭)에서만 확인된다.
+    window.open(`${window.location.origin}/posts/${post.id}`, '_blank', 'noopener')
+  }
+  const handleHideTab = () => {
+    const post = tabMenu.post
+    closeTabMenu()
+    updateChannelPrefs(p => toggleCanvasTabHidden(p, active.id, post.id))
+      .catch(e => toast.error('탭을 숨기지 못했습니다.', e))
+    if (requestId === post.id) navigate(`/channels/${active.id}`)
+  }
+  const handleToggleTabFavorite = () => {
+    const post = tabMenu.post
+    closeTabMenu()
+    updateChannelPrefs(p => toggleFavorite(p, favPostRef(post.id)))
+      .catch(e => toast.error('즐겨찾기를 바꾸지 못했습니다.', e))
+  }
+  const tabMenuIsFavorite = tabMenu ? isFavorite(channelPrefs, favPostRef(tabMenu.post.id)) : false
 
   const dm = isDm(active)
   // 나와의 대화 — memberUids가 나뿐인 DM. 헤더·빈 대화 문구를 "둘만"에서 "나만"으로
@@ -546,6 +663,7 @@ export default function Channels() {
                 <Tabs
                   value={tabValue}
                   onChange={(e, v) => {
+                    if (suppressTabClickRef.current) { suppressTabClickRef.current = false; return }
                     if (v === 'messages' || v === 'archive') { setSideView(v); navigate(`/channels/${active.id}`) }
                     else navigate(canvasUrl(canvas.tabs.find(p => p.id === v) || { id: v }))
                   }}
@@ -566,12 +684,22 @@ export default function Channels() {
                     value="messages" label="메시지"
                     icon={<ForumOutlinedIcon sx={{ fontSize: 16 }} />} iconPosition="start"
                   />
-                  {canvas.tabs.map(p => (
+                  {displayedCanvasTabs.map(p => (
                     <Tab
                       key={p.id} value={p.id} label={p.title}
                       // 캔버스마다 고를 수 있는 아이콘은 다음 라운드로 미룬다 — 지금은
                       // 전부 같은 문서 아이콘(canvasRefCard.js의 📄와 같은 의미).
                       icon={<DescriptionOutlinedIcon sx={{ fontSize: 16 }} />} iconPosition="start"
+                      // 끌어서 순서 바꾸기(사용자 요청, 2026-08-27) + 우클릭 메뉴(복제·
+                      // 새 창·탭 제거·즐겨찾기). ref는 드래그 중 "포인터가 어느 탭을
+                      // 지났는지" 계산에 쓴다(handleTabPointerDown).
+                      ref={el => {
+                        if (el) tabNodesRef.current.set(p.id, el)
+                        else tabNodesRef.current.delete(p.id)
+                      }}
+                      onPointerDown={e => handleTabPointerDown(p.id, e)}
+                      onContextMenu={e => openTabMenu(p, e)}
+                      sx={dragTab?.postId === p.id ? { opacity: 0.6 } : undefined}
                     />
                   ))}
                   {/* 새 글을 쓰는 동안만 뜨는 임시 탭. 저장하면 진짜 캔버스 탭이 그 자리를
@@ -806,6 +934,23 @@ export default function Channels() {
             보관된 글 {canvas.archived.length}
           </MenuItem>
         )}
+      </Menu>
+
+      {/* 캔버스 탭 우클릭 메뉴 — 복제·새 창에서 열기·탭 제거(숨기기)·즐겨찾기
+          (사용자 요청, 2026-08-27). anchorPosition은 클릭한 좌표를 그대로 쓴다
+          (P4의 메시지 더보기 메뉴와 같은 패턴). */}
+      <Menu
+        anchorReference="anchorPosition"
+        anchorPosition={tabMenu?.anchor || { top: 0, left: 0 }}
+        open={!!tabMenu}
+        onClose={closeTabMenu}
+      >
+        <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleDuplicateTab}>복제</MenuItem>
+        <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleOpenTabInNewWindow}>새 창에서 열기</MenuItem>
+        <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleHideTab}>탭 제거</MenuItem>
+        <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleToggleTabFavorite}>
+          {tabMenuIsFavorite ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
+        </MenuItem>
       </Menu>
 
       <Menu

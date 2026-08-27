@@ -7,7 +7,7 @@
  * leftUids만 건드리는 것이 그래서 중요하다 — 요청의 완료 토글과 같은 모양이다.
  */
 import {
-  arrayRemove, arrayUnion, collection, doc, serverTimestamp, setDoc, updateDoc, writeBatch,
+  arrayRemove, arrayUnion, collection, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
@@ -193,6 +193,38 @@ export async function openDm({ schoolId, me, other, existingIds = [] }) {
     if (e?.code !== 'permission-denied') throw e
   }
   return id
+}
+
+/**
+ * 캔버스 탭 우클릭 "복제" — 새 문서로 그대로 복사하고 몇 필드만 새로 찍는다.
+ *
+ * `newRequestPayload()`를 다시 안 쓴 이유: 그 함수는 대상(targets)을 새로 계산해야
+ * 하는데, 복제는 "지금 있는 걸 그대로 새 자리에"가 뜻이라 targetRule/targetUids/
+ * targetNames를 다시 굴릴 이유가 없다 — 원본을 그대로 스냅샷 뜨는 편이 더 정확하다.
+ *
+ * 완료 현황(completedUids)은 비운다 — 복제본은 아직 아무도 안 한 새 일이다. status도
+ * 'open'으로 되돌린다(원본이 마감·보관됐어도 복제본은 새로 시작).
+ *
+ * 첨부파일은 경로만 그대로 참조한다(Storage 파일 자체를 복제하지 않음) — 원본이
+ * 지워지면 사본의 첨부 링크도 깨질 수 있다는 것을 알고 쓰는 절충이다(이번 범위 밖).
+ */
+export async function duplicatePost({ schoolId, requestId, uid, userName }) {
+  const snap = await getDoc(postRef(schoolId, requestId))
+  if (!snap.exists()) throw new Error('원본 글을 찾을 수 없습니다.')
+  const { id: _oldId, ...source } = { id: snap.id, ...snap.data() }
+
+  const newRef = doc(collection(db, ...schoolPath(schoolId, COL.REQUESTS)))
+  await setDoc(newRef, {
+    ...source,
+    title: `${source.title || '(제목 없음)'} 복사본`,
+    completedUids: [],
+    status: 'open',
+    createdBy: uid,
+    createdByName: userName,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return newRef.id
 }
 
 /**
