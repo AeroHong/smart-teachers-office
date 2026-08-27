@@ -167,7 +167,29 @@ export default function PostComposer({
    * 들어오면 방금 친 내용이 덮인다.
    */
   useEffect(() => {
-    if (!editingId || !schoolId) return
+    if (!schoolId) return
+    if (!editingId) {
+      // 고치던 글에서 '새 글'로 건너뛴 경우 — 둘 다 Channels.jsx의 같은 조건(composingNew
+      // || editingPostId)에 걸려 이 컴포넌트가 안 사라지고 그대로 남는다. editingId만
+      // null로 바뀌었다고 방금 전 글의 제목·본문·created가 남아있으면, 아직 Firestore에
+      // 없는 새 draftId를 "수정"하려다 실패한다(사용자 지적, 2026-08-27 — "기존 캔버스
+      // 내용이 그대로 보임, 수정하면 저장도 안됨"). 첫 마운트 때의 초기값으로 되돌린다.
+      setTitle('')
+      setBodyHtml('')
+      setNeedsCompletion(true)
+      setPinned(false)
+      setDueDate('')
+      setRule(channel?.memberRule || EMPTY_RULE)
+      setTargetOpen(false)
+      setAttachments([])
+      setLinks([])
+      setCompletedUids([])
+      keptFiles.current = new Set()
+      setLoadingPost(false)
+      setCreated(false)
+      setSaveState('idle')
+      return
+    }
     if (justCreatedRef.current) { justCreatedRef.current = false; return }
     let alive = true
     getDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), editingId))
