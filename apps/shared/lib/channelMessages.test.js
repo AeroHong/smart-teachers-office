@@ -60,6 +60,25 @@ test('가리키는 업무 글이 없으면 null로 둔다 — undefined는 Fires
   )
 })
 
+test('bodyHtml 안의 @사람 조각에서 uid를 모두 뽑는다 — 중복은 하나로', () => {
+  const html = '<p><span data-mention-uid="u1" data-mention-name="가">@가</span> '
+    + '<span data-mention-uid="u2" data-mention-name="나">@나</span> '
+    + '<span data-mention-uid="u1" data-mention-name="가">@가</span></p>'
+  assert.deepEqual(newMessagePayload({ authorUid: 'u1', bodyHtml: html }).mentionedUids, ['u1', 'u2'])
+})
+
+test('멘션이 없으면 빈 배열이다 — bodyHtml이 없어도, 있어도', () => {
+  assert.deepEqual(newMessagePayload({ authorUid: 'u1', body: '안녕' }).mentionedUids, [])
+  assert.deepEqual(newMessagePayload({ authorUid: 'u1', bodyHtml: '<p>안녕</p>' }).mentionedUids, [])
+})
+
+test('@전체(data-mention-channel)가 있으면 mentionsChannel이 true다', () => {
+  const html = '<p><span data-mention-channel contenteditable="false">@전체</span></p>'
+  assert.equal(newMessagePayload({ authorUid: 'u1', bodyHtml: html }).mentionsChannel, true)
+  assert.equal(newMessagePayload({ authorUid: 'u1', bodyHtml: '<p>안녕</p>' }).mentionsChannel, false)
+  assert.equal(newMessagePayload({ authorUid: 'u1', body: '안녕' }).mentionsChannel, false)
+})
+
 test('빈 메시지는 막는다 — 목록에 누를 수 없는 줄이 남는다', () => {
   assert.ok(validateMessage(''))
   assert.ok(validateMessage('   '))

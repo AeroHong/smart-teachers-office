@@ -5,6 +5,7 @@ import ProfileCardProvider from './components/ProfileCardProvider'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import DesktopNotifications from './components/DesktopNotifications'
+import MentionNotifications from './components/MentionNotifications'
 import DesktopPresence from './components/DesktopPresence'
 import DesktopClientReport from './components/DesktopClientReport'
 import Login from './pages/Login'
@@ -29,6 +30,8 @@ export default function App() {
         <CommandPalette />
         {/* Electron 트레이 알림 — window.smartOfficeDesktop 없으면 완전히 no-op */}
         <DesktopNotifications />
+        {/* 멘션(@사람·@전체) 알림 — 같은 트레이 파이프라인, 채널 메시지만 따로 감시(P4-C) */}
+        <MentionNotifications />
         {/* 재실 자동 감지 — 위와 같은 이유로 일반 브라우저에서는 완전히 no-op */}
         <DesktopPresence />
         {/* 설치 현황 보고 — 구버전(0.1.7 미만) 사용자를 찾아내기 위한 것이라

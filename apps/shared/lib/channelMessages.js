@@ -74,6 +74,10 @@ export function newMessagePayload({
     authorName,
     body: text,
     bodyHtml: bodyHtml || null,
+    // 멘션 알림(useMentionNotifications.js)이 메시지 본문을 다시 파싱하지 않고 이
+    // 두 필드만 보고 판단하게 저장 시점에 뽑아 둔다(authorName과 같은 비정규화 판단).
+    mentionedUids: extractMentionedUids(bodyHtml),
+    mentionsChannel: mentionsChannelWide(bodyHtml),
     refRequestId: refRequestId || null,
     // 제목과 원래 채널을 함께 박아둔다. 안 그러면 메시지를 그릴 때마다 가리키는 글을
     // 하나씩 읽어야 하는데, 그 글이 다른 채널에 있으면 목록 쿼리로 묶을 수조차 없다
@@ -91,6 +95,26 @@ export function newMessagePayload({
 /** 이 메시지가 캔버스를 가리키고 있는가. */
 export function hasCanvasRef(message) {
   return !!message?.refRequestId
+}
+
+/**
+ * bodyHtml 안의 @사람 조각(channelMentionChip.js의 userMentionHtml)에서 uid를 모두
+ * 뽑는다. DOM 없이 정규식으로 처리한다 — 이 파일은 Node 테스트에서도 도는 순수 함수라
+ * DOMParser에 기댈 수 없다(sanitizeHtml과 같은 제약, 파일 위 설명 참고).
+ */
+function extractMentionedUids(html) {
+  if (!html) return []
+  const uids = new Set()
+  const re = /data-mention-uid="([^"]*)"/g
+  let m
+  // eslint-disable-next-line no-cond-assign
+  while ((m = re.exec(html))) { if (m[1]) uids.add(m[1]) }
+  return [...uids]
+}
+
+/** bodyHtml에 @전체(channelWideMentionHtml) 조각이 있는가. */
+function mentionsChannelWide(html) {
+  return !!html && html.includes('data-mention-channel')
 }
 
 /**

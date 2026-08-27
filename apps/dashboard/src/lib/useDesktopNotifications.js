@@ -28,7 +28,9 @@ function postRoute(r, id) {
 
 const DUE_CHECK_INTERVAL_MS = 30 * 60 * 1000
 
-function isDesktop() {
+// useMentionNotifications.js도 이 판정·발사 함수를 그대로 쓴다(같은 트레이 파이프라인,
+// 감시 대상만 다르다) — export해 둔다.
+export function isDesktop() {
   return typeof window !== 'undefined' && !!window.smartOfficeDesktop
 }
 
@@ -57,12 +59,12 @@ function readNotified() {
 // 포그라운드라 안 띄운 건도 이력에 남긴다 — 화면으로 이미 봤으므로, 나중에 창을
 // 숨겼을 때 그 건이 다시 떠오르면 안 된다.
 /** 알림 본문에 넣을 내용 앞부분. 서식을 걷어내고 한 줄로 줄인다. */
-function previewText(html, max = 80) {
+export function previewText(html, max = 80) {
   const text = htmlToText(html).replace(/\s+/g, ' ').trim()
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
-function notifyOnce(key, title, body, route, { urgent = false, detail, category, actionLabel } = {}) {
+export function notifyOnce(key, title, body, route, { urgent = false, detail, category, actionLabel } = {}) {
   if (!isDesktop()) return
 
   const store = readNotified()
