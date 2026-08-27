@@ -110,6 +110,8 @@ test('새 요청은 완료자 없이 시작하고 대상 명단을 고정한다'
   assert.deepEqual(payload.targetNames, ['김국어', '이수학'])
   assert.deepEqual(payload.completedUids, [])
   assert.equal(payload.status, 'open')
+  assert.equal(payload.coverImageUrl, null)   // 표지는 기본값 없음
+  assert.equal(payload.coverImagePath, null)
 })
 
 test('안내는 마감일과 완료 개념이 없다', () => {

@@ -56,6 +56,7 @@ export function newRequestPayload({
   title, description = '', dueDate = null,
   pinned = false,
   attachments = [], links = [],
+  coverImageUrl = null, coverImagePath = null,
   targetRule, targetRuleText, targets,
   createdBy, createdByName,
   ownerUids = [],
@@ -72,6 +73,7 @@ export function newRequestPayload({
     status: 'open',
     attachments,
     links,
+    coverImageUrl, coverImagePath,
     // 조건은 재계산·감사용으로 남기고, 실제 대상은 발송 시점 명단으로 고정한다.
     // 자동 재계산으로 두면 마감이 지난 요청에 사람이 조용히 추가돼, 받은 적도 없는데
     // 미완료로 찍히는 일이 생긴다.

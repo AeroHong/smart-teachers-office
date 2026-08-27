@@ -167,6 +167,14 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
       {/* 바깥은 넓게 두되 '읽는 것'만 좁게 잡는다. 제목·설명은 한 줄이 길면 눈이 끝까지
           따라가야 하지만, 완료 명단 수십 명은 좁은 칸에 세로로 쌓이면 스크롤만 길어진다. */}
       <Box sx={{ maxWidth: 1120, p: 2.5 }}>
+        {/* 표지 — CanvasEditor.jsx의 편집 화면과 같은 200px 배너, objectFit:'cover'.
+            읽기 화면이라 바꾸기·삭제는 없다(수정은 항상 '수정' 버튼으로 편집 화면에서). */}
+        {request.coverImageUrl && (
+          <Box
+            component="img" src={request.coverImageUrl} alt="표지"
+            sx={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 1, mb: 1.5, display: 'block' }}
+          />
+        )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
           <Typography sx={{ fontSize: '1.1rem' }}>
             {POST_KIND[isRequest(request) ? 'request' : 'notice'].emoji}

@@ -141,6 +141,8 @@ export default function PostComposer({
   const [targetOpen, setTargetOpen] = useState(false)
   const [attachments, setAttachments] = useState([])
   const [links, setLinks] = useState([])
+  const [coverImageUrl, setCoverImageUrl] = useState(null)
+  const [coverImagePath, setCoverImagePath] = useState(null)
   const [loadingPost, setLoadingPost] = useState(!!editingId)
   // 실제 Firestore 문서가 이미 만들어졌는가. 고치기는 처음부터 true, 새 글은 첫 자동저장이
   // 만든 순간 true가 된다 — 그 전까지는 완전히 로컬 상태다.
@@ -155,6 +157,8 @@ export default function PostComposer({
 
   // 고치기를 시작한 시점에 이미 붙어 있던 파일. 도중에 그만둬도 이건 지우면 안 된다.
   const keptFiles = useRef(new Set())
+  // 고치기를 시작한 시점의 표지 경로 — keptFiles와 같은 이유, 값 하나짜리라 Set이 아니다.
+  const keptCoverPathRef = useRef(null)
 
   // 첫 자동저장이 새 글을 만들면 주소가 /new → /edit로 조용히 바뀐다(아래 onSaved).
   // editingId가 undefined→실값으로 바뀌는 그 순간, 아래 "고칠 글 읽어오기" 이펙트가
@@ -183,8 +187,11 @@ export default function PostComposer({
       setTargetOpen(false)
       setAttachments([])
       setLinks([])
+      setCoverImageUrl(null)
+      setCoverImagePath(null)
       setCompletedUids([])
       keptFiles.current = new Set()
+      keptCoverPathRef.current = null
       setLoadingPost(false)
       setCreated(false)
       setSaveState('idle')
@@ -215,8 +222,11 @@ export default function PostComposer({
         setTargetOpen(narrowed)
         setAttachments(post.attachments || [])
         setLinks(post.links || [])
+        setCoverImageUrl(post.coverImageUrl || null)
+        setCoverImagePath(post.coverImagePath || null)
         setCompletedUids(post.completedUids || [])
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
+        keptCoverPathRef.current = post.coverImagePath || null
         setLoadingPost(false)
       })
       .catch(e => {
@@ -257,6 +267,24 @@ export default function PostComposer({
   }
 
   /**
+   * 표지 바꾸기·삭제 — removeAttachment와 같은 즉시/지연 분기. 새 글(아직 아무것도
+   * 저장 안 됨)이면 밀려난 이전 표지를 바로 지우고, 고치는 중이면 자동저장이
+   * keptCoverPathRef와 diff해서 지운다(아래 flushRef 참고).
+   */
+  const changeCover = (uploaded) => {
+    const prevPath = coverImagePath
+    setCoverImageUrl(uploaded.url)
+    setCoverImagePath(uploaded.path)
+    if (!editingId && prevPath) deleteAttachment({ path: prevPath }).catch(() => {})
+  }
+  const removeCover = () => {
+    const prevPath = coverImagePath
+    setCoverImageUrl(null)
+    setCoverImagePath(null)
+    if (!editingId && prevPath) deleteAttachment({ path: prevPath }).catch(() => {})
+  }
+
+  /**
    * "지금 이 순간 저장한다면"을 매 렌더 다시 만들어 둔다 — 디바운스 타이머와 언마운트
    * 정리(cleanup) 양쪽에서 **항상 최신 상태**로 부를 수 있어야 하기 때문이다. 언마운트
    * cleanup은 빈 배열 이펙트라 등록 시점의 클로저만 갖는데, ref 안의 함수는 매 렌더
@@ -282,6 +310,8 @@ export default function PostComposer({
         pinned,
         attachments,
         links,
+        coverImageUrl,
+        coverImagePath,
         targetRule: rule,
         targetRuleText: describeRule(rule),
         targets,
@@ -313,6 +343,8 @@ export default function PostComposer({
             pinned: payload.pinned,
             attachments: payload.attachments,
             links: payload.links,
+            coverImageUrl: payload.coverImageUrl,
+            coverImagePath: payload.coverImagePath,
             targetRule: payload.targetRule,
             targetRuleText: payload.targetRuleText,
             targetUids: payload.targetUids,
@@ -326,6 +358,9 @@ export default function PostComposer({
         await Promise.all([...keptFiles.current]
           .filter(path => !kept.has(path))
           .map(path => deleteAttachment({ path }).catch(() => {})))
+        if (keptCoverPathRef.current && keptCoverPathRef.current !== coverImagePath) {
+          deleteAttachment({ path: keptCoverPathRef.current }).catch(() => {})
+        }
       }
       if (!silent) setSaveState('saved')
     } catch (e) {
@@ -354,7 +389,7 @@ export default function PostComposer({
     const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, attachments, targets, loadingPost])
+  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, attachments, coverImageUrl, coverImagePath, targets, loadingPost])
 
   // 화면을 완전히 떠날 때(다른 채널·다른 탭으로 이동해 이 컴포넌트가 사라질 때)만 도는
   // 정리 함수. 위 디바운스가 아직 안 끝났어도 마지막 상태를 한 번 더 조용히 저장한다.
@@ -522,6 +557,9 @@ export default function PostComposer({
           title={title}
           onTitleChange={setTitle}
           onOpenBlockComments={blockId => onOpenBlockComments?.({ requestId, blockId })}
+          coverImageUrl={coverImageUrl}
+          onCoverChange={changeCover}
+          onCoverRemove={removeCover}
         />
       </Box>
 

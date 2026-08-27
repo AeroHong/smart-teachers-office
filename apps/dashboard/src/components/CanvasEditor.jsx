@@ -171,12 +171,14 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   canvasOptions = [], placeholder,
   title, onTitleChange, titlePlaceholder = '제목',
   onOpenBlockComments,
+  coverImageUrl, onCoverChange, onCoverRemove,
 }, ref) {
   const { schoolId } = useAuth()
   const toast = useToast()
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)     // 이미지 전용(accept="image/*")
   const docFileInputRef = useRef(null)  // "+파일" — 무슨 형식이든 받는다
+  const coverInputRef = useRef(null)    // 표지 — 이미지 한 장만
   const [uploading, setUploading] = useState(0)
   const [colorAnchor, setColorAnchor] = useState(null)
   // 크기를 조절하려고 고른 이미지. 손잡이는 이 값이 있을 때만 그린다.
@@ -1139,6 +1141,24 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     }
   }
 
+  /**
+   * 표지 올리기/바꾸기 — insertFile과 같은 모양이지만 본문에 끼우지 않고 onCoverChange로만
+   * 알린다. 실제 attachments 배열이나 Storage 삭제 판단(새 글이면 즉시, 고치는 중이면
+   * 자동저장이 지연 삭제)은 부모(PostComposer.jsx)가 갖는다 — insertFile/onFileUploaded와
+   * 같은 소유권 분리.
+   */
+  const insertCover = async (file) => {
+    setUploading(n => n + 1)
+    try {
+      const uploaded = await uploadAttachment({ schoolId, docId, folder, file })
+      onCoverChange?.(uploaded)
+    } catch (e) {
+      toast.error(`표지를 올리지 못했습니다: ${e.message}`, e)
+    } finally {
+      setUploading(n => n - 1)
+    }
+  }
+
   const applyList = (cmd) => {
     const line = readLine()
     if (!line) return
@@ -1484,23 +1504,54 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           flex 줄의 형제라 표지·목차가 같은 높이에서 시작한다. 제목·본문은
           항상 이 칸을 공유해 왼쪽 위치가 표지와도 맞는다.
 
-          표지는 나중에 이미지를 올리는 기능이 붙을 자리를 지금 미리 비워
-          둔 것 — 평소엔 안 보이다가 마우스를 올리면 "+표지 추가"가 옅게
-          나타난다(노션의 빈 커버 자리와 같은 방식). 지금은 눌러도 안내만
-          뜬다 — 실제 업로드는 다음 라운드(PLAN_canvasEditor.md Phase 4). */}
+          표지는 노션의 빈 커버 자리와 같은 방식 — 평소엔 안 보이다가 마우스를 올리면
+          "+표지 추가"가 옅게 나타난다. 올린 뒤에는 200px 배너로 꽉 채우고, 오버할 때만
+          우측 하단에 "바꾸기"/"삭제"가 뜬다(2026-08-27, PLAN_canvasEditor.md Phase 4).
+          크롭·초점 이동은 이번 범위 밖 — objectFit:'cover'로 가운데를 고정해 채운다. */}
       <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <Box
-          onClick={() => toast.success('표지 추가 기능은 준비 중입니다.')}
-          sx={{
-            height: 96, mb: 0.5, borderRadius: 1, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'text.disabled', fontSize: '0.78rem', fontWeight: 600,
-            opacity: 0, transition: 'opacity .12s ease, background-color .12s ease',
-            '&:hover': { opacity: 1, bgcolor: 'action.hover' },
-          }}
-        >
-          + 표지 추가
-        </Box>
+        {coverImageUrl ? (
+          <Box sx={{
+            position: 'relative', height: 200, mb: 0.5, borderRadius: 1, overflow: 'hidden',
+            '&:hover .cover-actions': { opacity: 1 },
+          }}>
+            <Box
+              component="img" src={coverImageUrl} alt="표지"
+              sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+            <Box className="cover-actions" sx={{
+              position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 0.5,
+              opacity: 0, transition: 'opacity .12s ease',
+            }}>
+              <Button
+                size="small" variant="contained" disableElevation
+                onClick={() => coverInputRef.current?.click()}
+                sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+              >
+                바꾸기
+              </Button>
+              <Button
+                size="small" variant="contained" disableElevation
+                onClick={() => onCoverRemove?.()}
+                sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+              >
+                삭제
+              </Button>
+            </Box>
+          </Box>
+        ) : (
+          <Box
+            onClick={() => coverInputRef.current?.click()}
+            sx={{
+              height: 96, mb: 0.5, borderRadius: 1, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'text.disabled', fontSize: '0.78rem', fontWeight: 600,
+              opacity: 0, transition: 'opacity .12s ease, background-color .12s ease',
+              '&:hover': { opacity: 1, bgcolor: 'action.hover' },
+            }}
+          >
+            + 표지 추가
+          </Box>
+        )}
         {onTitleChange && (
           <TextField
             fullWidth autoFocus variant="standard"
@@ -1570,6 +1621,17 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         multiple
         hidden
         onChange={e => { handleDocFiles(e.target.files); e.target.value = '' }}
+      />
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={e => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (file) insertCover(file)
+        }}
       />
 
       {/* 블록 손잡이(⋮⋮) — 지금 마우스가 올라간 블록의 왼쪽 바깥에 뜬다. picked(이미지
