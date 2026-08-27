@@ -15,6 +15,7 @@ import Activity from './pages/Activity'
 import AcademicCalendar from './pages/AcademicCalendar'
 import PostRedirect from './pages/PostRedirect'
 import Messages from './pages/Messages'
+import Coverage from './pages/Coverage'
 import Members from './pages/Members'
 import AdminDesktop from './pages/AdminDesktop'
 import RedirectToPortal from './pages/RedirectToPortal'
@@ -81,6 +82,11 @@ export default function App() {
           <Route path="/messages" element={<ProtectedRoute anyUser><Messages /></ProtectedRoute>} />
           {/* 데스크톱 알림 클릭 → 해당 쪽지가 바로 열리도록 (목록만 뜨면 어느 게 새 건지 못 찾는다) */}
           <Route path="/messages/:noticeId" element={<ProtectedRoute anyUser><Messages /></ProtectedRoute>} />
+          {/* 보강신청 — 포털의 /cover, /cover/mypage, /cover/status와 같은 컬렉션을 보는
+              대시보드 쪽 진입점(2026-08-27). 셋 다 같은 컴포넌트가 pathname으로 모드를 가른다. */}
+          <Route path="/cover" element={<ProtectedRoute anyUser><Coverage /></ProtectedRoute>} />
+          <Route path="/cover/mypage" element={<ProtectedRoute anyUser><Coverage /></ProtectedRoute>} />
+          <Route path="/cover/status" element={<ProtectedRoute anyUser><Coverage /></ProtectedRoute>} />
           {/* 구성원 — 오른쪽 칸이 상세 영역이 되면서 명단을 별도 탭으로 옮겼다 */}
           <Route path="/members" element={<ProtectedRoute anyUser><Members /></ProtectedRoute>} />
           {/* 구 경로 — 관리자 업무 현황은 업무 요청 목록의 '전체'로 통합됐다 */}

@@ -14,6 +14,7 @@ import RequestIcon from '@mui/icons-material/PlaylistAddCheck'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import EventIcon from '@mui/icons-material/Event'
 import MailIcon from '@mui/icons-material/MailOutline'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import PeopleIcon from '@mui/icons-material/Groups'
 import DevicesIcon from '@mui/icons-material/DevicesOther'
 import LaunchIcon from '@mui/icons-material/Launch'
@@ -131,6 +132,12 @@ export default function AppRail() {
         to="/messages"
         active={pathname.startsWith('/messages')}
         badge={unreadNotices}
+      />
+      <RailButton
+        icon={SwapHorizIcon}
+        label="보강신청"
+        to="/cover"
+        active={pathname.startsWith('/cover')}
       />
       <RailButton
         icon={PeopleIcon}
