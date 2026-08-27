@@ -57,7 +57,7 @@ const EMOJI_PICKER_ITEMS = [
 export default function MessageComposer({
   value, onChange, onSubmit, disabled,
   channels = [], members = [], placeholder = '메시지를 입력하세요',
-  onPlusClick,
+  onPlusClick, showAttach = true,
 }) {
   const editorRef = useRef(null)
   // '#'·'@' 둘 다 같은 모양이라 하나의 상태로 다룬다 — { trigger:'#'|'@', query, length, rect }
@@ -327,11 +327,16 @@ export default function MessageComposer({
       />
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.2, px: 0.6, py: 0.4 }}>
-        <Tooltip title="첨부">
-          <IconButton size="small" onClick={onPlusClick} disabled={disabled}>
-            <AddIcon sx={{ fontSize: 19 }} />
-          </IconButton>
-        </Tooltip>
+        {/* 메시지 편집(인라인 재사용, ChannelMessages.jsx)에서는 첨부를 새로 못 붙이게
+            막아둔다 — 편집은 firestore.rules에서 attachment 필드를 못 바꾸게 제한돼
+            있어, 여기서 붙여봐야 저장이 거부된다. */}
+        {showAttach && (
+          <Tooltip title="첨부">
+            <IconButton size="small" onClick={onPlusClick} disabled={disabled}>
+              <AddIcon sx={{ fontSize: 19 }} />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title="이모지">
           <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={openEmojiPicker}>
             <InsertEmoticonIcon sx={{ fontSize: 19 }} />

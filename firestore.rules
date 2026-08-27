@@ -391,8 +391,16 @@ service cloud.firestore {
         // 되묻는 말과 그 답. 업무 글과 달리 완료·마감·대상이 없다. 이걸 업무 글로 만들게
         // 하면 아무도 안 쓴다 — 되묻기 하나에 제목·대상·마감을 정하라는 셈이기 때문이다.
         //
-        // 고치기를 막는 것은 댓글과 같은 판단이다. 편집 화면이 없는데 규칙이 코드보다
-        // 넓으면 나중에 콘솔이나 SDK로 남의 눈에 안 띄게 말을 바꿔놓을 수 있다.
+        // ── 편집 허용(2026-08-27, 사용자 확정) ──
+        // 원래는 "편집 화면이 없는데 규칙이 코드보다 넓으면 콘솔로 몰래 바꿀 수 있다"는
+        // 이유로 allow update: if false였다. 이제 편집 화면이 생겨서(ChannelMessages.jsx
+        // 더보기 메뉴) 그 전제가 사라졌다 — 대신 본인 글이 아니면 못 고치고, 본인 글도
+        // 내용 필드(body/bodyHtml/mentionedUids/mentionsChannel/updatedAt)만 바꿀 수
+        // 있다(작성자·첨부·참조는 편집 화면 자체가 안 건드리므로 규칙도 안 열어준다).
+        //
+        // 답장(스레드, 같은 날 확정)의 replyCount·lastReplyAt은 원본 글쓴이가 아니라
+        // 답장을 단 사람이 원본 문서에 쓰는 값이라 완전히 다른 조건이 필요하다 — 채널
+        // 멤버 누구나, 그 두 필드만.
         match /messages/{messageId} {
           allow read: if isChannelMember(schoolId, channelId) ||
             // 학교 관리자는 업무 채널만. DM은 제외한다 — 통합 설계 탓에 예외를 두지 않으면
@@ -404,7 +412,13 @@ service cloud.firestore {
             request.resource.data.authorUid == request.auth.uid &&
             channelAllowsPost(schoolId, channelId);
 
-          allow update: if false;
+          allow update: if isSuperAdmin() ||
+            (isChannelMember(schoolId, channelId) && resource.data.authorUid == request.auth.uid &&
+             request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['body', 'bodyHtml', 'mentionedUids', 'mentionsChannel', 'updatedAt'])) ||
+            (isChannelMember(schoolId, channelId) &&
+             request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['replyCount', 'lastReplyAt']));
 
           // 글쓴이에게 남의 메시지 삭제 권한을 주지 않는다(댓글과 같은 이유) —
           // 채널 주인이 불편한 질문을 지울 수 있으면 "답을 모두가 함께 본다"가 깨진다.
@@ -413,9 +427,9 @@ service cloud.firestore {
         }
 
         // 메시지 반응(이모지 리액션) — blockReactions와 같은 패턴이다(문서 하나 =
-        // 그 메시지의 모든 반응 { '👍': [uid,...], ... }). 위 messages는
-        // allow update: if false(작성자도 못 고친다)라 반응을 메시지 필드로 못
-        // 넣는다 — 별도 서브컬렉션이 필요하다(PLAN_channels.md P4-A).
+        // 그 메시지의 모든 반응 { '👍': [uid,...], ... }). 위 messages의 update 규칙은
+        // 정해진 필드(본문 또는 replyCount/lastReplyAt)만 허용해 이모지 맵 같은 임의
+        // 필드를 못 넣는다 — 별도 서브컬렉션이 필요하다(PLAN_channels.md P4-A).
         //
         // 읽기 범위는 blockReactions(isTeacher)가 아니라 messages 쪽을 그대로
         // 따른다 — 반응은 그 메시지에 딸린 것이라 메시지를 못 읽는 사람(비공개

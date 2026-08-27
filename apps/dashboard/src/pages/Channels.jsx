@@ -60,6 +60,7 @@ import ShareCanvasDialog from '../components/ShareCanvasDialog'
 import PostComposer from '../components/PostComposer'
 import PostDetail from '../components/PostDetail'
 import BlockCommentsPanel from '../components/BlockCommentsPanel'
+import ThreadPanel from '../components/ThreadPanel'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
 import useChannelPrefs from '../lib/useChannelPrefs'
@@ -119,6 +120,9 @@ export default function Channels() {
   // 블록을 보고 있는지. WorkspaceLayout.jsx 자체는 안 건드리고 이 페이지가 캔버스 옆에
   // 조건부로 그린다(항상 있는 레일·사이드바와 달리 블록 하나를 고를 때만 뜨는 칸이라).
   const [blockComments, setBlockComments] = useState(null)   // { requestId, blockId } | null
+  // 스레드(답장) 패널 — blockComments와 같은 자리·같은 이유(PLAN_channels.md 2026-08-27,
+  // "제대로: 슬랙식 스레드 창"). 값은 스레드의 부모 메시지 id다.
+  const [activeThread, setActiveThread] = useState(null)
   const { markRead } = useChannelPrefs()
 
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
@@ -219,6 +223,10 @@ export default function Channels() {
   // 보던 캔버스(또는 편집 중인 글)가 바뀌면 블록 댓글 패널도 닫는다 — 안 그러면 다른
   // 글로 넘어갔는데 방금 전 블록의 댓글이 그대로 떠 있어 어느 글 얘기인지 헷갈린다.
   useEffect(() => { setBlockComments(null) }, [requestId, editingPostId, composingNew])
+
+  // 채널을 옮기면 스레드 패널도 닫는다 — 같은 이유(다른 채널로 넘어갔는데 방금 전
+  // 스레드가 그대로 떠 있으면 어느 채널 얘기인지 헷갈린다).
+  useEffect(() => { setActiveThread(null) }, [channelId])
 
   /**
    * 저장된 참여자와 조건을 지금 다시 푼 결과의 차이.
@@ -692,10 +700,15 @@ export default function Channels() {
                 </Box>
               </Box>
             ) : (
+              // 스레드 패널(4번째 칸, 2026-08-27)은 블록 댓글 패널과 같은 이유로 이 칸
+              // 안에서 메시지 목록 옆에만 조건부로 뜬다.
+              <Box sx={{ display: 'flex', height: '100%', minHeight: 0 }}>
+                <Box sx={{ flexGrow: 1, minWidth: 0, height: '100%' }}>
               <ChannelMessages
                 channelId={active.id}
                 canPost={canPost}
                 onOpenCanvas={to => navigate(to)}
+                onOpenThread={setActiveThread}
                 canvases={active.posts || []}
                 // '#' 자동완성은 이 채널 목록에서 고른다(DM은 안 보여준다 — 다른 사람과의
                 // 1:1 대화를 채널 메시지에 노출하는 셈이 된다). '@'는 학교 전체가 아니라
@@ -738,6 +751,25 @@ export default function Channels() {
                     : '공지 전용 채널이라 만든 사람만 씁니다.'
                 }
               />
+                </Box>
+                {activeThread && (
+                  <ThreadPanel
+                    key={activeThread}
+                    channelId={active.id}
+                    parentMessageId={activeThread}
+                    members={channelMembers}
+                    channels={channels}
+                    canPost={canPost}
+                    postBlockedReason={
+                      iLeft
+                        ? '나간 채널입니다. 다시 참여하면 대화에 쓸 수 있습니다.'
+                        : '공지 전용 채널이라 만든 사람만 씁니다.'
+                    }
+                    onOpenCanvas={to => navigate(to)}
+                    onClose={() => setActiveThread(null)}
+                  />
+                )}
+              </Box>
             )}
           </Box>
         </Box>

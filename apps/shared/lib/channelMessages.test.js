@@ -60,6 +60,14 @@ test('가리키는 업무 글이 없으면 null로 둔다 — undefined는 Fires
   )
 })
 
+test('parentMessageId는 안 주면 null이다 — 답장이 아닌 보통 메시지', () => {
+  assert.equal(newMessagePayload({ authorUid: 'u1', body: '안녕' }).parentMessageId, null)
+  assert.equal(
+    newMessagePayload({ authorUid: 'u1', body: '안녕', parentMessageId: 'm1' }).parentMessageId,
+    'm1',
+  )
+})
+
 test('bodyHtml 안의 @사람 조각에서 uid를 모두 뽑는다 — 중복은 하나로', () => {
   const html = '<p><span data-mention-uid="u1" data-mention-name="가">@가</span> '
     + '<span data-mention-uid="u2" data-mention-name="나">@나</span> '

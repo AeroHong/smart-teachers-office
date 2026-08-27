@@ -60,11 +60,18 @@ export const SHARE_NOTE_MAX = 200
  * @param {object} [attachment] 이 메시지에 붙인 파일 — {url, name, size, kind}. 본문
  *   HTML에 섞지 않고 캔버스 참조처럼 별도 필드로 둔다(같은 이유: 메시지를 그릴 때마다
  *   파일을 다시 찾지 않아도 되고, 지우면 이 필드만 비운다).
+ * @param {string} [parentMessageId] 답장(스레드)이면 원본 메시지 id, 아니면 null.
+ *   답장도 같은 messages 컬렉션의 평범한 문서다 — 별도 컬렉션으로 안 뺀 이유는
+ *   멘션 알림(useMentionNotifications.js)·검색(CommandPalette.jsx)이 이미 이 컬렉션
+ *   전체를 보고 있어서, 답장을 여기 그대로 두면 그 둘이 코드 변경 없이 자동으로
+ *   답장까지 처리한다(PLAN_channels_datamodel.md가 걱정했던 "읽음·알림·검색이
+ *   두 겹" 문제는 별도 컬렉션을 가정한 것이었다 — ThreadPanel.jsx 참고).
  * @returns {object} Firestore에 넣을 필드 (createdAt은 호출부에서 serverTimestamp)
  */
 export function newMessagePayload({
   authorUid, authorName = '', body, bodyHtml = null,
   refRequestId = null, refTitle = '', refChannelId = null, attachment = null,
+  parentMessageId = null,
 }) {
   const text = bodyHtml
     ? htmlToText(bodyHtml).slice(0, MESSAGE_BODY_MAX)
@@ -89,6 +96,7 @@ export function newMessagePayload({
     refTitle: refRequestId ? String(refTitle || '').trim().slice(0, 120) : '',
     refChannelId: refRequestId ? (refChannelId || null) : null,
     attachment: attachment || null,
+    parentMessageId: parentMessageId || null,
   }
 }
 
