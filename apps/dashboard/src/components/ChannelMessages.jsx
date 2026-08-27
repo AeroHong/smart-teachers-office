@@ -461,7 +461,14 @@ export function MessageRow({
       )}
 
       {!m.grouped && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, mb: 0.3 }}>
+        <Box sx={{
+          display: 'flex', alignItems: 'center', gap: 0.8, mb: 0.3,
+          // 좁은 자리(ThreadPanel처럼 폭이 좁거나 이름이 긴 경우)에서는 위 호버
+          // 툴바(zIndex:2)가 이 위로 겹칠 수 있다 — 프로필을 여는 아바타·이름
+          // 클릭이 툴바에 가로채여 안 눌리던 버그(사용자 지적, 2026-08-27).
+          // 겹치는 자리에서도 이 줄이 이기도록 z-index를 더 높게 둔다.
+          position: 'relative', zIndex: 3,
+        }}>
           {/* 이름 글자 높이(0.82rem)의 두 배 크기 아바타(사용자 요청, 2026-08-27) —
               채널 안 다른 구성원 목록(members)에서 uid로 찾는다. 채널을 나간
               사람의 옛 메시지는 못 찾아도 PersonAvatar가 이름 첫 글자로 대신한다. */}

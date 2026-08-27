@@ -115,6 +115,10 @@ export default function ThreadPanel({
       width: 360, flexShrink: 0, display: 'flex', flexDirection: 'column',
       height: '100%', minHeight: 0, borderLeft: '1px solid', borderColor: 'divider',
       bgcolor: 'background.paper',
+      // 옆에서 슬쩍 떠 있는 느낌(사용자 요청, 2026-08-27) — 왼쪽(메시지 목록 쪽)으로
+      // 번지는 그림자라 패널이 그 위에 얹힌 것처럼 보인다.
+      boxShadow: '-6px 0 16px -6px rgba(0,0,0,0.25)',
+      position: 'relative', zIndex: 1,
     }}>
       <Box sx={{
         flexShrink: 0, display: 'flex', alignItems: 'center', gap: 0.5,
