@@ -454,7 +454,7 @@ Firestore는 전문 검색(full-text search)을 지원하지 않는다. 지금�
 | **P1** | 비공개 채널 · 접근 제어 | rules 재설계 + 데이터 구독 방식 교체 | P0 |
 | **P2** | 채널 메시지 | 채널 안 대화 스트림 (P2a 완료 · P2b DM 완료) | P1 |
 | **P3** | Canvas 접근 루트 · 홈 재구성 | P3-1·P3-2·P3-3 모두 완료(2026-08-25) | P2 |
-| **P4** | 리액션 · 멘션 · mute | 메시지 위에 얹히는 것들 | P2 |
+| **P4** | 리액션 · 멘션 · mute | 메시지 위에 얹히는 것들 — ✅ 완료(2026-08-27) | P2 |
 | **P5** | 통합 검색 | 메시지 + Canvas, 비공개 제외 | P2, P4 |
 | **P6** | 사이드바 개인화 | 즐겨찾기 · 섹션 · 외부 링크 — ✅ 완료(확인 2026-08-27) | 없음(병렬) |
 | **P7** | 쪽지 정리 | DM 통합 여부 결정 후 실행 | P2 |
@@ -496,8 +496,8 @@ Firestore는 전문 검색(full-text search)을 지원하지 않는다. 지금�
       DM 쪽 입구(사이드바 ＋ → 사람 고르기)는 열었지만, "이 사람에게 물을 일이 어느
       채널에 속하는지"를 되묻는 흐름은 없다. 채널을 먼저 권하는 장치가 빠진 셈이라
       실제로 DM만 쓰게 될 위험이 남는다 — **P4(멘션)와 함께 다시 본다**
-- [ ] 데스크톱 알림 파이프라인 연결 (`useDesktopNotifications.js`에 트리거 추가) — P4로 넘김.
-      멘션 알림과 같은 자리에 붙는 것이라 따로 만들면 두 번 만들게 된다
+- [x] 데스크톱 알림 파이프라인 연결 — **완료(2026-08-27)**. `useMentionNotifications.js`가
+      `useDesktopNotifications.js`의 `notifyOnce`를 재사용해 멘션 알림으로 붙였다(P4-C)
 
 **P2b에서 정한 것 (2026-08-24)**
 
@@ -577,10 +577,31 @@ P2a에서 채널 머리에 `대화 / 업무 글` 탭을 넣었는데, Slack 실�
 절 참고) — 현재 재실 기능을 그대로 둔다. 다음은 P4(리액션·멘션·mute) — 단, 사용자 요청으로
 그 전에 전반적인 디자인 정리(§6)를 먼저 본다.
 
-**P4 — 리액션 · 멘션 · mute**
-- 리액션: **✅ 완료 리액션과 기존 `completedUids`를 통합할지 판단** (겹치는 개념)
-- 멘션: `@사람`, `@channel` + 알림 트리거 신설
-- mute: 채널별 알림 끄기 — 개인 설정이므로 P6의 개인화 저장과 같은 자리
+**P4 — 리액션 · 멘션 · mute** — ✅ **완료(2026-08-27)**. 구현 순서 A(리액션)→D(mute)→
+B(멘션 UI)→C(멘션 알림), 매 단계 테스트→빌드→배포→커밋. 계획 원문은
+[abundant-rolling-prism.md](C:\Users\USER\.claude\plans\abundant-rolling-prism.md) 참고.
+- 리액션(A): `channels/{channelId}/messageReactions/{messageId}` 서브컬렉션 —
+  `blockReactions`(캔버스 블록 반응)와 완전히 같은 패턴, 문서 하나 = 그 메시지의 모든
+  반응. **완료 체크(`completedUids`)와는 완전히 분리하기로 확정**(사용자 확인,
+  2026-08-27) — 업무 완료 개념과 안 엮는다. `ChannelMessages.jsx`에 줄 호버 시 반응
+  추가, 기존 반응은 항상 표시(그룹 묶인 메시지도 각자 반응 가능). firestore.rules에
+  같은 패턴으로 새 match 블록 추가(`isTeacher`→`isChannelMember`).
+- mute(D): `channelPrefs.mutedChannelIds`(즐겨찾기와 같은 모양) — `users/{uid}` 자기
+  문서라 규칙 변경 없음. `ChannelSidebar.jsx` 줄 메뉴에 즐겨찾기 옆으로 추가, 뮤트된
+  줄에 벨-슬래시 아이콘.
+- 멘션(B): `@사람`은 기존 기능 그대로. `@전체`(채널 전체 호출) 신설 —
+  `channelMentionChip.js`의 `channelWideMentionHtml()`/`isChannelWideMention()`,
+  `data-mention-channel` 속성. `MessageComposer.jsx`의 `@` 자동완성 맨 앞에 합성
+  항목으로 끼워 넣는다.
+- 멘션 알림(C): `newMessagePayload`가 저장 시점에 `mentionedUids`/`mentionsChannel`을
+  정규식으로 뽑아 함께 저장. `useMentionNotifications.js`(신규) — 채널 메시지는
+  collectionGroup 쿼리를 못 써서(읽기 규칙이 `get()` 규칙이라 목록 쿼리에 못 씀)
+  **채널마다 리스너 하나**를 여는 절충으로 구현(`useChannels()`가 이미 구독 중인
+  목록 재사용, 뮤트 채널은 리스너 자체를 안 엶). 기존 `useDesktopNotifications.js`의
+  `notifyOnce` 파이프라인을 그대로 재사용(새 발사 로직 안 만듦).
+
+이번 라운드에서 안 한 것(계획에서 처음부터 범위 밖으로 뺌): 리액션 알림(누가 내
+메시지에 반응했다는 알림), 리액션 서버 집계/캐시.
 
 **P5 — 통합 검색** — 발견 3 참고. 인프라 선택(클라이언트 필터 / Cloud Function / 외부 검색
 서비스)을 실측 후 결정.
@@ -625,7 +646,8 @@ P2a에서 채널 머리에 `대화 / 업무 글` 탭을 넣었는데, Slack 실�
       규칙도 학교 관리자를 막고 있다). 데이터모델 §10
 
 **나중에 판단해도 되는 것**
-- [ ] ✅ 완료 리액션과 기존 `completedUids`를 통합할지 (P4)
+- [x] ~~✅ 완료 리액션과 기존 `completedUids`를 통합할지~~ — **완전히 분리로 확정
+      (2026-08-27)**. 업무 완료 개념과 안 엮는다. (P4)
 - [ ] 검색 인프라 선택 — 메시지가 쌓인 뒤 실측하고 결정 (P5)
 - [ ] 안내 4분류를 채널 생성 시 메타데이터로 남길지(필터링·자동보관에 쓸지)
 - [ ] "이벤트 발생형 반복 안내"(전입생/자퇴생/전출생처럼 학사일정엔 없지만 반복 패턴은
