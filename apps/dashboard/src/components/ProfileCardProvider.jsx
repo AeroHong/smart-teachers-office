@@ -71,21 +71,21 @@ export default function ProfileCardProvider({ children }) {
         {member && (
           <Box sx={{ width: 320, display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* 데스크톱 앱은 OS 제목줄 대신 titleBarOverlay로 최소화·최대화·닫기 버튼을
-                창 오른쪽 위(높이 44px, apps/desktop/main.js)에 겹쳐 그린다. 처음엔 위쪽에
-                흰 여백만 띄웠는데, 그 위 어두운 띠(TopBar.jsx와 같은 rail.bg)와 흰 배경이
-                아무 이음매 없이 뚝 끊겨 보였다(사용자 지적, 2026-08-27 — "디자인적으로
-                ㅋㅋ"). TopBar.jsx와 같은 색으로 이 44px 자리를 직접 채워 그 띠가 그대로
-                이어지는 것처럼 보이게 한다 — 닫기 단추도 그 안에 흰 아이콘으로 둔다. */}
-            <Box sx={{
-              flexShrink: 0, height: '44px', bgcolor: 'rail.bg',
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', px: 1,
-            }}>
-              <IconButton size="small" onClick={close} aria-label="프로필 닫기" sx={{ color: '#fff' }}>
+                창 오른쪽 위(높이 44px, apps/desktop/main.js)에 겹쳐 그린다 — 이 44px는
+                실제로 OS가 그 자리 전체를 차지해서, 안에 우리 단추를 두면 안 보이는 게
+                아니라 클릭 자체가 그쪽으로 안 간다(사용자 확인, 2026-08-27 — "아직도
+                가려지는데"). 그래서 이 44px 띠는 순수 장식(TopBar.jsx와 같은 색 rail.bg로
+                채워 위 OS 띠와 이어지는 것처럼만 보이게)이고, 실제 눌리는 닫기 단추는
+                이 띠 완전히 아래(콘텐츠 맨 위)로 내렸다. */}
+            <Box sx={{ flexShrink: 0, height: '44px', bgcolor: 'rail.bg' }} />
+
+            <Box sx={{ p: 2.5, pt: 1, flexGrow: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+              <IconButton size="small" onClick={close} aria-label="프로필 닫기">
                 <CloseIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Box>
-
-            <Box sx={{ p: 2.5, pt: 1.5, flexGrow: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, mb: 2.5 }}>
               {isMe ? (
