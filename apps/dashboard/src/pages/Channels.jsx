@@ -214,55 +214,62 @@ export default function Channels() {
   }, [composingNew, requestId, sideView, canvas])
 
   /**
-   * 캔버스 탭 드래그 순서 바꾸기(개인 설정, 2026-08-27) — 포인터를 누른 채 좌우로
-   * 끌면 그 즉시 순서가 바뀐다(WorkspaceLayout.jsx의 사이드바 폭 조절과 같은 포인터
-   * 드래그 패턴, HTML5 DnD 아님). 드는 동안은 `dragTab.order`로 화면만 미리 바꾸고,
-   * 손을 떼야 channelPrefs에 저장한다.
+   * 캔버스 탭 드래그 순서 바꾸기(개인 설정, 2026-08-27) — CanvasEditor.jsx의 표 안
+   * 행·열 손잡이와 같은 방식(사용자 요청, 2026-08-27: "표에서 행/열 바꿀 때 하던
+   * 것처럼"). 끄는 동안 탭 배열을 즉시 다시 섞지 않는다 — 원래 탭은 그 자리에서
+   * 흐려지고(opacity), 실제 내용을 담은 미리보기가 커서를 따라다니며(ghost), 놓일
+   * 자리에 세로 삽입선이 뜬다. 손을 떼야 비로소 순서가 바뀌고 channelPrefs에 저장된다.
    */
-  const [dragTab, setDragTab] = useState(null) // { postId, order: string[] } | null
+  const [dragTab, setDragTab] = useState(null)
+  // { postId, label, barTop, barHeight, ghostLeft, insertBeforeId, indicatorLeft } | null
   const tabNodesRef = useRef(new Map())         // postId → DOM 노드(드래그 중 위치 계산용)
   // 드래그가 실제로 순서를 바꾼 뒤에 손을 떼면, 그 pointerup이 곧바로 MUI Tabs의
   // onChange(클릭 이동)를 함께 유발할 수 있다 — 이번 클릭 하나만 무시하라는 신호.
   const suppressTabClickRef = useRef(false)
 
-  const displayedCanvasTabs = useMemo(() => {
-    if (!dragTab) return canvas.tabs
-    const byId = new Map(canvas.tabs.map(p => [p.id, p]))
-    return dragTab.order.map(id => byId.get(id)).filter(Boolean)
-  }, [canvas.tabs, dragTab])
-
   const handleTabPointerDown = (postId, e) => {
     if (e.button !== 0) return // 왼쪽 버튼만 — 드래그도, 그 뒤 눌러서 이동하는 것도 왼쪽 클릭이다
-    const startOrder = canvas.tabs.map(p => p.id)
-    let moved = false
-    setDragTab({ postId, order: startOrder })
+    const order = canvas.tabs.map(p => p.id)
+    const startNode = tabNodesRef.current.get(postId)
+    if (!startNode) return
+    const startRect = startNode.getBoundingClientRect()
+    const grabOffsetX = e.clientX - startRect.left
+    const barTop = startRect.top
+    const barHeight = startRect.height
+    const label = canvas.tabs.find(p => p.id === postId)?.title || ''
+    setDragTab({ postId, label, barTop, barHeight, ghostLeft: startRect.left, insertBeforeId: null, indicatorLeft: null })
 
     const onMove = (ev) => {
-      setDragTab((prev) => {
-        if (!prev) return prev
-        const nodes = prev.order.map(id => tabNodesRef.current.get(id)).filter(Boolean)
-        let newIdx = prev.order.length - 1
-        for (let i = 0; i < nodes.length; i++) {
-          const rect = nodes[i].getBoundingClientRect()
-          if (ev.clientX < rect.left + rect.width / 2) { newIdx = i; break }
-        }
-        const curIdx = prev.order.indexOf(prev.postId)
-        if (newIdx === curIdx) return prev
-        const nextOrder = [...prev.order]
-        nextOrder.splice(curIdx, 1)
-        nextOrder.splice(newIdx, 0, prev.postId)
-        moved = true
-        return { ...prev, order: nextOrder }
-      })
+      let insertBeforeId = null
+      let indicatorLeft = null
+      for (const id of order) {
+        if (id === postId) continue
+        const node = tabNodesRef.current.get(id)
+        if (!node) continue
+        const r = node.getBoundingClientRect()
+        if (ev.clientX < r.left + r.width / 2) { insertBeforeId = id; indicatorLeft = r.left; break }
+      }
+      if (indicatorLeft === null) {
+        const lastId = order[order.length - 1]
+        const lastNode = (lastId === postId ? startNode : tabNodesRef.current.get(lastId)) || startNode
+        indicatorLeft = lastNode.getBoundingClientRect().right
+      }
+      setDragTab(prev => prev && { ...prev, insertBeforeId, indicatorLeft, ghostLeft: ev.clientX - grabOffsetX })
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
-      setDragTab((current) => {
-        if (moved && current && active) {
-          suppressTabClickRef.current = true
-          updateChannelPrefs(p => setCanvasTabOrder(p, active.id, current.order))
-            .catch(e => toast.error('탭 순서를 저장하지 못했습니다.', e))
+      setDragTab((prev) => {
+        if (prev && active) {
+          const finalOrder = order.filter(id => id !== postId)
+          const insertIdx = prev.insertBeforeId ? finalOrder.indexOf(prev.insertBeforeId) : -1
+          finalOrder.splice(insertIdx === -1 ? finalOrder.length : insertIdx, 0, postId)
+          const changed = finalOrder.some((id, i) => id !== order[i])
+          if (changed) {
+            suppressTabClickRef.current = true
+            updateChannelPrefs(p => setCanvasTabOrder(p, active.id, finalOrder))
+              .catch(e => toast.error('탭 순서를 저장하지 못했습니다.', e))
+          }
         }
         return null
       })
@@ -684,7 +691,7 @@ export default function Channels() {
                     value="messages" label="메시지"
                     icon={<ForumOutlinedIcon sx={{ fontSize: 16 }} />} iconPosition="start"
                   />
-                  {displayedCanvasTabs.map(p => (
+                  {canvas.tabs.map(p => (
                     <Tab
                       key={p.id} value={p.id} label={p.title}
                       // 캔버스마다 고를 수 있는 아이콘은 다음 라운드로 미룬다 — 지금은
@@ -699,7 +706,7 @@ export default function Channels() {
                       }}
                       onPointerDown={e => handleTabPointerDown(p.id, e)}
                       onContextMenu={e => openTabMenu(p, e)}
-                      sx={dragTab?.postId === p.id ? { opacity: 0.6 } : undefined}
+                      sx={dragTab?.postId === p.id ? { opacity: 0.25 } : undefined}
                     />
                   ))}
                   {/* 새 글을 쓰는 동안만 뜨는 임시 탭. 저장하면 진짜 캔버스 탭이 그 자리를
@@ -712,6 +719,33 @@ export default function Channels() {
                     <Tab value="archive" label={`보관된 글 ${canvas.archived.length}`} />
                   )}
                 </Tabs>
+
+                {/* 탭 드래그 중 커서를 따라다니는 미리보기 — CanvasEditor.jsx 표 안 행
+                    드래그의 rowHtml 미리보기와 같은 이유(2026-08-26 원본: "얇은
+                    삽입선만으로는 무엇을 옮기는지가 잘 안 보인다"). fixed라 Tabs의
+                    가로 스크롤과 무관하게 커서를 그대로 따라간다. */}
+                {dragTab && (
+                  <Box sx={{
+                    position: 'fixed', top: dragTab.barTop, left: dragTab.ghostLeft,
+                    height: dragTab.barHeight, zIndex: 1400, pointerEvents: 'none',
+                    display: 'flex', alignItems: 'center', gap: 0.5, px: 1.5,
+                    maxWidth: 180, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                    borderRadius: 1, boxShadow: 4, border: '2px solid', borderColor: 'primary.main',
+                    bgcolor: 'background.paper', opacity: 0.95,
+                    fontSize: '0.82rem', fontWeight: 700, color: 'text.primary',
+                  }}>
+                    <DescriptionOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                    {dragTab.label}
+                  </Box>
+                )}
+                {/* 삽입 위치 표시선 — 표 안 열 드래그의 세로 삽입선과 같다. */}
+                {dragTab?.indicatorLeft != null && (
+                  <Box sx={{
+                    position: 'fixed', top: dragTab.barTop, left: dragTab.indicatorLeft - 1,
+                    width: 2, height: dragTab.barHeight, bgcolor: 'primary.main',
+                    zIndex: 1300, pointerEvents: 'none', borderRadius: 1,
+                  }} />
+                )}
 
                 {/* 새 캔버스 만들기 — Slack의 탭 줄 '＋'와 같은 자리(PLAN_composer.md §2).
                     공지 전용 채널의 참여자에게는 애초에 안 보인다 — 눌러도 규칙에 막혀
