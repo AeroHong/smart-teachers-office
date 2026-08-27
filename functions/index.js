@@ -18,6 +18,10 @@ const { syncWorkspaceDirectory, runWorkspaceSyncNow } = require('./workspaceSync
 exports.syncWorkspaceDirectory = syncWorkspaceDirectory
 exports.runWorkspaceSyncNow = runWorkspaceSyncNow
 
+const { syncAcademicCalendar, runAcademicCalendarSyncNow } = require('./academicCalendarSync')
+exports.syncAcademicCalendar = syncAcademicCalendar
+exports.runAcademicCalendarSyncNow = runAcademicCalendarSyncNow
+
 const callSystem = require('./callSystem')
 exports.generatePairingCode = callSystem.generatePairingCode
 exports.claimKioskDevice = callSystem.claimKioskDevice

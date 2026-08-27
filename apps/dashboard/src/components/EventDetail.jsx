@@ -8,7 +8,8 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import { ToneChip } from './widgetUi'
 
-const TYPE_TONE = { 시험: 'danger', 휴업일: 'success', 행사: 'info' }
+// CalendarGrid.jsx도 같은 매핑을 쓴다(월 그리드의 이벤트 칩 색) — 한 곳에서만 정의한다.
+export const TYPE_TONE = { 시험: 'danger', 휴업일: 'success', 행사: 'info' }
 
 const DAY_MS = 86400000
 
@@ -39,6 +40,10 @@ export default function EventDetail({ event }) {
         <Typography variant="h6" fontWeight={800}>{event.title}</Typography>
         {dday && <ToneChip label={dday} tone={days <= 0 ? 'danger' : days <= 7 ? 'warning' : 'neutral'} />}
         {event.type && <ToneChip label={event.type} tone={TYPE_TONE[event.type] || 'neutral'} />}
+        {/* 구글 캘린더에서 가져온 일정은 여기서 못 고친다는 것을 알려준다 — 다음 날
+            동기화가 구글 쪽 내용으로 다시 덮어쓰기 때문(관리자 화면에서도 편집·삭제를
+            막아 둠, AdminAcademicCalendar.jsx). */}
+        {event.source === 'googleCalendar' && <ToneChip label="구글 캘린더" tone="neutral" />}
       </Box>
 
       <Typography color="text.secondary" fontSize="0.9rem">

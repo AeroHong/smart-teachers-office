@@ -23,7 +23,9 @@ import { alpha } from '@mui/material/styles'
  * 상태 칩의 의미별 색. 위젯이 hex 쌍을 직접 들고 있지 않도록 여기서만 팔레트를 읽는다.
  * 예: 대기 중=danger, 확인함=success, 완료·만료=neutral, 분류·안읽음=info, D-day=warning
  */
-const TONE_PALETTE = {
+// CalendarGrid.jsx도 같은 팔레트로 이벤트 칩 색을 정한다(ToneChip은 칸에 넣기엔 커서
+// 직접 이 맵을 쓴다) — 그래서 export한다.
+export const TONE_PALETTE = {
   info: theme => theme.palette.primary.main,
   danger: theme => theme.palette.error.main,
   success: theme => theme.palette.success.main,
