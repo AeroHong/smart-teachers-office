@@ -17,7 +17,7 @@
  *
  * users/{uid}.channelPrefs — 개인 설정이라 학교 데이터와 섞지 않는다. 규칙에서 본인
  * 문서는 이미 자기가 고칠 수 있으므로 firestore.rules를 건드릴 필요가 없다.
- * 나중에 채널별 알림 끄기(mute)와 읽음 마커도 같은 자리에 들어온다.
+ * 채널별 알림 끄기(mutedChannelIds)도 같은 자리에 있다. 나중에 읽음 마커도 여기 들어온다.
  */
 
 /** 섹션 이름 — 268px 사이드바 한 줄에 들어가야 한다. */
@@ -30,7 +30,7 @@ export const SECTION_MAX = 12
 export const FAVORITES_ID = '__favorites'
 export const DEFAULT_ID = '__default'
 
-const EMPTY = Object.freeze({ favorites: [], sections: [], collapsed: [] })
+const EMPTY = Object.freeze({ favorites: [], sections: [], collapsed: [], mutedChannelIds: [] })
 
 /**
  * Firestore에서 읽은 값을 안전한 모양으로 다듬는다.
@@ -43,6 +43,7 @@ export function normalizePrefs(raw) {
 
   const favorites = uniqueStrings(raw.favorites)
   const collapsed = uniqueStrings(raw.collapsed)
+  const mutedChannelIds = uniqueStrings(raw.mutedChannelIds)
 
   const seenIds = new Set()
   const sections = (Array.isArray(raw.sections) ? raw.sections : [])
@@ -56,7 +57,7 @@ export function normalizePrefs(raw) {
       channelIds: uniqueStrings(s.channelIds).filter(id => !favorites.includes(id)),
     }))
 
-  return { favorites, sections, collapsed }
+  return { favorites, sections, collapsed, mutedChannelIds }
 }
 
 /**
@@ -141,6 +142,23 @@ export function toggleFavorite(prefs, channelId) {
 
 export function isFavorite(prefs, channelId) {
   return normalizePrefs(prefs).favorites.includes(channelId)
+}
+
+/**
+ * 채널 알림 끄기(mute) 토글 — 즐겨찾기·섹션 소속과는 무관하다(알림 여부와 "어디에
+ * 보이는가"는 다른 축이라 즐겨찾기에 넣은 채널도 뮤트할 수 있어야 한다).
+ * useMentionNotifications.js가 이 목록에 있는 채널은 리스너 자체를 열지 않는다.
+ */
+export function toggleMuted(prefs, channelId) {
+  const next = normalizePrefs(prefs)
+  next.mutedChannelIds = next.mutedChannelIds.includes(channelId)
+    ? next.mutedChannelIds.filter(id => id !== channelId)
+    : [...next.mutedChannelIds, channelId]
+  return next
+}
+
+export function isMuted(prefs, channelId) {
+  return normalizePrefs(prefs).mutedChannelIds.includes(channelId)
 }
 
 /** 이 채널이 들어 있는 섹션 ID. 없으면 null. */

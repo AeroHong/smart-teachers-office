@@ -11,8 +11,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
-  createSection, groupChannels, isCollapsed, isFavorite, moveToSection, normalizePrefs,
-  removeSection, renameSection, sectionOf, toggleCollapsed, toggleFavorite, validateSectionName,
+  createSection, groupChannels, isCollapsed, isFavorite, isMuted, moveToSection, normalizePrefs,
+  removeSection, renameSection, sectionOf, toggleCollapsed, toggleFavorite, toggleMuted,
+  validateSectionName,
 } from './channelPrefs.js'
 
 const ch = (id, name = id) => ({ id, name })
@@ -26,6 +27,7 @@ test('설정이 없는 사용자도 빈 모양으로 받는다 — 화면 코드
     assert.deepEqual(p.favorites, [])
     assert.deepEqual(p.sections, [])
     assert.deepEqual(p.collapsed, [])
+    assert.deepEqual(p.mutedChannelIds, [])
   }
 })
 
@@ -135,6 +137,15 @@ test('즐겨찾기에 넣으면 섹션에서 빠진다', () => {
   const after = toggleFavorite(before, 'a')
   assert.deepEqual(after.sections[0].channelIds, ['b'])
   assert.equal(sectionOf(after, 'a'), null)
+})
+
+test('뮤트 토글은 넣고 빼기가 모두 되고, 즐겨찾기·섹션과 무관하다', () => {
+  let p = toggleFavorite({}, 'a')
+  p = toggleMuted(p, 'a')
+  assert.equal(isMuted(p, 'a'), true)
+  assert.equal(isFavorite(p, 'a'), true, '뮤트해도 즐겨찾기 소속은 그대로다')
+  p = toggleMuted(p, 'a')
+  assert.equal(isMuted(p, 'a'), false)
 })
 
 test('섹션으로 옮기면 즐겨찾기와 이전 섹션에서 빠진다', () => {

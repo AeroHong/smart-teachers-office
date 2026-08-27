@@ -34,6 +34,8 @@ import LaunchIcon from '@mui/icons-material/LaunchOutlined'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import NotificationsOffOutlinedIcon from '@mui/icons-material/NotificationsOffOutlined'
+import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import TagIcon from '@mui/icons-material/Tag'
@@ -41,8 +43,9 @@ import { dmTitle, isPrivateChannel } from '@shared/lib/channels'
 import { hasUnread } from '@shared/lib/channelMessages'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
-  createSection, groupChannels, isCollapsed, isFavorite, moveToSection,
-  removeSection, renameSection, sectionOf, toggleCollapsed, toggleFavorite, validateSectionName,
+  createSection, groupChannels, isCollapsed, isFavorite, isMuted, moveToSection,
+  removeSection, renameSection, sectionOf, toggleCollapsed, toggleFavorite, toggleMuted,
+  validateSectionName,
 } from '@shared/lib/channelPrefs'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from './sidebarUi'
 import { useToast } from './ToastProvider'
@@ -133,6 +136,12 @@ export default function ChannelSidebar({
             <TagIcon sx={{ fontSize: 15, flexShrink: 0 }} />
           )}
           <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</Box>
+          {/* 알림 끈 채널 표시(P4-D). opts.muted(보관·나간 채널 흐림)와는 다른 개념이라
+              같은 이름을 안 쓴다 — 이건 "알림을 안 받는다"는 뜻이지 채널이 흐려 보이는
+              것과는 무관하다. */}
+          {isMuted(prefs, c.id) && (
+            <NotificationsOffOutlinedIcon sx={{ fontSize: 13, flexShrink: 0, color: 'text.disabled' }} />
+          )}
         </Box>
       )}
       selected={c.id === activeChannelId}
@@ -160,6 +169,7 @@ export default function ChannelSidebar({
 
   const menuChannel = channels.find(c => c.id === rowMenu?.channelId) || null
   const menuFavorite = menuChannel ? isFavorite(prefs, menuChannel.id) : false
+  const menuMuted = menuChannel ? isMuted(prefs, menuChannel.id) : false
   const menuSectionId = menuChannel ? sectionOf(prefs, menuChannel.id) : null
   const menuSection = sections.find(s => s.id === sectionMenu?.sectionId) || null
 
@@ -327,6 +337,18 @@ export default function ChannelSidebar({
           {menuFavorite
             ? <><StarIcon sx={{ fontSize: 17, color: 'warning.main' }} />즐겨찾기 해제</>
             : <><StarBorderIcon sx={{ fontSize: 17 }} />즐겨찾기에 추가</>}
+        </MenuItem>
+
+        <MenuItem
+          sx={{ fontSize: '0.85rem', gap: 1 }}
+          onClick={() => {
+            run(p => toggleMuted(p, menuChannel.id), '알림 설정을 바꾸지 못했습니다.')
+            closeMenus()
+          }}
+        >
+          {menuMuted
+            ? <><NotificationsOutlinedIcon sx={{ fontSize: 17 }} />알림 켜기</>
+            : <><NotificationsOffOutlinedIcon sx={{ fontSize: 17 }} />알림 끄기</>}
         </MenuItem>
 
         <Divider />
