@@ -411,6 +411,48 @@ service cloud.firestore {
           allow delete: if isSchoolAdmin(schoolId) ||
             (isTeacher(schoolId) && resource.data.authorUid == request.auth.uid);
         }
+
+        // 메시지 반응(이모지 리액션) — blockReactions와 같은 패턴이다(문서 하나 =
+        // 그 메시지의 모든 반응 { '👍': [uid,...], ... }). 위 messages는
+        // allow update: if false(작성자도 못 고친다)라 반응을 메시지 필드로 못
+        // 넣는다 — 별도 서브컬렉션이 필요하다(PLAN_channels.md P4-A).
+        //
+        // 읽기 범위는 blockReactions(isTeacher)가 아니라 messages 쪽을 그대로
+        // 따른다 — 반응은 그 메시지에 딸린 것이라 메시지를 못 읽는 사람(비공개
+        // 채널 비참여자 등)이 반응만 읽을 수 있으면 안 된다.
+        match /messageReactions/{messageId} {
+          allow read: if isSuperAdmin() || isChannelMember(schoolId, channelId) ||
+            (isSchoolAdmin(schoolId) &&
+             channelData(schoolId, channelId).get('type', 'channel') == 'channel');
+
+          // 첫 반응 — 정해진 이모지 필드 딱 하나에 내 uid 하나만 담긴 문서여야 한다.
+          allow create: if isSuperAdmin() ||
+            (isChannelMember(schoolId, channelId) && (
+              request.resource.data == {'👍': [request.auth.uid]} ||
+              request.resource.data == {'😍': [request.auth.uid]} ||
+              request.resource.data == {'🎉': [request.auth.uid]} ||
+              request.resource.data == {'👏': [request.auth.uid]} ||
+              request.resource.data == {'🙌': [request.auth.uid]} ||
+              request.resource.data == {'👀': [request.auth.uid]}
+            ));
+
+          // 그 다음부터는 이모지 필드 하나에서 내 uid만 넣거나 빼는 것만 허용한다.
+          allow update: if isSuperAdmin() ||
+            (isChannelMember(schoolId, channelId) && (
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['👍']) &&
+               selfOnlyUidChange('👍')) ||
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['😍']) &&
+               selfOnlyUidChange('😍')) ||
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['🎉']) &&
+               selfOnlyUidChange('🎉')) ||
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['👏']) &&
+               selfOnlyUidChange('👏')) ||
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['🙌']) &&
+               selfOnlyUidChange('🙌')) ||
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['👀']) &&
+               selfOnlyUidChange('👀'))
+            ));
+        }
       }
 
       // ── 업무 글의 열람 범위 (2026-08-24) ──

@@ -105,6 +105,10 @@ export const COL = {
   // channelId가 경로에 고정된다. 그래야 보안 규칙이 채널 문서를 get()으로 읽어도
   // 쿼리당 한 번이면 끝난다. 의도된 비대칭이다 (channelMessages.js 참고).
   CHANNEL_MESSAGES: 'messages',
+  // channels/{id}/messageReactions/{messageId} — 메시지 반응(이모지). blockReactions와
+  // 같은 이유로 메시지 문서 자체가 아니라 서브컬렉션이다 — 메시지는 allow update:
+  // if false라 애초에 필드로 못 넣는다(firestore.rules).
+  CHANNEL_MESSAGE_REACTIONS: 'messageReactions',
 
   // 성취평가제(ASA)
   ASA_SUBJECTS: 'asaSubjects',

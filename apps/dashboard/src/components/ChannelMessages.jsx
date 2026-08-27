@@ -30,10 +30,16 @@ import { fileKind, formatBytes, uploadAttachment } from '@shared/lib/requestAtta
 import { formatDateTime } from '../lib/formatTime'
 import { useToast } from './ToastProvider'
 import useChannelMessages from '../lib/useChannelMessages'
+import useChannelMessageReactions from '../lib/useChannelMessageReactions'
 import MessageComposer from './MessageComposer'
 import { RICH_TEXT_SX } from './richTextStyles'
 import { useProfileCard } from './ProfileCardProvider'
 import PersonAvatar from './PersonAvatar'
+// 이름은 "블록" 전용처럼 보이지만 실제로는 범용 컴포넌트다(block 전용 로직 없음) —
+// 캔버스 블록 반응(Phase 3)에서 만든 걸 메시지 반응에도 그대로 재사용한다
+// (PLAN_channels.md P4). 이미 배포돼 도는 파일이라 이름은 안 바꿨다.
+import BlockReactionRow from './BlockReactionRow'
+import ReactionPicker from './ReactionPicker'
 
 /** 같은 사람이 이 시간 안에 연달아 보내면 한 덩어리로 본다. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -46,6 +52,14 @@ export default function ChannelMessages({
   const toast = useToast()
   const { open: openProfile } = useProfileCard()
   const { messages, loading, send, newMessageId } = useChannelMessages(channelId)
+  // 메시지 반응(PLAN_channels.md P4-A) — 캔버스 블록 반응과 같은 모양이다.
+  const { byMessage: reactionsByMessage, toggle: toggleReaction, uid: reactionUid } =
+    useChannelMessageReactions({ schoolId, channelId })
+  // 반응 추가 단추는 마우스를 올린 줄에서만 보인다(이미 반응이 있는 메시지는 늘 보인다).
+  const [hoveredMessageId, setHoveredMessageId] = useState(null)
+  // 이모지 고르는 팝오버 — PostDetail.jsx와 같은 이유로 hover 상태와 무관한 자리에 둔다
+  // (마우스가 움직여 hoveredMessageId가 바뀌어도 이미 연 팝오버는 안 닫혀야 한다).
+  const [reactionPicker, setReactionPicker] = useState(null) // { messageId, anchor: {top,left} }
   const [draftHtml, setDraftHtml] = useState('')
   const [sending, setSending] = useState(false)
   // 이 메시지에 실어 보낼 캔버스·파일. 각자 하나씩만 — 여러 개를 붙일 일이면 그건
@@ -145,7 +159,12 @@ export default function ChannelMessages({
             </Typography>
           )
         ) : rows.map(m => (
-          <Box key={m.id} sx={{ mb: m.grouped ? 0.2 : 1.2 }}>
+          <Box
+            key={m.id}
+            sx={{ mb: m.grouped ? 0.2 : 1.2 }}
+            onMouseEnter={() => setHoveredMessageId(m.id)}
+            onMouseLeave={() => setHoveredMessageId(null)}
+          >
             {!m.grouped && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, mb: 0.3 }}>
                 {/* 이름 글자 높이(0.82rem)의 두 배 크기 아바타(사용자 요청, 2026-08-27) —
@@ -195,9 +214,35 @@ export default function ChannelMessages({
             )}
             {hasCanvasRef(m) && <CanvasCard message={m} onOpen={onOpenCanvas} />}
             {m.attachment && <FileCard attachment={m.attachment} />}
+            {/* 그룹으로 묶인 메시지도 각자 반응 가능 — !m.grouped 제약 없음(계획서
+                "메시지 리액션은 줄마다 필요"). 이미 반응이 있으면 늘 보이고, 없으면
+                이 줄에 마우스를 올렸을 때만 "반응 추가" 단추가 뜬다. */}
+            {(reactionsByMessage[m.id] || hoveredMessageId === m.id) && (
+              <Box sx={{ mt: 0.4 }}>
+                <BlockReactionRow
+                  data={reactionsByMessage[m.id]}
+                  uid={reactionUid}
+                  onToggle={emoji => toggleReaction(m.id, emoji)}
+                  onAddClick={e => {
+                    const r = e.currentTarget.getBoundingClientRect()
+                    setReactionPicker({ messageId: m.id, anchor: { top: r.bottom + 4, left: r.left } })
+                  }}
+                />
+              </Box>
+            )}
           </Box>
         ))}
         <div ref={bottomRef} />
+        {/* 팝오버는 hoveredMessageId와 무관한 별도 상태로 연다 — 마우스가 움직여
+            반응 줄이 다시 계산돼도 이미 연 팝오버는 안 닫혀야 한다(Phase 3 버그 재발 방지). */}
+        <ReactionPicker
+          anchor={reactionPicker?.anchor}
+          onClose={() => setReactionPicker(null)}
+          onPick={emoji => {
+            if (reactionPicker) toggleReaction(reactionPicker.messageId, emoji)
+            setReactionPicker(null)
+          }}
+        />
       </Box>
 
       <Box sx={{ flexShrink: 0, borderTop: '1px solid', borderColor: 'divider', p: 1.2 }}>
