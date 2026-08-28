@@ -242,7 +242,30 @@ if (!gotLock) {
     // 데스크톱 앱에선 아무 일도 안 일어난다. 새 Electron 창을 또 띄우지 않고 OS
     // 기본 브라우저로 넘긴다 — 창 두 개를 나란히 놓고 비교해 보는 용도라 별개
     // 프로그램(브라우저)에서 여는 편이 두 창을 자유롭게 배치하기 더 쉽다.
+    //
+    // 설정(2026-08-28, "톱니바퀴 → 새 창")만 예외다. 자동실행 토글·업데이트 확인이
+    // window.smartOfficeDesktop(이 preload를 붙인 창에만 있음)을 써야 해서, 외부
+    // 브라우저로 보내면 그 기능들이 죽는다. 그래서 이 URL만 진짜 Electron 창을 하나
+    // 더 만들어(같은 preload) 로드한다.
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith(`${DASHBOARD_URL}/settings`)) {
+        const settingsWindow = new BrowserWindow({
+          width: 640,
+          height: 520,
+          resizable: false,
+          icon: ICON_PATH,
+          parent: mainWindow,
+          webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            additionalArguments: [`--app-version=${app.getVersion()}`],
+          },
+        })
+        settingsWindow.setMenuBarVisibility(false)
+        settingsWindow.loadURL(url)
+        return { action: 'deny' }
+      }
       shell.openExternal(url)
       return { action: 'deny' }
     })
@@ -303,7 +326,20 @@ if (!gotLock) {
     // 설치본에서만 자동시작을 등록한다. dev 실행(electron.exe 직접)에서 등록하면
     // 레지스트리에 인자 없는 electron.exe 경로가 박혀, 로그인할 때마다 이 앱이 아니라
     // Electron 기본 앱이 뜬다.
-    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: true })
+    //
+    // 예전엔 켤 때마다 무조건 true로 다시 썼다 — 그러면 설정(2026-08-28, "윈도우
+    // 시작시 자동실행 여부" 토글 추가)에서 꺼도 다음 실행에 도로 켜진다. 이제 "한
+    // 번도 기본값을 적용한 적 없을 때"만 켠다(userData의 마커 파일로 판정). 그 뒤로는
+    // OS(레지스트리)에 저장된 값 — 사용자가 설정에서 바꾼 값 포함 — 을 그대로 둔다.
+    // setLoginItemSettings 자체가 OS에 영구 저장하므로 이 앱이 따로 값을 들고 있을
+    // 필요는 없고, "최초 1회 적용했다"는 사실만 기억하면 된다.
+    if (app.isPackaged) {
+      const autoLaunchMarkerPath = path.join(app.getPath('userData'), 'autolaunch-default-applied')
+      if (!fs.existsSync(autoLaunchMarkerPath)) {
+        app.setLoginItemSettings({ openAtLogin: true })
+        try { fs.writeFileSync(autoLaunchMarkerPath, '1') } catch { /* 기록 실패는 무시 */ }
+      }
+    }
 
     // 대시보드 origin에서 알림 권한만 명시적으로 허용, 나머지(카메라·위치 등)는 거부.
     // 요청(requestPermission)과 조회(Notification.permission)가 서로 다른 핸들러를
@@ -346,6 +382,28 @@ if (!gotLock) {
     if (!mainWindow) return
     mainWindow.show()
     mainWindow.focus()
+  })
+
+  // 설정 화면(2026-08-28) — 자동실행 켬/끔, 수동 업데이트 확인. 자동실행은
+  // OS(레지스트리)에 그대로 저장되므로 이 앱이 따로 값을 들고 있지 않는다.
+  ipcMain.handle('get-auto-launch', () => app.getLoginItemSettings().openAtLogin)
+  ipcMain.handle('set-auto-launch', (_event, enabled) => {
+    app.setLoginItemSettings({ openAtLogin: !!enabled })
+  })
+  // electron-updater는 싱글턴이라 setupAutoUpdater()가 이미 require해 둔 것과 같은
+  // 인스턴스를 돌려받는다 — 리스너(update-available 등)도 그대로 공유한다.
+  ipcMain.handle('check-for-updates', async () => {
+    try {
+      const { autoUpdater } = require('electron-updater')
+      const result = await autoUpdater.checkForUpdates()
+      return {
+        ok: true,
+        currentVersion: app.getVersion(),
+        latestVersion: result?.updateInfo?.version || null,
+      }
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) }
+    }
   })
 
   // 알림 표시는 렌더러의 웹 Notification이 아니라 메인 프로세스가 맡는다.

@@ -18,6 +18,7 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import PeopleIcon from '@mui/icons-material/Groups'
 import DevicesIcon from '@mui/icons-material/DevicesOther'
 import LaunchIcon from '@mui/icons-material/Launch'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { isDoneBy } from '@shared/lib/workRequests'
@@ -159,6 +160,17 @@ export default function AppRail() {
       <Box sx={{ flexGrow: 1 }} />
 
       <RailButton icon={LaunchIcon} label="포털" href={portalLink('/')} />
+      {/* 설정 — 새 창으로 연다(2026-08-28, 사용자 요청). 일반 <a target=_blank>(href
+          모드)는 못 쓴다 — 데스크톱 앱에서 그 클릭은 항상 main.js의
+          setWindowOpenHandler를 거쳐 외부 브라우저로만 나가는데, 설정 화면은
+          window.smartOfficeDesktop(자동실행·업데이트 확인)이 필요해서 그 핸들러 안에서
+          "/settings"만 따로 걸러 진짜 Electron 창으로 띄운다 — 그러려면 여기서도
+          window.open()으로 열어야 그 분기를 탄다. 일반 브라우저에서는 그냥 새 탭. */}
+      <RailButton
+        icon={SettingsOutlinedIcon}
+        label="설정"
+        onClick={() => window.open('/settings', '_blank', 'noopener')}
+      />
       {/* 내 프로필 사진 — 누르면 그 자리에서 카드가 뜬다(ProfileCardProvider, Slack처럼
           "내 사진을 누르면 나"). /members로 그냥 이동만 시켰더니 "편집할 데가 없다"는
           지적을 받았다(2026-08-27) — 카드 자체에서 사진을 바로 바꿀 수 있다. */}

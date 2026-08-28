@@ -45,4 +45,10 @@ contextBridge.exposeInMainWorld('smartOfficeDesktop', {
     ipcRenderer.on('presence-status', listener)
     return () => ipcRenderer.removeListener('presence-status', listener)
   },
+
+  // 설정 화면(Settings.jsx, 2026-08-28)이 쓴다. 자동실행은 OS(레지스트리)에 저장된
+  // 값을 그대로 읽고 쓴다 — 이 앱은 값을 따로 안 들고 있는다.
+  getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
+  setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', enabled),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 })

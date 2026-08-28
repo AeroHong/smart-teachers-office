@@ -17,6 +17,7 @@ import PostRedirect from './pages/PostRedirect'
 import Messages from './pages/Messages'
 import Coverage from './pages/Coverage'
 import Members from './pages/Members'
+import Settings from './pages/Settings'
 import AdminDesktop from './pages/AdminDesktop'
 import RedirectToPortal from './pages/RedirectToPortal'
 
@@ -89,6 +90,9 @@ export default function App() {
           <Route path="/cover/status" element={<ProtectedRoute anyUser><Coverage /></ProtectedRoute>} />
           {/* 구성원 — 오른쪽 칸이 상세 영역이 되면서 명단을 별도 탭으로 옮겼다 */}
           <Route path="/members" element={<ProtectedRoute anyUser><Members /></ProtectedRoute>} />
+          {/* 설정 — 1단 톱니바퀴가 새 창으로 여는 화면(2026-08-28). WorkspaceLayout 없이
+              독자적인 작은 레이아웃을 쓴다(Settings.jsx 참고). */}
+          <Route path="/settings" element={<ProtectedRoute anyUser><Settings /></ProtectedRoute>} />
           {/* 구 경로 — 관리자 업무 현황은 업무 요청 목록의 '전체'로 통합됐다 */}
           {/* 데스크톱 설치 현황 — 배포·지원용이라 관리자만 본다 */}
           <Route path="/admin/desktop" element={<ProtectedRoute adminOnly><AdminDesktop /></ProtectedRoute>} />
