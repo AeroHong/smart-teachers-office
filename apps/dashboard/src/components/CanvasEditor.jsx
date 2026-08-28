@@ -172,7 +172,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   canvasOptions = [], placeholder,
   title, onTitleChange, titlePlaceholder = '제목',
   onOpenBlockComments,
-  coverImageUrl, onCoverChange, onCoverRemove,
+  coverImageUrl, coverImagePosition = 50, onCoverChange, onCoverRemove, onCoverPositionChange,
 }, ref) {
   const { schoolId } = useAuth()
   const toast = useToast()
@@ -181,6 +181,12 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const docFileInputRef = useRef(null)  // "+파일" — 무슨 형식이든 받는다
   // 표지 고르기 팝오버(CoverPicker.jsx) — 라이브러리/업로드는 그 안에서 처리한다.
   const [coverPickerAnchor, setCoverPickerAnchor] = useState(null)
+  // 표지 세로 위치 조정(2026-08-28, "위 아래로 옮기면서 조정") — repositioning이 켜져
+  // 있는 동안만 이미지를 드래그할 수 있다. dragPosition은 드래그 중 실시간 미리보기값,
+  // 손을 떼면 null로 돌아가고 최종값만 onCoverPositionChange로 커밋된다.
+  const [repositioning, setRepositioning] = useState(false)
+  const [dragPosition, setDragPosition] = useState(null)
+  const coverImgRef = useRef(null)
   const [uploading, setUploading] = useState(0)
   const [colorAnchor, setColorAnchor] = useState(null)
   // 크기를 조절하려고 고른 이미지. 손잡이는 이 값이 있을 때만 그린다.
@@ -235,6 +241,41 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
   }), [])
+
+  /**
+   * 표지 세로 위치 조정 — 표 안 행·열 드래그(startRowDrag/startColDrag)와 같은 패턴
+   * (로컬 변수로 최신값을 들고 있다가 pointerup에서 커밋, 클로저 스테일 문제 없음).
+   *
+   * object-position의 Y%는 0=이미지 위쪽이 보임, 100=아래쪽이 보임, 50=가운데. 드래그
+   * 픽셀→퍼센트 변환에는 이미지의 실제 렌더 크기가 필요하다 — 가로를 꽉 채우도록
+   * 스케일했을 때 세로로 얼마나 넘치는지(overflowPx)가 곧 조정 가능한 범위다.
+   */
+  const startCoverReposition = (e) => {
+    e.preventDefault()
+    const img = coverImgRef.current
+    const container = img?.parentElement
+    if (!img || !container || !img.naturalWidth) return
+    const rect = container.getBoundingClientRect()
+    const scaledHeight = rect.width * (img.naturalHeight / img.naturalWidth)
+    const overflow = Math.max(1, scaledHeight - rect.height)
+    const startY = e.clientY
+    const startPosition = coverImagePosition
+    let latest = startPosition
+
+    const onMove = (ev) => {
+      const dy = startY - ev.clientY   // 위로 끌수록 양수 → 이미지의 더 아래쪽이 보이게
+      latest = Math.min(100, Math.max(0, startPosition + (dy / overflow) * 100))
+      setDragPosition(latest)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setDragPosition(null)
+      onCoverPositionChange?.(Math.round(latest))
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
 
   /**
    * 목차를 다시 읽는다. 저장된 값이 아니라 **지금 화면의 DOM**에서 뽑는다 — 목차는 편집
@@ -1490,8 +1531,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
 
           표지는 노션의 빈 커버 자리와 같은 방식 — 평소엔 안 보이다가 마우스를 올리면
           "+표지 추가"가 옅게 나타난다. 올린 뒤에는 200px 배너로 꽉 채우고, 오버할 때만
-          우측 하단에 "바꾸기"/"삭제"가 뜬다(2026-08-27, PLAN_canvasEditor.md Phase 4).
-          크롭·초점 이동은 이번 범위 밖 — objectFit:'cover'로 가운데를 고정해 채운다.
+          우측 하단에 "바꾸기"/"삭제"/"위치 조정"이 뜬다(2026-08-27, PLAN_canvasEditor.md
+          Phase 4). objectFit:'cover'로 가로는 항상 꽉 채우되, 세로 위치(object-position)는
+          "위치 조정" 버튼을 누른 뒤 이미지를 위아래로 끌어 바꿀 수 있다(2026-08-28, 사용자
+          요청 — "높이가 너무 높은 이미지는 실제 보이는 부분을 옮기며 조정").
 
           클릭하면 직접 업로드 대신 CoverPicker(라이브러리·업로드 탭) 팝오버가 뜬다
           (2026-08-28, 사용자 요청 — Google Sites 표지 고르기 참고). */}
@@ -1502,27 +1545,53 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             '&:hover .cover-actions': { opacity: 1 },
           }}>
             <Box
+              ref={coverImgRef}
               component="img" src={coverImageUrl} alt="표지"
-              sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              onPointerDown={repositioning ? startCoverReposition : undefined}
+              sx={{
+                width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+                objectPosition: `center ${dragPosition ?? coverImagePosition}%`,
+                cursor: repositioning ? 'ns-resize' : 'default',
+                userSelect: 'none',
+              }}
             />
             <Box className="cover-actions" sx={{
               position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 0.5,
-              opacity: 0, transition: 'opacity .12s ease',
+              opacity: repositioning ? 1 : 0, transition: 'opacity .12s ease',
             }}>
-              <Button
-                size="small" variant="contained" disableElevation
-                onClick={e => setCoverPickerAnchor(e.currentTarget)}
-                sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
-              >
-                바꾸기
-              </Button>
-              <Button
-                size="small" variant="contained" disableElevation
-                onClick={() => onCoverRemove?.()}
-                sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
-              >
-                삭제
-              </Button>
+              {repositioning ? (
+                <Button
+                  size="small" variant="contained" disableElevation
+                  onClick={() => setRepositioning(false)}
+                  sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                >
+                  완료
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    size="small" variant="contained" disableElevation
+                    onClick={() => setRepositioning(true)}
+                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                  >
+                    위치 조정
+                  </Button>
+                  <Button
+                    size="small" variant="contained" disableElevation
+                    onClick={e => setCoverPickerAnchor(e.currentTarget)}
+                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                  >
+                    바꾸기
+                  </Button>
+                  <Button
+                    size="small" variant="contained" disableElevation
+                    onClick={() => onCoverRemove?.()}
+                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                  >
+                    삭제
+                  </Button>
+                </>
+              )}
             </Box>
           </Box>
         ) : (

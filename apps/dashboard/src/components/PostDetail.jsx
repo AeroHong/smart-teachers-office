@@ -172,7 +172,10 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
         {request.coverImageUrl && (
           <Box
             component="img" src={request.coverImageUrl} alt="표지"
-            sx={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 1, mb: 1.5, display: 'block' }}
+            sx={{
+              width: '100%', height: 200, objectFit: 'cover', borderRadius: 1, mb: 1.5, display: 'block',
+              objectPosition: `center ${request.coverImagePosition ?? 50}%`,
+            }}
           />
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>

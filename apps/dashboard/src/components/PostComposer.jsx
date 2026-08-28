@@ -143,6 +143,7 @@ export default function PostComposer({
   const [links, setLinks] = useState([])
   const [coverImageUrl, setCoverImageUrl] = useState(null)
   const [coverImagePath, setCoverImagePath] = useState(null)
+  const [coverImagePosition, setCoverImagePosition] = useState(50)   // 세로 위치 %, 기본 가운데
   const [loadingPost, setLoadingPost] = useState(!!editingId)
   // 실제 Firestore 문서가 이미 만들어졌는가. 고치기는 처음부터 true, 새 글은 첫 자동저장이
   // 만든 순간 true가 된다 — 그 전까지는 완전히 로컬 상태다.
@@ -189,6 +190,7 @@ export default function PostComposer({
       setLinks([])
       setCoverImageUrl(null)
       setCoverImagePath(null)
+      setCoverImagePosition(50)
       setCompletedUids([])
       keptFiles.current = new Set()
       keptCoverPathRef.current = null
@@ -224,6 +226,7 @@ export default function PostComposer({
         setLinks(post.links || [])
         setCoverImageUrl(post.coverImageUrl || null)
         setCoverImagePath(post.coverImagePath || null)
+        setCoverImagePosition(post.coverImagePosition ?? 50)
         setCompletedUids(post.completedUids || [])
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
         keptCoverPathRef.current = post.coverImagePath || null
@@ -275,14 +278,18 @@ export default function PostComposer({
     const prevPath = coverImagePath
     setCoverImageUrl(uploaded.url)
     setCoverImagePath(uploaded.path)
+    setCoverImagePosition(50)   // 새 이미지는 위치 조정값이 안 딸려온다 — 가운데부터 다시
     if (!editingId && prevPath) deleteAttachment({ path: prevPath }).catch(() => {})
   }
   const removeCover = () => {
     const prevPath = coverImagePath
     setCoverImageUrl(null)
     setCoverImagePath(null)
+    setCoverImagePosition(50)
     if (!editingId && prevPath) deleteAttachment({ path: prevPath }).catch(() => {})
   }
+  // 위치만 바뀐다 — 파일은 그대로라 삭제 판단이 필요 없다.
+  const repositionCover = (position) => setCoverImagePosition(position)
 
   /**
    * "지금 이 순간 저장한다면"을 매 렌더 다시 만들어 둔다 — 디바운스 타이머와 언마운트
@@ -312,6 +319,7 @@ export default function PostComposer({
         links,
         coverImageUrl,
         coverImagePath,
+        coverImagePosition,
         targetRule: rule,
         targetRuleText: describeRule(rule),
         targets,
@@ -345,6 +353,7 @@ export default function PostComposer({
             links: payload.links,
             coverImageUrl: payload.coverImageUrl,
             coverImagePath: payload.coverImagePath,
+            coverImagePosition: payload.coverImagePosition,
             targetRule: payload.targetRule,
             targetRuleText: payload.targetRuleText,
             targetUids: payload.targetUids,
@@ -389,7 +398,7 @@ export default function PostComposer({
     const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, attachments, coverImageUrl, coverImagePath, targets, loadingPost])
+  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, attachments, coverImageUrl, coverImagePath, coverImagePosition, targets, loadingPost])
 
   // 화면을 완전히 떠날 때(다른 채널·다른 탭으로 이동해 이 컴포넌트가 사라질 때)만 도는
   // 정리 함수. 위 디바운스가 아직 안 끝났어도 마지막 상태를 한 번 더 조용히 저장한다.
@@ -558,8 +567,10 @@ export default function PostComposer({
           onTitleChange={setTitle}
           onOpenBlockComments={blockId => onOpenBlockComments?.({ requestId, blockId })}
           coverImageUrl={coverImageUrl}
+          coverImagePosition={coverImagePosition}
           onCoverChange={changeCover}
           onCoverRemove={removeCover}
+          onCoverPositionChange={repositionCover}
         />
       </Box>
 
