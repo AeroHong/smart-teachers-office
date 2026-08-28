@@ -4,6 +4,7 @@ import ToastProvider from './components/ToastProvider'
 import ProfileCardProvider from './components/ProfileCardProvider'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
+import OnboardingTour from './components/OnboardingTour'
 import DesktopNotifications from './components/DesktopNotifications'
 import MentionNotifications from './components/MentionNotifications'
 import DesktopPresence from './components/DesktopPresence'
@@ -30,6 +31,8 @@ export default function App() {
       <ProfileCardProvider>
         {/* Cmd/Ctrl+K — 어느 화면에서든 뜨도록 라우트 바깥에 둔다 */}
         <CommandPalette />
+        {/* 첫 사용자 온보딩(2026-08-29) — 로그인 후 처음 한 번, 핵심 화면을 짧게 훑어준다 */}
+        <OnboardingTour />
         {/* Electron 트레이 알림 — window.smartOfficeDesktop 없으면 완전히 no-op */}
         <DesktopNotifications />
         {/* 멘션(@사람·@전체) 알림 — 같은 트레이 파이프라인, 채널 메시지만 따로 감시(P4-C) */}

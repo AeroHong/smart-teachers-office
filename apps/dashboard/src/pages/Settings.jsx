@@ -21,6 +21,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import { useToast } from '../components/ToastProvider'
+import { openOnboarding } from '../components/OnboardingTour'
 
 const isDesktop = typeof window !== 'undefined' && !!window.smartOfficeDesktop
 
@@ -169,6 +170,9 @@ function AboutTab() {
       ) : (
         <DesktopOnlyNote />
       )}
+      <Button size="small" onClick={openOnboarding} sx={{ display: 'block', mt: 2 }}>
+        소개 다시 보기
+      </Button>
     </Box>
   )
 }
