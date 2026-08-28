@@ -20,6 +20,16 @@
  * 기존 `members`를 그대로 써도 된다 — 최악의 경우 숫자가 며칠 묵어도 되돌릴 수 있지만,
  * 잘못된 명단이 한 번 써지면 "왜 내가 빠졌지"를 스스로는 알아챌 방법이 없다(그 채널이
  * 본인 사이드바에서 통째로 사라지기 때문).
+ *
+ * ── `refreshAllSchoolMembers()` — 이 훅의 모든 인스턴스를 한 번에 새로고침 ──────
+ *
+ * 이 훅은 화면마다(ChannelSidebar.jsx, Channels.jsx, Members.jsx, ProfileCardProvider.jsx …)
+ * 따로따로 호출되고 각자 자기만의 members state를 갖는다 — 한 곳에서 refetch()해도
+ * 다른 화면은 그대로 옛 값이다. 내 프로필 사진을 바꾸면(useMyAvatar.js) 채널 메시지
+ * 목록의 내 아바타도 바뀐 걸 보고 싶은데, 새로고침 없인 그쪽 인스턴스가 안 바뀌었다
+ * (사용자 지적, 2026-08-29). window 이벤트로 "지금 켜져 있는 모든 인스턴스, 다시
+ * 읽어라"를 방송한다 — 페이지 전체를 새로고침하는 것보다 가볍고, 스크롤·입력 중이던
+ * 것도 안 끊는다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { collection, getDocs, query, where } from 'firebase/firestore'
@@ -29,6 +39,12 @@ import { COL, USERS, schoolPath, currentYearSemester } from '@shared/lib/schema'
 import { buildTargetMembers } from '@shared/lib/targeting'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const REFRESH_EVENT = 'smart-office-refresh-members'
+
+/** 내 프로필 사진처럼, 명단에 영향을 주는 걸 바꾼 직후 부른다. */
+export function refreshAllSchoolMembers() {
+  window.dispatchEvent(new Event(REFRESH_EVENT))
+}
 
 export default function useSchoolMembers() {
   const { schoolId } = useAuth()
@@ -89,6 +105,13 @@ export default function useSchoolMembers() {
     setMembers(next)
     return next
   }, [fetchMembers])
+
+  // refreshAllSchoolMembers()가 쏘는 방송을 받아 이 인스턴스도 같이 새로고침한다.
+  useEffect(() => {
+    const handler = () => { refetch().catch(() => {}) }
+    window.addEventListener(REFRESH_EVENT, handler)
+    return () => window.removeEventListener(REFRESH_EVENT, handler)
+  }, [refetch])
 
   return { members, loading, error, refetch }
 }
