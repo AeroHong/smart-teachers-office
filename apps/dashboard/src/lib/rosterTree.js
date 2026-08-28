@@ -25,9 +25,12 @@ export function nodeId(rootKey, groupName) {
 
 /**
  * @param {Array} members [{ uid, name, office, subject, department }]
+ * @param {Object} [groupOrder] { office: [...이름 순서], subject: [...], department: [...] } —
+ *   관리자가 표시 순서 탭(AdminRosterOrder.jsx)에서 정한 순서(schools/{schoolId}
+ *   문서의 rosterGroupOrder 필드). 안 넘기면 지금처럼 전부 가나다순.
  * @returns {Array} [{ key, label, groups: [{ name, id, members }] }]
  */
-export function buildRosterTree(members) {
+export function buildRosterTree(members, groupOrder = {}) {
   return ROOT_GROUPS.map(root => {
     const byGroup = new Map()
     members.forEach(m => {
@@ -36,15 +39,24 @@ export function buildRosterTree(members) {
       byGroup.get(name).push(m)
     })
 
+    const order = groupOrder[root.key] || []
+    const orderIndex = new Map(order.map((name, i) => [name, i]))
+
     const groups = [...byGroup.entries()]
       .map(([name, list]) => ({
         name,
         id: nodeId(root.key, name),
         members: [...list].sort(byName),
       }))
-      // '미지정'은 항상 맨 아래로 — 이름순으로 섞이면 목록 중간에 끼어 눈에 걸린다
+      // '미지정'은 관리자가 정한 순서와 무관하게 항상 맨 아래 — 실제 조직 단위가
+      // 아니라 소속 미입력을 모아두는 자리라 순서를 매길 대상이 아니다.
+      // 순서가 지정된 이름들은 그 순서대로, 아직 순서가 없는 새 이름은 뒤에
+      // 가나다순으로 붙는다(관리자가 나중에 옮기면 된다).
       .sort((a, b) => {
         if ((a.name === UNASSIGNED) !== (b.name === UNASSIGNED)) return a.name === UNASSIGNED ? 1 : -1
+        const ia = orderIndex.has(a.name) ? orderIndex.get(a.name) : Infinity
+        const ib = orderIndex.has(b.name) ? orderIndex.get(b.name) : Infinity
+        if (ia !== ib) return ia - ib
         return a.name.localeCompare(b.name, 'ko')
       })
 

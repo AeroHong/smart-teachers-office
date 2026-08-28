@@ -25,7 +25,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import SendIcon from '@mui/icons-material/Send'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { USERS } from '@shared/lib/schema'
+import { SCHOOLS, USERS } from '@shared/lib/schema'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
 import NoticeComposeModal from '../components/NoticeComposeModal'
@@ -36,7 +36,7 @@ import useMyAvatar from '../lib/useMyAvatar'
 import { ROOT_GROUPS, buildRosterTree, defaultExpanded, memberSubtitle, nodeId, searchMembers } from '../lib/rosterTree'
 
 export default function Members() {
-  const { user } = useAuth()
+  const { user, schoolId } = useAuth()
   const { members, loading, refetch } = useSchoolMembers()
   const [expanded, setExpanded] = useState(null)
   const [keyword, setKeyword] = useState('')
@@ -45,6 +45,10 @@ export default function Members() {
   // 여러 명 고르기 — 켜면 이름을 눌러도 상세로 가지 않고 담긴다
   const [picking, setPicking] = useState(false)
   const [picked, setPicked] = useState([])   // [{ uid, name }]
+  // 사무실/교과/부서 표시 순서 — 관리자가 포털 "표시 순서" 탭(AdminRosterOrder.jsx)
+  // 에서 정해 schools/{schoolId} 문서에 저장한 값. 자주 안 바뀌는 조직 설정이라
+  // rosterExpanded처럼 한 번만 읽는다.
+  const [groupOrder, setGroupOrder] = useState({})
 
   // 저장된 펼침 상태가 있으면 그대로, 없으면 '사무실 > 내 사무실'만 편다.
   //
@@ -67,7 +71,16 @@ export default function Members() {
     return () => { alive = false }
   }, [user, members, expanded])
 
-  const tree = useMemo(() => buildRosterTree(members), [members])
+  useEffect(() => {
+    if (!schoolId) return
+    let alive = true
+    getDoc(doc(db, SCHOOLS, schoolId))
+      .then(snap => { if (alive) setGroupOrder(snap.data()?.rosterGroupOrder || {}) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [schoolId])
+
+  const tree = useMemo(() => buildRosterTree(members, groupOrder), [members, groupOrder])
   const results = useMemo(() => searchMembers(members, keyword), [members, keyword])
   const searching = keyword.trim().length > 0
 
