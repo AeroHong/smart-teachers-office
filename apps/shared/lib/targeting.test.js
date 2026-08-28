@@ -20,7 +20,7 @@ const users = [
 ]
 
 const assignments = [
-  { uid: 'u1', office: '1교무실', department: '교무부', subject: '국어', positionLabel: '부장교사', isHomeroom: true, homeroomGrade: 2 },
+  { uid: 'u1', office: '1교무실', department: '교무부', subject: '국어', positionLabel: '부장교사', isHomeroom: true, homeroomGrade: 2, duty: ' 교육과정 ', extension: ' 1234 ' },
   { uid: 'u2', office: '1교무실', department: '연구부', subject: '수학', positionLabel: '', isHomeroom: true, homeroomGrade: 2 },
   { uid: 'u3', office: '2교무실', department: '교무부', subject: '영어', positionLabel: '', isHomeroom: false },
   { uid: 'u4', office: '2교무실', department: '연구부', subject: '과학', positionLabel: '', isHomeroom: false },
@@ -45,6 +45,14 @@ test('수업 학년은 teacherSubjects에서 중복 없이 뽑힌다', () => {
   assert.deepEqual(byUid.u2.teachingGrades, [2, 3])
   assert.deepEqual(byUid.u5.teachingGrades, [1, 2])  // 같은 과목 두 학년 → 중복 제거
   assert.deepEqual(byUid.u6.teachingGrades, [])      // 수업 없음
+})
+
+test('업무·내선번호는 앞뒤 공백을 잘라 담고, 없으면 빈 문자열이다', () => {
+  const byUid = Object.fromEntries(members.map(m => [m.uid, m]))
+  assert.equal(byUid.u1.duty, '교육과정')
+  assert.equal(byUid.u1.extension, '1234')
+  assert.equal(byUid.u6.duty, '')
+  assert.equal(byUid.u6.extension, '')
 })
 
 test('조건이 없으면 전체 교직원이 대상이고 경고가 붙는다', () => {

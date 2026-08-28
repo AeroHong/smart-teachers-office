@@ -152,7 +152,7 @@ export default function Members() {
           : results.map(m => (
             <SidebarItem
               key={m.uid}
-              label={m.name}
+              label={memberLabel(m)}
               avatar={<PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />}
               selected={!picking && selected?.uid === m.uid}
               onClick={() => onMemberClick(m)}
@@ -165,6 +165,15 @@ export default function Members() {
           label={root.label}
           open={isOpen(root.id)}
           onToggle={() => toggle(root.id)}
+          action={picking ? (
+            <Button
+              size="small"
+              onClick={() => toggleGroup(root.groups.flatMap(g => g.members))}
+              sx={{ fontSize: '0.7rem', minWidth: 0, px: 0.6, py: 0 }}
+            >
+              {root.groups.every(g => g.members.every(m => isPicked(m.uid))) ? '전체 해제' : '전체 선택'}
+            </Button>
+          ) : null}
         >
           {root.groups.map(g => (
             <SidebarSection
@@ -186,7 +195,7 @@ export default function Members() {
               {g.members.map(m => (
                 <SidebarItem
                   key={`${g.id}:${m.uid}`}
-                  label={m.name}
+                  label={memberLabel(m)}
                   avatar={<PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />}
                   indent={1.2}
                   selected={!picking && selected?.uid === m.uid}
@@ -243,6 +252,8 @@ export default function Members() {
             <Field label="사무실" value={selected.office} />
             <Field label="교과" value={selected.subject} />
             <Field label="부서" value={selected.department} />
+            <Field label="업무" value={selected.duty} />
+            <Field label="내선번호" value={selected.extension} />
             <Field
               label="담임"
               value={selected.isHomeroom
@@ -279,6 +290,17 @@ export default function Members() {
       />
     </WorkspaceLayout>
   )
+}
+
+/**
+ * 목록 줄 표시 — "이름(내선번호/업무)" (사용자 요청, 2026-08-29). 사무실별 자리 배치도
+ * 사람마다 갖고 있고, 걸려온 전화를 옆 사람이 대신 받아줄 때 특히 유용해서 이름 옆에
+ * 바로 보이게 한다. 이 형식은 구성원 페이지에서만 쓴다 — 메시지 작성자 표시 등
+ * 다른 화면은 그대로 이름만 보여준다.
+ */
+function memberLabel(m) {
+  const parts = [m.extension, m.duty].filter(Boolean)
+  return parts.length ? `${m.name}(${parts.join('/')})` : m.name
 }
 
 function Field({ label, value }) {

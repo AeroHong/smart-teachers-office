@@ -91,6 +91,9 @@ export function buildTargetMembers({ users = [], assignments = [], teacherSubjec
       homeroomGrade: a.homeroomGrade ?? null,
       homeroomClassNo: a.homeroomClassNo ?? null,
       teachingGrades,
+      // 구성원 페이지 표시용(사용자 요청, 2026-08-29) — 조건 판정에는 안 쓰인다.
+      duty: (a.duty || '').trim(),
+      extension: (a.extension || '').trim(),
     }
   })
 }

@@ -170,6 +170,8 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
       homeroomClassNo: a.homeroomClassNo || '',
       office: a.office || '',
       positionLabel: a.positionLabel || '',
+      duty: a.duty || '',
+      extension: a.extension || '',
     })
   }
 
@@ -408,6 +410,8 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                 <th style={table.th}>담당 교과</th>
                 <th style={table.th}>담임</th>
                 <th style={table.th}>사무실</th>
+                <th style={table.th}>업무</th>
+                <th style={table.th}>내선번호</th>
                 <th style={table.th}>수정</th>
               </tr>
             </thead>
@@ -439,6 +443,8 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                     <td style={table.td}>{a?.subject || '—'}</td>
                     <td style={table.td}>{a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}</td>
                     <td style={table.td}>{a?.office || '—'}</td>
+                    <td style={table.td}>{a?.duty || '—'}</td>
+                    <td style={table.td}>{a?.extension || '—'}</td>
                     <td style={table.td}>
                       <RowActions>
                         <EditAction
@@ -599,6 +605,21 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
               placeholder="예: 교무실"
               fullWidth
               helperText="실제 자리 배치(좌석 위치)는 공간 관리 탭에서 별도로 관리합니다"
+            />
+            <TextField
+              label="업무"
+              value={editingAssignment?.duty || ''}
+              onChange={e => setEditingAssignment(prev => ({ ...prev, duty: e.target.value }))}
+              placeholder="예: 교육과정"
+              fullWidth
+              helperText="구성원 페이지에 이름 옆 괄호로 표시됩니다"
+            />
+            <TextField
+              label="내선번호"
+              value={editingAssignment?.extension || ''}
+              onChange={e => setEditingAssignment(prev => ({ ...prev, extension: e.target.value }))}
+              placeholder="예: 1234"
+              fullWidth
             />
           </Box>
         </DialogContent>
