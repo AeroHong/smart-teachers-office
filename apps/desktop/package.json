@@ -1,13 +1,14 @@
 {
   "name": "smart-office-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "선유고 스마트교무실 — 대시보드 데스크톱 트레이 앱",
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
     "dist": "electron-builder",
-    "release": "electron-builder && node scripts/copy-release.js"
+    "release": "electron-builder && node scripts/copy-release.js",
+    "release:signed": "powershell -ExecutionPolicy Bypass -File scripts/release-signed.ps1"
   },
   "build": {
     "appId": "kr.seonyoo.smartoffice",
