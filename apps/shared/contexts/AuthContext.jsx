@@ -329,6 +329,11 @@ export function AuthProvider({ children }) {
       isPrincipal: role === 'principal',
       loading, needsSchoolSetup,
       login, logout, completeSchoolSetup,
+      // photoURL은 로그인 시점에 한 번 읽은 값이라, 로그인한 채로 내 사진을 바꾸면
+      // (useMyAvatar.js) 이 값이 저절로 안 바뀐다 — AppRail의 내 아바타가
+      // useAuth().photoURL을 직접 쓰는데 새로고침 전까진 예전 사진 그대로였다
+      // (사용자 지적, 2026-08-29). 사진을 바꾼 쪽이 직접 이 자리를 갱신하라고 내준다.
+      setPhotoURL,
     }}>
       {children}
     </AuthContext.Provider>

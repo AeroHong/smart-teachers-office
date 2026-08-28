@@ -16,7 +16,7 @@ import { useToast } from '../components/ToastProvider'
 /** @param {() => void} [onChanged] 저장 성공 뒤 부르는 콜백 — 호출부가 들고 있는
  *  구성원 목록(useSchoolMembers는 한 번만 읽으므로)을 다시 읽어야 화면에 반영된다. */
 export default function useMyAvatar({ onChanged } = {}) {
-  const { user, schoolId } = useAuth()
+  const { user, schoolId, setPhotoURL } = useAuth()
   const toast = useToast()
   const [uploading, setUploading] = useState(false)
 
@@ -24,6 +24,10 @@ export default function useMyAvatar({ onChanged } = {}) {
     if (!user) return
     try {
       await updateDoc(doc(db, USERS, user.uid), patch)
+      // AuthContext의 photoURL은 로그인 시점에 한 번 읽은 값이라 여기서 직접 갱신해야
+      // AppRail의 내 아바타(useAuth().photoURL을 그대로 씀)에도 바로 반영된다
+      // (사용자 지적, 2026-08-29 — "왼쪽 하단 사용자 아이콘 변경 안됨").
+      if ('photoURL' in patch) setPhotoURL(patch.photoURL)
       await onChanged?.()
     } catch (e) {
       toast.error('사진을 바꾸지 못했습니다.', e)

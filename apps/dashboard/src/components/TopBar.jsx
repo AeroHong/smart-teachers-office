@@ -60,7 +60,7 @@ export default function TopBar() {
       sx={{
         flexShrink: 0, display: 'grid',
         gridTemplateColumns: `${SIDE_COLUMN_WIDTH}px 1fr ${SIDE_COLUMN_WIDTH}px`,
-        alignItems: 'center', gap: 1, px: 1.5, py: 1,
+        alignItems: 'center', gap: 1, px: 1.5, py: 0.75,
         bgcolor: 'rail.bg',
         // 데스크톱 앱은 OS 기본 제목줄을 없앴다(apps/desktop/main.js의 titleBarOverlay) —
         // 그러면서 "잡아서 창을 옮기는" 영역도 같이 사라져서, 이 바의 빈 공간이 그
@@ -79,7 +79,7 @@ export default function TopBar() {
         onClick={openCommandPalette}
         sx={{
           display: 'flex', alignItems: 'center', gap: 0.8,
-          width: '100%', maxWidth: 560, mx: 'auto', px: 1.3, py: 0.62,
+          width: '100%', maxWidth: 560, mx: 'auto', px: 1.3, py: 0.4,
           border: '1px solid', borderColor: 'divider', borderRadius: 0.75,
           bgcolor: 'background.paper', cursor: 'pointer', color: 'text.secondary',
           '&:hover': { borderColor: 'text.disabled' },
@@ -97,14 +97,20 @@ export default function TopBar() {
       <ThemeProvider theme={darkGroupTheme}>
         <Box sx={{
           display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1,
-          WebkitAppRegion: 'no-drag',
+          // 예전엔 이 칸 전체를 no-drag로 막아서, 실제 버튼들 사이·왼쪽의 빈 공간까지
+          // 창 이동이 안 먹혔다(사용자 지적, 2026-08-29 — "오른쪽 빈 영역에서는 드래그가
+          // 안 됨"). 이제 칸 자체는 드래그 영역으로 두고, 실제로 누를 것들에만
+          // no-drag를 붙인다(아래 각 항목).
           // Windows가 titleBarOverlay로 최소화·최대화·닫기 버튼을 창 오른쪽 위에 겹쳐
           // 그린다 — 우리 내용이 그 자리를 먼저 차지하면 버튼과 겹친다. main.js에서 준
           // titleBarOverlay 폭만큼 오른쪽에 자리를 비워 둔다.
           pr: '138px',
         }}>
-          {/* 호출은 지금 학생이 기다린다는 신호라 어느 화면에 있든 눈에 들어와야 한다 */}
-          <CallBell />
+          {/* 호출은 지금 학생이 기다린다는 신호라 어느 화면에 있든 눈에 들어와야 한다.
+              CallBell.jsx 자체엔 no-drag가 없어 여기서 감싼다. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', WebkitAppRegion: 'no-drag' }}>
+            <CallBell />
+          </Box>
           {/* 내 이름 — 눌러서 프로필 카드를 연다(사용자 지적, 2026-08-27: "이름 아이콘을
               눌러도 프로필로 안넘어감" — AppRail의 아바타만 연결해 두고 이 자리는
               빠뜨렸었다). */}
@@ -126,7 +132,7 @@ export default function TopBar() {
             disabled={saving}
             onClick={e => setAnchor(e.currentTarget)}
             endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
-            sx={{ color: p.color, fontWeight: 700, fontSize: '0.85rem', px: 1, whiteSpace: 'nowrap' }}
+            sx={{ color: p.color, fontWeight: 700, fontSize: '0.85rem', px: 1, whiteSpace: 'nowrap', WebkitAppRegion: 'no-drag' }}
           >
             <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: p.color, mr: 0.8, flexShrink: 0 }} />
             {p.label}
