@@ -59,6 +59,68 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
     [...new Set(assignmentRows.map(r => r.assignment?.subject).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, 'ko'))
   ), [assignmentRows])
+  const officeOptions = useMemo(() => (
+    [...new Set(assignmentRows.map(r => r.assignment?.office).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'ko'))
+  ), [assignmentRows])
+
+  // 표 정렬·필터 — 60명 넘어가면 "부서가 아직 없는 사람"이나 "이름 하나" 찾기가
+  // 스크롤로는 괴롭다(사용자 요청, 2026-08-29). 정렬은 헤더 클릭, 필터는 헤더 바로
+  // 아래 칸에 값을 입력/선택하는 방식 — 흔한 표 계산 프로그램 UX 그대로.
+  const [sort, setSort] = useState({ key: null, dir: 'asc' })
+  const [columnFilters, setColumnFilters] = useState({
+    name: '', positionLabel: '', department: '', subject: '', homeroom: '', office: '', duty: '', extension: '',
+  })
+  const hasActiveFilter = Object.values(columnFilters).some(Boolean)
+
+  const getFieldValue = (row, key) => {
+    const a = row.assignment
+    switch (key) {
+      case 'name': return row.name || ''
+      case 'positionLabel': return a?.positionLabel || ''
+      case 'department': return a?.department || ''
+      case 'subject': return a?.subject || ''
+      case 'homeroom': return a?.isHomeroom ? `${a.homeroomGrade ?? ''}학년 ${a.homeroomClassNo ?? ''}반` : ''
+      case 'office': return a?.office || ''
+      case 'duty': return a?.duty || ''
+      case 'extension': return a?.extension || ''
+      default: return ''
+    }
+  }
+
+  const toggleSort = (key) => {
+    setSort(prev => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
+  }
+
+  const visibleRows = useMemo(() => {
+    let rows = assignmentRows
+    if (columnFilters.name) {
+      const q = columnFilters.name.toLowerCase()
+      rows = rows.filter(r => (r.name || '').toLowerCase().includes(q))
+    }
+    if (columnFilters.positionLabel) {
+      const q = columnFilters.positionLabel.toLowerCase()
+      rows = rows.filter(r => (r.assignment?.positionLabel || '').toLowerCase().includes(q))
+    }
+    if (columnFilters.department) rows = rows.filter(r => (r.assignment?.department || '') === columnFilters.department)
+    if (columnFilters.subject) rows = rows.filter(r => (r.assignment?.subject || '') === columnFilters.subject)
+    if (columnFilters.office) rows = rows.filter(r => (r.assignment?.office || '') === columnFilters.office)
+    if (columnFilters.homeroom === 'yes') rows = rows.filter(r => r.assignment?.isHomeroom)
+    if (columnFilters.homeroom === 'no') rows = rows.filter(r => !r.assignment?.isHomeroom)
+    if (columnFilters.duty) {
+      const q = columnFilters.duty.toLowerCase()
+      rows = rows.filter(r => (r.assignment?.duty || '').toLowerCase().includes(q))
+    }
+    if (columnFilters.extension) rows = rows.filter(r => (r.assignment?.extension || '').includes(columnFilters.extension))
+
+    if (sort.key) {
+      rows = [...rows].sort((a, b) => {
+        const cmp = getFieldValue(a, sort.key).localeCompare(getFieldValue(b, sort.key), 'ko')
+        return sort.dir === 'asc' ? cmp : -cmp
+      })
+    }
+    return rows
+  }, [assignmentRows, columnFilters, sort])
 
   useEffect(() => {
     if (!schoolId) return
@@ -206,10 +268,17 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
     })
   }
 
+  // 필터로 걸러진 화면 기준으로 전체 선택한다 — 안 보이는 사람까지 한꺼번에
+  // 선택되면 "일괄 수정 몇 명" 숫자만 보고는 누가 포함됐는지 알기 어렵다.
   const toggleSelectAllAssignments = () => {
-    setSelectedUids(prev =>
-      prev.size === assignmentRows.length ? new Set() : new Set(assignmentRows.map(r => r.uid))
-    )
+    const visibleUids = visibleRows.map(r => r.uid)
+    const allVisibleSelected = visibleUids.length > 0 && visibleUids.every(uid => selectedUids.has(uid))
+    setSelectedUids(prev => {
+      const next = new Set(prev)
+      if (allVisibleSelected) visibleUids.forEach(uid => next.delete(uid))
+      else visibleUids.forEach(uid => next.add(uid))
+      return next
+    })
   }
 
   const openBulkEdit = () => {
@@ -376,6 +445,19 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
             선택 {selectedUids.size}명 일괄 수정
           </Button>
         )}
+        {hasActiveFilter && (
+          <Button
+            size="small"
+            onClick={() => setColumnFilters({ name: '', positionLabel: '', department: '', subject: '', homeroom: '', office: '', duty: '', extension: '' })}
+          >
+            필터 초기화
+          </Button>
+        )}
+        {hasActiveFilter && (
+          <Typography variant="body2" color="text.secondary">
+            {visibleRows.length}명 표시 중 (전체 {assignmentRows.length}명)
+          </Typography>
+        )}
       </Box>
 
       {loading ? (
@@ -397,26 +479,62 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                   <Checkbox
                     size="small"
                     sx={{ p: 0.25 }}
-                    checked={assignmentRows.length > 0 && selectedUids.size === assignmentRows.length}
-                    indeterminate={selectedUids.size > 0 && selectedUids.size < assignmentRows.length}
+                    checked={visibleRows.length > 0 && visibleRows.every(r => selectedUids.has(r.uid))}
+                    indeterminate={visibleRows.some(r => selectedUids.has(r.uid)) && !visibleRows.every(r => selectedUids.has(r.uid))}
                     onChange={toggleSelectAllAssignments}
                     disabled={isPastYear}
                     inputProps={{ 'aria-label': '전체 선택' }}
                   />
                 </th>
-                <th style={table.th}>이름</th>
-                <th style={table.th}>직함</th>
-                <th style={table.th}>부서</th>
-                <th style={table.th}>담당 교과</th>
-                <th style={table.th}>담임</th>
-                <th style={table.th}>사무실</th>
-                <th style={table.th}>업무</th>
-                <th style={table.th}>내선번호</th>
+                <SortableTh label="이름" sortKey="name" sort={sort} onSort={toggleSort} />
+                <SortableTh label="직함" sortKey="positionLabel" sort={sort} onSort={toggleSort} />
+                <SortableTh label="부서" sortKey="department" sort={sort} onSort={toggleSort} />
+                <SortableTh label="담당 교과" sortKey="subject" sort={sort} onSort={toggleSort} />
+                <SortableTh label="담임" sortKey="homeroom" sort={sort} onSort={toggleSort} />
+                <SortableTh label="사무실" sortKey="office" sort={sort} onSort={toggleSort} />
+                <SortableTh label="업무" sortKey="duty" sort={sort} onSort={toggleSort} />
+                <SortableTh label="내선번호" sortKey="extension" sort={sort} onSort={toggleSort} />
                 <th style={table.th}>수정</th>
+              </tr>
+              <tr>
+                <th style={table.th} />
+                <th style={table.th}>
+                  <FilterInput value={columnFilters.name} onChange={v => setColumnFilters(prev => ({ ...prev, name: v }))} />
+                </th>
+                <th style={table.th}>
+                  <FilterInput value={columnFilters.positionLabel} onChange={v => setColumnFilters(prev => ({ ...prev, positionLabel: v }))} />
+                </th>
+                <th style={table.th}>
+                  <FilterSelect value={columnFilters.department} options={departmentOptions} onChange={v => setColumnFilters(prev => ({ ...prev, department: v }))} />
+                </th>
+                <th style={table.th}>
+                  <FilterSelect value={columnFilters.subject} options={subjectOptions} onChange={v => setColumnFilters(prev => ({ ...prev, subject: v }))} />
+                </th>
+                <th style={table.th}>
+                  <select
+                    value={columnFilters.homeroom}
+                    onChange={e => setColumnFilters(prev => ({ ...prev, homeroom: e.target.value }))}
+                    style={filterInputStyle}
+                  >
+                    <option value="">전체</option>
+                    <option value="yes">담임만</option>
+                    <option value="no">비담임만</option>
+                  </select>
+                </th>
+                <th style={table.th}>
+                  <FilterSelect value={columnFilters.office} options={officeOptions} onChange={v => setColumnFilters(prev => ({ ...prev, office: v }))} />
+                </th>
+                <th style={table.th}>
+                  <FilterInput value={columnFilters.duty} onChange={v => setColumnFilters(prev => ({ ...prev, duty: v }))} />
+                </th>
+                <th style={table.th}>
+                  <FilterInput value={columnFilters.extension} onChange={v => setColumnFilters(prev => ({ ...prev, extension: v }))} />
+                </th>
+                <th style={table.th} />
               </tr>
             </thead>
             <tbody>
-              {assignmentRows.map(row => {
+              {visibleRows.map(row => {
                 const a = row.assignment
                 return (
                   <tr key={row.uid} style={table.tr}>
@@ -457,6 +575,13 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                   </tr>
                 )
               })}
+              {visibleRows.length === 0 && (
+                <tr>
+                  <td style={table.td} colSpan={10}>
+                    <Typography color="text.secondary" sx={{ py: 1 }}>필터 조건에 맞는 교직원이 없습니다.</Typography>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </Box>
@@ -735,5 +860,57 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
       </Dialog>
 
     </Box>
+  )
+}
+
+const filterInputStyle = {
+  width: '100%', boxSizing: 'border-box', padding: '0.25rem 0.4rem', fontSize: '0.78rem',
+  border: '1px solid #d1d5db', borderRadius: '4px', fontWeight: 400, color: '#111827',
+}
+
+/** 정렬 가능한 헤더 칸 — 누르면 오름차순/내림차순을 오간다. */
+function SortableTh({ label, sortKey, sort, onSort }) {
+  const active = sort.key === sortKey
+  return (
+    <th
+      style={{ ...table.th, cursor: 'pointer', userSelect: 'none' }}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}
+      <span style={{ color: active ? '#1976d2' : '#c1c7d0', marginLeft: '0.2rem' }}>
+        {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </th>
+  )
+}
+
+/** 헤더 아래 텍스트 필터 칸. */
+function FilterInput({ value, onChange }) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder="검색"
+      style={filterInputStyle}
+      onClick={e => e.stopPropagation()}
+    />
+  )
+}
+
+/** 헤더 아래 드롭다운 필터 칸 — 부서·교과·사무실처럼 값이 정해진 열에 쓴다. */
+function FilterSelect({ value, options, onChange }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      style={filterInputStyle}
+      onClick={e => e.stopPropagation()}
+    >
+      <option value="">전체</option>
+      {options.map(opt => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
   )
 }
