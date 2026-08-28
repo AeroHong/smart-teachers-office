@@ -28,6 +28,16 @@ for (const f of files) {
   console.log(`[copy-release] ${f} → desktop-updates/`)
 }
 
+// 신규 PC 일괄 설치용 배치 파일(install-smart-office.bat)이 매번 같은 URL로 최신
+// 설치 파일을 받아야 해서, 버전이 안 박힌 고정 파일명으로도 하나 더 둔다(한글 파일명은
+// URL에서 계속 인코딩해야 해 번거롭고, 버전 번호가 바뀔 때마다 배치 파일 속 URL도
+// 같이 고쳐야 하는 걸 피한다).
+const installerFile = files.find((f) => /Setup .*\.exe$/.test(f) && !f.endsWith('.blockmap'))
+if (installerFile) {
+  fs.copyFileSync(path.join(distDir, installerFile), path.join(outDir, 'smart-office-setup-latest.exe'))
+  console.log(`[copy-release] ${installerFile} → desktop-updates/smart-office-setup-latest.exe (고정 파일명)`)
+}
+
 // electron-updater는 새 버전을 받을 때 직전 버전과의 차이만 내려받는 차등 다운로드를
 // 먼저 시도한다(수십~백MB를 매번 통째로 안 받아도 됨) — 그러려면 서버에 "직전 버전"의
 // blockmap이 남아 있어야 한다(실측 확인: 0.1.6→0.1.7 테스트에서 이전 버전을 지워
