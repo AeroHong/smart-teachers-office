@@ -166,12 +166,16 @@ export default function ChannelSidebar({
       strong={!opts.muted && hasUnread(c, reads)}
       muted={opts.muted}
       onClick={() => navigate(`/channels/${c.id}`)}
+      // 보관·나간 채널에는 개인화 메뉴를 달지 않는다 — 우클릭도 그 규칙을 그대로 따른다
+      // (접혀 있는 줄을 즐겨찾기에 넣을 수 있으면 접어둔 의미가 없다).
+      onContextMenu={opts.muted ? undefined : (e) => {
+        e.preventDefault()
+        setRowMenu({ position: { top: e.clientY, left: e.clientX }, channelId: c.id })
+      }}
       chip={badgeFor(c, activeChannelId, opts.muted)}
-      // 보관·나간 채널에는 개인화 메뉴를 달지 않는다. 목록에서 접혀 있는 줄을 즐겨찾기에
-      // 넣을 수 있으면 접어둔 의미가 없다.
       action={opts.muted ? undefined : (
         <IconButton
-          size="small"
+          size="small" color="inherit"
           aria-label={`${c.name} 채널 설정`}
           onClick={(e) => { e.stopPropagation(); setRowMenu({ anchor: e.currentTarget, channelId: c.id }) }}
           sx={{ p: 0.25 }}
@@ -358,9 +362,13 @@ export default function ChannelSidebar({
       </SidebarSection>
 
       {/* 채널 줄 메뉴 — 즐겨찾기와 섹션 이동을 한 판에 둔다. 하위 메뉴로 접으면 섹션이
-          두어 개뿐인데도 한 번 더 눌러야 한다. */}
+          두어 개뿐인데도 한 번 더 눌러야 한다. ⋮ 버튼(왼쪽 클릭)은 그 버튼 자리(anchorEl)에,
+          줄 우클릭은 커서 위치(anchorPosition)에 뜬다 — rowMenu가 둘 중 하나만 채운다. */}
       <Menu
-        anchorEl={rowMenu?.anchor} open={!!rowMenu} onClose={closeMenus}
+        anchorEl={rowMenu?.anchor}
+        anchorReference={rowMenu?.position ? 'anchorPosition' : 'anchorEl'}
+        anchorPosition={rowMenu?.position}
+        open={!!rowMenu} onClose={closeMenus}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >

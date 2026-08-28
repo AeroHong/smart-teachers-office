@@ -144,10 +144,13 @@ export function SidebarSection({
  * @param {React.ReactNode} [avatar] 이름 앞에 붙는 작은 아바타(PersonAvatar 등). 안 주면
  *   기존 화면들(홈·쪽지·학사일정 등)은 그대로다 — 구성원 화면만 이걸 쓴다(사용자 요청,
  *   2026-08-27).
+ * @param {(e: React.MouseEvent) => void} [onContextMenu] 줄 우클릭. action(⋮ 버튼)과
+ *   같은 메뉴를 여는 또 다른 입구로 쓴다(사용자 지적, 2026-08-28 — "채널명 위에서의
+ *   우클릭 지원 안됨").
  */
 export function SidebarItem({
   label, chip, selected, strong, muted, onClick, indent = 0, checked, action, actionActive, href,
-  avatar,
+  avatar, onContextMenu,
 }) {
   const CheckIcon = checked ? CheckBoxIcon : CheckBoxOutlineBlankIcon
   const linkProps = href
@@ -156,6 +159,7 @@ export function SidebarItem({
   const row = (
     <Box
       {...linkProps}
+      onContextMenu={onContextMenu}
       sx={{
         display: 'flex', alignItems: 'center', gap: 0.7, width: '100%',
         border: 0, cursor: 'pointer', textAlign: 'left',
@@ -186,7 +190,14 @@ export function SidebarItem({
       >
         {label}
       </Typography>
-      {chip}
+      {/* action(⋮)이 있는 줄은 마우스를 올리면 이 칩이 숨고 그 자리에 ⋮가 뜬다 — 아니면
+          둘이 같은 오른쪽 끝 자리를 두고 겹친다(사용자 지적, 2026-08-28 — "점3개 추가
+          메뉴 버튼이 안보이고, 숫자가 떠있어서 겹치는듯"). */}
+      {chip && (
+        <Box component="span" className="sidebar-row-chip" sx={{ display: 'flex', transition: 'opacity .1s ease' }}>
+          {chip}
+        </Box>
+      )}
     </Box>
   )
 
@@ -197,6 +208,7 @@ export function SidebarItem({
       sx={{
         position: 'relative',
         '&:hover .sidebar-row-action, &:focus-within .sidebar-row-action': { opacity: 1 },
+        '&:hover .sidebar-row-chip, &:focus-within .sidebar-row-chip': { opacity: 0 },
       }}
     >
       {row}
@@ -205,6 +217,10 @@ export function SidebarItem({
         sx={{
           position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
           opacity: actionActive ? 1 : 0, transition: 'opacity .12s ease',
+          // action 안의 아이콘 버튼이 이 색을 물려받도록(IconButton color="inherit") —
+          // 선택된 줄(파란 배경)에서 기본 회색 아이콘은 대비가 낮아 거의 안 보였다
+          // (같은 지적, "점3개 버튼이 안보이고").
+          color: selected ? 'primary.contrastText' : 'text.secondary',
         }}
       >
         {action}
