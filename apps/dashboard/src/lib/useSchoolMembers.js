@@ -66,7 +66,13 @@ export default function useSchoolMembers() {
     setLoading(true)
     fetchMembers()
       .then((next) => { if (alive) { setMembers(next); setError(null) } })
-      .catch((e) => { if (alive) setError(e) })
+      .catch((e) => {
+        // 화면(ProfileCardProvider 등)엔 "정보를 찾을 수 없습니다"로만 뭉뚱그려 보이는데,
+        // 실은 권한 오류 등으로 명단 자체를 못 읽어온 것일 수 있다(2026-08-28, 사용자
+        // 지적 — "구성원 정보를 찾을 수 없다고 나옵니다"). 콘솔에 원인을 남겨 둔다.
+        console.error('[useSchoolMembers] 구성원 명단을 불러오지 못했습니다:', e)
+        if (alive) setError(e)
+      })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [schoolId, fetchMembers])

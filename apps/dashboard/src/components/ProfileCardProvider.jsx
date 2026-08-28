@@ -49,7 +49,7 @@ const NOOP = { open: () => {} }
 
 export default function ProfileCardProvider({ children }) {
   const { user } = useAuth()
-  const { members, loading: membersLoading, refetch } = useSchoolMembers()
+  const { members, loading: membersLoading, error: membersError, refetch } = useSchoolMembers()
   const navigate = useNavigate()
   const [uid, setUid] = useState(null)
 
@@ -173,9 +173,19 @@ export default function ProfileCardProvider({ children }) {
                 <CircularProgress size={22} />
               </Box>
             ) : (
-              <Typography color="text.secondary" fontSize="0.85rem" sx={{ flexGrow: 1, textAlign: 'center', pt: 4 }}>
-                구성원 정보를 찾을 수 없습니다.
-              </Typography>
+              <Box sx={{ flexGrow: 1, textAlign: 'center', pt: 4, px: 1 }}>
+                <Typography color="text.secondary" fontSize="0.85rem">
+                  구성원 정보를 찾을 수 없습니다.
+                </Typography>
+                {/* 명단을 못 읽어온 것과 정말 없는 것을 구분해서 보여준다(사용자 지적,
+                    2026-08-28 — "구성원 정보를 찾을 수 없다고 나옵니다"). 진짜 원인이
+                    권한 오류 등일 수 있는데 뭉뚱그려진 문구만 보이면 다음 단서를 못 준다. */}
+                {membersError && (
+                  <Typography color="error.main" fontSize="0.72rem" sx={{ mt: 0.8, wordBreak: 'break-all' }}>
+                    명단을 불러오다 오류가 났습니다: {membersError.code || membersError.message}
+                  </Typography>
+                )}
+              </Box>
             )}
             </Box>
           </Box>
