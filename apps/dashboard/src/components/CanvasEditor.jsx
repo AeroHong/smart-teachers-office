@@ -1453,7 +1453,97 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   }
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+    <>
+      {/* 표지 — 이제 목차·제목·본문이 있는 칸(px:2로 좌우 여백을 두는
+          PostComposer.jsx의 스크롤 칸) 안이 아니라 그 바깥, 전체 폭을 그대로 쓴다
+          (2026-08-28, 사용자 요청: "3단 구조의 좌우 여백 없이 꽉 차게" — 위쪽 표지와
+          아래 실제 편집 영역이 구분되어 보이길 원함). mx:-2로 부모의 px:2를 정확히
+          상쇄해 가장자리까지 닿는다. 2026-08-26에 "표지가 목차와 같은 줄에서
+          시작해야 한다"고 정했던 것보다 이 요청이 더 최근이라 그 결정을 뒤집는다 —
+          이제 표지는 목차·제목과 왼쪽이 안 맞고, 그 위 별도 띠로 존재한다. */}
+      <Box sx={{ mx: -2, mb: 1.2 }}>
+        {coverImageUrl ? (
+          <Box sx={{
+            position: 'relative', height: 160, overflow: 'hidden',
+            '&:hover .cover-actions': { opacity: 1 },
+          }}>
+            <Box
+              ref={coverImgRef}
+              component="img" src={coverImageUrl} alt="표지"
+              onPointerDown={repositioning ? startCoverReposition : undefined}
+              sx={{
+                width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+                objectPosition: `center ${dragPosition ?? coverImagePosition}%`,
+                cursor: repositioning ? 'ns-resize' : 'default',
+                userSelect: 'none',
+              }}
+            />
+            <Box className="cover-actions" sx={{
+              position: 'absolute', right: 12, bottom: 8, display: 'flex', gap: 0.5,
+              opacity: repositioning ? 1 : 0, transition: 'opacity .12s ease',
+            }}>
+              {repositioning ? (
+                <Button
+                  size="small" variant="contained" disableElevation
+                  onClick={() => setRepositioning(false)}
+                  sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                >
+                  완료
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    size="small" variant="contained" disableElevation
+                    onClick={() => setRepositioning(true)}
+                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                  >
+                    위치 조정
+                  </Button>
+                  <Button
+                    size="small" variant="contained" disableElevation
+                    onClick={e => setCoverPickerAnchor(e.currentTarget)}
+                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                  >
+                    바꾸기
+                  </Button>
+                  <Button
+                    size="small" variant="contained" disableElevation
+                    onClick={() => onCoverRemove?.()}
+                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
+                  >
+                    삭제
+                  </Button>
+                </>
+              )}
+            </Box>
+          </Box>
+        ) : (
+          <Box
+            onClick={e => setCoverPickerAnchor(e.currentTarget)}
+            sx={{
+              height: 72, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'text.disabled', fontSize: '0.78rem', fontWeight: 600,
+              opacity: 0, transition: 'opacity .12s ease, background-color .12s ease',
+              '&:hover': { opacity: 1, bgcolor: 'action.hover' },
+            }}
+          >
+            + 표지 추가
+          </Box>
+        )}
+        <CoverPicker
+          anchorEl={coverPickerAnchor}
+          open={!!coverPickerAnchor}
+          onClose={() => setCoverPickerAnchor(null)}
+          docId={docId}
+          folder={folder}
+          hasCover={!!coverImageUrl}
+          onSelect={uploaded => onCoverChange?.(uploaded)}
+          onRemove={() => onCoverRemove?.()}
+        />
+      </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
       {/* 제목 기반 목차 — 제목이 하나도 없으면 아예 안 그린다. 늘 자리를 차지하면
           짧은 글을 쓰는 사람에게는 빈 칼럼만 남는다. 스크롤은 부모가 하므로 sticky로
           붙여 두면 긴 글에서도 계속 보인다.
@@ -1522,102 +1612,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         </Box>
       )}
 
-      {/* 목차와 같은 칸(flexGrow:1) 안에 표지 자리 → 제목 → 본문 순으로 둔다 —
-          목차가 표지와 같은 줄에서 시작해야 한다는 지적(2026-08-26, "표지가
-          목차 있는 곳에 함께 들어가 있어야 함")에 따라, 표지를 목차 바깥(전체
-          폭 별도 줄)이 아니라 이 칸 맨 위에 둔다 — 목차 칸과 이 칸은 같은
-          flex 줄의 형제라 표지·목차가 같은 높이에서 시작한다. 제목·본문은
-          항상 이 칸을 공유해 왼쪽 위치가 표지와도 맞는다.
-
-          표지는 노션의 빈 커버 자리와 같은 방식 — 평소엔 안 보이다가 마우스를 올리면
-          "+표지 추가"가 옅게 나타난다. 올린 뒤에는 200px 배너로 꽉 채우고, 오버할 때만
-          우측 하단에 "바꾸기"/"삭제"/"위치 조정"이 뜬다(2026-08-27, PLAN_canvasEditor.md
-          Phase 4). objectFit:'cover'로 가로는 항상 꽉 채우되, 세로 위치(object-position)는
-          "위치 조정" 버튼을 누른 뒤 이미지를 위아래로 끌어 바꿀 수 있다(2026-08-28, 사용자
-          요청 — "높이가 너무 높은 이미지는 실제 보이는 부분을 옮기며 조정").
-
-          클릭하면 직접 업로드 대신 CoverPicker(라이브러리·업로드 탭) 팝오버가 뜬다
-          (2026-08-28, 사용자 요청 — Google Sites 표지 고르기 참고). */}
       <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {coverImageUrl ? (
-          <Box sx={{
-            position: 'relative', height: 200, mb: 0.5, borderRadius: 1, overflow: 'hidden',
-            '&:hover .cover-actions': { opacity: 1 },
-          }}>
-            <Box
-              ref={coverImgRef}
-              component="img" src={coverImageUrl} alt="표지"
-              onPointerDown={repositioning ? startCoverReposition : undefined}
-              sx={{
-                width: '100%', height: '100%', objectFit: 'cover', display: 'block',
-                objectPosition: `center ${dragPosition ?? coverImagePosition}%`,
-                cursor: repositioning ? 'ns-resize' : 'default',
-                userSelect: 'none',
-              }}
-            />
-            <Box className="cover-actions" sx={{
-              position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 0.5,
-              opacity: repositioning ? 1 : 0, transition: 'opacity .12s ease',
-            }}>
-              {repositioning ? (
-                <Button
-                  size="small" variant="contained" disableElevation
-                  onClick={() => setRepositioning(false)}
-                  sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
-                >
-                  완료
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    size="small" variant="contained" disableElevation
-                    onClick={() => setRepositioning(true)}
-                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
-                  >
-                    위치 조정
-                  </Button>
-                  <Button
-                    size="small" variant="contained" disableElevation
-                    onClick={e => setCoverPickerAnchor(e.currentTarget)}
-                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
-                  >
-                    바꾸기
-                  </Button>
-                  <Button
-                    size="small" variant="contained" disableElevation
-                    onClick={() => onCoverRemove?.()}
-                    sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
-                  >
-                    삭제
-                  </Button>
-                </>
-              )}
-            </Box>
-          </Box>
-        ) : (
-          <Box
-            onClick={e => setCoverPickerAnchor(e.currentTarget)}
-            sx={{
-              height: 96, mb: 0.5, borderRadius: 1, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'text.disabled', fontSize: '0.78rem', fontWeight: 600,
-              opacity: 0, transition: 'opacity .12s ease, background-color .12s ease',
-              '&:hover': { opacity: 1, bgcolor: 'action.hover' },
-            }}
-          >
-            + 표지 추가
-          </Box>
-        )}
-        <CoverPicker
-          anchorEl={coverPickerAnchor}
-          open={!!coverPickerAnchor}
-          onClose={() => setCoverPickerAnchor(null)}
-          docId={docId}
-          folder={folder}
-          hasCover={!!coverImageUrl}
-          onSelect={uploaded => onCoverChange?.(uploaded)}
-          onRemove={() => onCoverRemove?.()}
-        />
         {onTitleChange && (
           <TextField
             fullWidth autoFocus variant="standard"
@@ -2302,6 +2297,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       </Box>
       </Box>
     </Box>
+    </>
   )
 })
 
