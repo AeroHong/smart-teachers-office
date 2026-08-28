@@ -15,16 +15,18 @@ import TableCell from '@mui/material/TableCell'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import FormControl from '@mui/material/FormControl'
+import IconButton from '@mui/material/IconButton'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { fileKind, formatBytes, deleteAttachment } from '@shared/lib/requestAttachments'
 import { USERS } from '@shared/lib/schema'
 import Layout from '../../components/Layout'
 import EvalPlanSection, { ACCENT, ACCENT_BG } from './EvalPlanSection'
-import { STATUS_LABELS, STATUS_COLORS, GRADE_METHOD_FIELDS, needsMinAchievementPlan, checkExamRatio, fmtDate } from './evalPlanUtils'
+import { STATUS_LABELS, STATUS_COLORS, GRADE_METHOD_FIELDS, GRADE_METHOD_COLORS, needsMinAchievementPlan, checkExamRatio, fmtDate } from './evalPlanUtils'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
 
@@ -154,7 +156,10 @@ export default function EvalPlanDetail() {
   return (
     <Layout>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1, gap: 1, flexWrap: 'wrap' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <IconButton size="small" onClick={() => navigate(-1)} sx={{ color: '#64748b' }}>
+            <ArrowBackIcon fontSize="small" />
+          </IconButton>
           <Box sx={{
             width: 40, height: 40, borderRadius: '10px', bgcolor: ACCENT_BG,
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0,
@@ -318,13 +323,14 @@ export default function EvalPlanDetail() {
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
           {GRADE_METHOD_FIELDS.map(([key, label]) => {
             const enabled = data.gradeMethod?.[key]?.enabled
+            const colors = GRADE_METHOD_COLORS[key]
             return (
               <Chip
                 key={key}
                 size="small"
                 label={label}
                 sx={enabled
-                  ? { bgcolor: ACCENT_BG, color: ACCENT, fontWeight: 700, border: `1px solid ${ACCENT}` }
+                  ? { bgcolor: colors.bg, color: colors.color, fontWeight: 700, border: `1px solid ${colors.color}` }
                   : { bgcolor: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0' }}
               />
             )

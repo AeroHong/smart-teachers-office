@@ -30,6 +30,41 @@ export const GRADE_METHOD_FIELDS = [
   ['passFailOnly', '이수여부(P/F)'],
 ]
 
+// 전체 현황 표처럼 좁은 칸에 넣을 축약 라벨 — 특히 분할점수는 추정/고정 구분이 중요해 괄호로 남긴다.
+export const GRADE_METHOD_SHORT_LABELS = {
+  rankGrade: '석차등급',
+  achievementLevel5: '성취도5단계',
+  cutScoreEstimated: '분할점수(추정)',
+  cutScoreFixed: '분할점수(고정)',
+  achievementLevel3: '성취도3단계',
+  passFailOnly: '이수여부(P/F)',
+}
+
+// 항목별 칩 색상 — 특히 분할점수 추정/고정은 나란히 보일 때 헷갈리기 쉬워 뚜렷이
+// 구분한다(추정=주황 계열, 고정=파랑 계열). 나머지도 성적산출 방식이 다르면 다른
+// 계열 색을 준다(성취도 5단계/3단계는 같은 "성취도" 계열이라 같은 초록으로 묶는다).
+export const GRADE_METHOD_COLORS = {
+  rankGrade: { bg: '#f5f3ff', color: '#7c3aed' },
+  achievementLevel5: { bg: '#ecfdf5', color: '#059669' },
+  cutScoreEstimated: { bg: '#fff7ed', color: '#c2410c' },
+  cutScoreFixed: { bg: '#eff6ff', color: '#1d4ed8' },
+  achievementLevel3: { bg: '#ecfdf5', color: '#059669' },
+  passFailOnly: { bg: '#f1f5f9', color: '#475569' },
+}
+
+/** gradeMethod에서 활성화된 항목들을 {key, label, bg, color} 형태로 뽑는다. 없으면 빈 배열. */
+export function gradeMethodEntries(gradeMethod) {
+  if (!gradeMethod) return []
+  return GRADE_METHOD_FIELDS
+    .filter(([key]) => gradeMethod[key]?.enabled)
+    .map(([key]) => ({ key, label: GRADE_METHOD_SHORT_LABELS[key], ...GRADE_METHOD_COLORS[key] }))
+}
+
+/** gradeMethod에서 활성화된 항목들의 축약 라벨 배열. 없으면 빈 배열. */
+export function gradeMethodShortLabels(gradeMethod) {
+  return gradeMethodEntries(gradeMethod).map((e) => e.label)
+}
+
 /** 성적산출방법상 성취도/분할점수를 산출하는 과목인지 — 최소성취수준 보장지도 섹션이 의미 있는 경우. */
 export function needsMinAchievementPlan(gradeMethod) {
   if (!gradeMethod) return false

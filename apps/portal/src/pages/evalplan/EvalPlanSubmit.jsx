@@ -12,7 +12,8 @@ import UploadFileIcon from '@mui/icons-material/UploadFile'
 import { db, functions } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { uploadAttachment, deleteAttachment } from '@shared/lib/requestAttachments'
-import { currentYearSemester, USERS } from '@shared/lib/schema'
+import { USERS } from '@shared/lib/schema'
+import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
 import Layout from '../../components/Layout'
 import EvalPlanForm from './EvalPlanForm'
 import EvalPlanSection, { ACCENT, ACCENT_BG } from './EvalPlanSection'
@@ -25,11 +26,13 @@ export default function EvalPlanSubmit() {
   const navigate = useNavigate()
   const { user, userName, schoolId } = useAuth()
   const fileInputRef = useRef(null)
+  const currentTerm = useCurrentTerm(schoolId)
 
   const [step, setStep] = useState('upload') // 'upload' | 'review'
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [subjectGroupError, setSubjectGroupError] = useState(false)
 
   const [planId, setPlanId] = useState(null)
   const [sourceFile, setSourceFile] = useState(null)
@@ -139,9 +142,8 @@ export default function EvalPlanSubmit() {
         console.error('[EvalPlanSubmit] 담당교사 매칭 조회 실패:', matchErr)
       }
 
-      const defaults = currentYearSemester()
-      const initYear = defaults.year
-      const initSemester = parseSemesterNumber(extracted.meta?.semester) ?? defaults.semester
+      const initYear = currentTerm.year
+      const initSemester = parseSemesterNumber(extracted.meta?.semester) ?? currentTerm.semester
       const initSubject = extracted.meta?.subject || ''
 
       setPlanId(newPlanId)
@@ -173,7 +175,18 @@ export default function EvalPlanSubmit() {
     }
   }
 
+  const handleMetaChange = (next) => {
+    setMeta(next)
+    if (next.subjectGroup) setSubjectGroupError(false)
+  }
+
   const handleSave = async (status) => {
+    if (!meta.subjectGroup) {
+      setSubjectGroupError(true)
+      setError('교과(군)을 선택해주세요.')
+      return
+    }
+    setSubjectGroupError(false)
     setSaving(true)
     setError(null)
     try {
@@ -319,6 +332,12 @@ export default function EvalPlanSubmit() {
             </Alert>
           )}
 
+          {(meta.year !== currentTerm.year || meta.semester !== currentTerm.semester) && (
+            <Alert severity="warning" variant="outlined" sx={{ mb: 2.5, borderRadius: '10px', fontSize: '0.82rem' }}>
+              현재 {currentTerm.year}학년도 {currentTerm.semester}학기입니다. {meta.year}학년도 {meta.semester}학기 평가계획 제출이 맞나요? 자동 추출이 잘못됐다면 기본정보에서 학년도·학기를 수정해주세요.
+            </Alert>
+          )}
+
           {teacherMatches.length > 0 && (
             <EvalPlanSection title="담당교사 계정 매칭">
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -340,7 +359,7 @@ export default function EvalPlanSubmit() {
             </EvalPlanSection>
           )}
 
-          <EvalPlanForm meta={meta} onMetaChange={setMeta} data={data} onDataChange={setData} />
+          <EvalPlanForm meta={meta} onMetaChange={handleMetaChange} data={data} onDataChange={setData} subjectGroupError={subjectGroupError} />
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 1 }}>
             <Button
               variant="outlined" disabled={saving} onClick={() => handleSave('draft')}

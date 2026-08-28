@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore'
+import { collection, query, where, getDocs, getDoc, doc, setDoc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { COL, USERS, SCHOOLS, schoolPath, officeLayoutId } from '@shared/lib/schema'
+import { COL, USERS, SCHOOLS, schoolPath, officeLayoutId, currentSchoolYear } from '@shared/lib/schema'
+import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
@@ -16,9 +17,12 @@ import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
+import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import WarningIcon from '@mui/icons-material/Warning'
+
+const TERM_YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
 
 // 전체 학급 목록 (1-1 ~ 3-11)
 const ALL_CLASSES = []
@@ -41,6 +45,34 @@ export default function AdminHome() {
     officesNoLayout: [],
     studentOuOutdated: false,
   })
+
+  // 학년도-학기 기준 — 평가 운영 계획 제출 현황처럼 "지금 학기" 기준으로 조회하는
+  // 화면들이 매번 필터를 다시 고르지 않도록, 여기서 지정한 값을 기본값으로 쓴다.
+  const currentTerm = useCurrentTerm(schoolId)
+  const [termYear, setTermYear] = useState(currentTerm.year)
+  const [termSemester, setTermSemester] = useState(currentTerm.semester)
+  const [savingTerm, setSavingTerm] = useState(false)
+  const [termSavedAt, setTermSavedAt] = useState(null)
+
+  useEffect(() => {
+    setTermYear(currentTerm.year)
+    setTermSemester(currentTerm.semester)
+  }, [currentTerm.year, currentTerm.semester])
+
+  const termDirty = termYear !== currentTerm.year || termSemester !== currentTerm.semester
+
+  const handleSaveTerm = async () => {
+    if (!schoolId) return
+    setSavingTerm(true)
+    try {
+      await setDoc(doc(db, SCHOOLS, schoolId), { currentTerm: { year: termYear, semester: termSemester } }, { merge: true })
+      setTermSavedAt(Date.now())
+    } catch (err) {
+      console.error('학년도-학기 기준 저장 실패:', err)
+    } finally {
+      setSavingTerm(false)
+    }
+  }
 
   useEffect(() => {
     if (!schoolId) return
@@ -192,6 +224,41 @@ export default function AdminHome() {
           </Select>
         </FormControl>
       </Box>
+
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="body1" fontWeight={700} mb={0.5}>
+            학년도-학기 기준
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', mb: 2 }}>
+            평가 운영 계획 제출 현황 등 학기 기준으로 조회하는 화면의 기본값입니다. 실제 날짜와 무관하게 학교가 지금 업무상 기준으로 삼는 학기를 지정하세요.
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>학년도</InputLabel>
+              <Select label="학년도" value={termYear} onChange={(e) => setTermYear(Number(e.target.value))}>
+                {TERM_YEAR_OPTIONS.map((y) => <MenuItem key={y} value={y}>{y}학년도</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>학기</InputLabel>
+              <Select label="학기" value={termSemester} onChange={(e) => setTermSemester(Number(e.target.value))}>
+                <MenuItem value={1}>1학기</MenuItem>
+                <MenuItem value={2}>2학기</MenuItem>
+              </Select>
+            </FormControl>
+            <Button
+              variant="contained" size="small" disabled={!termDirty || savingTerm}
+              onClick={handleSaveTerm}
+            >
+              {savingTerm ? '저장 중...' : '저장'}
+            </Button>
+            {!termDirty && termSavedAt && (
+              <Typography sx={{ fontSize: '0.8rem', color: 'success.main' }}>저장되었습니다.</Typography>
+            )}
+          </Box>
+        </CardContent>
+      </Card>
 
       {loading ? (
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">

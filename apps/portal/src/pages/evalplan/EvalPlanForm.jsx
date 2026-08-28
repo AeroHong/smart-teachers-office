@@ -5,6 +5,7 @@ import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
+import FormHelperText from '@mui/material/FormHelperText'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Button from '@mui/material/Button'
@@ -20,7 +21,7 @@ import AddIcon from '@mui/icons-material/Add'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import EvalPlanSection, { ACCENT, ACCENT_BG } from './EvalPlanSection'
-import { GRADE_OPTIONS, GRADE_METHOD_FIELDS, SUBJECT_GROUPS, needsMinAchievementPlan, emptyGradeMethod, emptyMinAchievementPlan, checkExamRatio } from './evalPlanUtils'
+import { GRADE_OPTIONS, GRADE_METHOD_FIELDS, GRADE_METHOD_COLORS, SUBJECT_GROUPS, needsMinAchievementPlan, emptyGradeMethod, emptyMinAchievementPlan, checkExamRatio } from './evalPlanUtils'
 import { currentSchoolYear } from '@shared/lib/schema'
 
 const YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
@@ -59,7 +60,7 @@ const tableHeadSx = {
 const tableRowSx = { '& td': { borderBottom: '1px solid #f1f5f9' }, '&:last-of-type td': { borderBottom: 0 } }
 
 // ── 기본정보 ─────────────────────────────────────────────────
-function MetaSection({ meta, onMetaChange }) {
+function MetaSection({ meta, onMetaChange, subjectGroupError }) {
   return (
     <EvalPlanSection title="기본정보">
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2.5 }}>
@@ -76,11 +77,12 @@ function MetaSection({ meta, onMetaChange }) {
             <MenuItem value={2}>2학기</MenuItem>
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ ...fieldSx, width: 220 }}>
+        <FormControl size="small" required error={!!subjectGroupError} sx={{ ...fieldSx, width: 220 }}>
           <InputLabel>교과(군)</InputLabel>
           <Select label="교과(군)" value={meta.subjectGroup || ''} onChange={(e) => onMetaChange({ subjectGroup: e.target.value })}>
             {SUBJECT_GROUPS.map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
           </Select>
+          {subjectGroupError && <FormHelperText>교과(군)을 선택해주세요.</FormHelperText>}
         </FormControl>
         <TextField
           label="과목명" size="small" value={meta.subject || ''}
@@ -286,6 +288,7 @@ function GradeMethodSection({ gradeMethod, onChange }) {
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
         {GRADE_METHOD_FIELDS.map(([key, label]) => {
           const checked = method[key]?.enabled || false
+          const colors = GRADE_METHOD_COLORS[key]
           return (
             <Box
               key={key}
@@ -293,17 +296,17 @@ function GradeMethodSection({ gradeMethod, onChange }) {
               sx={{
                 display: 'flex', alignItems: 'center', gap: 0.5,
                 px: 1.5, py: 0.75, borderRadius: '10px', cursor: 'pointer', userSelect: 'none',
-                border: '1px solid', borderColor: checked ? ACCENT : '#e2e8f0',
-                bgcolor: checked ? ACCENT_BG : '#fff',
+                border: '1px solid', borderColor: checked ? colors.color : '#e2e8f0',
+                bgcolor: checked ? colors.bg : '#fff',
                 transition: 'all 0.12s',
               }}
             >
               <Checkbox
                 size="small" checked={checked} onChange={toggle(key, label)}
                 onClick={(e) => e.stopPropagation()}
-                sx={{ p: 0, color: '#cbd5e1', '&.Mui-checked': { color: ACCENT } }}
+                sx={{ p: 0, color: '#cbd5e1', '&.Mui-checked': { color: colors.color } }}
               />
-              <Typography sx={{ fontSize: '0.85rem', fontWeight: checked ? 700 : 500, color: checked ? ACCENT : '#475569' }}>
+              <Typography sx={{ fontSize: '0.85rem', fontWeight: checked ? 700 : 500, color: checked ? colors.color : '#475569' }}>
                 {label}
               </Typography>
             </Box>
@@ -344,14 +347,14 @@ function MinAchievementPlanSection({ plan, onChange, grades }) {
 }
 
 // ── 전체 폼 ──────────────────────────────────────────────────
-export default function EvalPlanForm({ meta, onMetaChange, data, onDataChange }) {
+export default function EvalPlanForm({ meta, onMetaChange, data, onDataChange, subjectGroupError }) {
   const patchMeta = (patch) => onMetaChange({ ...meta, ...patch })
   const patchData = (key) => (value) => onDataChange({ ...data, [key]: value })
   const showMinAchievement = needsMinAchievementPlan(data.gradeMethod)
 
   return (
     <Box>
-      <MetaSection meta={meta} onMetaChange={patchMeta} />
+      <MetaSection meta={meta} onMetaChange={patchMeta} subjectGroupError={subjectGroupError} />
       <ExamRatioSection examRatio={data.examRatio} onChange={patchData('examRatio')} />
       <PerformanceAreasSection areas={data.performanceAreas} onChange={patchData('performanceAreas')} />
       <GradeMethodSection gradeMethod={data.gradeMethod} onChange={patchData('gradeMethod')} />

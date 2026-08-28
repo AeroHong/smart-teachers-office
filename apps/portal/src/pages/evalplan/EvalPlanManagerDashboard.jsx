@@ -26,9 +26,10 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { currentSchoolYear, entryYearFor } from '@shared/lib/schema'
 import { loadSubjects } from '@shared/lib/subjectData'
 import { useTableSort } from '@shared/hooks/useTableSort'
+import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './EvalPlanSection'
-import { STATUS_LABELS, GRADE_OPTIONS } from './evalPlanUtils'
+import { STATUS_LABELS, GRADE_OPTIONS, gradeMethodEntries } from './evalPlanUtils'
 
 const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: '10px', bgcolor: '#fff' } }
 const tableHeadSx = {
@@ -50,6 +51,7 @@ const PLAN_SORT_GETTERS = {
   midOther: (r) => Number(r.midOther) || 0,
   finEssay: (r) => Number(r.finEssay) || 0,
   finOther: (r) => Number(r.finOther) || 0,
+  gradeMethod: (r) => r.gradeMethodEntries.map((e) => e.label).join(', '),
   uploaderName: (r) => r.uploaderName || '',
   status: (r) => r.status || '',
 }
@@ -88,6 +90,7 @@ function buildRows(plans) {
         midOther: pct(examRatio.midterm?.objectiveType),
         finEssay: pct(examRatio.final?.essayType),
         finOther: pct(examRatio.final?.objectiveType),
+        gradeMethodEntries: gradeMethodEntries(p.data?.gradeMethod),
       })
     })
   })
@@ -138,6 +141,7 @@ async function downloadSubmittedXlsx(rowsByGrade, year, semester) {
         '정기시험(중간)-그외(%)': r.midOther ?? '',
         '정기시험(기말)-서논술형(%)': r.finEssay ?? '',
         '정기시험(기말)-그외(%)': r.finOther ?? '',
+        '성적산출방법': r.gradeMethodEntries.map((e) => e.label).join(', '),
         '담당교사': r.teacherNames.join(', '),
         '제출자': r.uploaderName,
         '상태': STATUS_LABELS[r.status] || r.status,
@@ -173,8 +177,19 @@ export default function EvalPlanManagerDashboard() {
   const [allowed, setAllowed] = useState(isAdmin)
   const [checkingAccess, setCheckingAccess] = useState(!isAdmin)
 
-  const [year, setYear] = useState(currentSchoolYear())
-  const [semester, setSemester] = useState(1)
+  // 관리자 페이지 > 홈에서 지정한 학년도-학기 기준을 초기 필터값으로 쓴다 — 이후 사용자가
+  // 직접 바꾸면 그 선택을 유지하고, 기준값이 나중에 바뀌어도 되돌리지 않는다.
+  const currentTerm = useCurrentTerm(schoolId)
+  const [year, setYear] = useState(currentTerm.year)
+  const [semester, setSemester] = useState(currentTerm.semester)
+  const [termApplied, setTermApplied] = useState(false)
+  useEffect(() => {
+    if (termApplied || !currentTerm.loaded) return
+    setYear(currentTerm.year)
+    setSemester(currentTerm.semester)
+    setTermApplied(true)
+  }, [currentTerm, termApplied])
+
   const [tab, setTab] = useState(0)
   const [onlyMissing, setOnlyMissing] = useState(false)
 
@@ -368,6 +383,7 @@ export default function EvalPlanManagerDashboard() {
                       <TableCell align="center" colSpan={2}>수행평가(%)</TableCell>
                       <TableCell align="center" colSpan={2}>정기시험-중간(%)</TableCell>
                       <TableCell align="center" colSpan={2}>정기시험-기말(%)</TableCell>
+                      <TableCell rowSpan={2} sx={thSortSx} onClick={() => planSort.toggle('gradeMethod')}>성적산출방법{planSort.Ind('gradeMethod')}</TableCell>
                       <TableCell rowSpan={2} sx={thSortSx} onClick={() => planSort.toggle('uploaderName')}>제출자{planSort.Ind('uploaderName')}</TableCell>
                       <TableCell rowSpan={2} sx={thSortSx} onClick={() => planSort.toggle('status')}>상태{planSort.Ind('status')}</TableCell>
                     </TableRow>
@@ -392,6 +408,15 @@ export default function EvalPlanManagerDashboard() {
                         <TableCell align="center">{r.midOther ?? '-'}</TableCell>
                         <TableCell align="center">{r.finEssay ?? '-'}</TableCell>
                         <TableCell align="center">{r.finOther ?? '-'}</TableCell>
+                        <TableCell>
+                          {r.gradeMethodEntries.length ? (
+                            <Box sx={{ display: 'flex', gap: 0.4, flexWrap: 'wrap' }}>
+                              {r.gradeMethodEntries.map((e) => (
+                                <Chip key={e.key} size="small" label={e.label} sx={{ bgcolor: e.bg, color: e.color, fontWeight: 700, height: 20, fontSize: '0.68rem' }} />
+                              ))}
+                            </Box>
+                          ) : '-'}
+                        </TableCell>
                         <TableCell>{r.uploaderName || '-'}</TableCell>
                         <TableCell>
                           <Chip

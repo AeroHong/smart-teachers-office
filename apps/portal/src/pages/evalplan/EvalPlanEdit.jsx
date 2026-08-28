@@ -23,6 +23,7 @@ export default function EvalPlanEdit() {
   const [error, setError] = useState(null)
   const [meta, setMeta] = useState(null)
   const [data, setData] = useState(null)
+  const [subjectGroupError, setSubjectGroupError] = useState(false)
 
   useEffect(() => {
     if (!schoolId || !planId) return
@@ -55,7 +56,18 @@ export default function EvalPlanEdit() {
       .finally(() => setLoading(false))
   }, [schoolId, planId])
 
+  const handleMetaChange = (next) => {
+    setMeta(next)
+    if (next.subjectGroup) setSubjectGroupError(false)
+  }
+
   const handleSave = async () => {
+    if (!meta.subjectGroup) {
+      setSubjectGroupError(true)
+      setError('교과(군)을 선택해주세요.')
+      return
+    }
+    setSubjectGroupError(false)
     setSaving(true)
     setError(null)
     try {
@@ -108,7 +120,7 @@ export default function EvalPlanEdit() {
 
       {meta && data && (
         <Box>
-          <EvalPlanForm meta={meta} onMetaChange={setMeta} data={data} onDataChange={setData} />
+          <EvalPlanForm meta={meta} onMetaChange={handleMetaChange} data={data} onDataChange={setData} subjectGroupError={subjectGroupError} />
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 1 }}>
             <Button
               variant="outlined" disabled={saving} onClick={() => navigate(`/evalplan/${planId}`)}
