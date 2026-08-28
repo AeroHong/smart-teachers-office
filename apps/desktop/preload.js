@@ -51,4 +51,8 @@ contextBridge.exposeInMainWorld('smartOfficeDesktop', {
   getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', enabled),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+  // 상단바 "새로고침" 버튼(2026-08-29) — 트레이 복원 시 자동으로 하는 것과 같은
+  // 강제 새로고침(reloadIgnoringCache)을 사용자가 직접 누를 수 있게 한다.
+  reloadApp: () => ipcRenderer.send('reload-app'),
 })

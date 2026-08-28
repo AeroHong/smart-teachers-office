@@ -414,6 +414,12 @@ if (!gotLock) {
   // 이유는 위 트레이 항목들과 같다 — ipcMain.on 핸들러도 (event, ...args)를 넘긴다.
   ipcMain.on('focus-window', () => showMainWindow())
 
+  // 상단바 "새로고침" 버튼(2026-08-29, 사용자 요청) — 트레이 자동 복원 새로고침과
+  // 같은 강제 새로고침을 사용자가 언제든 직접 누를 수 있게 한다.
+  ipcMain.on('reload-app', () => {
+    mainWindow?.webContents.reloadIgnoringCache()
+  })
+
   // 설정 화면(2026-08-28) — 자동실행 켬/끔, 수동 업데이트 확인. 자동실행은
   // OS(레지스트리)에 그대로 저장되므로 이 앱이 따로 값을 들고 있지 않는다.
   ipcMain.handle('get-auto-launch', () => app.getLoginItemSettings().openAtLogin)

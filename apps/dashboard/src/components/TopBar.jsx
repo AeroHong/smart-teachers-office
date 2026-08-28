@@ -15,11 +15,14 @@
 import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import SearchIcon from '@mui/icons-material/Search'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { PRESENCE, PRESENCE_ORDER } from '@shared/lib/presence'
@@ -27,6 +30,21 @@ import { openCommandPalette } from './CommandPalette'
 import CallBell from './CallBell'
 import usePresence from '../lib/usePresence'
 import { useProfileCard } from './ProfileCardProvider'
+
+const isDesktop = typeof window !== 'undefined' && !!window.smartOfficeDesktop
+
+/**
+ * 새로고침 — 데스크톱 앱은 트레이 상주라 며칠씩 재시작 없이 켜둘 수 있고, 그동안
+ * 새로 배포된 수정사항이 안 들어온다(main.js가 30분 넘게 숨겨졌다 복귀할 때만
+ * 자동으로 새로 받아온다, 2026-08-29). 그 자동 새로고침을 기다리지 않고 사용자가
+ * 언제든 직접 누를 수 있게 한다("이건 아무래도 앱에서 쓰는 캐시 문제 같기도 한데" —
+ * 같은 라운드의 사용자 요청). 데스크톱 앱은 main.js의 reloadIgnoringCache를,
+ * 일반 브라우저는 그냥 location.reload()를 쓴다.
+ */
+function handleReload() {
+  if (isDesktop) window.smartOfficeDesktop.reloadApp()
+  else window.location.reload()
+}
 
 // 검색창이 가운데를 차지하는 만큼, 좌우 칸은 오른쪽 묶음(호출벨+이름+재실 상태 ≈ 195px)이
 // + titleBarOverlay 버튼 자리(138px)를 더해도 절대 잘리지 않을 폭을 고정으로 준다.
@@ -106,6 +124,19 @@ export default function TopBar() {
           // titleBarOverlay 폭만큼 오른쪽에 자리를 비워 둔다.
           pr: '138px',
         }}>
+          {/* 새로고침 — 사용자 요청(2026-08-29): "앱 상단에 강제 새로고침 버튼이
+              있으면 좋겠어". 데스크톱 앱은 트레이에 며칠씩 떠 있을 수 있어 자동
+              새로고침(30분 이상 숨겨졌다 복귀할 때, main.js)을 기다리지 않고 언제든
+              직접 누를 수 있게 한다. */}
+          <Tooltip title="새로고침">
+            <IconButton
+              size="small"
+              onClick={handleReload}
+              sx={{ color: 'text.secondary', WebkitAppRegion: 'no-drag' }}
+            >
+              <RefreshIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
           {/* 호출은 지금 학생이 기다린다는 신호라 어느 화면에 있든 눈에 들어와야 한다.
               CallBell.jsx 자체엔 no-drag가 없어 여기서 감싼다. */}
           <Box sx={{ display: 'flex', alignItems: 'center', WebkitAppRegion: 'no-drag' }}>
