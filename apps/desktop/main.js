@@ -193,14 +193,41 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
+  // mainWindow가 트레이로 숨겨진 동안(close 핸들러의 hide())도 웹 콘텐츠는 그대로
+  // 메모리에 남아 있다 — index.html을 다시 안 받아오니 그 사이 새로 배포된 대시보드
+  // 수정사항이 하나도 안 들어온다. "앱에서는 재현되는데 웹(일반 브라우저)에서는 안
+  // 된다"로 보고된 버그의 원인이 이거였다(2026-08-29, 사용자 지적 — "이건 아무래도
+  // 앱에서 쓰는 캐시 문제 같기도 한데"). 트레이에서 되살릴 때, 숨겨져 있던 시간이
+  // 길면(30분 이상) 보여주기 전에 한 번 새로 받아온다 — 매번 새로고침하면 잠깐
+  // 숨겼다 바로 여는 흔한 경우에도 깜빡임이 생긴다.
+  let hiddenAt = null
+  const RELOAD_AFTER_HIDDEN_MS = 30 * 60 * 1000
+
+  /**
+   * @param {() => void} [afterShow] 새로고침이 실제로 일어나면 페이지가 다시 마운트될
+   *   때까지(did-finish-load) 미룬다 — 알림 클릭의 navigate 전송처럼, 새로고침 도중에
+   *   바로 보내면 렌더러가 아직 리스너를 안 달아서 그 메시지가 조용히 사라진다.
+   */
+  function showMainWindow(afterShow) {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    const hiddenFor = hiddenAt ? Date.now() - hiddenAt : 0
+    hiddenAt = null
+    if (hiddenFor > RELOAD_AFTER_HIDDEN_MS) {
+      log(`트레이에서 ${Math.round(hiddenFor / 60000)}분 만에 복귀 — 새로 고침`)
+      if (afterShow) mainWindow.webContents.once('did-finish-load', afterShow)
+      mainWindow.webContents.reloadIgnoringCache()
+    } else {
+      afterShow?.()
+    }
+    mainWindow.show()
+    mainWindow.focus()
+  }
+
   app.on('second-instance', (_event, argv) => {
     // 알림 클릭 시 Windows가 exe를 새로 띄우면 여기로 들어온다(단일 인스턴스 락).
     log('second-instance argv=', argv.join(' '))
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
+    showMainWindow()
   })
 
   function createWindow() {
@@ -282,6 +309,7 @@ if (!gotLock) {
     mainWindow.on('close', (event) => {
       if (!app.isQuitting && tray) {
         event.preventDefault()
+        hiddenAt = Date.now()
         mainWindow.hide()
       }
     })
@@ -293,10 +321,10 @@ if (!gotLock) {
     tray.setContextMenu(Menu.buildFromTemplate([
       {
         label: '열기',
-        click: () => {
-          mainWindow.show()
-          mainWindow.focus()
-        },
+        // showMainWindow를 그대로 넘기면 안 된다 — MenuItem의 click 핸들러는
+        // (menuItem, browserWindow, event) 인자를 넘겨서, 그게 그대로 afterShow
+        // 자리에 들어가 새로고침 뒤 함수처럼 호출하려다 죽는다.
+        click: () => showMainWindow(),
       },
       { type: 'separator' },
       {
@@ -314,10 +342,8 @@ if (!gotLock) {
         },
       },
     ]))
-    tray.on('double-click', () => {
-      mainWindow.show()
-      mainWindow.focus()
-    })
+    // 이유는 위 '열기' 항목과 같다 — Tray의 double-click 이벤트도 인자를 넘긴다.
+    tray.on('double-click', () => showMainWindow())
   }
 
   app.whenReady().then(() => {
@@ -385,11 +411,8 @@ if (!gotLock) {
   })
 
   // 알림 클릭(useDesktopNotifications.js) → 트레이로 숨겨진 창을 다시 보여준다.
-  ipcMain.on('focus-window', () => {
-    if (!mainWindow) return
-    mainWindow.show()
-    mainWindow.focus()
-  })
+  // 이유는 위 트레이 항목들과 같다 — ipcMain.on 핸들러도 (event, ...args)를 넘긴다.
+  ipcMain.on('focus-window', () => showMainWindow())
 
   // 설정 화면(2026-08-28) — 자동실행 켬/끔, 수동 업데이트 확인. 자동실행은
   // OS(레지스트리)에 그대로 저장되므로 이 앱이 따로 값을 들고 있지 않는다.
@@ -438,12 +461,12 @@ if (!gotLock) {
       log('  → click')
       release()
       if (!mainWindow) { log('     mainWindow 없음 — 무시'); return }
-      mainWindow.show()
-      mainWindow.focus()
-      if (route) {
-        mainWindow.webContents.send('navigate', route)
-        log(`     창 복원 + navigate ${route}`)
-      }
+      showMainWindow(() => {
+        if (route) {
+          mainWindow.webContents.send('navigate', route)
+          log(`     navigate ${route}`)
+        }
+      })
     })
 
     n.show()
