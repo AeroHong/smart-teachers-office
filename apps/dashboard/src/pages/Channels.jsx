@@ -124,6 +124,10 @@ export default function Channels() {
   // 블록을 보고 있는지. WorkspaceLayout.jsx 자체는 안 건드리고 이 페이지가 캔버스 옆에
   // 조건부로 그린다(항상 있는 레일·사이드바와 달리 블록 하나를 고를 때만 뜨는 칸이라).
   const [blockComments, setBlockComments] = useState(null)   // { requestId, blockId } | null
+  // "대상 좁히기" 펼침 여부 — 원래 PostComposer.jsx 로컬 상태였는데, 그 토글 버튼을
+  // 채널 헤더(제목 줄 오른쪽, 참여자 수 옆)로 옮기면서 여기로 올렸다(2026-08-28,
+  // 사용자 요청). PostComposer.jsx는 이 값과 세터를 그대로 prop으로 받아 쓴다.
+  const [targetOpen, setTargetOpen] = useState(false)
   // 스레드(답장) 패널 — blockComments와 같은 자리·같은 이유(PLAN_channels.md 2026-08-27,
   // "제대로: 슬랙식 스레드 창"). 값은 스레드의 부모 메시지 id다.
   const [activeThread, setActiveThread] = useState(null)
@@ -346,7 +350,9 @@ export default function Channels() {
 
   // 보던 캔버스(또는 편집 중인 글)가 바뀌면 블록 댓글 패널도 닫는다 — 안 그러면 다른
   // 글로 넘어갔는데 방금 전 블록의 댓글이 그대로 떠 있어 어느 글 얘기인지 헷갈린다.
-  useEffect(() => { setBlockComments(null) }, [requestId, editingPostId, composingNew])
+  // "대상 좁히기"도 같이 접는다 — PostComposer.jsx가 고칠 글을 다시 읽으며 필요하면
+  // (대상이 채널 전원과 다르면) 스스로 다시 펼친다.
+  useEffect(() => { setBlockComments(null); setTargetOpen(false) }, [requestId, editingPostId, composingNew])
 
   // 채널을 옮기면 스레드 패널도 닫는다 — 같은 이유(다른 채널로 넘어갔는데 방금 전
   // 스레드가 그대로 떠 있으면 어느 채널 얘기인지 헷갈린다).
@@ -571,7 +577,7 @@ export default function Channels() {
         // 세로 flex + height 100%. 메시지 목록이 화면 안에서 따로 스크롤되고 입력칸은
         // 아래에 붙어 있어야 하는데, 문서 흐름대로 두면 입력칸이 대화 밑으로 밀려 내려간다.
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-          <Box sx={{ flexShrink: 0, px: 2, pt: 2 }}>
+          <Box sx={{ flexShrink: 0, px: 2, pt: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5 }}>
             {/* 비공개 채널은 자물쇠로 갈음한다. 여기가 아니라 설명 줄에만 적으면
                 글을 쓰는 순간에는 눈에 안 들어온다 — 정작 그때 알아야 하는 사실이다. */}
@@ -581,25 +587,42 @@ export default function Channels() {
                 ? <LockIcon sx={{ fontSize: 20, color: 'warning.main', mt: '3px' }} />
                 : <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />}
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography variant="h6" fontWeight={800}>
+              <Typography variant="h6" fontWeight={800} noWrap>
                 {dm ? dmTitle(active, user?.uid) : active.name}
               </Typography>
-              <Typography fontSize="0.76rem" color="text.secondary">
-                {dm ? (
-                  // 관리자도 못 읽는다는 사실을 적어 둔다. 업무 채널과 생김새가 같아서
-                  // 여기가 둘만(혹은 나만) 보는 자리라는 것이 달리 드러날 곳이 없다
-                  // (데이터모델 §10).
-                  isSelfDm ? '나만 보는 공간입니다. 관리자도 읽지 않습니다.' : '둘만 보는 대화입니다. 관리자도 읽지 않습니다.'
-                ) : (
-                  <>
-                    {isPrivateChannel(active) && '비공개 · '}
-                    참여 {active.memberUids?.length ?? 0}명
-                    {active.memberRuleText && ` · ${active.memberRuleText}`}
-                    {channelPostPolicy(active) === POST_POLICY.OWNER && ' · 공지 전용'}
-                  </>
-                )}
-              </Typography>
+              {/* DM은 "둘만 본다"는 안내가 한 문장이라 제목 아래 그대로 둔다 — 채널의
+                  참여자 수(짧은 통계)와 달리 오른쪽 한 줄에 욱여넣으면 잘린다. */}
+              {dm && (
+                <Typography fontSize="0.76rem" color="text.secondary">
+                  {isSelfDm ? '나만 보는 공간입니다. 관리자도 읽지 않습니다.' : '둘만 보는 대화입니다. 관리자도 읽지 않습니다.'}
+                </Typography>
+              )}
             </Box>
+            {/* 참여자 수 — 예전엔 제목 아래 둘째 줄이었는데, 채널 설명(아래)까지 있으면
+                헤더가 세 줄로 늘어졌다. 제목과 같은 줄 오른쪽으로 옮기고 채널 설명은
+                아예 없앴다(2026-08-28, 사용자 요청 — "각 라인 여백 줄여서 캔버스의
+                상단 영역 디자인 최적화"). */}
+            {!dm && (
+              <Typography
+                fontSize="0.76rem" color="text.secondary"
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap', mt: '3px' }}
+              >
+                {isPrivateChannel(active) && '비공개 · '}
+                참여 {active.memberUids?.length ?? 0}명
+                {active.memberRuleText && ` · ${active.memberRuleText}`}
+                {channelPostPolicy(active) === POST_POLICY.OWNER && ' · 공지 전용'}
+              </Typography>
+            )}
+            {/* "대상 좁히기" — PostComposer.jsx 안에 있던 토글 버튼을 참여자 수 옆으로
+                옮겼다(같은 요청). 글을 쓰거나 고칠 때만 뜻이 있어 그 상태일 때만 보인다. */}
+            {!dm && (composingNew || editingPostId) && (
+              <Button
+                size="small" onClick={() => setTargetOpen(v => !v)}
+                sx={{ flexShrink: 0, fontSize: '0.76rem' }}
+              >
+                {targetOpen ? '접기' : '대상 좁히기'}
+              </Button>
+            )}
             {canManage && (
               <Tooltip title="채널 고치기">
                 <IconButton size="small" onClick={() => setEditing(active)}>
@@ -615,12 +638,6 @@ export default function Channels() {
               </Tooltip>
             )}
           </Box>
-
-          {active.description && (
-            <Typography fontSize="0.85rem" color="text.secondary" sx={{ mb: 1.5 }}>
-              {active.description}
-            </Typography>
-          )}
 
           {active.archived && (
             <StateNote>
@@ -666,7 +683,7 @@ export default function Channels() {
                 (데이터모델 §10). DM 안에 업무 글을 허용하면 "둘만 본다"가 한쪽으로 샌다.
                 한 사람에게만 시키는 일은 업무 글의 대상을 그 사람으로 지정하면 된다. */}
             {!dm && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.75 }}>
                 <Tabs
                   value={tabValue}
                   onChange={(e, v) => {
@@ -781,8 +798,10 @@ export default function Channels() {
             )}
 
             {/* 탭 줄과 아래 목록을 가르는 연한 구분선(사용자 요청, 2026-08-26) —
-                DM에는 탭이 없어 !dm 블록 밖, 헤더 전체(제목 포함) 아래에 하나만 둔다. */}
-            <Divider sx={{ mt: 1.5 }} />
+                DM에는 탭이 없어 !dm 블록 밖, 헤더 전체(제목 포함) 아래에 하나만 둔다.
+                예전엔 mt:1.5로 탭 줄과 사이가 떠 있었는데, 탭 바로 아래 선처럼 겹치게
+                붙였다(2026-08-28, 사용자 요청 — "탭 하단 라인 겹치게 이동"). */}
+            <Divider sx={{ mt: 0 }} />
           </Box>
 
           <Box sx={{ flexGrow: 1, minHeight: 0 }}>
@@ -808,6 +827,8 @@ export default function Channels() {
                     onCancel={() => navigate(editingPostId ? `/channels/${active.id}/${editingPostId}` : `/channels/${active.id}`)}
                     onOpenCanvasRef={to => navigate(to)}
                     onOpenBlockComments={setBlockComments}
+                    targetOpen={targetOpen}
+                    setTargetOpen={setTargetOpen}
                   />
                 </Box>
                 {blockComments && (

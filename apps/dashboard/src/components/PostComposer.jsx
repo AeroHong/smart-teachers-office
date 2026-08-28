@@ -117,10 +117,16 @@ function dueLabel(value) {
  * @param {({requestId, blockId}) => void} [onOpenBlockComments] 캔버스 블록 손잡이의
  *   댓글 아이콘을 눌렀을 때 — CanvasEditor는 blockId만 알므로 여기서 이 글의 requestId를
  *   더해 Channels.jsx에 넘긴다(3단 오른쪽 4번째 칸을 여는 것은 그쪽 소관).
+ * @param {boolean} targetOpen "대상 좁히기" 펼침 여부 — 예전엔 이 컴포넌트의 로컬
+ *   상태였는데, 그 토글 버튼이 채널 헤더(제목 줄 오른쪽)로 옮겨가면서 부모(Channels.jsx)가
+ *   들고 있게 됐다(2026-08-28, 사용자 요청 — "대상 좁히기는 참여자 수 옆으로 이동").
+ *   여기서는 Collapse가 펼쳐질지만 이 값으로 판단하고, 처음 값 계산(고칠 글이 채널
+ *   전원과 다르면 자동으로 펼침)은 여기서 그대로 한다 — setTargetOpen만 부모 것을 쓴다.
+ * @param {(v: boolean | ((prev: boolean) => boolean)) => void} setTargetOpen
  */
 export default function PostComposer({
   channel, editingId, onSaved, onCancel, members, membersLoading, onOpenCanvasRef,
-  onOpenBlockComments,
+  onOpenBlockComments, targetOpen, setTargetOpen,
 }) {
   const { user, userName, schoolId } = useAuth()
   const toast = useToast()
@@ -138,7 +144,6 @@ export default function PostComposer({
   const [pinned, setPinned] = useState(false)
   const [dueDate, setDueDate] = useState('')
   const [rule, setRule] = useState(channel?.memberRule || EMPTY_RULE)
-  const [targetOpen, setTargetOpen] = useState(false)
   const [attachments, setAttachments] = useState([])
   const [links, setLinks] = useState([])
   const [coverImageUrl, setCoverImageUrl] = useState(null)
@@ -490,23 +495,16 @@ export default function PostComposer({
         </Box>
 
         <Box sx={{ mb: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
-            {/* 예전엔 대상이 0명이면 저장을 막았다. 자동저장은 막을 자리가 없어져서
-                (막으면 그 사이 다른 변경까지 다 저장이 안 된다) 대신 경고만 상시 띄운다. */}
-            <Typography
-              fontSize="0.8rem"
-              color={targets.length === 0 ? 'warning.main' : 'text.secondary'}
-              fontWeight={targets.length === 0 ? 700 : 400}
-              sx={{ flexGrow: 1 }}
-            >
-              {targets.length === 0
-                ? '⚠ 대상이 없습니다 — 아직 아무에게도 가지 않습니다'
-                : `이 채널 참여자 ${targets.length}명이 대상입니다`}
+          {/* 예전엔 대상이 0명이면 저장을 막았다. 자동저장은 막을 자리가 없어져서(막으면
+              그 사이 다른 변경까지 다 저장이 안 된다) 대신 경고만 상시 띄운다. 문제 없을
+              땐 아무것도 안 보여준다 — "이 채널 참여자 N명이 대상입니다"는 채널 헤더에
+              이미 참여자 수가 보이니 중복이라 뺐다(2026-08-28, 사용자 지적). "대상 좁히기"
+              토글도 같은 이유로 헤더(제목 줄 오른쪽)로 옮겨갔다 — 여기 남은 건 Collapse뿐. */}
+          {targets.length === 0 && (
+            <Typography fontSize="0.8rem" color="warning.main" fontWeight={700}>
+              ⚠ 대상이 없습니다 — 아직 아무에게도 가지 않습니다
             </Typography>
-            <Button size="small" onClick={() => setTargetOpen(v => !v)} sx={{ fontSize: '0.76rem' }}>
-              {targetOpen ? '접기' : '대상 좁히기'}
-            </Button>
-          </Box>
+          )}
           <Collapse in={targetOpen}>
             <Box sx={{ mt: 1, maxWidth: 420 }}>
               {membersLoading
