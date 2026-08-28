@@ -34,32 +34,40 @@ export default function Settings() {
   const [tab, setTab] = useState('general')
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', bgcolor: 'background.paper' }}>
-      <Box sx={{ width: 160, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider', py: 2 }}>
-        <Typography sx={{ px: 2, mb: 1, fontSize: '1rem', fontWeight: 800 }}>설정</Typography>
-        {TABS.map(t => (
-          <Box
-            key={t.key} component="button" type="button"
-            onClick={() => setTab(t.key)}
-            sx={{
-              display: 'flex', alignItems: 'center', gap: 1, width: '100%',
-              border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
-              px: 2, py: 1, fontSize: '0.88rem', fontFamily: 'inherit',
-              bgcolor: tab === t.key ? 'action.selected' : 'transparent',
-              color: tab === t.key ? 'primary.main' : 'text.primary',
-              fontWeight: tab === t.key ? 700 : 500,
-              '&:hover': { bgcolor: 'action.hover' },
-            }}
-          >
-            <t.icon sx={{ fontSize: 18 }} />
-            {t.label}
-          </Box>
-        ))}
-      </Box>
-      <Box sx={{ flexGrow: 1, p: 3, overflowY: 'auto' }}>
-        {tab === 'general' && <GeneralTab />}
-        {tab === 'theme' && <ThemeTab />}
-        {tab === 'about' && <AboutTab />}
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.paper' }}>
+      {/* 메인 창과 같은 titleBarOverlay(main.js) 자리 — 이 44px 띠는 OS가 최소화·닫기
+          버튼을 겹쳐 그리는 영역이라 실제로는 클릭이 전혀 안 먹힌다(ProfileCardProvider.jsx
+          드로어에서 겪은 것과 같은 문제, 2026-08-27) — 그래서 장식(같은 rail.bg 색 +
+          드래그 가능 표시)만 하고 버튼은 하나도 안 둔다. 일반 웹 브라우저에서는
+          WebkitAppRegion이 그냥 무시되는 빈 줄일 뿐이라 문제없다. */}
+      <Box sx={{ flexShrink: 0, height: '44px', bgcolor: 'rail.bg', WebkitAppRegion: 'drag' }} />
+      <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0 }}>
+        <Box sx={{ width: 160, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider', py: 2 }}>
+          <Typography sx={{ px: 2, mb: 1, fontSize: '1rem', fontWeight: 800 }}>설정</Typography>
+          {TABS.map(t => (
+            <Box
+              key={t.key} component="button" type="button"
+              onClick={() => setTab(t.key)}
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 1, width: '100%',
+                border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
+                px: 2, py: 1, fontSize: '0.88rem', fontFamily: 'inherit',
+                bgcolor: tab === t.key ? 'action.selected' : 'transparent',
+                color: tab === t.key ? 'primary.main' : 'text.primary',
+                fontWeight: tab === t.key ? 700 : 500,
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              <t.icon sx={{ fontSize: 18 }} />
+              {t.label}
+            </Box>
+          ))}
+        </Box>
+        <Box sx={{ flexGrow: 1, p: 3, overflowY: 'auto' }}>
+          {tab === 'general' && <GeneralTab />}
+          {tab === 'theme' && <ThemeTab />}
+          {tab === 'about' && <AboutTab />}
+        </Box>
       </Box>
     </Box>
   )

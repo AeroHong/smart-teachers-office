@@ -255,6 +255,13 @@ if (!gotLock) {
           resizable: false,
           icon: ICON_PATH,
           parent: mainWindow,
+          // 메인 창과 같은 titleBarOverlay(사용자 지적, 2026-08-28 — "새창으로 열었을 때
+          // 상단 창 디자인 수정 필요함"). 기본 흰 OS 제목줄로 뒀더니 나머지 화면(어두운
+          // 레일)과 안 어울렸다. Settings.jsx가 이 44px에 맞춰 장식용 띠를 그린다
+          // (ProfileCardProvider.jsx 드로어와 같은 패턴 — 그 44px 안에는 아무것도 못
+          // 눌러서, 실제 버튼은 전부 그 아래로 내려야 한다).
+          titleBarStyle: 'hidden',
+          titleBarOverlay: { color: '#0f172a', symbolColor: '#94a3b8', height: 44 },
           webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
