@@ -30,6 +30,14 @@ function trimLog() {
 // 대시보드 웹앱을 그대로 로드한다 — UI는 항상 배포된 최신 버전과 동기화된다.
 const DASHBOARD_URL = 'https://smart-school-dashboard.web.app'
 
+// 구글 로그인 팝업(signInWithPopup)이 기본 Electron User-Agent(끝에 "Electron/43.x.x
+// 스마트교무실/x.x.x"가 붙는다)를 그대로 쓰면 구글이 "임베디드 웹뷰"로 판단해 로그인
+// 자체를 막는다(2026-08-29, 사용자 신고 — 계정 선택 후 멈춤). 번들된 크로미움 버전은
+// 그대로 두고 Electron 전용 접미사만 뗀 UA로 바꾼다 — Electron+Firebase 조합에서
+// 흔히 쓰이는 해결법이다. 우리 자체 화면(대시보드)은 UA를 안 보므로 메인 창에 같이
+// 적용돼도 부작용이 없다. 창을 하나라도 만들기 전에 앱 전역으로 적용해야 한다.
+app.userAgentFallback = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
+
 // 런타임에 읽는 아이콘은 assets/에 둔다. build/는 electron-builder가 빌드 리소스
 // 전용으로 취급해 앱 패키지(app.asar)에 넣지 않으므로, 거기서 읽으면 설치본에서만
 // Tray 생성이 실패한다 (dev에서는 파일이 있어 멀쩡히 동작해 눈치채기 어렵다).
@@ -232,8 +240,8 @@ if (!gotLock) {
 
   function createWindow() {
     mainWindow = new BrowserWindow({
-      width: 1280,
-      height: 860,
+      width: 1200,
+      height: 800,
       icon: ICON_PATH,
       // OS 기본 제목줄("업무 대시보드 · 스마트교무실" 글자 + 아이콘)을 없앤다 — Slack처럼
       // 메뉴가 곧바로 시작되는 인상을 준다(사용자 요청, 2026-08-26). frame:false만 쓰면
@@ -299,6 +307,16 @@ if (!gotLock) {
         settingsWindow.setMenuBarVisibility(false)
         settingsWindow.loadURL(url)
         return { action: 'deny' }
+      }
+      // 구글 로그인 팝업 — signInWithPopup()이 여는 Firebase 인증 핸들러/구글 계정
+      // 선택 창. 예전엔 이것도 아래 shell.openExternal로 보냈는데, 그러면 팝업이
+      // 완전히 별도 프로세스(OS 기본 브라우저)가 되어 Firebase SDK가 기대하는
+      // window.opener 연결이 끊긴다 — 계정을 선택해도 결과를 이 앱에 돌려줄 방법이
+      // 없어 그대로 멈춰 보인다(2026-08-29, 사용자 신고). 진짜 Electron 팝업 창으로
+      // 허용해야 그 연결이 살아있어 로그인이 끝까지 진행된다. (임베디드 웹뷰 차단은
+      // 위 app.userAgentFallback로 회피한다.)
+      if (url.includes('/__/auth/handler') || url.includes('accounts.google.com')) {
+        return { action: 'allow' }
       }
       shell.openExternal(url)
       return { action: 'deny' }
