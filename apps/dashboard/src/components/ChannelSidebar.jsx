@@ -41,7 +41,7 @@ import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import TagIcon from '@mui/icons-material/Tag'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { dmTitle, isPrivateChannel } from '@shared/lib/channels'
+import { canManageChannel, dmTitle, isAllStaffChannel, isPrivateChannel } from '@shared/lib/channels'
 import { hasUnread } from '@shared/lib/channelMessages'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
@@ -54,6 +54,7 @@ import { useToast } from './ToastProvider'
 import useChannelPrefs from '../lib/useChannelPrefs'
 import useFavoritedPosts from '../lib/useFavoritedPosts'
 import { EXTERNAL_LINKS } from '../lib/externalLinks'
+import { setChannelArchived } from '../lib/channelActions'
 
 // 'default'(기본 "채널" 묶음)에 아이콘이 없어서 디렉터리·섹션·다이렉트 메시지·보관함·
 // 바로가기는 다 아이콘이 있는데 채널만 없었다(사용자 지적, 2026-08-26). 개별 채널
@@ -66,7 +67,7 @@ export default function ChannelSidebar({
 }) {
   const navigate = useNavigate()
   const toast = useToast()
-  const { schoolId } = useAuth()
+  const { schoolId, user, isAdmin } = useAuth()
   const { prefs, reads, update } = useChannelPrefs()
   // 즐겨찾기·섹션에 캔버스(업무 글)가 들어있으면 그 최신 title 등을 가져온다
   // (channelPrefs.js favoritedPostIds 주석 참고 — 학교 전체 글이 아니라 이것만 구독).
@@ -75,6 +76,11 @@ export default function ChannelSidebar({
   const [rowMenu, setRowMenu] = useState(null)        // { anchor, channelId }
   const [sectionMenu, setSectionMenu] = useState(null) // { anchor, sectionId }
   const [nameDialog, setNameDialog] = useState(null)   // { mode, sectionId, value, error }
+  // 채널 보관 확인 — Channels.jsx 헤더 '⋮' 메뉴에 이미 있던 기능을 사이드바 우클릭에도
+  // 둔다(사용자 지적, 2026-08-28 — "채널 보관 기능이 없네"). 실제 로직(setChannelArchived)은
+  // 그대로 재사용, 문구도 Channels.jsx의 ConfirmDialog와 맞춘다.
+  const [archiveConfirm, setArchiveConfirm] = useState(null) // 채널 객체 | null
+  const [archiving, setArchiving] = useState(false)
   const [deleting, setDeleting] = useState(null)       // 섹션 객체
   const [openArchived, setOpenArchived] = useState(false)
   const [openLeft, setOpenLeft] = useState(false)
@@ -422,6 +428,20 @@ export default function ChannelSidebar({
             <CreateNewFolderIcon sx={{ fontSize: 16 }} />새 섹션으로…
           </MenuItem>
         )}
+
+        {/* 채널 보관 — 전체 공지 채널·관리 권한 없는 사람에게는 안 보인다
+            (Channels.jsx 헤더 '⋮' 메뉴와 같은 조건, canManageChannel 그대로 재사용). */}
+        {menuChannel && !isAllStaffChannel(menuChannel) && canManageChannel(menuChannel, user?.uid, isAdmin) && (
+          <>
+            <Divider />
+            <MenuItem
+              sx={{ fontSize: '0.85rem', gap: 1 }}
+              onClick={() => { const c = menuChannel; closeMenus(); setArchiveConfirm(c) }}
+            >
+              <ArchiveIcon sx={{ fontSize: 17 }} />채널 보관
+            </MenuItem>
+          </>
+        )}
       </Menu>
 
       {/* 섹션 머리 메뉴 */}
@@ -486,6 +506,40 @@ export default function ChannelSidebar({
             }}
           >
             지우기
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 채널 보관 확인 — Channels.jsx 헤더 '⋮' 메뉴의 ConfirmDialog와 같은 문구
+          (보관을 삭제로 오해하면 끝난 업무의 채널을 아무도 정리하지 않는다). */}
+      <Dialog open={!!archiveConfirm} onClose={() => !archiving && setArchiveConfirm(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: '1rem', fontWeight: 800 }}>이 채널을 보관할까요?</DialogTitle>
+        <DialogContent>
+          <Typography fontSize="0.9rem"><strong>{archiveConfirm?.name}</strong></Typography>
+          <Typography color="text.secondary" fontSize="0.85rem" sx={{ mt: 1 }}>
+            채널 목록에서 접히고 보관함으로 들어갑니다. 글은 하나도 지워지지 않고, 언제든
+            보관 해제로 다시 꺼낼 수 있습니다.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setArchiveConfirm(null)} disabled={archiving}>취소</Button>
+          <Button
+            variant="contained"
+            disabled={archiving}
+            onClick={async () => {
+              setArchiving(true)
+              try {
+                await setChannelArchived({ schoolId, channelId: archiveConfirm.id, archived: true })
+                toast.success('채널을 보관했습니다.')
+                setArchiveConfirm(null)
+              } catch (e) {
+                toast.error('채널을 보관하지 못했습니다.', e)
+              } finally {
+                setArchiving(false)
+              }
+            }}
+          >
+            보관
           </Button>
         </DialogActions>
       </Dialog>
