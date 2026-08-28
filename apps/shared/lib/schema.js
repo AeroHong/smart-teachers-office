@@ -83,6 +83,7 @@ export const COL = {
   // 대시보드 — 일정/모듈 노출 제어
   // (전체 공지는 REQUESTS의 kind='notice'로 통합됐다)
   ACADEMIC_CALENDAR: 'academicCalendar',    // 학사일정 (관리자 작성)
+  COVER_TEMPLATES: 'coverTemplates',        // 캔버스 표지 템플릿 라이브러리 (관리자 작성)
   DASHBOARD_MODULES: 'dashboardModules',    // 위젯 노출 제어 (enabled + visibility)
 
   // 쪽지 — 교사 상호간 1:1. 위젯이 아니라 별도 탭(/messages)에서 다룬다.

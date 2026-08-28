@@ -243,6 +243,14 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
+      // 캔버스 표지 템플릿 라이브러리 — 관리자가 채워 넣고 교직원 전체가 고른다.
+      // coverRequests(보강신청)와 이름만 "cover"가 겹칠 뿐 무관한 기능이다 — 헷갈리지
+      // 않게 academicCalendar 옆에 둔다(둘 다 "관리자 작성, 교직원 전체 읽기" 모양).
+      match /coverTemplates/{templateId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
       // 개인 쪽지 — 발신자만 생성, 발신자·수신자만 읽기/삭제.
       // 읽음 처리(readAt)는 수신자가 update로 하므로 발신자·수신자 모두 update 허용 범위에 둔다
       // (본문 위·변조는 클라이언트 UI에서 막고, 규칙은 문서 소유 여부까지만 판정한다).

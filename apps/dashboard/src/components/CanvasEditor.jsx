@@ -48,6 +48,7 @@ import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import NotesIcon from '@mui/icons-material/Notes'
 import Popover from '@mui/material/Popover'
 import SlashMenu from './SlashMenu'
+import CoverPicker from './CoverPicker'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { isImageFile, uploadAttachment } from '@shared/lib/requestAttachments'
 import { canvasRefCardHtml, canvasRefTarget } from '@shared/lib/canvasRefCard'
@@ -178,7 +179,8 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)     // 이미지 전용(accept="image/*")
   const docFileInputRef = useRef(null)  // "+파일" — 무슨 형식이든 받는다
-  const coverInputRef = useRef(null)    // 표지 — 이미지 한 장만
+  // 표지 고르기 팝오버(CoverPicker.jsx) — 라이브러리/업로드는 그 안에서 처리한다.
+  const [coverPickerAnchor, setCoverPickerAnchor] = useState(null)
   const [uploading, setUploading] = useState(0)
   const [colorAnchor, setColorAnchor] = useState(null)
   // 크기를 조절하려고 고른 이미지. 손잡이는 이 값이 있을 때만 그린다.
@@ -1141,24 +1143,6 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     }
   }
 
-  /**
-   * 표지 올리기/바꾸기 — insertFile과 같은 모양이지만 본문에 끼우지 않고 onCoverChange로만
-   * 알린다. 실제 attachments 배열이나 Storage 삭제 판단(새 글이면 즉시, 고치는 중이면
-   * 자동저장이 지연 삭제)은 부모(PostComposer.jsx)가 갖는다 — insertFile/onFileUploaded와
-   * 같은 소유권 분리.
-   */
-  const insertCover = async (file) => {
-    setUploading(n => n + 1)
-    try {
-      const uploaded = await uploadAttachment({ schoolId, docId, folder, file })
-      onCoverChange?.(uploaded)
-    } catch (e) {
-      toast.error(`표지를 올리지 못했습니다: ${e.message}`, e)
-    } finally {
-      setUploading(n => n - 1)
-    }
-  }
-
   const applyList = (cmd) => {
     const line = readLine()
     if (!line) return
@@ -1507,7 +1491,10 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           표지는 노션의 빈 커버 자리와 같은 방식 — 평소엔 안 보이다가 마우스를 올리면
           "+표지 추가"가 옅게 나타난다. 올린 뒤에는 200px 배너로 꽉 채우고, 오버할 때만
           우측 하단에 "바꾸기"/"삭제"가 뜬다(2026-08-27, PLAN_canvasEditor.md Phase 4).
-          크롭·초점 이동은 이번 범위 밖 — objectFit:'cover'로 가운데를 고정해 채운다. */}
+          크롭·초점 이동은 이번 범위 밖 — objectFit:'cover'로 가운데를 고정해 채운다.
+
+          클릭하면 직접 업로드 대신 CoverPicker(라이브러리·업로드 탭) 팝오버가 뜬다
+          (2026-08-28, 사용자 요청 — Google Sites 표지 고르기 참고). */}
       <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {coverImageUrl ? (
           <Box sx={{
@@ -1524,7 +1511,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             }}>
               <Button
                 size="small" variant="contained" disableElevation
-                onClick={() => coverInputRef.current?.click()}
+                onClick={e => setCoverPickerAnchor(e.currentTarget)}
                 sx={{ bgcolor: 'rgba(0,0,0,0.6)', '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' } }}
               >
                 바꾸기
@@ -1540,7 +1527,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
           </Box>
         ) : (
           <Box
-            onClick={() => coverInputRef.current?.click()}
+            onClick={e => setCoverPickerAnchor(e.currentTarget)}
             sx={{
               height: 96, mb: 0.5, borderRadius: 1, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1552,6 +1539,16 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             + 표지 추가
           </Box>
         )}
+        <CoverPicker
+          anchorEl={coverPickerAnchor}
+          open={!!coverPickerAnchor}
+          onClose={() => setCoverPickerAnchor(null)}
+          docId={docId}
+          folder={folder}
+          hasCover={!!coverImageUrl}
+          onSelect={uploaded => onCoverChange?.(uploaded)}
+          onRemove={() => onCoverRemove?.()}
+        />
         {onTitleChange && (
           <TextField
             fullWidth autoFocus variant="standard"
@@ -1622,18 +1619,6 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         hidden
         onChange={e => { handleDocFiles(e.target.files); e.target.value = '' }}
       />
-      <input
-        ref={coverInputRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={e => {
-          const file = e.target.files?.[0]
-          e.target.value = ''
-          if (file) insertCover(file)
-        }}
-      />
-
       {/* 블록 손잡이(⋮⋮) — 지금 마우스가 올라간 블록의 왼쪽 바깥에 뜬다. picked(이미지
           손잡이)와 같은 자리 계산 방식이지만, 이건 잘라 보여줄 이유가 없어(overflow
           없음) clip 상자 없이 바로 그린다. 메뉴가 열려 있는 동안에도 계속 보이게 둔다 —
