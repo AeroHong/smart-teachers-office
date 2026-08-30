@@ -7,6 +7,7 @@ import Divider from '@mui/material/Divider'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Tooltip from '@mui/material/Tooltip'
+import DownloadIcon from '@mui/icons-material/Download'
 import { Link, useLocation, useNavigate, Link as RouterLink } from 'react-router-dom'
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -588,8 +589,27 @@ export default function Layout({ children, wide = false }) {
             </>
           )}
 
-          {/* ── 도움말 버튼 (헤더 우측) ── */}
-          <Box sx={{ ml: 'auto' }}>
+          {/* ── 헤더 우측 액션들 (PC 앱 설치 · 도움말) ── */}
+          <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Tooltip title="PC 앱 설치 파일 다운로드">
+              <IconButton
+                size="small"
+                onClick={() => window.open('https://smart-school-updates.web.app/install-smart-office.bat', '_blank', 'noopener,noreferrer')}
+                sx={{
+                  width: 28, height: 28,
+                  color: '#64748b',
+                  border: '1.5px solid #e2e8f0',
+                  borderRadius: '50%',
+                  '&:hover': {
+                    color: '#0ea5e9',
+                    borderColor: '#bae6fd',
+                    bgcolor: '#f0f9ff',
+                  },
+                }}
+              >
+                <DownloadIcon sx={{ fontSize: '1.05rem' }} />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="사용 매뉴얼">
               <IconButton
                 size="small"
