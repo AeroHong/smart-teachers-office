@@ -241,6 +241,19 @@
               "value": "no-cache, max-age=0"
             }
           ]
+        },
+        {
+          "source": "/*.bat",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/octet-stream"
+            },
+            {
+              "key": "Content-Disposition",
+              "value": "attachment; filename=\"install-smart-office.bat\""
+            }
+          ]
         }
       ]
     }

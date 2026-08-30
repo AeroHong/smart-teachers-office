@@ -38,6 +38,12 @@ if (installerFile) {
   console.log(`[copy-release] ${installerFile} → desktop-updates/smart-office-setup-latest.exe (고정 파일명)`)
 }
 
+// install-smart-office.bat(신규 PC 일괄 설치용)은 릴리즈마다 내용이 바뀌지 않지만,
+// 스크립트를 고친 뒤 desktop-updates에 다시 올리는 걸 잊기 쉬워 릴리즈할 때마다
+// scripts/의 최신 버전으로 같이 맞춰 둔다 — 포털 홈 화면의 다운로드 링크가 이 파일을 가리킨다.
+fs.copyFileSync(path.join(__dirname, 'install-smart-office.bat'), path.join(outDir, 'install-smart-office.bat'))
+console.log('[copy-release] install-smart-office.bat → desktop-updates/')
+
 // electron-updater는 새 버전을 받을 때 직전 버전과의 차이만 내려받는 차등 다운로드를
 // 먼저 시도한다(수십~백MB를 매번 통째로 안 받아도 됨) — 그러려면 서버에 "직전 버전"의
 // blockmap이 남아 있어야 한다(실측 확인: 0.1.6→0.1.7 테스트에서 이전 버전을 지워
