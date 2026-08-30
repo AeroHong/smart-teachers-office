@@ -44,7 +44,7 @@ import {
 } from '../lib/coverActions'
 import { useToast } from './ToastProvider'
 
-const FETCH_RANGE_DAYS = 14
+const FETCH_RANGE_DAYS = 28
 
 function formatCountdown(diffMs) {
   const totalSec = Math.max(0, Math.floor(diffMs / 1000))

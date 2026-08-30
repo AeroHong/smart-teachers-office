@@ -34,6 +34,8 @@ import EditIcon from '@mui/icons-material/Edit'
 import AddIcon from '@mui/icons-material/Add'
 import Tooltip from '@mui/material/Tooltip'
 
+const FETCH_RANGE_DAYS = 28
+
 // ── 유틸 함수 ───────────────────────────────────────────────────
 
 // "YYYY-MM-DD", "YYYY. M. D.", "YYYY/M/D" 등 다양한 형식 파싱
@@ -287,7 +289,7 @@ export default function CoverMain() {
 
   // Firestore 실시간 구독 (전체 로드 후 클라이언트 필터링)
   // — Sheets에서 마이그레이션된 날짜가 "YYYY. M. D." 등 비표준일 수 있어
-  //   Firestore 범위 쿼리 대신 클라이언트에서 오늘~14일 필터 적용
+  //   Firestore 범위 쿼리 대신 클라이언트에서 오늘~4주(28일) 필터 적용
   useEffect(() => {
     if (!schoolId) return
 
@@ -298,7 +300,7 @@ export default function CoverMain() {
 
     const unsub = onSnapshot(q, snap => {
       const today = new Date(); today.setHours(0, 0, 0, 0)
-      const limit = new Date(); limit.setDate(limit.getDate() + 14); limit.setHours(23, 59, 59, 999)
+      const limit = new Date(); limit.setDate(limit.getDate() + FETCH_RANGE_DAYS); limit.setHours(23, 59, 59, 999)
 
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       const filtered = all.filter(item => {
