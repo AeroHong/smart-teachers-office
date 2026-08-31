@@ -5,13 +5,17 @@
  * 쪽지)는 데스크톱 토스트(useDesktopNotifications.js)로 한 번 스쳐 지나가면 다시 볼 곳이
  * 없었다. 그 토스트는 Electron 전용이라 웹에서는 아예 안 뜬다는 문제도 있었다.
  *
- * 여기서는 "이미 읽음 상태가 있는 것"만 먼저 모은다(사용자 요청, 2026-08-31 — 채널 신설·
- * 댓글·일반 채널 메시지는 읽음 판정 기반이 없어서 다음 단계로 미룸). 세 갈래 각각의
+ * 여기서는 "이미 읽음 상태가 있는 것"부터 모은다(사용자 요청, 2026-08-31). 네 갈래 각각의
  * '읽음'은 서로 다른 기존 신호를 그대로 쓴다 — 새 필드를 만들지 않는다.
  *
- *   공지·멘션 — 그 글이 속한 채널을 그 이후에 열어본 적이 있는가
+ *   공지·멘션·채널 신설 — 그 채널을 그 이후에 열어본 적이 있는가
  *              (channelPrefs.channelReads[channelId], useChannelPrefs.js가 이미 관리)
  *   쪽지      — personalNotices 문서 자체의 readAt (Messages.jsx와 완전히 같은 기준)
+ *
+ * 채널 신설은 "해당 채널 소속 사용자에게만"(사용자 요청) 알린다 — useChannels()가 이미
+ * "내가 속한 채널"만 돌려주므로 별도 필터가 필요 없다. DM은 뺀다 — 대화가 시작될 때
+ * 마다 채널 문서가 새로 생기는 구조라 "신설"이라 부를 만한 사건이 아니다. 댓글·일반
+ * 채널 메시지(멘션 아닌 것)는 읽음 판정 기반이 없어서 아직 다음 단계로 미룬다.
  *
  * 새 업무요청(kind='request')은 여기 넣지 않는다 — 완료 전까지 '업무 진행 중'에 이미
  * 떠 있어서, 알림에도 넣으면 같은 일이 두 번 보인다.
@@ -151,9 +155,20 @@ export default function useNotificationFeed() {
       data: n,
     }))
 
-    return [...noticeItems, ...mentionItems, ...messageItems]
+    // 내가 만든 채널은 알릴 이유가 없다 — 이미 만들면서 봤다.
+    const channelItems = channels.filter(c => c.createdBy !== user?.uid).map(c => ({
+      type: 'channel',
+      id: c.id,
+      createdAt: c.createdAt,
+      isNew: toMillis(c.createdAt) > readAt(c.id),
+      label: `새 채널: ${c.name || '이름 없음'}`,
+      chipLabel: '채널',
+      data: c,
+    }))
+
+    return [...noticeItems, ...mentionItems, ...messageItems, ...channelItems]
       .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt))
-  }, [notices, mentionsByChannel, messages, reads])
+  }, [notices, mentionsByChannel, messages, channels, user, reads])
 
   const unreadCount = useMemo(() => items.filter(i => i.isNew).length, [items])
 

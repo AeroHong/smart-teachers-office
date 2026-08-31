@@ -1,5 +1,5 @@
 /**
- * 알림 — 업무 진행 중 · 새 공지·멘션·쪽지.
+ * 알림 — 업무 진행 중 · 새 공지·멘션·쪽지·채널 신설.
  *
  * 홈이 채널 목록으로 바뀌면서(2026-08-25, `PLAN_channels.md` "레일 구조 재편") 예전 홈의
  * "요청받은 일"이 갈 곳이 필요해졌다. 채널별 뱃지("마감 3")는 그 채널을 볼 때만 보이는데,
@@ -12,8 +12,8 @@
  * 이미 저기 떠 있는 걸 여기서도 보여주면 같은 일이 두 번 보인다.
  *
  * 알림 쪽은 사용자 요청(2026-08-31)에 따라 "이미 읽음 상태가 있는 것"부터 시작한다 —
- * 새 공지·멘션·쪽지. 채널 신설·댓글·일반 채널 메시지는 읽음 판정 기반을 새로 만들어야
- * 해서 다음 단계로 미룬다(useNotificationFeed.js 참고).
+ * 새 공지·멘션·쪽지·채널 신설. 댓글·일반 채널 메시지(멘션 아닌 것)는 읽음 판정 기반을
+ * 새로 만들어야 해서 다음 단계로 미룬다(useNotificationFeed.js 참고).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -27,7 +27,7 @@ import { dueState, isDoneBy } from '@shared/lib/workRequests'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
 import PostDetail from '../components/PostDetail'
-import { MentionDetail, MessageDetail } from '../components/NotificationDetail'
+import { ChannelDetail, MentionDetail, MessageDetail } from '../components/NotificationDetail'
 import useMyRequests from '../lib/useMyRequests'
 import useSeenPosts from '../lib/useSeenPosts'
 import useNotificationFeed from '../lib/useNotificationFeed'
@@ -43,7 +43,7 @@ export default function Activity() {
   const { items: notifItems, unreadCount: notifUnread, markChannelRead } = useNotificationFeed()
 
   const [open, setOpen] = useState({ progress: true, notif: true })
-  const [selectedNotif, setSelectedNotif] = useState(null) // { type:'mention'|'message', id, ... } | null
+  const [selectedNotif, setSelectedNotif] = useState(null) // { type:'mention'|'message'|'channel', id, ... } | null
 
   // 업무 진행 중으로 이동하면 그 옆에 열려 있던 알림 상세는 정리한다 — 3단에 둘 다 남아
   // 있을 이유가 없다.
@@ -58,9 +58,10 @@ export default function Activity() {
   useEffect(() => { if (pendingCount > 0) seen.markSeen() }, [pendingCount, seen])
 
   const openNotif = (item) => {
-    // 공지·멘션은 채널 단위 읽음이라, 열어본 채널을 지금 읽은 것으로 같이 표시해야
-    // 굵은 글씨(안읽음)가 실제로 없어진다 — useNotificationFeed.js 위쪽 주석 참고.
+    // 공지·멘션·채널 신설은 채널 단위 읽음이라, 열어본 채널을 지금 읽은 것으로 같이
+    // 표시해야 굵은 글씨(안읽음)가 실제로 없어진다 — useNotificationFeed.js 위쪽 주석 참고.
     if (item.type === 'notice' || item.type === 'mention') markChannelRead(item.data.channelId)
+    if (item.type === 'channel') markChannelRead(item.id)
 
     if (item.type === 'notice') { navigate(`/activity/${item.id}`); return }
     navigate('/activity')
@@ -137,6 +138,8 @@ export default function Activity() {
         <MentionDetail item={selectedNotif} onOpenChannel={(channelId) => navigate(`/channels/${channelId}`)} />
       ) : selectedNotif?.type === 'message' ? (
         <MessageDetail item={selectedNotif} />
+      ) : selectedNotif?.type === 'channel' ? (
+        <ChannelDetail item={selectedNotif} onOpenChannel={(channelId) => navigate(`/channels/${channelId}`)} />
       ) : (
         <DetailPlaceholder emoji="✅" message="왼쪽에서 항목을 선택하면 여기에 내용이 열립니다." />
       )}

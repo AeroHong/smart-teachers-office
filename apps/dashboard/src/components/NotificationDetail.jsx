@@ -1,8 +1,8 @@
 /**
- * 알림(멘션·쪽지) 3단 상세 — 공지는 PostDetail을 그대로 쓰므로 여기 없다.
+ * 알림(멘션·쪽지·채널 신설) 3단 상세 — 공지는 PostDetail을 그대로 쓰므로 여기 없다.
  *
- * 둘 다 짧다. 멘션은 채널 메시지 하나, 쪽지는 Messages.jsx의 본문 표시와 같은 모양이라
- * 굳이 별도 컴포넌트로 더 쪼개지 않는다.
+ * 다 짧다. 멘션은 채널 메시지 하나, 쪽지는 Messages.jsx의 본문 표시와 같은 모양, 채널
+ * 신설은 채널 소개 한 장이라 굳이 별도 파일로 더 쪼개지 않는다.
  */
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -62,6 +62,26 @@ export function MessageDetail({ item }) {
         sx={{ mt: 2.5 }}
       >
         답장
+      </Button>
+    </Box>
+  )
+}
+
+export function ChannelDetail({ item, onOpenChannel }) {
+  const c = item.data
+  return (
+    <Box sx={{ p: 2.5, maxWidth: 760 }}>
+      <Typography variant="h6" fontWeight={800} mb={0.5}>{c.name || '이름 없음'}</Typography>
+      <Typography color="text.secondary" fontSize="0.83rem" mb={2}>
+        {c.createdByName || ''}님이 개설 · {formatDateTime(item.createdAt)} · {(c.memberUids || []).length}명 참여
+      </Typography>
+      {c.description ? (
+        <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: '0.95rem', mb: 3 }}>{c.description}</Typography>
+      ) : (
+        <Typography color="text.disabled" fontSize="0.9rem" mb={3}>소개 문구가 없습니다.</Typography>
+      )}
+      <Button variant="contained" startIcon={<OpenInNewIcon sx={{ fontSize: 17 }} />} onClick={() => onOpenChannel(c.id)}>
+        채널 열기
       </Button>
     </Box>
   )
