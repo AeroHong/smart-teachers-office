@@ -38,7 +38,12 @@ export default function useChannelPrefs() {
     return onSnapshot(
       doc(db, USERS, user.uid),
       (snap) => {
-        const data = snap.data()
+        // estimate: markRead가 쓴 serverTimestamp()는 서버 왕복이 끝나기 전엔 기본
+        // 옵션으로 null이 잡힌다(Firestore 지연 보정 규칙) — 그 순간 이 채널의 읽음
+        // 시각이 "없음"으로 보여, 이미 읽은 알림들이 잠깐 다시 안읽음으로 튀었다
+        // 사라진다(사용자 지적, 2026-08-31 — "숫자가 순간적으로 나왔다가 사라짐").
+        // estimate로 읽으면 그 순간에도 클라이언트 시계 기준 추정값을 받아 튀지 않는다.
+        const data = snap.data({ serverTimestamps: 'estimate' })
         const next = normalizePrefs(data?.channelPrefs)
         latest.current = next
         setPrefs(next)
