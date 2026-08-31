@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, getDocs, query, serverTimestamp, where } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -41,7 +41,7 @@ import PersonIcon from '@mui/icons-material/PersonOutline'
 import TagIcon from '@mui/icons-material/Tag'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
+import { ALL_STAFF_CHANNEL_ID, COL, USERS, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
 import {
   CANVAS_TAB_MAX, POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft,
@@ -107,6 +107,23 @@ export default function Channels() {
   const { channels, archivedChannels, leftChannels, dms, loading } = useChannels()
   const { members, loading: membersLoading, refetch: refetchMembers } = useSchoolMembers()
   const { channels: publicChannels, loading: publicLoading, reload: reloadPublic } = usePublicChannels(directory)
+
+  // 참여자 갱신 배너(nameOf)가 "빠짐" 대상 이름을 보여주려는 용도로만 쓴다. members는
+  // 올해 배정이 있는 사람만 담는데, 학교를 떠난 사람은 딱 그 이유로 빠지는 게 이 배너의
+  // 요점이라 members로는 이름을 못 찾는다. schoolId만 같으면 역할·배정과 무관하게 다
+  // 돌려주는 별도 조회를 하나 더 둔다(사용자 지적, 2026-08-31 — "(명단에 없음)만 나와서
+  // 누군지 알 수가 없다"). 인사이동 때만 바뀌는 데이터라 한 번만 읽는다.
+  const [allUserNames, setAllUserNames] = useState({})
+  useEffect(() => {
+    if (!schoolId) return
+    getDocs(query(collection(db, USERS), where('schoolId', '==', schoolId)))
+      .then(snap => {
+        const map = {}
+        snap.docs.forEach(d => { map[d.id] = d.data().name || d.data().email || '' })
+        setAllUserNames(map)
+      })
+      .catch(() => {})
+  }, [schoolId])
 
   const [editing, setEditing] = useState(null)      // null | 'new' | channel
   const [preset, setPreset] = useState(null)        // 새 채널을 미리 채워 열 때(디렉터리 그룹)
@@ -374,10 +391,10 @@ export default function Channels() {
 
   const nameOf = useMemo(() => {
     const byUid = new Map(members.map(m => [m.uid, m.name]))
-    // 학교를 떠난 사람은 구성원 명단에 없다. uid를 그대로 보여주면 읽을 수 없으니
-    // 빠진다는 사실만 알린다.
-    return uid => byUid.get(uid) || '(명단에 없음)'
-  }, [members])
+    // members(올해 배정)에 없으면 allUserNames(학교 전체 users, 배정 무관)에서 찾는다 —
+    // 떠난 사람도 이름은 알아야 판단할 수 있다. 그마저 없으면 계정 자체가 없는 것이다.
+    return uid => byUid.get(uid) || allUserNames[uid] || '(명단에 없음)'
+  }, [members, allUserNames])
 
   // 메시지 입력칸의 '@' 자동완성 — 학교 전체가 아니라 이 채널 참여자로 좁힌다
   // (ChannelMessages.jsx).

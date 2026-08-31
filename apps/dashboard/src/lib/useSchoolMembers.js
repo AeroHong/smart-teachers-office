@@ -21,6 +21,18 @@
  * 잘못된 명단이 한 번 써지면 "왜 내가 빠졌지"를 스스로는 알아챌 방법이 없다(그 채널이
  * 본인 사이드바에서 통째로 사라지기 때문).
  *
+ * ── 내 문서만 목록 쿼리에서 빠지는 경합 (2026-08-31) ──────────────────────
+ *
+ * 위 사고와는 다른 경로로 같은 증상이 또 나왔다 — 새로고침할 때마다(탭을 오래 켜둔
+ * 것과 무관하게) "부장회의" 채널의 참여자 갱신 배너가 떴다 사라졌다 했는데, React
+ * 상태를 직접 열어보니 매번 61명이어야 할 `members`가 60명이고, 정확히 로그인한
+ * 본인만 빠져 있었다(직급 등 본인 데이터 자체는 멀쩡함). AuthContext가 로그인 직후
+ * 본인 문서에 photoURL 등을 동기화하는 쓰기를 매번 거의 같이 날리는데(구글 photoURL은
+ * 로그인마다 값이 조금씩 달라져 거의 항상 갱신 대상이 된다), 그 쓰기와 이 목록
+ * 쿼리(where role in [...])가 경합하면 본인 문서만 결과에서 빠지는 것으로 보인다.
+ * 아래에서 목록에 내가 없으면 단건으로 한 번 더 읽어 채운다 — 단건 자기 읽기는
+ * 이 경합의 영향을 받지 않는다(규칙도 이미 항상 허용).
+ *
  * ── `refreshAllSchoolMembers()` — 이 훅의 모든 인스턴스를 한 번에 새로고침 ──────
  *
  * 이 훅은 화면마다(ChannelSidebar.jsx, Channels.jsx, Members.jsx, ProfileCardProvider.jsx …)
@@ -32,7 +44,7 @@
  * 것도 안 끊는다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { collection, getDocs, query, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, USERS, schoolPath, currentYearSemester } from '@shared/lib/schema'
@@ -47,14 +59,16 @@ export function refreshAllSchoolMembers() {
 }
 
 export default function useSchoolMembers() {
-  const { schoolId } = useAuth()
+  const { schoolId, user } = useAuth()
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   // fetch 함수 자체가 매 렌더 새로 만들어지면 그걸 의존성으로 쓰는 쪽 useEffect가
-  // 렌더마다 다시 돈다. ref로 최신 schoolId만 참조해 함수 정체성을 고정한다.
+  // 렌더마다 다시 돈다. ref로 최신 schoolId·uid만 참조해 함수 정체성을 고정한다.
   const schoolIdRef = useRef(schoolId)
   schoolIdRef.current = schoolId
+  const uidRef = useRef(user?.uid)
+  uidRef.current = user?.uid
 
   const fetchMembers = useCallback(async () => {
     const sid = schoolIdRef.current
@@ -65,8 +79,18 @@ export default function useSchoolMembers() {
       getDocs(query(collection(db, ...schoolPath(sid, COL.TEACHER_ASSIGNMENTS)), where('year', '==', year))),
       getDocs(query(collection(db, ...schoolPath(sid, COL.TEACHER_SUBJECTS)), where('year', '==', year))),
     ])
+    let userDocs = usersSnap.docs
+    // 목록 쿼리가 로그인 직후 프로필 동기화 쓰기와 경합하면 내 문서만 빠질 때가 있다
+    // (위 파일 설명 참고). 단건 자기 읽기는 그 경합과 무관하니 빠졌을 때만 채운다.
+    const myUid = uidRef.current
+    if (myUid && !userDocs.some(d => d.id === myUid)) {
+      const meSnap = await getDoc(doc(db, USERS, myUid)).catch(() => null)
+      if (meSnap?.exists() && meSnap.data().schoolId === sid && STAFF_ROLES.includes(meSnap.data().role)) {
+        userDocs = [...userDocs, meSnap]
+      }
+    }
     return buildTargetMembers({
-      users: usersSnap.docs.map(d => ({
+      users: userDocs.map(d => ({
         uid: d.id, name: d.data().name || d.data().email, email: d.data().email || '',
         photoURL: d.data().photoURL || null,
       })),
