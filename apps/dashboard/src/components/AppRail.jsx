@@ -11,7 +11,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import DashboardIcon from '@mui/icons-material/SpaceDashboard'
 import RequestIcon from '@mui/icons-material/PlaylistAddCheck'
-import TaskAltIcon from '@mui/icons-material/TaskAlt'
+import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone'
 import EventIcon from '@mui/icons-material/Event'
 import MailIcon from '@mui/icons-material/MailOutline'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
@@ -109,8 +109,8 @@ export default function AppRail() {
         active={pathname === '/' || pathname.startsWith('/posts') || pathname.startsWith('/channels')}
       />
       <RailButton
-        icon={TaskAltIcon}
-        label="내 활동"
+        icon={NotificationsNoneIcon}
+        label="알림"
         to="/activity"
         active={pathname.startsWith('/activity')}
         badge={pendingCount}

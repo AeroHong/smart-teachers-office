@@ -9,6 +9,7 @@
  */
 import Box from '@mui/material/Box'
 import Collapse from '@mui/material/Collapse'
+import { alpha } from '@mui/material/styles'
 import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
@@ -147,30 +148,38 @@ export function SidebarSection({
  * @param {(e: React.MouseEvent) => void} [onContextMenu] 줄 우클릭. action(⋮ 버튼)과
  *   같은 메뉴를 여는 또 다른 입구로 쓴다(사용자 지적, 2026-08-28 — "채널명 위에서의
  *   우클릭 지원 안됨").
+ * @param {boolean} [highlightUnread] strong(안읽음)인 줄에 옅은 배경을 더한다. 기본은
+ *   꺼져 있다 — 이 앱의 목록은 전부 "제목 한 줄, 배경 없음"이 규칙이라(맨 위 파일 설명),
+ *   기본값을 켜면 채널·쪽지·구성원 같은 다른 목록도 전부 바뀐다. 알림처럼 세 갈래 다른
+ *   종류(공지·멘션·쪽지)가 한 목록에 섞여 굵은 글씨만으로는 안읽음이 눈에 덜 띄는
+ *   화면에서만 켠다(사용자 요청, 2026-08-31).
  */
 export function SidebarItem({
   label, chip, selected, strong, muted, onClick, indent = 0, checked, action, actionActive, href,
-  avatar, onContextMenu,
+  avatar, onContextMenu, highlightUnread,
 }) {
   const CheckIcon = checked ? CheckBoxIcon : CheckBoxOutlineBlankIcon
   const linkProps = href
     ? { component: 'a', href, target: '_blank', rel: 'noopener noreferrer' }
     : { component: 'button', type: 'button', onClick }
+  const unreadTint = highlightUnread && strong && !muted && !selected
   const row = (
     <Box
       {...linkProps}
       onContextMenu={onContextMenu}
-      sx={{
+      sx={(theme) => ({
         display: 'flex', alignItems: 'center', gap: 0.7, width: '100%',
         border: 0, cursor: 'pointer', textAlign: 'left',
         pl: 1.3 + indent, pr: 0.6, py: 0.7, borderRadius: 0.75,
-        bgcolor: selected ? 'primary.main' : 'transparent',
+        bgcolor: selected ? 'primary.main' : unreadTint ? alpha(theme.palette.info.main, 0.1) : 'transparent',
         color: selected ? 'primary.contrastText' : muted ? 'text.disabled' : 'text.primary',
         opacity: muted && !selected ? 0.7 : 1,
         // <a>로 그릴 때만 필요한 것들 — 버튼에는 원래 없는 기본 스타일이다
         textDecoration: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
-        '&:hover': { bgcolor: selected ? 'primary.main' : 'action.hover' },
-      }}
+        '&:hover': {
+          bgcolor: selected ? 'primary.main' : unreadTint ? alpha(theme.palette.info.main, 0.16) : 'action.hover',
+        },
+      })}
     >
       {checked !== undefined && (
         <CheckIcon sx={{
