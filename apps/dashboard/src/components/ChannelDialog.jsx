@@ -4,6 +4,15 @@
  * 참여자는 글쓰기의 대상 조건을 그대로 쓴다(TargetPicker). "2학년 담임"을 채널
  * 참여자로 뽑는 일과 업무 대상으로 뽑는 일은 같은 문제라 규칙을 두 벌 둘 이유가 없고,
  * 쓰는 사람도 한 번 익히면 양쪽에서 쓴다.
+ *
+ * 새로 만들 때는 만드는 사람의 uid를 조건과 별개로 includeUids에 항상 넣는다(사용자
+ * 지적, 2026-08-31 — "채널을 만드려고 시도하는 사람은 무조건 들어가야 하는데 빠졌다").
+ * 조건 문자열이 아니라 rule.includeUids에 넣는 이유: memberUids에만 슬쩍 끼워 넣으면
+ * Channels.jsx의 sync(memberDiff)가 저장값과 "지금 조건을 다시 푼 값"을 비교하다가
+ * 매번 "이 사람은 조건에 없다 → 갱신 대상"으로 다시 잡아낸다 — 그게 배포 뒤마다 반복
+ * 된다고 신고된 "참여자 1명 갱신 필요" 경고의 정체다. 조건 자체에 넣어야 재계산해도
+ * 계속 참여자로 남는다. 고칠 때는 손대지 않는다 — 만든 사람이 스스로 나간 채널일 수도
+ * 있어, 그때는 원래 조건을 그대로 존중해야 한다.
  */
 import { useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
@@ -18,6 +27,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Switch from '@mui/material/Switch'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import CampaignIcon from '@mui/icons-material/CampaignOutlined'
+import { useAuth } from '@shared/contexts/AuthContext'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import {
   CHANNEL_DESCRIPTION_MAX, CHANNEL_NAME_MAX, POST_POLICY, VISIBILITY,
@@ -35,6 +45,7 @@ const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
  *   channel로 넘기면 저장이 update로 가서 있지도 않은 문서를 고치려 든다.
  */
 export default function ChannelDialog({ open, channel, preset, existingNames = [], onClose, onSave }) {
+  const { user } = useAuth()
   const { members, loading, refetch } = useSchoolMembers()
 
   // 대화상자는 Channels.jsx에 늘 마운트돼 있고 열고 닫히기만 한다(그래서 useSchoolMembers가
@@ -57,10 +68,15 @@ export default function ChannelDialog({ open, channel, preset, existingNames = [
     if (!open) return
     setName(channel?.name || preset?.name || '')
     setDescription(channel?.description || '')
-    setRule(channel?.memberRule || preset?.memberRule || EMPTY_RULE)
+    const baseRule = channel?.memberRule || preset?.memberRule || EMPTY_RULE
+    // 새로 만들 때만 만드는 사람을 조건과 별개로 끼워 넣는다 — 위쪽 파일 설명 참고.
+    setRule(channel || !user ? baseRule : {
+      ...baseRule,
+      includeUids: [...new Set([...(baseRule.includeUids || []), user.uid])],
+    })
     setIsPrivate(channelVisibility(channel) === VISIBILITY.PRIVATE)
     setOwnerOnly(channelPostPolicy(channel) === POST_POLICY.OWNER)
-  }, [open, channel, preset])
+  }, [open, channel, preset, user])
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
   // 고칠 때는 자기 이름이 중복 검사에 걸리면 안 된다
