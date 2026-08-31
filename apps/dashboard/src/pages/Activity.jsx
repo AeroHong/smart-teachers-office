@@ -1,5 +1,5 @@
 /**
- * 알림 — 업무 진행 중 · 새 공지·멘션·쪽지·채널 신설.
+ * 알림 — 업무 진행 중 · 새 공지·멘션·쪽지·채널 신설·댓글.
  *
  * 홈이 채널 목록으로 바뀌면서(2026-08-25, `PLAN_channels.md` "레일 구조 재편") 예전 홈의
  * "요청받은 일"이 갈 곳이 필요해졌다. 채널별 뱃지("마감 3")는 그 채널을 볼 때만 보이는데,
@@ -12,8 +12,8 @@
  * 이미 저기 떠 있는 걸 여기서도 보여주면 같은 일이 두 번 보인다.
  *
  * 알림 쪽은 사용자 요청(2026-08-31)에 따라 "이미 읽음 상태가 있는 것"부터 시작한다 —
- * 새 공지·멘션·쪽지·채널 신설. 댓글·일반 채널 메시지(멘션 아닌 것)는 읽음 판정 기반을
- * 새로 만들어야 해서 다음 단계로 미룬다(useNotificationFeed.js 참고).
+ * 새 공지·멘션·쪽지·채널 신설·댓글(내가 대상이거나 담당인 글만). 일반 채널 메시지(멘션
+ * 아닌 것)는 범위 밖이다(useNotificationFeed.js 참고).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -43,7 +43,7 @@ export default function Activity() {
   const { items: notifItems, unreadCount: notifUnread, markChannelRead } = useNotificationFeed()
 
   const [open, setOpen] = useState({ progress: true, notif: true })
-  const [selectedNotif, setSelectedNotif] = useState(null) // { type:'mention'|'message'|'channel', id, ... } | null
+  const [selectedNotif, setSelectedNotif] = useState(null) // { type:'mention'|'message'|'channel', id, ... } | null (댓글은 3단으로 안 쓴다 — 아래 openNotif 참고)
 
   // 업무 진행 중으로 이동하면 그 옆에 열려 있던 알림 상세는 정리한다 — 3단에 둘 다 남아
   // 있을 이유가 없다.
@@ -58,12 +58,17 @@ export default function Activity() {
   useEffect(() => { if (pendingCount > 0) seen.markSeen() }, [pendingCount, seen])
 
   const openNotif = (item) => {
-    // 공지·멘션·채널 신설은 채널 단위 읽음이라, 열어본 채널을 지금 읽은 것으로 같이
-    // 표시해야 굵은 글씨(안읽음)가 실제로 없어진다 — useNotificationFeed.js 위쪽 주석 참고.
-    if (item.type === 'notice' || item.type === 'mention') markChannelRead(item.data.channelId)
+    // 공지·멘션·채널 신설·댓글은 채널 단위 읽음이라, 열어본 채널을 지금 읽은 것으로
+    // 같이 표시해야 굵은 글씨(안읽음)가 실제로 없어진다 — useNotificationFeed.js 위쪽
+    // 주석 참고.
+    if (item.type === 'notice' || item.type === 'mention' || item.type === 'comment') markChannelRead(item.data.channelId)
     if (item.type === 'channel') markChannelRead(item.id)
 
+    // 공지·댓글은 둘 다 PostDetail이 이미 보여주는 화면(댓글은 그 글 맨 아래)이라
+    // 따로 미리보기를 만들지 않고 곧장 그 글로 보낸다. 댓글은 글 자체가 아니라 그
+    // 안의 항목이라 item.id(댓글 id)가 아니라 postId로 이동해야 한다.
     if (item.type === 'notice') { navigate(`/activity/${item.id}`); return }
+    if (item.type === 'comment') { navigate(`/activity/${item.data.postId}`); return }
     navigate('/activity')
     setSelectedNotif(item)
     // 쪽지만 문서 자체에 읽음 시각이 있다 — 열 때 딱 한 번 찍는다(Messages.jsx와 같은 기준).
