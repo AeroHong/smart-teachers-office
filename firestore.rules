@@ -662,11 +662,18 @@ service cloud.firestore {
           (isTeacher(schoolId) && request.auth.uid == uid);
       }
 
-      // 데스크톱 클라이언트 설치 현황 — 본인만 쓰고, 관리자만 읽는다.
+      // 데스크톱 클라이언트 설치 현황 — 본인만 쓰고, 조회는 관리자 + 본인만.
       // 누가 몇 버전을 쓰는지는 배포·지원용 정보라 교사 전체에 열 이유가 없다
       // (0.1.5 이하는 자동 업데이트가 없어 수동 재설치 안내 대상을 골라내는 데 쓴다).
+      //
+      // 본인 read를 더한 이유(2026-08-31, 실사고) — useDesktopClientReport.js의
+      // report()가 처음 쓰기인지(firstSeenAt 채울지) 판정하려고 쓰기 전에 자기 문서를
+      // 먼저 getDoc으로 읽는다. 관리자만 read를 허용했더니 일반 교사는 그 첫 read부터
+      // permission-denied로 막혀(catch{}가 조용히 삼킴) setDoc까지 아예 못 갔다 —
+      // 관리자 계정에서만 보고가 쌓이고 나머지는 "설치했는데 왜 안 뜨냐"가 된 원인.
       match /desktopClients/{uid} {
-        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && request.auth.uid == uid);
         allow write: if isSuperAdmin() ||
           (isTeacher(schoolId) && request.auth.uid == uid);
       }
