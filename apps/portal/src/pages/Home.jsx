@@ -15,13 +15,12 @@ const SERVICES = [
   {
     icon: '💬',
     title: '업무 메신저',
-    description: '채널·쪽지·보강 신청 등을 통합한 업무 메신저입니다. 웹에서 바로 사용하거나, 화면 우측 상단의 PC 앱 설치 버튼으로 더 편하게 쓰세요.',
-    path: 'https://smart-school-dashboard.web.app',
+    description: '채널·쪽지·보강 신청 등을 통합한 업무 메신저입니다. 소개를 보고 웹 또는 PC 앱으로 시작하세요.',
+    path: '/messenger',
     color: '#4f46e5',
     bgColor: '#eef2ff',
     status: '운영중',
     statusColor: 'secondary',
-    external: true,
   },
   {
     icon: '📋',

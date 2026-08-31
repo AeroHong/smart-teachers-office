@@ -7,6 +7,7 @@ import ProtectedRoute from '@shared/components/ProtectedRoute'
 // 즉시 로드 (공통)
 import Login from './pages/Login'
 import Home from './pages/Home'
+import Messenger from './pages/Messenger'
 import SchoolSetup from './pages/SchoolSetup'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 
@@ -94,6 +95,7 @@ export default function App() {
 
           {/* ── 포털 (로그인만 하면 접근) ── */}
           <Route path="/" element={<ProtectedRoute anyUser><Home /></ProtectedRoute>} />
+          <Route path="/messenger" element={<ProtectedRoute anyUser><Messenger /></ProtectedRoute>} />
 
           {/* ── 보강신청 (로그인만 하면 접근) ── */}
           <Route path="/cover"         element={<ProtectedRoute anyUser><CoverMain /></ProtectedRoute>} />
