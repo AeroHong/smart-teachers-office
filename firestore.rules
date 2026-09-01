@@ -138,6 +138,19 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/schools/$(schoolId)/evaluationPlanManagers/$(request.auth.uid));
     }
 
+    // 검·인정도서 선정 — 배정은 evaluationPlanManagers(학교 전체 단일 목록)와 달리 선정 건
+    // 단위라 asaSubjects/teacherUids와 같은 모양이다. 선정 건 문서에 committeeUids(평가위원)와
+    // subjectHeadUid(교과주임 — 채점 마감·집계 권한)를 둔다.
+    function isTextbookCommitteeMember(schoolId, adoptionId) {
+      let a = get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data;
+      return request.auth.uid in a.get('committeeUids', []);
+    }
+
+    function isTextbookSubjectHead(schoolId, adoptionId) {
+      let a = get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data;
+      return request.auth.uid == a.get('subjectHeadUid', '');
+    }
+
     // ── /studentRegistrations — 학생 자동 등록용 이메일 색인 ───────
     match /studentRegistrations/{email} {
       allow get: if isSignedIn() && email == request.auth.token.email;
@@ -880,6 +893,34 @@ service cloud.firestore {
 
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && resource.data.uploaderUid == request.auth.uid);
+      }
+
+      // ── 검·인정도서 선정 ──────────────────────────────────────
+      // 선정 건 자체(과목명·후보목록·배점기준·위원지정)는 민감하지 않아 소속 교사 전체가
+      // 조회할 수 있다(asaSubjects와 동일 취급) — 관리자만 생성/삭제. 수정(update)은 관리자
+      // 외에 교과주임도 할 수 있게 열어둔다 — 채점 마감 시 aggregate/recommendation을 쓰는
+      // 주체가 교과주임이기 때문. 후보목록·위원지정 같은 다른 필드까지 교과주임이 건드릴 수
+      // 있는 건 화면 UI로만 막는다(관리자 화면에만 편집 UI가 있음) — 필드별 강제는 이번엔 안 함.
+      match /textbookAdoptions/{adoptionId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow create, delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && request.auth.uid == resource.data.get('subjectHeadUid', ''));
+
+        // 위원별 점수 — 원본 엑셀의 "위원별 점수 열 익명 처리"를 그대로 유지한다: 본인 +
+        // 관리자 + 그 건의 교과주임(집계 계산에 필요)만 읽을 수 있고, 다른 위원에게는 안
+        // 보인다. 위원 전체에게 공개되는 건 마감 후 부모 문서에 쓰이는 aggregate뿐.
+        // 쓰기는 위원 본인 문서만, 그리고 마감(status!='collecting') 후에는 잠근다.
+        match /scores/{uid} {
+          allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            (isSignedIn() && request.auth.uid == uid) ||
+            isTextbookSubjectHead(schoolId, adoptionId);
+          allow create, update: if isSuperAdmin() ||
+            (isTeacher(schoolId) && request.auth.uid == uid &&
+             isTextbookCommitteeMember(schoolId, adoptionId) &&
+             get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data.get('status', 'collecting') == 'collecting');
+          allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        }
       }
     }
   }

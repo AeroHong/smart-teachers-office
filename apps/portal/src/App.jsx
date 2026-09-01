@@ -32,6 +32,12 @@ const EvalPlanDetail           = lazy(() => import('./pages/evalplan/EvalPlanDet
 const EvalPlanEdit             = lazy(() => import('./pages/evalplan/EvalPlanEdit'))
 const EvalPlanManagerDashboard = lazy(() => import('./pages/evalplan/EvalPlanManagerDashboard'))
 
+// 검·인정도서 선정 - lazy load
+const TextbookHome             = lazy(() => import('./pages/textbook/TextbookHome'))
+const TextbookEvaluate         = lazy(() => import('./pages/textbook/TextbookEvaluate'))
+const TextbookDetail           = lazy(() => import('./pages/textbook/TextbookDetail'))
+const TextbookManagerDashboard = lazy(() => import('./pages/textbook/TextbookManagerDashboard'))
+
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
 const TrainingCreate  = lazy(() => import('./pages/training/TrainingCreate'))
@@ -59,6 +65,7 @@ const AdminSpaces = lazy(() => import('./pages/admin/AdminSpaces'))
 const AdminAcademicCalendar = lazy(() => import('./pages/admin/AdminAcademicCalendar'))
 const AdminDashboardModules = lazy(() => import('./pages/admin/AdminDashboardModules'))
 const AdminEvalPlanManagers = lazy(() => import('./pages/admin/AdminEvalPlanManagers'))
+const AdminTextbookSubjects = lazy(() => import('./pages/admin/AdminTextbookSubjects'))
 
 // 도구모음 - lazy load
 const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
@@ -109,6 +116,12 @@ export default function App() {
           <Route path="/evalplan/:planId"      element={<ProtectedRoute anyUser><EvalPlanDetail /></ProtectedRoute>} />
           <Route path="/evalplan/:planId/edit" element={<ProtectedRoute anyUser><EvalPlanEdit /></ProtectedRoute>} />
 
+          {/* ── 검·인정도서 선정 (로그인만 하면 접근, 조회·채점 권한은 컴포넌트 내부에서 판정) ── */}
+          <Route path="/textbook"                       element={<ProtectedRoute anyUser><TextbookHome /></ProtectedRoute>} />
+          <Route path="/textbook/all"                    element={<ProtectedRoute anyUser><TextbookManagerDashboard /></ProtectedRoute>} />
+          <Route path="/textbook/:adoptionId"             element={<ProtectedRoute anyUser><TextbookDetail /></ProtectedRoute>} />
+          <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
+
           {/* ── 출결 (교사 승인 필요) ── */}
           <Route path="/attendance"                       element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
           <Route path="/attendance/students"              element={<ProtectedRoute><StudentList /></ProtectedRoute>} />
@@ -134,6 +147,7 @@ export default function App() {
             <Route path="academic-calendar" element={<AdminAcademicCalendar />} />
             <Route path="dashboard-modules" element={<AdminDashboardModules />} />
             <Route path="evaluation-plan-managers" element={<AdminEvalPlanManagers />} />
+            <Route path="textbook-subjects" element={<AdminTextbookSubjects />} />
 
             {/* 기존 도구 페이지들 */}
             <Route path="asa-cutoffs" element={<AsaSupportCutoffs />} />

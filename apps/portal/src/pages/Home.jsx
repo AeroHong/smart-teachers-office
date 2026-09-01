@@ -84,21 +84,29 @@ const SERVICES = [
     statusColor: 'warning',
   },
   {
-    icon: '✈️',
-    title: '교무 교과서 배정 업무',
-    description: '교과서 선정 및 배부 업무 시스템입니다.',
-    path: null,
-    color: '#cbd5e1',
-    bgColor: '#f8fafc',
-    status: '개발예정',
-    statusColor: 'default',
-    disabled: true,
+    icon: '📚',
+    title: '검·인정도서 선정',
+    description: '과목별 후보 교과서를 등록하고 평가위원 채점 결과를 집계해 추천 도서를 정합니다.',
+    path: '/textbook',
+    color: '#0f766e',
+    bgColor: '#f0fdfa',
+    status: '시범운영중',
+    statusColor: 'warning',
   },
 ]
 
 // ── 개발 로그 ──────────────────────────────────────────────
 // 버전 규칙: 새 업무시스템 추가 → 메이저(v1→v2), 기능개선/버그픽스 → 마이너(v2.0→v2.1)
 const CHANGELOG = [
+  {
+    version: 'v5.0',
+    date: '2026.09.01',
+    type: 'major',
+    items: [
+      '검·인정도서 선정 시스템 추가 — 과목별 후보 교과서·배점 기준 등록, 평가위원 채점(항목별/총점 자동배분), 마감 후 집계·순위·상위 3개 추천 도서 자동 산출',
+      '위원 개별 점수는 비공개, 마감 후 집계 결과만 공개해 공정성 유지',
+    ],
+  },
   {
     version: 'v4.0',
     date: '2026.08.18',

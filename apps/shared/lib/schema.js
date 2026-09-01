@@ -128,6 +128,9 @@ export const COL = {
   // 교수학습 및 평가 운영 계획
   EVALUATION_PLANS: 'evaluationPlans',                 // auto-ID
   EVALUATION_PLAN_MANAGERS: 'evaluationPlanManagers',  // ID: uid (학교 전체 단일 담당자 목록)
+
+  // 검·인정도서 선정
+  TEXTBOOK_ADOPTIONS: 'textbookAdoptions',  // auto-ID + cycleYear 필드. 하위에 scores/{uid} 서브컬렉션
 }
 
 /**

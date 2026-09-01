@@ -61,6 +61,18 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    key: 'textbook',
+    label: '검·인정도서 선정',
+    icon: '📚',
+    prefix: '/textbook',
+    items: [
+      { label: '내 선정 건', path: '/textbook', icon: '◈', exact: true },
+    ],
+    adminItems: [
+      { label: '전체 현황', path: '/textbook/all', icon: '◈' },
+    ],
+  },
+  {
     key: 'training',
     label: '연수 서명부',
     icon: '✍️',
@@ -115,6 +127,8 @@ const PAGE_TITLES = {
   '/evalplan': '내 제출 목록',
   '/evalplan/new': '새로 제출',
   '/evalplan/all': '전체 현황',
+  '/textbook': '내 선정 건',
+  '/textbook/all': '전체 현황',
   '/training': '연수 목록',
   '/training/new': '연수 만들기',
   '/tools': '도구모음',
@@ -136,6 +150,8 @@ function getPageTitle(pathname) {
   if (pathname.match(/\/tools\/asa-checklist\/[^/]+/)) return '체크리스트 작성'
   if (pathname.match(/\/evalplan\/[^/]+\/edit/)) return '제출 내용 수정'
   if (pathname.match(/\/evalplan\/[^/]+/)) return '제출 상세'
+  if (pathname.match(/\/textbook\/[^/]+\/evaluate/)) return '채점'
+  if (pathname.match(/\/textbook\/[^/]+/)) return '선정 건 상세'
   return ''
 }
 
@@ -144,6 +160,7 @@ function getSectionLabel(pathname) {
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return '스마트 출결'
   if (pathname.startsWith('/cover')) return '보강 신청'
   if (pathname.startsWith('/evalplan')) return '평가 운영 계획'
+  if (pathname.startsWith('/textbook')) return '검·인정도서 선정'
   if (pathname.startsWith('/training')) return '연수 서명부'
   if (pathname.startsWith('/tools/asa-checklist')) return '성취평가제 체크리스트'
   if (pathname.startsWith('/tools')) return '도구모음'
@@ -156,6 +173,7 @@ function getActiveSectionKey(pathname) {
   if (pathname.startsWith('/attendance') || pathname.startsWith('/notices')) return 'attendance'
   if (pathname.startsWith('/cover')) return 'cover'
   if (pathname.startsWith('/evalplan')) return 'evalplan'
+  if (pathname.startsWith('/textbook')) return 'textbook'
   if (pathname.startsWith('/training')) return 'training'
   if (pathname.startsWith('/tools/asa-checklist')) return 'asa-checklist'
   if (pathname.startsWith('/tools')) return 'tools'
@@ -326,10 +344,12 @@ export default function Layout({ children, wide = false }) {
         <Box sx={{ flex: 1, py: 1.5 }}>
           {NAV_SECTIONS.map((section) => {
             const canSeeManagerItems = isEvalPlanManager || role === 'admin' || role === 'school_admin'
+            const isSchoolAdminRole = role === 'admin' || role === 'school_admin'
             const items = [
               ...section.items,
               ...(section.principalItems && role === 'principal' ? section.principalItems : []),
               ...(section.managerItems && canSeeManagerItems ? section.managerItems : []),
+              ...(section.adminItems && isSchoolAdminRole ? section.adminItems : []),
             ]
 
             const open = openSections.has(section.key)
