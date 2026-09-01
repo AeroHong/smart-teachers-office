@@ -304,7 +304,7 @@ export default function TextbookDetail() {
           </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: canManage ? 2 : 0 }}>
             <TextField
-              label="작성자(교과주임) 성명" size="small" disabled={!canManage}
+              label="작성자(교과협의회 대표교사) 성명" size="small" disabled={!canManage}
               value={recDraft.preparedByName || ''}
               onChange={(e) => setRecDraft({ ...recDraft, preparedByName: e.target.value, preparedByUid: user.uid })}
             />

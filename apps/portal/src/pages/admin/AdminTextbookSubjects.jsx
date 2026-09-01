@@ -187,7 +187,7 @@ export default function AdminTextbookSubjects() {
                 <TableCell align="center">선정연도</TableCell>
                 <TableCell align="center">후보</TableCell>
                 <TableCell align="center">위원</TableCell>
-                <TableCell align="center">교과주임</TableCell>
+                <TableCell align="center">대표교사</TableCell>
                 <TableCell align="center">제출현황</TableCell>
                 <TableCell align="center">상태</TableCell>
                 <TableCell align="center">관리</TableCell>
@@ -306,7 +306,7 @@ export default function AdminTextbookSubjects() {
             isOptionEqualToValue={(a, b) => a.uid === b.uid}
             value={staffByUid[form.subjectHeadUid] || null}
             onChange={(_, value) => setForm((f) => ({ ...f, subjectHeadUid: value?.uid || '' }))}
-            renderInput={(params) => <TextField {...params} label="교과주임 (채점 마감·집계 권한, 위원이 아니어도 지정 가능)" />}
+            renderInput={(params) => <TextField {...params} label="교과협의회 대표교사 (채점 마감·집계 권한, 위원이 아니어도 지정 가능)" />}
           />
         </DialogContent>
         <DialogActions>

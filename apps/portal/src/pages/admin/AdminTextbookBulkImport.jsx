@@ -61,7 +61,7 @@ async function parseExcelFile(file) {
 
   const header = rows[0].map((h) => String(h || '').trim())
   const subjectCol = Math.max(header.findIndex((h) => h.includes('과목')), 0)
-  const headCol = header.findIndex((h) => h.includes('교과부장') || h.includes('교과주임'))
+  const headCol = header.findIndex((h) => h.includes('대표교사') || h.includes('교과부장') || h.includes('교과주임'))
   const committeeCols = header.map((h, i) => (h.includes('위원') ? i : -1)).filter((i) => i >= 0)
   const candidateCols = header
     .map((_, i) => i)
@@ -83,7 +83,7 @@ async function parseExcelFile(file) {
 async function downloadTemplate() {
   const XLSX = await import('xlsx')
   const ws = XLSX.utils.aoa_to_sheet([
-    ['과목명', '후보1', '후보2', '후보3', '평가위원1', '평가위원2', '평가위원3', '교과부장'],
+    ['과목명', '후보1', '후보2', '후보3', '평가위원1', '평가위원2', '평가위원3', '대표교사'],
     ['영어Ⅱ', '동아출판(박용예)', '천재교과서(강상구)', '미래엔(김성연)', '김민준', '이서연', '박지훈', '김민준'],
   ])
   const wb = XLSX.utils.book_new()
@@ -120,7 +120,7 @@ function resolveRows(rows, staff) {
       valid: !!r.subjectName.trim() && r.candidates.length > 0,
       warning: [
         unresolvedCommittee.length ? `위원 매칭 실패: ${unresolvedCommittee.join(', ')}` : '',
-        unresolvedHead ? `교과부장 매칭 실패: ${unresolvedHead}` : '',
+        unresolvedHead ? `대표교사 매칭 실패: ${unresolvedHead}` : '',
       ].filter(Boolean).join(' · '),
     }
   })
@@ -194,9 +194,9 @@ export default function AdminTextbookBulkImport({ schoolId, uid, staff, onClose,
               <Box sx={{ mb: 3 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   1행은 제목 줄입니다. 열 이름으로 역할을 찾으므로 순서는 상관없습니다 — "과목"이
-                  들어간 열은 과목명, "위원"이 들어간 열(여러 개 가능)은 평가위원, "교과부장"
-                  또는 "교과주임"이 들어간 열은 교과주임, 나머지 열은 모두 후보 교과서로
-                  처리합니다(칸마다 "출판사(저자)" 형식, 저자는 생략 가능). 위원·교과부장 칸에는
+                  들어간 열은 과목명, "위원"이 들어간 열(여러 개 가능)은 평가위원, "대표교사"가
+                  들어간 열은 교과협의회 대표교사, 나머지 열은 모두 후보 교과서로
+                  처리합니다(칸마다 "출판사(저자)" 형식, 저자는 생략 가능). 위원·대표교사 칸에는
                   등록된 교직원 이름을 정확히 입력해야 매칭됩니다.
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
@@ -213,7 +213,7 @@ export default function AdminTextbookBulkImport({ schoolId, uid, staff, onClose,
               <Box sx={{ mb: 3 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   한 줄에 한 과목씩 입력합니다: <code>과목명, 출판사(저자), 출판사(저자), ...</code> (엑셀에서 여러 칸을 복사해 붙여넣어도 됩니다)
-                  평가위원·교과주임은 여기서는 지정할 수 없습니다 — 등록 후 개별 수정하거나 엑셀 업로드를 이용하세요.
+                  평가위원·교과협의회 대표교사는 여기서는 지정할 수 없습니다 — 등록 후 개별 수정하거나 엑셀 업로드를 이용하세요.
                 </Typography>
                 <TextField
                   multiline minRows={8} fullWidth
@@ -243,7 +243,7 @@ export default function AdminTextbookBulkImport({ schoolId, uid, staff, onClose,
                   <TableRow>
                     <TableCell>과목명</TableCell>
                     <TableCell>후보</TableCell>
-                    <TableCell>위원 / 교과부장</TableCell>
+                    <TableCell>위원 / 대표교사</TableCell>
                     <TableCell align="center">상태</TableCell>
                   </TableRow>
                 </TableHead>
@@ -261,7 +261,7 @@ export default function AdminTextbookBulkImport({ schoolId, uid, staff, onClose,
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: r.warning ? 0.5 : 0 }}>
                           {r.committee.map((s) => <Chip key={s.uid} size="small" label={s.name} />)}
-                          {r.head && <Chip size="small" label={`${r.head.name} (교과부장)`} sx={{ bgcolor: '#f0fdfa', color: '#0f766e' }} />}
+                          {r.head && <Chip size="small" label={`${r.head.name} (대표교사)`} sx={{ bgcolor: '#f0fdfa', color: '#0f766e' }} />}
                         </Box>
                         {r.warning && (
                           <Typography variant="caption" color="warning.main">{r.warning}</Typography>

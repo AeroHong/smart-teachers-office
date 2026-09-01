@@ -33,7 +33,7 @@ function AdoptionCard({ adoption, onClick }) {
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.6, mt: 0.75, flexWrap: 'wrap' }}>
           {adoption.isCommittee && <Chip size="small" sx={roleChipSx} label="위원" />}
-          {adoption.isHead && <Chip size="small" sx={roleChipSx} label="교과주임" />}
+          {adoption.isHead && <Chip size="small" sx={roleChipSx} label="대표교사" />}
           <Chip size="small" sx={infoChipSx} label={`${adoption.cycleYear}학년도 선정`} />
           <Chip size="small" sx={infoChipSx} label={`후보 ${adoption.candidates?.length || 0}개`} />
         </Box>
@@ -133,7 +133,7 @@ export default function TextbookHome() {
         )}
       </Box>
       <Typography sx={{ fontSize: '0.85rem', color: '#64748b', mb: 3 }}>
-        평가위원 또는 교과주임으로 지정된 과목을 관리합니다. 개별 위원의 점수는 마감 전까지 다른 위원에게 공개되지 않습니다.
+        평가위원 또는 교과협의회 대표교사로 지정된 과목을 관리합니다. 개별 위원의 점수는 마감 전까지 다른 위원에게 공개되지 않습니다.
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -148,7 +148,7 @@ export default function TextbookHome() {
         }}>
           <Typography sx={{ fontSize: '2rem', mb: 1 }}>📭</Typography>
           <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
-            평가위원 또는 교과주임으로 지정된 선정 건이 없습니다. 관리자에게 문의하세요.
+            평가위원 또는 교과협의회 대표교사로 지정된 선정 건이 없습니다. 관리자에게 문의하세요.
           </Typography>
         </Box>
       ) : (
