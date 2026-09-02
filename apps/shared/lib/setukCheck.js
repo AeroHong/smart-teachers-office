@@ -227,11 +227,38 @@ export async function updateItemResolved(schoolId, checkId, itemId, resolved, re
   await batch.commit()
 }
 
-export async function updateSubjectAssignment(schoolId, checkId, subjectName, teacherUid, teacherName) {
+/**
+ * 과목별 담당 교사를 지정한다 — 한 과목을 여러 교사가 나눠 맡는 경우가 있어(공동 수업 등)
+ * 단일 교사가 아니라 배열로 받는다. teachers: [{uid, name}, ...] (빈 배열이면 미지정).
+ */
+export async function updateSubjectAssignment(schoolId, checkId, subjectName, teachers) {
+  const list = teachers || []
   await setDoc(checkDoc(schoolId, checkId), {
-    subjectAssignments: { [subjectName]: { teacherUid, teacherName: teacherName || '', source: 'manual' } },
+    subjectAssignments: {
+      [subjectName]: {
+        teacherUids: list.map((t) => t.uid),
+        teacherNames: list.map((t) => t.name || ''),
+        source: 'manual',
+      },
+    },
     updatedAt: serverTimestamp(),
   }, { merge: true })
+}
+
+/**
+ * 이 교사가 그 과목의 담당 교사로 배정돼 있는지 — 배열(teacherUids, 여러 교사 지원)과
+ * 옛 데이터의 단일 필드(teacherUid, 이 기능이 여러 교사를 지원하기 전 형태)를 모두 본다.
+ */
+export function isAssignedTeacher(assign, uid) {
+  if (!assign || !uid) return false
+  if (Array.isArray(assign.teacherUids)) return assign.teacherUids.includes(uid)
+  return assign.teacherUid === uid
+}
+
+/** 화면 표시용 담당 교사 이름 목록 — 옛 데이터(단일 teacherName)도 배열로 통일해 반환한다. */
+export function assignedTeacherNames(assign) {
+  if (Array.isArray(assign?.teacherNames)) return assign.teacherNames
+  return assign?.teacherName ? [assign.teacherName] : []
 }
 
 /**

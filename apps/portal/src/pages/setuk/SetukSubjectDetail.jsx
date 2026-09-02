@@ -24,13 +24,17 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import VerifiedIcon from '@mui/icons-material/Verified'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { subscribeChecks, loadRecords, loadItemsBySubject, updateItemNote, updateItemResolved } from '@shared/lib/setukCheck'
+import {
+  subscribeChecks, loadRecords, loadItemsBySubject, updateItemNote, updateItemResolved, isAssignedTeacher,
+} from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS } from './setukUtils'
 import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight } from './setukShared'
 import Layout from '../../components/Layout'
 
+// 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
+// 그 과목의 담당 교사(여러 명 가능)만.
 const canSeeCheckForSubject = (check, subjectName, isAdmin, user) => (
-  isAdmin || check.uploadedByUid === user?.uid || check.subjectAssignments?.[subjectName]?.teacherUid === user?.uid
+  isAdmin || check.uploadedByUid === user?.uid || isAssignedTeacher(check.subjectAssignments?.[subjectName], user?.uid)
 )
 
 export default function SetukSubjectDetail() {
@@ -105,7 +109,7 @@ export default function SetukSubjectDetail() {
     return () => { cancelled = true }
   }, [subject, schoolId, checks, loadingChecks, isAdmin, user])
 
-  const canResolveFixed = (item) => isAdmin || (!!user && item.subjectAssignments?.[item.subjectName]?.teacherUid === user.uid)
+  const canResolveFixed = (item) => isAdmin || (!!user && isAssignedTeacher(item.subjectAssignments?.[item.subjectName], user.uid))
   const canResolveNoIssue = (item) => isAdmin || canResolveFixed(item) ||
     (!!user && item.uploadedByUid === user.uid && item.resolution !== 'fixed')
 

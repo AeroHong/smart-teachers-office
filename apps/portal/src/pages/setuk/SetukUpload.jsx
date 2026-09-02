@@ -110,11 +110,13 @@ export default function SetukUpload() {
         recordsWithCount.forEach((r) => { bySubject[r.subjectName] = r.grade })
         subjectAssignments = Object.fromEntries(
           Object.entries(bySubject).map(([subjectName, grade]) => {
+            // 한 과목을 여러 교사가 나눠 맡는 경우(공동 수업 등) 후보 전원을 자동 배정한다.
             const candidates = idx[subjectIndexKey(grade, subjectName)] || []
-            if (candidates.length === 1) {
-              return [subjectName, { teacherUid: candidates[0].uid, teacherName: candidates[0].name, source: 'auto' }]
-            }
-            return [subjectName, { teacherUid: '', teacherName: '', source: 'manual' }]
+            return [subjectName, {
+              teacherUids: candidates.map((c) => c.uid),
+              teacherNames: candidates.map((c) => c.name),
+              source: candidates.length > 0 ? 'auto' : 'manual',
+            }]
           }),
         )
       } catch (e) {

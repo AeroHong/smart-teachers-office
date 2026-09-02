@@ -102,7 +102,7 @@ function SubjectChip({ subject, catalogIndex }) {
   const linked = !!matchCatalogSubject(catalogIndex, subject)
   return (
     <Chip
-      label={`${subject.subjectName} (${subject.grade}학년) ${subject.hoursPerWeek}시간`}
+      label={`${subject.subjectName} (${subject.grade}학년)`}
       size="small"
       color={linked ? 'default' : 'warning'}
       variant={linked ? 'filled' : 'outlined'}
@@ -617,9 +617,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
             </thead>
             <tbody>
               {subjectAssignments.map(assignment => {
-                const sem1Total = (assignment.semester1Subjects || []).reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0)
-                const sem2Total = (assignment.semester2Subjects || []).reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0)
-
                 return (
                   <tr key={assignment.id} style={table.tr}>
                     <td style={table.td}>{assignment.teacherName}</td>
@@ -629,9 +626,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                           {assignment.semester1Subjects.map((subject, idx) => (
                             <SubjectChip key={idx} subject={subject} catalogIndex={catalogIndex} />
                           ))}
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            총 {sem1Total}시간
-                          </Typography>
                         </Box>
                       ) : (
                         <Typography variant="body2" color="text.secondary">—</Typography>
@@ -643,9 +637,6 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                           {assignment.semester2Subjects.map((subject, idx) => (
                             <SubjectChip key={idx} subject={subject} catalogIndex={catalogIndex} />
                           ))}
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            총 {sem2Total}시간
-                          </Typography>
                         </Box>
                       ) : (
                         <Typography variant="body2" color="text.secondary">—</Typography>

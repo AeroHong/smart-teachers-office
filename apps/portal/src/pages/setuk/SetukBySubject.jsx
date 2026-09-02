@@ -14,7 +14,13 @@ import TableCell from '@mui/material/TableCell'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { subscribeChecks, loadItemsBySubject } from '@shared/lib/setukCheck'
+import { subscribeChecks, loadItemsBySubject, isAssignedTeacher } from '@shared/lib/setukCheck'
+
+// 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
+// 그 과목의 담당 교사(여러 명 가능)만.
+const canSeeCheckForSubject = (check, subjectName, isAdmin, user) => (
+  isAdmin || check.uploadedByUid === user?.uid || isAssignedTeacher(check.subjectAssignments?.[subjectName], user?.uid)
+)
 
 export default function SetukBySubject() {
   const navigate = useNavigate()
@@ -37,7 +43,7 @@ export default function SetukBySubject() {
     const set = new Set()
     checks.forEach((c) => {
       Object.entries(c.subjectAssignments || {}).forEach(([subjectName, a]) => {
-        if (isAdmin || c.uploadedByUid === user?.uid || a?.teacherUid === user?.uid) set.add(subjectName)
+        if (isAdmin || c.uploadedByUid === user?.uid || isAssignedTeacher(a, user?.uid)) set.add(subjectName)
       })
     })
     return [...set].sort((a, b) => a.localeCompare(b, 'ko'))
@@ -51,7 +57,7 @@ export default function SetukBySubject() {
     Promise.all(mySubjects.map(async (subjectName) => {
       const relevantChecks = checks.filter((c) => (
         Object.prototype.hasOwnProperty.call(c.subjectAssignments || {}, subjectName) &&
-        (isAdmin || c.uploadedByUid === user?.uid || c.subjectAssignments?.[subjectName]?.teacherUid === user?.uid)
+        canSeeCheckForSubject(c, subjectName, isAdmin, user)
       ))
       const itemsPerCheck = await Promise.all(relevantChecks.map((c) => loadItemsBySubject(schoolId, c.id, subjectName)))
       const allItems = itemsPerCheck.flat()

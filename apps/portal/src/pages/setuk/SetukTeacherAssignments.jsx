@@ -1,6 +1,7 @@
 // 과목별 담당 교사 지정 — 예전엔 학급 상세 화면(SetukCheckDetail)에 들어가야만 보였는데,
 // 관리자가 학급마다 들어가지 않고 한 화면에서 전체 배정을 훑고 고칠 수 있게 모아뒀다.
-// 조회는 교사 전체, 수정은 관리자만(firestore.rules로 서버에서도 강제).
+// 조회는 교사 전체, 수정은 관리자만(firestore.rules로 서버에서도 강제). 한 과목을
+// 여러 교사가 나눠 맡는 경우(공동 수업 등)가 있어 다중 선택으로 받는다.
 import { useState, useEffect, useMemo } from 'react'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import Box from '@mui/material/Box'
@@ -18,10 +19,20 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { db } from '@shared/lib/firebase'
-import { USERS } from '@shared/lib/schema'
-import { subscribeChecks, updateSubjectAssignment } from '@shared/lib/setukCheck'
+import { USERS, currentSchoolYear } from '@shared/lib/schema'
+import {
+  subscribeChecks, updateSubjectAssignment, assignedTeacherNames,
+  buildTeacherSubjectIndex, subjectIndexKey,
+} from '@shared/lib/setukCheck'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+
+/** 배정에서 현재 선택된 교사 목록을 Autocomplete가 쓸 {uid,name} 배열로 복원한다. */
+function assignedOptions(assign, staffByUid) {
+  const uids = Array.isArray(assign?.teacherUids) ? assign.teacherUids : (assign?.teacherUid ? [assign.teacherUid] : [])
+  const names = assignedTeacherNames(assign)
+  return uids.map((uid, i) => staffByUid[uid] || { uid, name: names[i] || '' })
+}
 
 export default function SetukTeacherAssignments() {
   const { schoolId, isAdmin } = useAuth()
@@ -29,6 +40,7 @@ export default function SetukTeacherAssignments() {
   const [checks, setChecks] = useState([])
   const [loadingChecks, setLoadingChecks] = useState(true)
   const [staff, setStaff] = useState([])
+  const [teacherIndex, setTeacherIndex] = useState({})
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -43,21 +55,35 @@ export default function SetukTeacherAssignments() {
       .catch(() => {})
   }, [schoolId])
 
+  // 업로드 시 자동 매칭에 쓰는 것과 같은 인덱스(학년+과목명 → 그 과목을 가르치는 교사
+  // 후보) — 드롭다운을 전체 교사 대신 그 과목 후보로 좁히는 데 재사용한다. 후보가
+  // 없으면(교과 정보가 아직 없거나 데이터가 안 맞는 경우) 전체 목록으로 폴백한다.
+  useEffect(() => {
+    if (!schoolId) return
+    buildTeacherSubjectIndex(schoolId, currentSchoolYear()).then(setTeacherIndex).catch(() => {})
+  }, [schoolId])
+
   const staffByUid = useMemo(() => Object.fromEntries(staff.map((s) => [s.uid, s])), [staff])
 
   const rows = useMemo(() => {
     const list = []
     checks.forEach((c) => {
       Object.entries(c.subjectAssignments || {}).forEach(([subjectName, assign]) => {
-        list.push({ key: `${c.id}__${subjectName}`, checkId: c.id, classLabel: c.classLabel, subjectName, assign })
+        list.push({ key: `${c.id}__${subjectName}`, checkId: c.id, classLabel: c.classLabel, grade: c.grade, subjectName, assign })
       })
     })
     return list.sort((a, b) => a.classLabel.localeCompare(b.classLabel, 'ko') || a.subjectName.localeCompare(b.subjectName, 'ko'))
   }, [checks])
 
-  const handleAssign = async (row, staffOption) => {
+  const optionsForRow = (row) => {
+    const candidateUids = new Set((teacherIndex[subjectIndexKey(row.grade, row.subjectName)] || []).map((c) => c.uid))
+    const narrowed = staff.filter((s) => candidateUids.has(s.uid))
+    return narrowed.length > 0 ? narrowed : staff
+  }
+
+  const handleAssign = async (row, staffOptions) => {
     try {
-      await updateSubjectAssignment(schoolId, row.checkId, row.subjectName, staffOption?.uid || '', staffOption?.name || '')
+      await updateSubjectAssignment(schoolId, row.checkId, row.subjectName, staffOptions)
     } catch (e) {
       setError(`담당교사 지정 실패: ${e.message}`)
     }
@@ -67,18 +93,18 @@ export default function SetukTeacherAssignments() {
 
   return (
     <Box>
-      <Typography variant="body2" color="text.secondary" mb={2}>
-        학급마다 들어가지 않고 전체 학급의 과목별 담당 교사를 여기서 한 번에 확인·수정할 수 있습니다.
+      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.82rem', mb: 1.5 }}>
+        학급마다 들어가지 않고 전체 학급의 과목별 담당 교사를 여기서 한 번에 확인·수정할 수 있습니다. 한 과목을 여러 교사가 나눠 맡는다면 여러 명을 선택하세요.
         {!isAdmin && ' 수정은 관리자만 가능합니다.'}
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {rows.length === 0 ? (
-        <Paper variant="outlined" sx={{ py: 4, textAlign: 'center', color: '#94a3b8' }}>표시할 항목이 없습니다.</Paper>
+        <Paper variant="outlined" sx={{ py: 4, textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>표시할 항목이 없습니다.</Paper>
       ) : (
         <Paper variant="outlined">
-          <Table size="small">
+          <Table size="small" sx={{ '& td, & th': { fontSize: '0.8rem', py: 0.5 } }}>
             <TableHead>
               <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
                 <TableCell>학급</TableCell>
@@ -89,26 +115,35 @@ export default function SetukTeacherAssignments() {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.key} hover>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>{row.classLabel}</TableCell>
+                  <TableCell sx={{ color: '#64748b' }}>{row.classLabel}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{row.subjectName}</TableCell>
-                  <TableCell sx={{ minWidth: 220 }}>
+                  <TableCell sx={{ minWidth: 260 }}>
                     {isAdmin ? (
                       <Autocomplete
-                        size="small" sx={{ width: 220 }}
-                        options={staff}
+                        multiple size="small" sx={{ minWidth: 260, '& .MuiAutocomplete-tag': { fontSize: '0.72rem', height: 20 } }}
+                        options={optionsForRow(row)}
                         getOptionLabel={(o) => o.name || ''}
                         isOptionEqualToValue={(a, b) => a.uid === b.uid}
-                        value={row.assign?.teacherUid ? (staffByUid[row.assign.teacherUid] || { uid: row.assign.teacherUid, name: row.assign.teacherName }) : null}
-                        onChange={(_, value) => handleAssign(row, value)}
+                        value={assignedOptions(row.assign, staffByUid)}
+                        onChange={(_, values) => handleAssign(row, values)}
+                        ListboxProps={{ sx: { fontSize: '0.8rem', '& .MuiAutocomplete-option': { minHeight: 32, py: 0.5 } } }}
                         renderInput={(params) => (
-                          <TextField {...params} placeholder="미지정" color={row.assign?.source === 'auto' ? 'success' : undefined} />
+                          <TextField
+                            {...params} variant="standard" placeholder={assignedOptions(row.assign, staffByUid).length ? '' : '미지정'}
+                            sx={{ '& .MuiInputBase-input': { fontSize: '0.8rem' } }}
+                          />
                         )}
                       />
                     ) : (
-                      <Chip
-                        size="small" variant="outlined"
-                        label={row.assign?.teacherName || '미지정'}
-                      />
+                      assignedTeacherNames(row.assign).length ? (
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {assignedTeacherNames(row.assign).map((name) => (
+                            <Chip key={name} size="small" variant="outlined" label={name} sx={{ fontSize: '0.72rem', height: 20 }} />
+                          ))}
+                        </Box>
+                      ) : (
+                        <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8' }}>미지정</Typography>
+                      )
                     )}
                   </TableCell>
                 </TableRow>

@@ -1,5 +1,6 @@
 // 세특 점검 결과 엑셀 다운로드 — "학생 개개인별 요약"(전체 시트, 학번순)과
 // "교과별로 구분"(과목별 시트)을 함께 담은 워크북 하나를 만든다.
+import { assignedTeacherNames } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS } from './setukUtils'
 
 const COLUMNS = [
@@ -25,7 +26,7 @@ function toRow(it, check) {
     context: `${it.before || ''}[${it.matched}]${it.after || ''}`,
     message: it.message || '',
     statusLabel: it.resolved ? (it.resolution === 'no_issue' ? '이상없음' : '처리완료') : '미처리',
-    teacherName: check.subjectAssignments?.[it.subjectName]?.teacherName || '',
+    teacherName: assignedTeacherNames(check.subjectAssignments?.[it.subjectName]).join(', '),
     note: it.note || '',
   }
 }

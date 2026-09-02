@@ -29,7 +29,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useAuth } from '@shared/contexts/AuthContext'
 import {
   subscribeCheck, subscribeItems, updateItemNote, updateItemResolved,
-  getDictionary, recheckCheck, loadRecords,
+  getDictionary, recheckCheck, loadRecords, isAssignedTeacher, assignedTeacherNames,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS, checkText, loadDictionary } from './setukUtils'
 import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight } from './setukShared'
@@ -84,7 +84,7 @@ export default function SetukCheckDetail() {
   const myAssignedSubjects = useMemo(() => {
     if (!check || !user) return []
     return Object.entries(check.subjectAssignments || {})
-      .filter(([, a]) => a?.teacherUid === user.uid)
+      .filter(([, a]) => isAssignedTeacher(a, user.uid))
       .map(([subjectName]) => subjectName)
   }, [check, user])
 
@@ -132,7 +132,7 @@ export default function SetukCheckDetail() {
   // 실제 세특 수정은 그 과목 담당 교사만 나이스에서 할 수 있으므로, "처리완료"는 그
   // 과목에 배정된 담당 교사 본인(또는 관리자)만 누를 수 있다(firestore.rules로도 서버에서
   // 강제). 담당 교사가 아직 지정되지 않은 과목은 관리자만 처리할 수 있다.
-  const canResolveFixed = (item) => isAdmin || (!!user && check.subjectAssignments?.[item.subjectName]?.teacherUid === user.uid)
+  const canResolveFixed = (item) => isAdmin || (!!user && isAssignedTeacher(check.subjectAssignments?.[item.subjectName], user.uid))
   // "이상없음"(도서명 속 영문·고유명사 등 오탐 확인)은 실제 나이스 수정이 필요 없는
   // 판단이라, 담당 교사뿐 아니라 그 학급을 업로드한 담임도 표시할 수 있다. 단 이미
   // "처리완료"로 확정된 항목은 담임이 손댈 수 없다(firestore.rules로도 강제).
@@ -311,7 +311,7 @@ export default function SetukCheckDetail() {
                 {/* 오른쪽: 항목별 상세 — 처리 여부·유형·제안·메모 */}
                 <Box sx={{ flex: '1 1 50%' }}>
                   {g.items.map((it, idx) => {
-                    const assignedName = check.subjectAssignments?.[it.subjectName]?.teacherName
+                    const assignedName = assignedTeacherNames(check.subjectAssignments?.[it.subjectName]).join(', ')
                     const fixedAllowed = canResolveFixed(it)
                     const noIssueAllowed = canResolveNoIssue(it)
                     return (

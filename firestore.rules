@@ -978,9 +978,14 @@ service cloud.firestore {
       // 과목을 나이스에서 고칠 수 있는 담당 교사 본인(또는 관리자)만 바꿀 수 있다 —
       // 메모(note)는 계속 아무 교사나 남길 수 있다(isTextbookScoreProxyFor처럼 부모
       // 문서를 get()해서 subjectAssignments를 조회하는 방식).
+      // 한 과목을 여러 교사가 나눠 맡을 수 있어(공동 수업 등) teacherUids 배열로 배정한다.
+      // 옛 데이터(단일 teacherUid)도 함께 봐서 이 기능이 배열을 지원하기 전에 배정된
+      // 건이 갑자기 권한을 잃지 않게 한다.
       function isSetukSubjectTeacher(schoolId, checkId, subjectName) {
         let c = get(/databases/$(database)/documents/schools/$(schoolId)/setukChecks/$(checkId)).data;
-        return request.auth.uid == c.get('subjectAssignments', {}).get(subjectName, {}).get('teacherUid', '');
+        let assign = c.get('subjectAssignments', {}).get(subjectName, {});
+        return request.auth.uid in assign.get('teacherUids', []) ||
+               request.auth.uid == assign.get('teacherUid', '');
       }
       // 담임(그 학급 파일을 업로드한 교사)은 실제 나이스 수정 권한은 없지만, 고유명사·
       // 도서명 속 영문처럼 "확인해봤지만 문제 아님"(resolution: 'no_issue')은 표시할 수
