@@ -49,7 +49,7 @@ export default function SetukCheckDetail() {
   const [error, setError] = useState('')
   const [subjectFilter, setSubjectFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('unresolved')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [myOnly, setMyOnly] = useState(false)
   const [myOnlyInitialized, setMyOnlyInitialized] = useState(false)
   const [groupOrder, setGroupOrder] = useState('student')
