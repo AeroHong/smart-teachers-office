@@ -982,11 +982,22 @@ service cloud.firestore {
         let c = get(/databases/$(database)/documents/schools/$(schoolId)/setukChecks/$(checkId)).data;
         return request.auth.uid == c.get('subjectAssignments', {}).get(subjectName, {}).get('teacherUid', '');
       }
+      // 담임(그 학급 파일을 업로드한 교사)은 실제 나이스 수정 권한은 없지만, 고유명사·
+      // 도서명 속 영문처럼 "확인해봤지만 문제 아님"(resolution: 'no_issue')은 표시할 수
+      // 있다 — 이미 'fixed'로 확정된 항목은 손댈 수 없다(아래 update 규칙에서 이중 확인).
+      function isSetukUploader(schoolId, checkId) {
+        let c = get(/databases/$(database)/documents/schools/$(schoolId)/setukChecks/$(checkId)).data;
+        return request.auth.uid == c.get('uploadedByUid', '');
+      }
 
       match /setukChecks/{checkId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow create: if isSuperAdmin() || isTeacher(schoolId);
-        allow update: if isSuperAdmin() || isTeacher(schoolId);
+        // 과목별 담당 교사 배정(subjectAssignments)은 조회는 교사 전체, 수정은 관리자만
+        // 가능하도록 제한한다 — 그 외 필드(재점검 통계 등)는 기존대로 아무 교사나 쓸 수 있다.
+        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) &&
+           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['subjectAssignments']));
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && request.auth.uid == resource.data.get('uploadedByUid', ''));
 
@@ -1000,8 +1011,11 @@ service cloud.firestore {
           allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
             (isTeacher(schoolId) &&
              (!request.resource.data.diff(resource.data).affectedKeys()
-                .hasAny(['resolved', 'resolvedByUid', 'resolvedByName', 'resolvedAt']) ||
-              isSetukSubjectTeacher(schoolId, checkId, resource.data.get('subjectName', ''))));
+                .hasAny(['resolved', 'resolution', 'resolvedByUid', 'resolvedByName', 'resolvedAt']) ||
+              isSetukSubjectTeacher(schoolId, checkId, resource.data.get('subjectName', '')) ||
+              (isSetukUploader(schoolId, checkId) &&
+               resource.data.get('resolution', '') != 'fixed' &&
+               request.resource.data.get('resolution', '') != 'fixed')));
           allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
             (isTeacher(schoolId) &&
              request.auth.uid == get(/databases/$(database)/documents/schools/$(schoolId)/setukChecks/$(checkId)).data.get('uploadedByUid', ''));

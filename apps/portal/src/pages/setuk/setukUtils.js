@@ -61,6 +61,13 @@ export async function parseNeisSetukFile(file) {
   let currentGrade = null
   let currentSemester = null
   let open = null // 아직 다음 페이지에서 이어질 수 있는, 완결되지 않은 마지막 레코드
+  // 페이지 경계(헤더/학급명/쪽번호 등 데이터 없는 행)를 막 지났는지 — 과목명이 단어
+  // 중간에서 잘리는 현상은 정확히 이 경계에서만 일어난다(같은 페이지 안에서 과목이
+  // 바뀌는 지점은 항상 완결된 이름으로 시작함). 페이지 안쪽에서 우연히 같은 학생
+  // 번호로 다른 과목이 맞물리는 경우(문서 예시: "세계 문화와 영어"의 마지막 학생과
+  // "한국사1"의 유일한 학생이 둘 다 29번인 경우)와 구분하려고 이 신호를 쓴다.
+  let justCrossedPage = false
+  const normalizeSubject = (s) => s.replace(/\s+/g, ' ').trim()
 
   const finalizeOpen = () => {
     if (open) records.push(open)
@@ -72,35 +79,35 @@ export async function parseNeisSetukFile(file) {
     const [subjectCell, gradeCell, semesterCell, numCell, nameCell, textCell] = row
 
     // 컬럼 헤더 행 / 학급명 행 → 스킵 (다음 데이터 블록으로)
-    if (stripSpaces(subjectCell) === '과목' && stripSpaces(numCell) === '번호') continue
-    if (subjectCell && CLASS_LABEL_PATTERN.test(subjectCell) && row.slice(1).every((c) => !c)) continue
+    if (stripSpaces(subjectCell) === '과목' && stripSpaces(numCell) === '번호') { justCrossedPage = true; continue }
+    if (subjectCell && CLASS_LABEL_PATTERN.test(subjectCell) && row.slice(1).every((c) => !c)) { justCrossedPage = true; continue }
 
     // 쪽번호 푸터 행 등 데이터가 없는 행: 번호/성명 칸이 둘 다 비어 있음
-    if (!numCell && !nameCell) continue
+    if (!numCell && !nameCell) { justCrossedPage = true; continue }
 
     const num = Number(numCell)
     if (!numCell || !Number.isFinite(num) || !nameCell) continue // 그 외 인식 안 되는 행(푸터 등)은 건너뜀
 
-    // 이어짐 판정 기본은 번호+성명 일치. 단, 서로 다른 과목이 우연히 같은 번호에서
-    // 맞물릴 수 있어(예: "세계 문화와 영어"의 마지막 학생과 다음 과목 "한국사1"의
-    // 유일한 학생이 둘 다 29번인 경우) 과목명이 명백히 다르면 이어짐으로 보지 않는다.
-    // 예외는 과목명 자체가 페이지 경계에서 잘린 경우뿐이다(예: "기후변화와" +
-    // "지속가능한 세계") — 이런 조각은 항상 조사/어미로 끝나는 미완성 형태라
-    // "와/과/의/을/를/은/는/이/가/에/로"로 끝나는지로 구분한다.
+    // 이어짐 판정 기본은 번호+성명 일치. 과목명이 다르면, 방금 페이지 경계를
+    // 지나온 직후라면 무조건 잘린 조각으로 보고 이어붙이고(조사로 끝나지 않는
+    // 경우도 있음 — 예: "지속가능한" + "세계"), 그게 아니면 기존처럼 조사/어미
+    // ("와/과/의/을/를/은/는/이/가/에/로")로 끝날 때만 이어짐으로 본다.
     const sameStudent = !!open && open.studentNumber === num && open.studentName === nameCell
     const subjectMatches = !subjectCell || subjectCell === open?.subjectName || open?.subjectName?.includes(subjectCell)
-    const subjectLooksSplit = !!subjectCell && !!open && !subjectMatches && /[와과의을를은는이가에로]$/.test(open.subjectName)
+    const subjectLooksSplit = !!subjectCell && !!open && !subjectMatches &&
+      (justCrossedPage || /[와과의을를은는이가에로]$/.test(open.subjectName))
     const isContinuation = sameStudent && (subjectMatches || subjectLooksSplit)
+    justCrossedPage = false
     if (isContinuation) {
       if (subjectLooksSplit) {
-        open.subjectName = `${open.subjectName} ${subjectCell}`.replace(/\s+/g, ' ').trim()
+        open.subjectName = normalizeSubject(`${open.subjectName} ${subjectCell}`)
       }
       if (open.grade == null && gradeCell) open.grade = Number(gradeCell) || null
       if (open.semester == null && semesterCell) open.semester = Number(semesterCell) || null
       open.text += textCell || ''
     } else {
       finalizeOpen()
-      if (subjectCell) { currentSubject = subjectCell; currentGrade = Number(gradeCell) || null; currentSemester = Number(semesterCell) || null }
+      if (subjectCell) { currentSubject = normalizeSubject(subjectCell); currentGrade = Number(gradeCell) || null; currentSemester = Number(semesterCell) || null }
       open = {
         studentNumber: num,
         studentName: nameCell,
@@ -149,7 +156,7 @@ export const SEVERITY_LABELS = { ERROR: '금지 표현', WARNING: '주의 표현
 const SPECIAL_SYMBOLS_GROUP = {
   id: 'special_symbols', title: '특수기호(문장부호 포함)', type: 'literal',
   authority: 'school_policy', severity: 'WARNING', enabled: true,
-  items: ['?', '!', '...', '…', '★', '☆', '♡', '•', '→', '⇒', '※', '◆', '▶', '✓', '✔', '△', '○', '◎'],
+  items: ['?', '!', '...', '…', '★', '☆', '♡', '•', '·', '→', '⇒', '※', '◆', '▶', '✓', '✔', '△', '○', '◎'],
 }
 // §4 비교·서열화 표현. "가장" 단독은 금지하지 않는다("가장 큰 오차" 같은 정상 서술과
 // 구분이 안 되므로) — 반드시 구체적인 구(句) 전체나 순위 패턴만 본다.
@@ -267,7 +274,9 @@ function visualizeSpaces(s) {
 function pushMatch(items, { category, authority, severity, ruleId }, text, index, matchedLen, message, displayOverride) {
   const raw = text.slice(index, index + matchedLen)
   const { before, after } = contextAround(text, index, matchedLen)
-  items.push({ ruleId, category, authority, severity, matched: displayOverride ?? raw, index, message, before, after })
+  // length는 표시용 matched(displayOverride로 바뀔 수 있음)와 별개로, 전체 원문에서 실제
+  // 강조해야 할 구간의 길이다 — 팝업에서 전체 문장을 하이라이트할 때 index와 함께 쓴다.
+  items.push({ ruleId, category, authority, severity, matched: displayOverride ?? raw, index, length: matchedLen, message, before, after })
 }
 
 // §9 숨은 문자 — 복사·붙여넣기로 섞여 들어오는 보이지 않는 문자. 존재 자체가 결함이라
@@ -358,13 +367,14 @@ export function checkText(text, dictionary, studentName) {
       text, bracketIssue.index, 1, '괄호·인용부호의 짝이 맞지 않습니다.')
   }
 
-  // 문단 시작/끝 공백 — 눈에 안 보이니 기호로 드러낸다.
-  const leadSpace = /^\s+/.exec(text)
+  // 문단 시작/끝 공백 — 눈에 안 보이니 기호로 드러낸다. 줄바꿈(엔터)은 공백류 문자이긴
+  // 하지만 이 규칙이 잡으려는 "불필요한 공백"과는 다른 문제라 여기서 제외한다.
+  const leadSpace = /^[^\S\n]+/.exec(text)
   if (leadSpace) {
     pushMatch(items, { category: '띄어쓰기', authority: 'style', severity: 'WARNING', ruleId: 'leading_space' },
       text, 0, leadSpace[0].length, '문단 시작에 불필요한 공백이 있습니다.', visualizeSpaces(leadSpace[0]))
   }
-  const trailSpace = /\s+$/.exec(text)
+  const trailSpace = /[^\S\n]+$/.exec(text)
   if (trailSpace) {
     pushMatch(items, { category: '띄어쓰기', authority: 'style', severity: 'WARNING', ruleId: 'trailing_space' },
       text, text.length - trailSpace[0].length, trailSpace[0].length, '문단 끝에 불필요한 공백이 있습니다.', visualizeSpaces(trailSpace[0]))
@@ -416,7 +426,7 @@ export function checkText(text, dictionary, studentName) {
     pushMatch(items, { category: '띄어쓰기', authority: 'style', severity: 'WARNING', ruleId: 'no_space_after_period' },
       text, index, 1, '마침표 뒤 띄어쓰기 누락(문장 경계 확인).')
   })
-  findAllRegex(text, /\s+[.!?]/g).forEach(({ index, matched }) => {
+  findAllRegex(text, /[^\S\n]+[.!?]/g).forEach(({ index, matched }) => {
     pushMatch(items, { category: '띄어쓰기', authority: 'style', severity: 'WARNING', ruleId: 'space_before_period' },
       text, index, matched.length, '마침표 앞에 불필요한 공백이 있습니다.', visualizeSpaces(matched))
   })
@@ -441,17 +451,20 @@ export function checkText(text, dictionary, studentName) {
       text, index, matched.length, '영문 표기입니다. 고유명사·약어 등 불가피한 경우가 아닌지 확인하세요.')
   })
 
-  // §10 반복 표현 — 동일 "~함." 종결이 3회 이상 반복되면 참고용으로만 표시
-  const endingCounts = new Map()
+  // §10 반복 표현 — 동일 "~함." 종결이 3회 이상 반복되면 참고용으로만 표시. 처음 나온
+  // 곳 한 군데만이 아니라 반복된 자리 전부를 표시해야 담임/교사가 어디를 고칠지 바로 안다.
+  const endingOccurrences = new Map()
   findAllRegex(text, /([가-힣]{2,4}함)[.]/g).forEach(({ index, matched }) => {
     const word = matched.slice(0, -1)
-    if (!endingCounts.has(word)) endingCounts.set(word, { count: 0, firstIndex: index })
-    endingCounts.get(word).count += 1
+    if (!endingOccurrences.has(word)) endingOccurrences.set(word, [])
+    endingOccurrences.get(word).push(index)
   })
-  endingCounts.forEach(({ count, firstIndex }, word) => {
-    if (count >= 3) {
-      pushMatch(items, { category: '반복 표현', authority: 'style', severity: 'INFO', ruleId: 'repeated_ending' },
-        text, firstIndex, word.length, `"${word}" 종결이 ${count}회 반복되었습니다.`)
+  endingOccurrences.forEach((indices, word) => {
+    if (indices.length >= 3) {
+      indices.forEach((idx) => {
+        pushMatch(items, { category: '반복 표현', authority: 'style', severity: 'INFO', ruleId: 'repeated_ending' },
+          text, idx, word.length, `"${word}" 종결이 ${indices.length}회 반복되었습니다.`)
+      })
     }
   })
 

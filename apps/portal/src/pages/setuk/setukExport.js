@@ -24,7 +24,7 @@ function toRow(it, check) {
     category: it.category,
     context: `${it.before || ''}[${it.matched}]${it.after || ''}`,
     message: it.message || '',
-    statusLabel: it.resolved ? '처리완료' : '미처리',
+    statusLabel: it.resolved ? (it.resolution === 'no_issue' ? '이상없음' : '처리완료') : '미처리',
     teacherName: check.subjectAssignments?.[it.subjectName]?.teacherName || '',
     note: it.note || '',
   }

@@ -40,8 +40,9 @@ const TextbookManagerDashboard = lazy(() => import('./pages/textbook/TextbookMan
 const TextbookPrincipalConfirm = lazy(() => import('./pages/textbook/TextbookPrincipalConfirm'))
 
 // 생기부 세특 점검 도구 - lazy load
-const SetukUpload       = lazy(() => import('./pages/setuk/SetukUpload'))
-const SetukCheckDetail  = lazy(() => import('./pages/setuk/SetukCheckDetail'))
+const SetukUpload         = lazy(() => import('./pages/setuk/SetukUpload'))
+const SetukCheckDetail    = lazy(() => import('./pages/setuk/SetukCheckDetail'))
+const SetukSubjectDetail  = lazy(() => import('./pages/setuk/SetukSubjectDetail'))
 
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
@@ -129,8 +130,9 @@ export default function App() {
           <Route path="/textbook/:adoptionId"             element={<ProtectedRoute anyUser><TextbookDetail /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
 
-          <Route path="/setuk"              element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
-          <Route path="/setuk/:checkId"     element={<ProtectedRoute anyUser><SetukCheckDetail /></ProtectedRoute>} />
+          <Route path="/setuk"                        element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
+          <Route path="/setuk/subject/:subjectName"  element={<ProtectedRoute anyUser><SetukSubjectDetail /></ProtectedRoute>} />
+          <Route path="/setuk/:checkId"               element={<ProtectedRoute anyUser><SetukCheckDetail /></ProtectedRoute>} />
 
           {/* ── 출결 (교사 승인 필요) ── */}
           <Route path="/attendance"                       element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -15,22 +15,32 @@ import Alert from '@mui/material/Alert'
 import Accordion from '@mui/material/Accordion'
 import AccordionSummary from '@mui/material/AccordionSummary'
 import AccordionDetails from '@mui/material/AccordionDetails'
+import Tabs from '@mui/material/Tabs'
+import Tab from '@mui/material/Tab'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { currentSchoolYear } from '@shared/lib/schema'
-import { subscribeChecks, saveCheck, deleteCheck, buildTeacherSubjectIndex, getDictionary } from '@shared/lib/setukCheck'
+import { subscribeChecks, saveCheck, deleteCheck, recheckCheck, buildTeacherSubjectIndex, subjectIndexKey, getDictionary } from '@shared/lib/setukCheck'
 import { parseNeisSetukFile, checkText, loadDictionary } from './setukUtils'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
+import SetukBySubject from './SetukBySubject'
+import SetukTeacherAssignments from './SetukTeacherAssignments'
 import Layout from '../../components/Layout'
 
 export default function SetukUpload() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, userName, schoolId, isAdmin } = useAuth()
   const fileInputRef = useRef(null)
 
+  // 과목별 보기 상세(SetukSubjectDetail)에서 "← 과목별 보기로"를 누르면 학급별 목록이
+  // 아니라 과목별 보기 탭으로 돌아오게 한다.
+  const [tab, setTab] = useState(location.state?.tab ?? 0)
   const [checks, setChecks] = useState([])
   const [loadingList, setLoadingList] = useState(true)
   const [processing, setProcessing] = useState(false)
@@ -38,6 +48,7 @@ export default function SetukUpload() {
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [dictOpen, setDictOpen] = useState(false)
+  const [recheckingIds, setRecheckingIds] = useState({})
 
   useEffect(() => {
     if (!schoolId) return
@@ -75,10 +86,13 @@ export default function SetukUpload() {
             authority: f.authority,
             severity: f.severity,
             matched: f.matched,
+            index: f.index,
+            length: f.length,
             message: f.message,
             before: f.before,
             after: f.after,
             resolved: false,
+            resolution: null,
             resolvedByUid: null,
             resolvedByName: null,
             resolvedAt: null,
@@ -96,7 +110,7 @@ export default function SetukUpload() {
         recordsWithCount.forEach((r) => { bySubject[r.subjectName] = r.grade })
         subjectAssignments = Object.fromEntries(
           Object.entries(bySubject).map(([subjectName, grade]) => {
-            const candidates = idx[`${grade}_${subjectName}`] || []
+            const candidates = idx[subjectIndexKey(grade, subjectName)] || []
             if (candidates.length === 1) {
               return [subjectName, { teacherUid: candidates[0].uid, teacherName: candidates[0].name, source: 'auto' }]
             }
@@ -127,6 +141,29 @@ export default function SetukUpload() {
       await deleteCheck(schoolId, check.id)
     } catch (e) {
       setError(`삭제 실패: ${e.message}`)
+    }
+  }
+
+  // 재점검도 삭제와 같은 권한(업로더 본인 또는 관리자)만 — 재점검이 기존 items를
+  // 지우고 다시 쓰는 동작이라 firestore.rules의 items 삭제 권한과 맞춰야 한다.
+  const handleRecheck = async (check) => {
+    if (!window.confirm(`"${check.classLabel}"을(를) 최신 점검 기준으로 다시 훑습니다. 더 이상 걸리지 않는 항목은 삭제되고, 처리완료·메모는 유지됩니다. 계속할까요?`)) return
+    setRecheckingIds((prev) => ({ ...prev, [check.id]: true }))
+    setError('')
+    try {
+      let customDict = null
+      try {
+        customDict = await getDictionary(schoolId)
+      } catch (e) {
+        console.error('[SetukUpload] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
+      }
+      const dictionary = loadDictionary(customDict)
+      const count = await recheckCheck(schoolId, check.id, (text, studentName) => checkText(text, dictionary, studentName), userName)
+      window.alert(`"${check.classLabel}" 재점검 완료 — 전체 ${count}건`)
+    } catch (e) {
+      setError(`재점검 실패: ${e.message}`)
+    } finally {
+      setRecheckingIds((prev) => ({ ...prev, [check.id]: false }))
     }
   }
 
@@ -218,8 +255,13 @@ export default function SetukUpload() {
         )}
       </Paper>
 
-      <Typography variant="subtitle1" fontWeight={700} mb={1.5}>최근 점검 목록</Typography>
-      {loadingList ? (
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, minHeight: 36 }}>
+        <Tab label="학급별 목록" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 36 }} />
+        <Tab label="과목별 보기" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 36 }} />
+        <Tab label="과목별 담당 교사" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 36 }} />
+      </Tabs>
+
+      {tab === 2 ? <SetukTeacherAssignments /> : tab === 1 ? <SetukBySubject /> : loadingList ? (
         <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
       ) : checks.length === 0 ? (
         <Typography variant="body2" color="text.secondary" textAlign="center" py={3}>아직 업로드한 점검이 없습니다.</Typography>
@@ -249,6 +291,18 @@ export default function SetukUpload() {
                   </TableCell>
                   <TableCell sx={{ fontSize: '0.8rem' }} color="text.secondary">{c.uploadedByName}</TableCell>
                   <TableCell align="center">
+                    {canDelete(c) && (
+                      <Tooltip title="최신 점검 기준으로 재점검">
+                        <span>
+                          <IconButton
+                            size="small" disabled={!!recheckingIds[c.id]}
+                            onClick={(e) => { e.stopPropagation(); handleRecheck(c) }}
+                          >
+                            {recheckingIds[c.id] ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
                     {canDelete(c) && (
                       <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleDelete(c) }}>
                         <DeleteOutlineIcon fontSize="small" />
