@@ -10,6 +10,14 @@ import Layout from '../../components/Layout'
 // 앞으로 소소한 유틸리티 도구가 늘어날 때 이 배열에 항목만 추가하면 된다.
 const TOOLS = [
   {
+    icon: '📝',
+    title: '생기부 세특 점검',
+    description: '나이스 세특 엑셀을 업로드하면 오타·띄어쓰기·금지어·유의어를 자동으로 점검해 학생·과목별로 정리해줍니다.',
+    path: '/setuk',
+    color: '#4f46e5',
+    bgColor: '#eef2ff',
+  },
+  {
     icon: '🎫',
     title: 'QR 안내문 생성기',
     description: '고교학점제 QR 그리드 PDF와 안내문 양식을 업로드하면 학생별 안내문을 자동으로 생성합니다.',

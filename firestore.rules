@@ -969,6 +969,50 @@ service cloud.firestore {
         allow write: if isSuperAdmin() ||
           (isPrincipal(schoolId) && request.auth.uid == uid);
       }
+
+      // ── 생기부 세특 점검 도구 ──────────────────────────────────
+      // 동료 교사끼리 서로 숨겨야 할 민감한 데이터가 아니라(위원 채점처럼 공정성 문제가
+      // 없음) 담임의 업무를 도와주는 협업 체크리스트라 검·인정도서 모듈만큼 세밀한 역할
+      // 분리가 필요 없다 — 교사 전체가 읽고/쓸 수 있게 열어둔다. 업로드한 배치 삭제만
+      // 업로더 본인 또는 관리자로 제한한다. 단, 항목의 "처리완료" 여부는 실제로 그
+      // 과목을 나이스에서 고칠 수 있는 담당 교사 본인(또는 관리자)만 바꿀 수 있다 —
+      // 메모(note)는 계속 아무 교사나 남길 수 있다(isTextbookScoreProxyFor처럼 부모
+      // 문서를 get()해서 subjectAssignments를 조회하는 방식).
+      function isSetukSubjectTeacher(schoolId, checkId, subjectName) {
+        let c = get(/databases/$(database)/documents/schools/$(schoolId)/setukChecks/$(checkId)).data;
+        return request.auth.uid == c.get('subjectAssignments', {}).get(subjectName, {}).get('teacherUid', '');
+      }
+
+      match /setukChecks/{checkId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow create: if isSuperAdmin() || isTeacher(schoolId);
+        allow update: if isSuperAdmin() || isTeacher(schoolId);
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && request.auth.uid == resource.data.get('uploadedByUid', ''));
+
+        match /records/{recordId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow write: if isSuperAdmin() || isTeacher(schoolId);
+        }
+        match /items/{itemId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if isSuperAdmin() || isTeacher(schoolId);
+          allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            (isTeacher(schoolId) &&
+             (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['resolved', 'resolvedByUid', 'resolvedByName', 'resolvedAt']) ||
+              isSetukSubjectTeacher(schoolId, checkId, resource.data.get('subjectName', ''))));
+          allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            (isTeacher(schoolId) &&
+             request.auth.uid == get(/databases/$(database)/documents/schools/$(schoolId)/setukChecks/$(checkId)).data.get('uploadedByUid', ''));
+        }
+      }
+
+      // 오타·금지어 사전 — 조회는 교사 전체, 편집은 관리자만.
+      match /setukDictionary/{docId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
     }
   }
 }

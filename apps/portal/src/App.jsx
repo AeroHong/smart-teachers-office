@@ -39,6 +39,10 @@ const TextbookDetail           = lazy(() => import('./pages/textbook/TextbookDet
 const TextbookManagerDashboard = lazy(() => import('./pages/textbook/TextbookManagerDashboard'))
 const TextbookPrincipalConfirm = lazy(() => import('./pages/textbook/TextbookPrincipalConfirm'))
 
+// 생기부 세특 점검 도구 - lazy load
+const SetukUpload       = lazy(() => import('./pages/setuk/SetukUpload'))
+const SetukCheckDetail  = lazy(() => import('./pages/setuk/SetukCheckDetail'))
+
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
 const TrainingCreate  = lazy(() => import('./pages/training/TrainingCreate'))
@@ -124,6 +128,9 @@ export default function App() {
           <Route path="/textbook/principal"               element={<ProtectedRoute anyUser principalAllowed><TextbookPrincipalConfirm /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId"             element={<ProtectedRoute anyUser><TextbookDetail /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
+
+          <Route path="/setuk"              element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
+          <Route path="/setuk/:checkId"     element={<ProtectedRoute anyUser><SetukCheckDetail /></ProtectedRoute>} />
 
           {/* ── 출결 (교사 승인 필요) ── */}
           <Route path="/attendance"                       element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
