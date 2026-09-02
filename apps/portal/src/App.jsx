@@ -37,6 +37,7 @@ const TextbookHome             = lazy(() => import('./pages/textbook/TextbookHom
 const TextbookEvaluate         = lazy(() => import('./pages/textbook/TextbookEvaluate'))
 const TextbookDetail           = lazy(() => import('./pages/textbook/TextbookDetail'))
 const TextbookManagerDashboard = lazy(() => import('./pages/textbook/TextbookManagerDashboard'))
+const TextbookPrincipalConfirm = lazy(() => import('./pages/textbook/TextbookPrincipalConfirm'))
 
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
@@ -66,6 +67,7 @@ const AdminAcademicCalendar = lazy(() => import('./pages/admin/AdminAcademicCale
 const AdminDashboardModules = lazy(() => import('./pages/admin/AdminDashboardModules'))
 const AdminEvalPlanManagers = lazy(() => import('./pages/admin/AdminEvalPlanManagers'))
 const AdminTextbookSubjects = lazy(() => import('./pages/admin/AdminTextbookSubjects'))
+const AdminTextbookDeptHeads = lazy(() => import('./pages/admin/AdminTextbookDeptHeads'))
 
 // 도구모음 - lazy load
 const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
@@ -119,6 +121,7 @@ export default function App() {
           {/* ── 검·인정도서 선정 (로그인만 하면 접근, 조회·채점 권한은 컴포넌트 내부에서 판정) ── */}
           <Route path="/textbook"                       element={<ProtectedRoute anyUser><TextbookHome /></ProtectedRoute>} />
           <Route path="/textbook/all"                    element={<ProtectedRoute anyUser><TextbookManagerDashboard /></ProtectedRoute>} />
+          <Route path="/textbook/principal"               element={<ProtectedRoute anyUser principalAllowed><TextbookPrincipalConfirm /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId"             element={<ProtectedRoute anyUser><TextbookDetail /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
 
@@ -148,6 +151,7 @@ export default function App() {
             <Route path="dashboard-modules" element={<AdminDashboardModules />} />
             <Route path="evaluation-plan-managers" element={<AdminEvalPlanManagers />} />
             <Route path="textbook-subjects" element={<AdminTextbookSubjects />} />
+            <Route path="textbook-dept-heads" element={<AdminTextbookDeptHeads />} />
 
             {/* 기존 도구 페이지들 */}
             <Route path="asa-cutoffs" element={<AsaSupportCutoffs />} />

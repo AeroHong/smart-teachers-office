@@ -131,6 +131,24 @@ export const COL = {
 
   // 검·인정도서 선정
   TEXTBOOK_ADOPTIONS: 'textbookAdoptions',  // auto-ID + cycleYear 필드. 하위에 scores/{uid} 서브컬렉션
+  TEXTBOOK_DEPT_HEADS: 'textbookDeptHeads',            // ID: sanitizeSubjectGroup(교과군) — 교과군당 1명
+  TEXTBOOK_PRINCIPAL_SIGNATURE: 'textbookPrincipalSignature', // ID: uid — asaPrincipalSignature와 동일 모양
+}
+
+/**
+ * 교과군 이름을 Firestore 문서 ID/rules 경로 세그먼트로 쓸 수 있게 다듬는다.
+ *
+ * 교과군 10개 중 3개("기술가정/정보" 등)에 '/'가 들어 있어 그대로 문서 ID나 보안 규칙의
+ * `$(subjectGroup)` 경로 세그먼트로 쓰면 경로가 여러 단계로 쪼개져 깨진다 — officeLayoutId()가
+ * 사무실 이름의 '/'를 '_'로 치환하는 것과 같은 이유. 화면에는 원래 이름을 보여주고, 저장·쿼리·
+ * rules 경로에는 항상 이 함수를 거친 값을 쓴다. 고정 10개 목록 어디에도 '_'가 없어 되돌릴 때도
+ * 안전하다(`.replace(/_/g, '/')`로 원래 표기 복원 가능).
+ *
+ * @param {string} subjectGroup
+ * @returns {string}
+ */
+export function sanitizeSubjectGroup(subjectGroup) {
+  return String(subjectGroup || '').replace(/\//g, '_')
 }
 
 /**

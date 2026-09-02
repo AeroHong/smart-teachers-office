@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { loadSubjects, saveSubject, deleteSubject, bulkSaveSubjectsByYear, loadStudents } from '@shared/lib/subjectData'
+import { loadSubjects, saveSubject, deleteSubject, bulkSaveSubjectsByYear, loadStudents, SUBJECT_GROUPS } from '@shared/lib/subjectData'
 import { useTableSort } from '@shared/hooks/useTableSort'
 import { entryYearFor, currentSchoolYear } from '@shared/lib/schema'
 import { RowActions, EditAction, DeleteAction, filters, table } from './adminUi'
@@ -25,10 +25,6 @@ import UploadIcon from '@mui/icons-material/Upload'
 import DownloadIcon from '@mui/icons-material/Download'
 
 // 상수
-const SUBJECT_GROUPS = [
-  '국어', '수학', '영어', '사회(역사/도덕포함)', '과학',
-  '체육', '예술', '교양', '기술가정/정보', '제2외국어/한문',
-]
 
 const COURSE_TYPES = ['공통', '일반', '융합', '진로']
 

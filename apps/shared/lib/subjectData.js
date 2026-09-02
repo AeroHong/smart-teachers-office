@@ -2,6 +2,14 @@ import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where }
 import { db } from './firebase'
 import { COL, schoolPath } from './schema'
 
+// 교과군 10개 고정 목록 — 과목 관리(AdminSubjects)와 검·인정도서 선정의 교과부장 지정
+// (AdminTextbookDeptHeads)이 함께 쓴다. 두 화면이 같은 분류를 써야 "교과부장이 자기 교과군
+// 과목을 알아본다"가 성립하므로 한 곳에 둔다.
+export const SUBJECT_GROUPS = [
+  '국어', '수학', '영어', '사회(역사/도덕포함)', '과학',
+  '체육', '예술', '교양', '기술가정/정보', '제2외국어/한문',
+]
+
 // subjects 는 학년도(year)가 아니라 입학년도(entryYear)로 스코프된다.
 // 교육과정 편제가 입학 코호트 단위로 고정되기 때문. 자세한 구분은 schema.js 참고.
 // 문서 ID는 auto-ID를 쓰고, 스코프는 문서 안의 entryYear 필드로 표현한다.

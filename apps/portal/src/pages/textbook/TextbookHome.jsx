@@ -9,7 +9,7 @@ import Alert from '@mui/material/Alert'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { subscribeMyAdoptions, subscribeMySubjectHeadAdoptions, STATUS_LABELS } from '@shared/lib/textbookAdoption'
+import { subscribeMyAdoptions, subscribeMySubjectHeadAdoptions, subscribeMyDeptHeadGroups, STATUS_LABELS } from '@shared/lib/textbookAdoption'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './TextbookSection'
 
@@ -33,7 +33,7 @@ function AdoptionCard({ adoption, onClick }) {
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.6, mt: 0.75, flexWrap: 'wrap' }}>
           {adoption.isCommittee && <Chip size="small" sx={roleChipSx} label="위원" />}
-          {adoption.isHead && <Chip size="small" sx={roleChipSx} label="대표교사" />}
+          {adoption.isHead && <Chip size="small" sx={roleChipSx} label="과목 대표교사" />}
           <Chip size="small" sx={infoChipSx} label={`${adoption.cycleYear}학년도 선정`} />
           <Chip size="small" sx={infoChipSx} label={`후보 ${adoption.candidates?.length || 0}개`} />
         </Box>
@@ -75,17 +75,25 @@ export default function TextbookHome() {
     return unsub
   }, [schoolId, user])
 
-  // 교과주임은 채점 없이 진행상황만 관리하는 사람일 수도 있어 위원(committeeUids) 목록에
-  // 없을 수 있다 — 그래서 별도 쿼리로 가져와 합친다.
+  // 과목 대표교사는 채점 없이 진행상황만 관리하는 사람일 수도 있어 위원(committeeUids)
+  // 목록에 없을 수 있다 — 그래서 별도 쿼리로 가져와 합친다.
   useEffect(() => {
     if (!schoolId || !user) return
     const unsub = subscribeMySubjectHeadAdoptions(schoolId, user.uid, (list) => {
       setHeadAdoptions(list)
       setHeadLoaded(true)
     }, (err) => {
-      console.error('[TextbookHome] 교과주임 목록 조회 실패:', err)
+      console.error('[TextbookHome] 과목 대표교사 목록 조회 실패:', err)
       setHeadLoaded(true)
     })
+    return unsub
+  }, [schoolId, user])
+
+  // 교과부장이면 "전체 현황"에서 자기 교과군을 모아볼 수 있어야 하므로 지정 여부만 확인.
+  const [myDeptGroups, setMyDeptGroups] = useState([])
+  useEffect(() => {
+    if (!schoolId || !user) return
+    const unsub = subscribeMyDeptHeadGroups(schoolId, user.uid, setMyDeptGroups, () => {})
     return unsub
   }, [schoolId, user])
 
@@ -115,25 +123,27 @@ export default function TextbookHome() {
             검·인정도서 선정
           </Typography>
         </Box>
-        {isAdmin && (
-          <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {(isAdmin || myDeptGroups.length > 0) && (
             <Button
               variant="outlined" size="small" onClick={() => navigate('/textbook/all')}
               sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#e2e8f0', color: '#475569' }}
             >
               전체 현황
             </Button>
+          )}
+          {isAdmin && (
             <Button
               variant="contained" size="small" startIcon={<SettingsIcon />} onClick={() => navigate('/admin/textbook-subjects')}
               sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
             >
               선정 건 관리
             </Button>
-          </Box>
-        )}
+          )}
+        </Box>
       </Box>
       <Typography sx={{ fontSize: '0.85rem', color: '#64748b', mb: 3 }}>
-        평가위원 또는 교과협의회 대표교사로 지정된 과목을 관리합니다. 개별 위원의 점수는 마감 전까지 다른 위원에게 공개되지 않습니다.
+        평가위원 또는 과목 대표교사로 지정된 과목을 관리합니다. 개별 위원의 점수는 마감 전까지 다른 위원에게 공개되지 않습니다.
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -148,7 +158,7 @@ export default function TextbookHome() {
         }}>
           <Typography sx={{ fontSize: '2rem', mb: 1 }}>📭</Typography>
           <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
-            평가위원 또는 교과협의회 대표교사로 지정된 선정 건이 없습니다. 관리자에게 문의하세요.
+            평가위원 또는 과목 대표교사로 지정된 선정 건이 없습니다. 관리자에게 문의하세요.
           </Typography>
         </Box>
       ) : (
