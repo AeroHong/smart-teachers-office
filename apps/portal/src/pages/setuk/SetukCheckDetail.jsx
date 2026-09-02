@@ -49,7 +49,7 @@ export default function SetukCheckDetail() {
   const [error, setError] = useState('')
   const [subjectFilter, setSubjectFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
-  const [unresolvedOnly, setUnresolvedOnly] = useState(true)
+  const [statusFilter, setStatusFilter] = useState('unresolved')
   const [myOnly, setMyOnly] = useState(false)
   const [myOnlyInitialized, setMyOnlyInitialized] = useState(false)
   const [groupOrder, setGroupOrder] = useState('student')
@@ -102,12 +102,19 @@ export default function SetukCheckDetail() {
     return items
       .filter((it) => subjectFilter === 'all' || it.subjectName === subjectFilter)
       .filter((it) => categoryFilter === 'all' || it.category === categoryFilter)
-      .filter((it) => !unresolvedOnly || !it.resolved)
+      .filter((it) => {
+        if (statusFilter === 'unresolved') return !it.resolved
+        if (statusFilter === 'fixed') return it.resolution === 'fixed'
+        if (statusFilter === 'no_issue') return it.resolution === 'no_issue'
+        return true
+      })
       .filter((it) => !myOnly || myAssignedSubjects.includes(it.subjectName))
       .sort((a, b) => a.studentNumber - b.studentNumber || a.subjectName.localeCompare(b.subjectName, 'ko'))
-  }, [items, subjectFilter, categoryFilter, unresolvedOnly, myOnly, myAssignedSubjects])
+  }, [items, subjectFilter, categoryFilter, statusFilter, myOnly, myAssignedSubjects])
 
   const resolvedCount = items.filter((it) => it.resolved).length
+  const fixedCount = items.filter((it) => it.resolution === 'fixed').length
+  const noIssueCount = items.filter((it) => it.resolution === 'no_issue').length
 
   // 학생×과목 단위로 걸린 항목이 여러 개(오타 여러 곳, 같은 반복 표현 여러 자리 등)일 때
   // 한 줄씩 흩어져 나오면 같은 학생을 훑기 힘들다 — 학생-과목으로 묶어서 보여준다.
@@ -203,10 +210,16 @@ export default function SetukCheckDetail() {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
         <Box>
           <Typography variant="h5" fontWeight={700} mb={0.5}>{check.classLabel}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            {check.uploadedByName} 업로드 · 전체 {items.length}건 · 미처리 {items.length - resolvedCount}건
+          <Typography variant="body2" color="text.secondary" mb={0.75}>
+            {check.uploadedByName} 업로드
             {check.lastRecheckAt && ` · ${check.lastRecheckByName} 재점검`}
           </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+            <Chip size="small" variant="outlined" label={`전체 ${items.length}건`} />
+            <Chip size="small" color="warning" label={`미처리 ${items.length - resolvedCount}건`} />
+            <Chip size="small" color="success" icon={<TaskAltIcon />} label={`처리완료 ${fixedCount}건`} />
+            <Chip size="small" color="info" icon={<VerifiedIcon />} label={`이상없음 ${noIssueCount}건`} />
+          </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button size="small" onClick={() => setDictOpen(true)} sx={{ textTransform: 'none', fontWeight: 700 }}>
@@ -253,10 +266,15 @@ export default function SetukCheckDetail() {
             {categories.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
           </Select>
         </FormControl>
-        <FormControlLabel
-          control={<Checkbox checked={unresolvedOnly} onChange={(e) => setUnresolvedOnly(e.target.checked)} />}
-          label="미처리만 보기"
-        />
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel>처리 상태</InputLabel>
+          <Select label="처리 상태" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <MenuItem value="all">전체</MenuItem>
+            <MenuItem value="unresolved">미처리만</MenuItem>
+            <MenuItem value="fixed">처리완료만</MenuItem>
+            <MenuItem value="no_issue">이상없음만</MenuItem>
+          </Select>
+        </FormControl>
         {myAssignedSubjects.length > 0 && (
           <FormControlLabel
             control={<Checkbox checked={myOnly} onChange={(e) => setMyOnly(e.target.checked)} />}
