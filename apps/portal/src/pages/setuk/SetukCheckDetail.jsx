@@ -188,8 +188,14 @@ export default function SetukCheckDetail() {
 
   // 실제 세특 수정은 그 과목 담당 교사만 나이스에서 할 수 있으므로, "처리완료"는 그
   // 과목에 배정된 담당 교사 본인(또는 관리자)만 누를 수 있다(firestore.rules로도 서버에서
-  // 강제). 담당 교사가 아직 지정되지 않은 과목은 관리자만 처리할 수 있다.
-  const canResolveFixed = (item) => isAdmin || (!!user && isAssignedTeacher(check.subjectAssignments?.[item.subjectName], user.uid))
+  // 강제). 담당 교사가 아직 지정되지 않은 과목은 관리자만 처리할 수 있다 — 단, 전입생 등
+  // 우리 학교에 개설되지 않아 애초에 담당 교사를 지정할 수 없다고 표시된 과목(noAssignment)은
+  // 영원히 관리자만 처리 가능한 상태로 막히면 안 되니 담임(업로더)에게도 열어준다.
+  const canResolveFixed = (item) => {
+    const assign = check.subjectAssignments?.[item.subjectName]
+    return isAdmin || (!!user && isAssignedTeacher(assign, user.uid)) ||
+      (!!user && !!assign?.noAssignment && check.uploadedByUid === user.uid)
+  }
   // "이상없음"(도서명 속 영문·고유명사 등 오탐 확인)은 실제 나이스 수정이 필요 없는
   // 판단이라, 담당 교사뿐 아니라 그 학급을 업로드한 담임도 표시할 수 있다. 단 이미
   // "처리완료"로 확정된 항목은 담임이 손댈 수 없다(firestore.rules로도 강제).
@@ -520,7 +526,7 @@ export default function SetukCheckDetail() {
                           <Chip size="small" variant="outlined" label={AUTHORITY_LABELS[it.authority] || it.authority} sx={{ fontSize: '0.66rem' }} />
                           <Chip size="small" label={it.category} color={SEVERITY_COLORS[it.severity]} sx={{ fontWeight: 700 }} />
                           <Box sx={{ flex: 1 }} />
-                          <Tooltip title={fixedAllowed ? '처리완료(나이스 수정 반영함)' : `담당 교사${assignedName ? `(${assignedName})` : ''}만 표시할 수 있습니다.`}>
+                          <Tooltip title={fixedAllowed ? '처리완료(나이스 수정 반영함)' : (check.subjectAssignments?.[it.subjectName]?.noAssignment ? '담당자 없음(전입 등) 과목은 담임·관리자만 표시할 수 있습니다.' : `담당 교사${assignedName ? `(${assignedName})` : ''}만 표시할 수 있습니다.`)}>
                             <span>
                               <IconButton size="small" disabled={!fixedAllowed} onClick={() => handleSetResolution(it, 'fixed')}>
                                 <TaskAltIcon fontSize="small" color={it.resolution === 'fixed' ? 'success' : 'disabled'} />

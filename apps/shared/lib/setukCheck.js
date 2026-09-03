@@ -236,19 +236,30 @@ export async function updateItemResolved(schoolId, checkId, itemId, resolved, re
 /**
  * 과목별 담당 교사를 지정한다 — 한 과목을 여러 교사가 나눠 맡는 경우가 있어(공동 수업 등)
  * 단일 교사가 아니라 배열로 받는다. teachers: [{uid, name}, ...] (빈 배열이면 미지정).
+ *
+ * noAssignment: 전입생 등으로 우리 학교에서 아예 개설되지 않은 과목이라 담당 교사를 지정할
+ * 수 없는 경우 true로 저장한다 — teachers는 무시하고 빈 배열로 강제한다. 이 값을 보고
+ * canResolveFixed 등에서 "담당 교사가 없어 관리자만 처리 가능"이던 항목을 담임에게도 연다
+ * (isNoAssignmentSubject 참고).
  */
-export async function updateSubjectAssignment(schoolId, checkId, subjectName, teachers) {
-  const list = teachers || []
+export async function updateSubjectAssignment(schoolId, checkId, subjectName, teachers, noAssignment) {
+  const list = noAssignment ? [] : (teachers || [])
   await setDoc(checkDoc(schoolId, checkId), {
     subjectAssignments: {
       [subjectName]: {
         teacherUids: list.map((t) => t.uid),
         teacherNames: list.map((t) => t.name || ''),
         source: 'manual',
+        noAssignment: !!noAssignment,
       },
     },
     updatedAt: serverTimestamp(),
   }, { merge: true })
+}
+
+/** 그 과목이 이 학교에 개설되지 않아(전입 등) 담당 교사를 지정할 수 없는 과목인지. */
+export function isNoAssignmentSubject(assign) {
+  return !!assign?.noAssignment
 }
 
 /**

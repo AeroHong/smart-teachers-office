@@ -114,7 +114,13 @@ export default function SetukSubjectDetail() {
     return () => { cancelled = true }
   }, [subject, schoolId, checks, loadingChecks, isAdmin, user])
 
-  const canResolveFixed = (item) => isAdmin || (!!user && isAssignedTeacher(item.subjectAssignments?.[item.subjectName], user.uid))
+  // 전입생 등으로 우리 학교에 개설되지 않아 담당 교사를 지정할 수 없다고 표시된 과목
+  // (noAssignment)은 관리자만 처리 가능한 상태로 영원히 막히면 안 되니 담임(업로더)에게도 연다.
+  const canResolveFixed = (item) => {
+    const assign = item.subjectAssignments?.[item.subjectName]
+    return isAdmin || (!!user && isAssignedTeacher(assign, user.uid)) ||
+      (!!user && !!assign?.noAssignment && item.uploadedByUid === user.uid)
+  }
   const canResolveNoIssue = (item) => isAdmin || canResolveFixed(item) ||
     (!!user && item.uploadedByUid === user.uid && item.resolution !== 'fixed')
 
@@ -238,7 +244,7 @@ export default function SetukSubjectDetail() {
                           <Chip size="small" variant="outlined" label={AUTHORITY_LABELS[it.authority] || it.authority} sx={{ fontSize: '0.66rem' }} />
                           <Chip size="small" label={it.category} color={SEVERITY_COLORS[it.severity]} sx={{ fontWeight: 700 }} />
                           <Box sx={{ flex: 1 }} />
-                          <Tooltip title={fixedAllowed ? '처리완료(나이스 수정 반영함)' : '담당 교사만 표시할 수 있습니다.'}>
+                          <Tooltip title={fixedAllowed ? '처리완료(나이스 수정 반영함)' : (it.subjectAssignments?.[it.subjectName]?.noAssignment ? '담당자 없음(전입 등) 과목은 담임·관리자만 표시할 수 있습니다.' : '담당 교사만 표시할 수 있습니다.')}>
                             <span>
                               <IconButton size="small" disabled={!fixedAllowed} onClick={() => handleSetResolution(it, 'fixed')}>
                                 <TaskAltIcon fontSize="small" color={it.resolution === 'fixed' ? 'success' : 'disabled'} />

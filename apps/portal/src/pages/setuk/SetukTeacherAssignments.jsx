@@ -9,6 +9,8 @@ import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import Chip from '@mui/material/Chip'
 import TextField from '@mui/material/TextField'
+import Checkbox from '@mui/material/Checkbox'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
 import Table from '@mui/material/Table'
 import TableHead from '@mui/material/TableHead'
@@ -85,7 +87,9 @@ export default function SetukTeacherAssignments() {
     checks.forEach((c) => {
       Object.entries(c.subjectAssignments || {}).forEach(([subjectName, assign]) => {
         const uids = Array.isArray(assign?.teacherUids) ? assign.teacherUids : (assign?.teacherUid ? [assign.teacherUid] : [])
-        const sigKey = [...uids].sort().join(',')
+        // 담당자 없음(전입 등)으로 표시한 과목은 교사가 없다는 것 자체가 배정 상태라,
+        // 아직 아무도 지정 안 한 빈 배열(sigKey '')과 섞이지 않게 별도 시그니처로 묶는다.
+        const sigKey = assign?.noAssignment ? '__NO_ASSIGNMENT__' : [...uids].sort().join(',')
         if (!bySubject.has(subjectName)) bySubject.set(subjectName, new Map())
         const groups = bySubject.get(subjectName)
         if (!groups.has(sigKey)) groups.set(sigKey, { subjectName, grade: c.grade, assign, classLabels: [], checkIds: [] })
@@ -125,6 +129,17 @@ export default function SetukTeacherAssignments() {
     }
   }
 
+  // 전입생 등으로 우리 학교엔 개설되지 않아 담당 교사를 지정할 수 없는 과목을 체크로
+  // 표시한다. 체크하면 그 과목은 "담당 교사 없음"이 확정 상태가 되어(미지정과 구분됨),
+  // 학급 상세 화면에서 담임도 처리완료를 표시할 수 있도록 열린다(관리자 전용이 풀림).
+  const handleNoAssignmentToggle = async (row, checked) => {
+    try {
+      await Promise.all(row.checkIds.map((checkId) => updateSubjectAssignment(schoolId, checkId, row.subjectName, [], checked)))
+    } catch (e) {
+      setError(`설정 실패: ${e.message}`)
+    }
+  }
+
   if (loadingChecks) return <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
 
   return (
@@ -132,6 +147,7 @@ export default function SetukTeacherAssignments() {
       <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.82rem', mb: 1.5 }}>
         학급마다 들어가지 않고 전체 학급의 과목별 담당 교사를 여기서 한 번에 확인·수정할 수 있습니다. 한 과목을 여러 교사가 나눠 맡는다면 여러 명을 선택하세요.
         같은 과목을 같은 교사가 맡는 학급은 한 줄로 모아 보여주며, 교사를 바꾸면 그 줄에 속한 학급 전체에 한 번에 반영됩니다(학급마다 실제로 다른 교사가 맡고 있다면 자동으로 줄이 나뉩니다).
+        전입생 등으로 우리 학교에 개설되지 않은 과목은 "담당자 없음(전입 등)"을 체크하면 담당 교사 없이도 담임이 처리완료까지 표시할 수 있게 열립니다.
         {!isAdmin && ' 수정은 관리자만 가능합니다.'}
       </Typography>
 
@@ -156,22 +172,40 @@ export default function SetukTeacherAssignments() {
                   <TableCell sx={{ fontWeight: 600 }}>{row.subjectName}</TableCell>
                   <TableCell sx={{ minWidth: 260 }}>
                     {isAdmin ? (
-                      <Autocomplete
-                        multiple size="small" sx={{ minWidth: 260, '& .MuiAutocomplete-tag': { fontSize: '0.72rem', height: 20 } }}
-                        options={staff}
-                        filterOptions={filterOptionsForRow(row)}
-                        getOptionLabel={(o) => o.name || ''}
-                        isOptionEqualToValue={(a, b) => a.uid === b.uid}
-                        value={assignedOptions(row.assign, staffByUid)}
-                        onChange={(_, values) => handleAssign(row, values)}
-                        ListboxProps={{ sx: { fontSize: '0.8rem', '& .MuiAutocomplete-option': { minHeight: 32, py: 0.5 } } }}
-                        renderInput={(params) => (
-                          <TextField
-                            {...params} variant="standard" placeholder={assignedOptions(row.assign, staffByUid).length ? '' : '미지정'}
-                            sx={{ '& .MuiInputBase-input': { fontSize: '0.8rem' } }}
+                      <Box>
+                        {row.assign?.noAssignment ? (
+                          <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>담당자 없음 (전입 등)</Typography>
+                        ) : (
+                          <Autocomplete
+                            multiple size="small" sx={{ minWidth: 260, '& .MuiAutocomplete-tag': { fontSize: '0.72rem', height: 20 } }}
+                            options={staff}
+                            filterOptions={filterOptionsForRow(row)}
+                            getOptionLabel={(o) => o.name || ''}
+                            isOptionEqualToValue={(a, b) => a.uid === b.uid}
+                            value={assignedOptions(row.assign, staffByUid)}
+                            onChange={(_, values) => handleAssign(row, values)}
+                            ListboxProps={{ sx: { fontSize: '0.8rem', '& .MuiAutocomplete-option': { minHeight: 32, py: 0.5 } } }}
+                            renderInput={(params) => (
+                              <TextField
+                                {...params} variant="standard" placeholder={assignedOptions(row.assign, staffByUid).length ? '' : '미지정'}
+                                sx={{ '& .MuiInputBase-input': { fontSize: '0.8rem' } }}
+                              />
+                            )}
                           />
                         )}
-                      />
+                        <FormControlLabel
+                          sx={{ ml: 0, mt: 0.25, '& .MuiFormControlLabel-label': { fontSize: '0.7rem', color: '#94a3b8' } }}
+                          control={(
+                            <Checkbox
+                              size="small" checked={!!row.assign?.noAssignment}
+                              onChange={(e) => handleNoAssignmentToggle(row, e.target.checked)}
+                            />
+                          )}
+                          label="담당자 없음 (전입 등)"
+                        />
+                      </Box>
+                    ) : row.assign?.noAssignment ? (
+                      <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>담당자 없음 (전입 등)</Typography>
                     ) : (
                       assignedTeacherNames(row.assign).length ? (
                         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
