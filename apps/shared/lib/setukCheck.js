@@ -308,6 +308,21 @@ export async function renameSubjectInCheck(schoolId, checkId, oldSubjectName, ne
 }
 
 /**
+ * "과목별 보기"는 여러 학급(check)을 모아 과목 단위로 보여주는 화면이라, 거기서 과목명을
+ * 고칠 땐 그 이름이 정확히 어느 학급(들)에서 왔는지 화면만 봐선 알 수 없다. 넘겨받은
+ * checks 목록(이미 구독 중인 전체 목록)에서 그 이름을 가진 학급을 전부 찾아
+ * renameSubjectInCheck를 반복 적용한다 — 보통은 한 학급의 파싱 오류라 실제로는 1건만
+ * 걸리지만, 여러 학급이 같은 오탈자를 우연히 공유해도 한 번에 고쳐진다.
+ */
+export async function renameSubjectAcrossChecks(schoolId, checks, oldSubjectName, newSubjectName) {
+  const targets = checks.filter((c) => Object.prototype.hasOwnProperty.call(c.subjectAssignments || {}, oldSubjectName))
+  if (targets.length === 0) throw new Error('그 과목명을 쓰는 학급을 찾을 수 없습니다.')
+  for (const c of targets) {
+    await renameSubjectInCheck(schoolId, c.id, oldSubjectName, newSubjectName)
+  }
+}
+
+/**
  * 이 교사가 그 과목의 담당 교사로 배정돼 있는지 — 배열(teacherUids, 여러 교사 지원)과
  * 옛 데이터의 단일 필드(teacherUid, 이 기능이 여러 교사를 지원하기 전 형태)를 모두 본다.
  */

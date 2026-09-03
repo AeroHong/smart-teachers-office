@@ -13,8 +13,14 @@ import TableRow from '@mui/material/TableRow'
 import TableCell from '@mui/material/TableCell'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
+import TextField from '@mui/material/TextField'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { subscribeChecks, loadItemsBySubject, isAssignedTeacher } from '@shared/lib/setukCheck'
+import { subscribeChecks, loadItemsBySubject, isAssignedTeacher, renameSubjectAcrossChecks } from '@shared/lib/setukCheck'
 
 // 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
 // 그 과목의 담당 교사(여러 명 가능)만.
@@ -31,6 +37,8 @@ export default function SetukBySubject() {
   const [subjectStats, setSubjectStats] = useState({})
   const [loadingStats, setLoadingStats] = useState(false)
   const [error, setError] = useState('')
+  const [editingSubject, setEditingSubject] = useState(null) // { oldName, value }
+  const [savingSubject, setSavingSubject] = useState(false)
 
   useEffect(() => {
     if (!schoolId) return
@@ -69,6 +77,25 @@ export default function SetukBySubject() {
     return () => { cancelled = true }
   }, [mySubjects, checks, schoolId, isAdmin, user])
 
+  // 나이스 파싱이 잘못 잘라낸 과목명을 고친다. 이 화면은 여러 학급을 모아 과목
+  // 단위로 보여주므로, 그 이름을 쓰는 학급을 전부 찾아 한 번에 고친다
+  // (renameSubjectAcrossChecks). 고친 이름이 이미 있는 과목이면 자동으로 합쳐진다.
+  const handleSaveSubject = async () => {
+    if (!editingSubject) return
+    const value = editingSubject.value.trim()
+    if (!value) { setError('과목명을 입력하세요.'); return }
+    setSavingSubject(true)
+    setError('')
+    try {
+      await renameSubjectAcrossChecks(schoolId, checks, editingSubject.oldName, value)
+      setEditingSubject(null)
+    } catch (e) {
+      setError(`과목명 수정 실패: ${e.message}`)
+    } finally {
+      setSavingSubject(false)
+    }
+  }
+
   if (loadingChecks) return <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
 
   if (mySubjects.length === 0) {
@@ -90,9 +117,43 @@ export default function SetukBySubject() {
           <TableBody>
             {mySubjects.map((s) => {
               const stat = subjectStats[s]
+              const isEditingThis = editingSubject?.oldName === s
               return (
-                <TableRow key={s} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/setuk/subject/${encodeURIComponent(s)}`)}>
-                  <TableCell sx={{ fontWeight: 600 }}>{s}</TableCell>
+                <TableRow key={s} hover sx={{ cursor: isEditingThis ? 'default' : 'pointer' }} onClick={() => !isEditingThis && navigate(`/setuk/subject/${encodeURIComponent(s)}`)}>
+                  <TableCell sx={{ fontWeight: 600 }}>
+                    {isEditingThis ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }} onClick={(e) => e.stopPropagation()}>
+                        <TextField
+                          size="small" variant="standard" autoFocus value={editingSubject.value}
+                          disabled={savingSubject}
+                          onChange={(e) => setEditingSubject((v) => ({ ...v, value: e.target.value }))}
+                          onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') handleSaveSubject()
+                            if (e.key === 'Escape') setEditingSubject(null)
+                          }}
+                        />
+                        <IconButton size="small" disabled={savingSubject} onClick={handleSaveSubject}>
+                          {savingSubject ? <CircularProgress size={14} /> : <CheckIcon fontSize="small" color="success" />}
+                        </IconButton>
+                        <IconButton size="small" disabled={savingSubject} onClick={() => setEditingSubject(null)}>
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                        {s}
+                        <Tooltip title="과목명이 잘못 인식됐다면 고치세요 — 고친 이름이 이미 있는 과목이면 자동으로 그 과목에 합쳐집니다.">
+                          <IconButton
+                            size="small"
+                            onClick={(e) => { e.stopPropagation(); setEditingSubject({ oldName: s, value: s }) }}
+                          >
+                            <EditOutlinedIcon sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    )}
+                  </TableCell>
                   <TableCell align="center">
                     {loadingStats && !stat ? <CircularProgress size={14} /> : (stat?.total ?? '-')}
                   </TableCell>
