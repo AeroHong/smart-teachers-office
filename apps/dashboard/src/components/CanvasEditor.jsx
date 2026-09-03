@@ -1205,7 +1205,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     let meta
     try {
       const call = httpsCallable(functions, 'fetchLinkPreview')
-      const { data } = await call({ url: raw })
+      const { data } = await call({ url: raw, schoolId })
       meta = data
     } catch (e) {
       const safe = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`

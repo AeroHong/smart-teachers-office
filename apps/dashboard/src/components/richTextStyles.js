@@ -75,7 +75,7 @@ export const RICH_TEXT_SX = {
   // 출처(small)를 왼쪽에, 미리보기 이미지가 있으면 오른쪽에 통째로 붙인다.
   '& [data-bookmark-url]': {
     display: 'flex', alignItems: 'stretch', gap: '0.8em',
-    my: 0.6, maxWidth: 480, minHeight: 64, cursor: 'pointer', overflow: 'hidden',
+    my: 0.6, maxWidth: 480, minHeight: 88, cursor: 'pointer', overflow: 'hidden',
     border: '1px solid', borderColor: 'divider', borderRadius: 1.5,
     '&:hover': { borderColor: 'primary.light', bgcolor: 'action.hover' },
   },
@@ -94,8 +94,11 @@ export const RICH_TEXT_SX = {
   '& [data-bookmark-url] small': {
     display: 'block', color: 'text.disabled', fontSize: '0.75rem',
   },
+  // height:'100%'가 핵심이다 — img는 원래 자기 비율대로 높이를 정해서 stretch를
+  // 무시하므로, 명시적으로 줘야 카드 왼쪽 글 높이만큼 꽉 채워지고 objectFit:cover가
+  // 남는 부분을 자연스럽게 잘라낸다(북마크 스크린샷이 옆으로 넓은 비율이라 특히 중요).
   '& [data-bookmark-url] img': {
-    width: 96, flexShrink: 0, objectFit: 'cover', borderRadius: 0, my: 0,
+    width: 130, height: '100%', minHeight: 88, flexShrink: 0, objectFit: 'cover', my: 0,
   },
   // #채널 · @사람 인라인 조각(channelMentionChip.js) — 카드가 아니라 문장 속에 섞이는
   // 조각이라 알약보다도 더 가볍게, 굵기와 색만으로 도드라지게 한다.
