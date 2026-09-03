@@ -29,13 +29,19 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useAuth } from '@shared/contexts/AuthContext'
 import {
   subscribeCheck, subscribeItems, updateItemNote, updateItemResolved,
-  getDictionary, recheckCheck, loadRecords, isAssignedTeacher, assignedTeacherNames,
+  getDictionary, subscribeDictionary, recheckCheck, loadRecords, isAssignedTeacher, assignedTeacherNames,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS, checkText, loadDictionary } from './setukUtils'
 import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight } from './setukShared'
 import { exportCheckResults } from './setukExport'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import Layout from '../../components/Layout'
+
+function fmtDate(ts) {
+  if (!ts) return ''
+  const d = ts.toDate ? ts.toDate() : new Date(ts)
+  return d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
 
 export default function SetukCheckDetail() {
   const { checkId } = useParams()
@@ -56,6 +62,7 @@ export default function SetukCheckDetail() {
   const [savingNote, setSavingNote] = useState({})
   const [rechecking, setRechecking] = useState(false)
   const [recordsById, setRecordsById] = useState({})
+  const [dictDoc, setDictDoc] = useState(null)
 
   useEffect(() => {
     if (!schoolId || !checkId) return
@@ -67,6 +74,13 @@ export default function SetukCheckDetail() {
     if (!schoolId || !checkId) return
     return subscribeItems(schoolId, checkId, setItems, (err) => console.error('[SetukCheckDetail] 항목 조회 실패:', err))
   }, [schoolId, checkId])
+
+  // 점검 기준이 이 건을 마지막으로 (재)점검한 뒤 바뀌었는지 보려고 실시간 구독한다 —
+  // 관리자가 지금 이 화면을 보는 동안 기준을 저장해도 경고가 바로 뜬다.
+  useEffect(() => {
+    if (!schoolId) return
+    return subscribeDictionary(schoolId, setDictDoc, (err) => console.error('[SetukCheckDetail] 사전 조회 실패:', err))
+  }, [schoolId])
 
   // 세특 원문(records)은 업로드 후 바뀌지 않으므로 실시간 구독 없이 한 번만 불러와,
   // "수정 요청 내용" 위에 마우스를 올렸을 때 과목 전체 문장을 보여주는 데 쓴다.
@@ -175,6 +189,9 @@ export default function SetukCheckDetail() {
   // 같은 대상만 실행할 수 있다(그 외 교사가 실행하면 기존 항목 삭제 단계에서 실패함).
   const canRecheck = isAdmin || check?.uploadedByUid === user?.uid
 
+  // 이 건을 마지막으로 (재)점검한 뒤 점검 기준이 바뀌었으면 다시 훑어보라고 알려준다.
+  const isOutdated = !!dictDoc && (dictDoc.version || 0) > (check?.dictionaryVersion || 0)
+
   const handleRecheck = async () => {
     if (!canRecheck || rechecking) return
     if (!window.confirm('최신 점검 기준으로 다시 훑습니다. 더 이상 걸리지 않는 항목은 삭제되고, 같은 항목의 처리완료·메모는 그대로 유지됩니다. 계속할까요?')) return
@@ -188,7 +205,7 @@ export default function SetukCheckDetail() {
         console.error('[SetukCheckDetail] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
       }
       const dictionary = loadDictionary(customDict)
-      const count = await recheckCheck(schoolId, checkId, (text, studentName) => checkText(text, dictionary, studentName), userName)
+      const count = await recheckCheck(schoolId, checkId, (text, studentName) => checkText(text, dictionary, studentName), userName, customDict?.version || 0)
       window.alert(`재점검 완료 — 새로 검출된 항목 ${count}건`)
     } catch (e) {
       setError(`재점검 실패: ${e.message}`)
@@ -250,6 +267,20 @@ export default function SetukCheckDetail() {
       />
 
       {error && <Alert severity="error" sx={{ mt: 2, mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {isOutdated && (
+        <Alert
+          severity="warning" sx={{ mt: 2 }}
+          action={canRecheck && (
+            <Button color="inherit" size="small" onClick={handleRecheck} disabled={rechecking} sx={{ textTransform: 'none', fontWeight: 700 }}>
+              지금 재점검
+            </Button>
+          )}
+        >
+          점검 기준이 {fmtDate(dictDoc.updatedAt)}에 업데이트됐습니다({dictDoc.updatedByName} 수정, 버전 {check.dictionaryVersion || 0} → {dictDoc.version}).
+          이 건은 이전 기준으로 점검된 상태이니 최신 기준으로 다시 점검해보세요.
+        </Alert>
+      )}
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap', mt: 2 }}>
         <FormControl size="small" sx={{ minWidth: 200 }}>

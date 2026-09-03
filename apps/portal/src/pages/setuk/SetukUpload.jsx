@@ -72,6 +72,7 @@ export default function SetukUpload() {
         console.error('[SetukUpload] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
       }
       const dictionary = loadDictionary(customDict)
+      const dictionaryVersion = customDict?.version || 0
       const items = []
       const recordsWithCount = records.map((r, recordIndex) => {
         const flags = checkText(r.text, dictionary, r.studentName)
@@ -125,7 +126,7 @@ export default function SetukUpload() {
 
       setProgressMsg('저장 중...')
       const grade = recordsWithCount.find((r) => r.grade)?.grade || null
-      const checkId = await saveCheck(schoolId, { classLabel, grade }, recordsWithCount, items, subjectAssignments, user.uid, userName)
+      const checkId = await saveCheck(schoolId, { classLabel, grade }, recordsWithCount, items, subjectAssignments, user.uid, userName, dictionaryVersion)
 
       navigate(`/setuk/${checkId}`)
     } catch (e) {
@@ -160,7 +161,7 @@ export default function SetukUpload() {
         console.error('[SetukUpload] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
       }
       const dictionary = loadDictionary(customDict)
-      const count = await recheckCheck(schoolId, check.id, (text, studentName) => checkText(text, dictionary, studentName), userName)
+      const count = await recheckCheck(schoolId, check.id, (text, studentName) => checkText(text, dictionary, studentName), userName, customDict?.version || 0)
       window.alert(`"${check.classLabel}" 재점검 완료 — 전체 ${count}건`)
     } catch (e) {
       setError(`재점검 실패: ${e.message}`)

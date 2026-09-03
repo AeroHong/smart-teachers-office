@@ -24,24 +24,38 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { getDictionary, saveDictionary } from '@shared/lib/setukCheck'
 import { loadDictionary, AUTHORITY_LABELS, SEVERITY_LABELS } from './setukUtils'
 
+function fmtDate(ts) {
+  if (!ts) return ''
+  const d = ts.toDate ? ts.toDate() : new Date(ts)
+  return d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 /**
  * 점검 기준(오타·금지어·유의어 등) 보기/편집 다이얼로그.
  *
  * 기본 제공 항목을 포함한 모든 그룹이 완전히 편집 가능하다 — "고정 기본값 + 학교
  * 추가분" 모델이 아니라, 관리자가 저장한 groups가 곧 그 학교의 전체 규칙 상태가 된다
  * (setukUtils.js의 loadDictionary 참고). 저장하면 기본 제공 항목도 그대로 대체된다.
+ *
+ * 저장할 때마다 version이 1씩 올라간다(setukCheck.js의 saveDictionary) — 이미 끝난
+ * 점검 건이 그 뒤에 바뀐 기준을 만나면 "다시 점검하라" 경고를 띄우는 데 쓰인다
+ * (SetukCheckDetail.jsx). 그래서 이 화면에 버전·수정일을 눈에 보이게 표시해 둔다.
  */
 export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin, uid, userName }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [groups, setGroups] = useState([])
+  const [meta, setMeta] = useState(null) // { version, updatedAt, updatedByName }
 
   useEffect(() => {
     if (!open || !schoolId) return
     setLoading(true)
     getDictionary(schoolId)
-      .then((custom) => setGroups(loadDictionary(custom).groups.map((g) => ({ ...g, items: [...g.items] }))))
+      .then((custom) => {
+        setGroups(loadDictionary(custom).groups.map((g) => ({ ...g, items: [...g.items] })))
+        setMeta(custom ? { version: custom.version || 0, updatedAt: custom.updatedAt, updatedByName: custom.updatedByName } : { version: 0 })
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [open, schoolId])
@@ -55,6 +69,8 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
     setError('')
     try {
       await saveDictionary(schoolId, groups, uid, userName)
+      const fresh = await getDictionary(schoolId)
+      setMeta({ version: fresh?.version || 0, updatedAt: fresh?.updatedAt, updatedByName: fresh?.updatedByName })
     } catch (e) {
       setError(`저장 실패: ${e.message}`)
     } finally {
@@ -74,6 +90,13 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
       </DialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+        {!loading && meta && (
+          <Chip
+            size="small" variant="outlined"
+            label={meta.updatedAt ? `버전 ${meta.version} · ${fmtDate(meta.updatedAt)} 수정${meta.updatedByName ? ` (${meta.updatedByName})` : ''}` : '버전 0 · 기본 제공 상태(아직 수정한 적 없음)'}
+            sx={{ mb: 2 }}
+          />
+        )}
         {loading ? (
           <Box display="flex" justifyContent="center" py={4}><CircularProgress size={28} /></Box>
         ) : (

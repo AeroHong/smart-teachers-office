@@ -48,9 +48,11 @@ export async function loadItemsBySubject(schoolId, checkId, subjectName) {
  * @param {{[subjectName]: {teacherUid, teacherName, source}}} subjectAssignments
  * @param {string} uid
  * @param {string} uploadedByName
+ * @param {number} [dictionaryVersion] 점검 시점의 사전 버전(getDictionary().version) — 이후
+ * 사전이 갱신되면 이 값과 비교해 "다시 점검하라"는 경고를 보여주는 데 쓴다.
  * @returns {Promise<string>} 생성된 checkId
  */
-export async function saveCheck(schoolId, meta, records, items, subjectAssignments, uid, uploadedByName) {
+export async function saveCheck(schoolId, meta, records, items, subjectAssignments, uid, uploadedByName, dictionaryVersion) {
   const checkRef = await addDoc(checksCol(schoolId), {
     classLabel: meta.classLabel,
     grade: meta.grade,
@@ -58,6 +60,7 @@ export async function saveCheck(schoolId, meta, records, items, subjectAssignmen
     uploadedByName: uploadedByName || '',
     uploadedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    dictionaryVersion: dictionaryVersion || 0,
     stats: {
       studentCount: new Set(records.map((r) => r.studentNumber)).size,
       subjectCount: new Set(records.map((r) => r.subjectName)).size,
@@ -108,8 +111,10 @@ export async function saveCheck(schoolId, meta, records, items, subjectAssignmen
  * @param {string} checkId
  * @param {(text:string, studentName:string)=>Array<object>} checkTextFn 레코드별 text/studentName만 받도록 감싼 setukUtils.checkText — 규칙 엔진은 portal 쪽 코드라 이 shared 레이어가 직접 import하지 않는다.
  * @param {string} name 재점검을 실행한 교사 이름(기록용)
+ * @param {number} [dictionaryVersion] 이번 재점검에 실제로 적용한 사전 버전 — check 문서에
+ * 갱신해 두면 "그 뒤로 사전이 또 바뀌었는지" 다음번에 다시 비교할 수 있다.
  */
-export async function recheckCheck(schoolId, checkId, checkTextFn, name) {
+export async function recheckCheck(schoolId, checkId, checkTextFn, name, dictionaryVersion) {
   const [records, oldItemsSnap] = await Promise.all([
     loadRecords(schoolId, checkId),
     getDocs(itemsCol(schoolId, checkId)),
@@ -171,6 +176,7 @@ export async function recheckCheck(schoolId, checkId, checkTextFn, name) {
     'stats.resolvedCount': newItems.filter((it) => it.resolved).length,
     lastRecheckAt: serverTimestamp(),
     lastRecheckByName: name || '',
+    dictionaryVersion: dictionaryVersion || 0,
     updatedAt: serverTimestamp(),
   })
   await statsBatch.commit()
@@ -299,9 +305,22 @@ export async function getDictionary(schoolId) {
   return snap.exists() ? snap.data() : null
 }
 
-/** groups: setukUtils.js의 loadDictionary()가 반환하는 형태 그대로 저장한다(완전 대체). */
+/**
+ * 점검 기준 문서를 실시간으로 구독한다 — 관리자가 화면을 보는 동안 기준을 바꾸면
+ * "다시 점검하라" 경고가 그 자리에서 뜨게 하는 데 쓴다.
+ */
+export function subscribeDictionary(schoolId, cb, onError) {
+  return onSnapshot(dictionaryDoc(schoolId), (snap) => cb(snap.exists() ? snap.data() : null), onError)
+}
+
+/**
+ * groups: setukUtils.js의 loadDictionary()가 반환하는 형태 그대로 저장한다(완전 대체).
+ * 저장할 때마다 version을 1씩 올려서, 이미 점검을 끝낸 건이 그 뒤에 바뀐 기준을 놓치지
+ * 않고 "다시 점검하라" 경고를 띄울 수 있게 한다(각 점검 건은 saveCheck/recheckCheck 시점의
+ * version을 자기 문서에 함께 기록해 둔다).
+ */
 export async function saveDictionary(schoolId, groups, uid, name) {
   await setDoc(dictionaryDoc(schoolId), {
-    groups, updatedByUid: uid, updatedByName: name || '', updatedAt: serverTimestamp(),
-  })
+    groups, updatedByUid: uid, updatedByName: name || '', updatedAt: serverTimestamp(), version: increment(1),
+  }, { merge: true })
 }
