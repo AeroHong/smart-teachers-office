@@ -217,6 +217,9 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   // 벗어나므로, 열 때 선택 구간을 미리 저장해 뒀다가 확정할 때 되살린다.
   const [datePicker, setDatePicker] = useState(null)   // { rect, value }
   const savedRangeRef = useRef(null)
+  // 카드형 삽입(북마크 등)을 백스페이스로 지우기 전 "일단 선택만 해 둔" 상태 —
+  // handleCardBackspace 참고.
+  const armedCardRef = useRef(null)
   const [canvasMenuAnchor, setCanvasMenuAnchor] = useState(null)   // { top, left } — 캔버스 삽입 고르기
   // 북마크 카드를 넣을 URL 입력 팝오버 — 날짜 팝오버와 같은 이유로 커서 자리를 저장해 둔다.
   const [bookmarkPicker, setBookmarkPicker] = useState(null)   // { rect, url, loading, error }
@@ -1324,7 +1327,86 @@ const CanvasEditor = forwardRef(function CanvasEditor({
 
   const EXIT_ON_ENTER = 'h1,h2,h3,h4,blockquote'
 
+// 카드형 삽입(북마크·캔버스 삽입 등, contenteditable="false")을 두 번째 백스페이스로
+  // 정말 지울 때 쓴다 — 지금 선택이 selectNode(armedCard)가 만든 것과 정확히 같은
+  // 모양인지 확인한다(딴 곳을 클릭했으면 모양이 달라져 false).
+  function selectionExactlyWraps(sel, node) {
+    if (!sel || sel.rangeCount !== 1) return false
+    const r = sel.getRangeAt(0)
+    const parent = node.parentNode
+    if (!parent || r.startContainer !== parent || r.endContainer !== parent) return false
+    const idx = Array.prototype.indexOf.call(parent.childNodes, node)
+    return idx >= 0 && r.startOffset === idx && r.endOffset === idx + 1
+  }
+
+  /**
+   * 카드형 삽입을 바로 뒤 줄 맨 앞에서 백스페이스 한 번에 통째로 지워버리던 문제
+   * (사용자 확인, 2026-09-03 — "북마크 안의 텍스트가 지워지네ㅋㅋㅋ": 실수로
+   * 백스페이스 한 번 눌렀는데 카드 전체가 흔적도 없이 사라짐). 이미지 한 장 지우는
+   * 것과 달리 카드는 제목·설명·미리보기까지 담고 있어 되돌릴 방법 없이 한 번에
+   * 없어지면 곤란하다.
+   *
+   * 그래서 한 번 더 확인하게 한다 — 첫 백스페이스는 지우는 대신 카드를 통째로
+   * 선택만 해 둔다(이미지를 선택했을 때와 같은 파란 테두리). 그 상태 그대로 한 번 더
+   * 누르면 실제로 지운다. (브라우저의 기본 "선택 지우기" 동작에 맡기면 될 것 같지만,
+   * contenteditable="false" 콘텐츠는 진짜로 선택돼 있어도 브라우저가 편집 불가로
+   * 보고 조용히 무시한다 — 실측, 2026-09-03. 그래서 두 번째 백스페이스는 직접
+   * 노드를 지운다.)
+   */
+  const handleCardBackspace = (e) => {
+    if (e.key !== 'Backspace' || e.shiftKey) return false
+    const sel = window.getSelection()
+
+    const armed = armedCardRef.current
+    armedCardRef.current = null
+    if (armed?.isConnected && selectionExactlyWraps(sel, armed)) {
+      e.preventDefault()
+      const parent = armed.parentNode
+      const next = armed.nextSibling
+      armed.remove()
+      const r = document.createRange()
+      if (next) r.setStart(next, 0)
+      else r.selectNodeContents(parent)
+      r.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(r)
+      emit()
+      return true
+    }
+
+    if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return false
+    const range = sel.getRangeAt(0)
+    if (range.startOffset !== 0) return false
+
+    const el = editorRef.current
+    let block = range.startContainer.nodeType === Node.TEXT_NODE
+      ? range.startContainer.parentElement
+      : range.startContainer
+    while (block && block.parentElement !== el && block !== el) block = block.parentElement
+    if (!block || block === el) return false
+
+    // startOffset===0은 "그 텍스트 노드의 맨 앞"일 뿐, 그 앞에 다른 텍스트 노드가
+    // 더 있을 수 있다(예: 굵게+보통 글이 섞인 줄) — 블록 전체 기준으로 진짜 맨 앞인지
+    // 다시 잰다.
+    const beforeCaret = document.createRange()
+    beforeCaret.selectNodeContents(block)
+    beforeCaret.setEnd(range.startContainer, range.startOffset)
+    if (beforeCaret.toString().length > 0) return false
+
+    const prev = block.previousElementSibling
+    if (!prev || prev.getAttribute('contenteditable') !== 'false') return false
+
+    e.preventDefault()
+    const cardRange = document.createRange()
+    cardRange.selectNode(prev)
+    sel.removeAllRanges()
+    sel.addRange(cardRange)
+    armedCardRef.current = prev
+    return true
+  }
+
   const handleKeyDown = (e) => {
+    if (handleCardBackspace(e)) return
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
 
     const line = readLine()

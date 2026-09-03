@@ -71,6 +71,13 @@ export function sanitizeHtml(html) {
     ALLOWED_ATTR,
     // data:·javascript: 주소를 막는다. 이미지는 Storage 다운로드 URL만 쓴다.
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:)/i,
+    // DOMPurify는 위 ALLOWED_URI_REGEXP를 커스텀하면, URI를 담을 것 같지 않은 속성값도
+    // 그 규칙에 안 맞으면 통째로 지운다 — "false"·숫자처럼 http로 시작 안 하는 값은
+    // 전부 걸린다. width·height·contenteditable이 매 저장마다 조용히 사라지고
+    // 있었다(실측, 2026-09-03 — 북마크 카드가 새로고침 후 contenteditable="false"를
+    // 잃고 평범한 글로 돌아오는 문제로 발견). ADD_URI_SAFE_ATTR로 "이 속성은 URI가
+    // 아니니 그 검사에서 빼라"고 명시해야 한다.
+    ADD_URI_SAFE_ATTR: ['contenteditable', 'width', 'height'],
   }).replace(STYLE_ATTR, (match, value) => {
     // style 안에서도 색만 남긴다 (위 주석 참고)
     const color = /(^|;)\s*color\s*:\s*([^;]+)/i.exec(value)
