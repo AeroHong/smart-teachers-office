@@ -189,6 +189,21 @@ function getActiveSectionKey(pathname) {
 }
 
 const SIDEBAR_WIDTH = 220
+const SIDEBAR_OPEN_STORAGE_KEY = 'sidebarOpen'
+
+// 페이지마다 자기만의 <Layout>을 새로 렌더링해서(공용 라우트 셸이 아님) 페이지를
+// 옮기면 이 컴포넌트가 매번 새로 마운트된다 — sidebarOpen이 컴포넌트 로컬 state뿐이면
+// 접어 놔도 다음 페이지에서 항상 화면 너비 기준 기본값으로 돌아가 버린다(실측,
+// 2026-09-04). localStorage에 사용자가 마지막으로 선택한 상태를 저장해 뒀다가
+// 다음 마운트 때 그대로 복원한다.
+function readStoredSidebarOpen() {
+  try {
+    const stored = localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY)
+    if (stored === 'true') return true
+    if (stored === 'false') return false
+  } catch (e) { /* 사생활 보호 모드 등으로 localStorage를 못 쓰면 기본값으로 폴백 */ }
+  return window.innerWidth >= 768
+}
 
 export default function Layout({ children, wide = false }) {
   const { user, role, schoolName, schoolId, logout } = useAuth()
@@ -196,7 +211,7 @@ export default function Layout({ children, wide = false }) {
   const navigate = useNavigate()
   const [anchorEl, setAnchorEl] = useState(null)
   const [helpAnchorEl, setHelpAnchorEl] = useState(null)
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768)
+  const [sidebarOpen, setSidebarOpen] = useState(readStoredSidebarOpen)
   const [pendingCount, setPendingCount] = useState(0)
   const [logoUrl, setLogoUrl] = useState(null)
   const [isEvalPlanManager, setIsEvalPlanManager] = useState(false)
@@ -270,7 +285,11 @@ export default function Layout({ children, wide = false }) {
       {/* ── 사이드바 경계 토글 탭 ── */}
       <Tooltip title={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'} placement="right">
         <Box data-print-hide="true"
-          onClick={() => setSidebarOpen(p => !p)}
+          onClick={() => setSidebarOpen((p) => {
+            const next = !p
+            try { localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(next)) } catch (e) { /* 무시 */ }
+            return next
+          })}
           sx={{
             position: 'fixed',
             left: sidebarOpen ? `${SIDEBAR_WIDTH}px` : 0,

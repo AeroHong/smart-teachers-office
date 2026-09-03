@@ -13,6 +13,10 @@ import Chip from '@mui/material/Chip'
 import Checkbox from '@mui/material/Checkbox'
 import TextField from '@mui/material/TextField'
 import FormControlLabel from '@mui/material/FormControlLabel'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import Accordion from '@mui/material/Accordion'
@@ -50,6 +54,7 @@ export default function SetukSubjectDetail() {
   const [loadingGroups, setLoadingGroups] = useState(false)
   const [error, setError] = useState('')
   const [unresolvedOnly, setUnresolvedOnly] = useState(true)
+  const [categoryFilter, setCategoryFilter] = useState('all')
   const [savingNote, setSavingNote] = useState({})
 
   const goBack = () => navigate('/setuk', { state: { tab: 1 } })
@@ -142,11 +147,20 @@ export default function SetukSubjectDetail() {
     }
   }
 
+  const categories = useMemo(() => (
+    [...new Set(groups.flatMap((g) => g.items.map((it) => it.category)))].sort((a, b) => a.localeCompare(b, 'ko'))
+  ), [groups])
+
   const visibleGroups = useMemo(() => (
     groups
-      .map((g) => ({ ...g, items: g.items.filter((it) => !unresolvedOnly || !it.resolved) }))
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((it) => (
+          (!unresolvedOnly || !it.resolved) && (categoryFilter === 'all' || it.category === categoryFilter)
+        )),
+      }))
       .filter((g) => g.items.length > 0)
-  ), [groups, unresolvedOnly])
+  ), [groups, unresolvedOnly, categoryFilter])
 
   return (
     <Layout wide>
@@ -156,6 +170,13 @@ export default function SetukSubjectDetail() {
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <Typography variant="h5" fontWeight={700}>{subject}</Typography>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>유형 필터</InputLabel>
+          <Select label="유형 필터" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <MenuItem value="all">전체 유형</MenuItem>
+            {categories.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+          </Select>
+        </FormControl>
         <FormControlLabel
           control={<Checkbox checked={unresolvedOnly} onChange={(e) => setUnresolvedOnly(e.target.checked)} />}
           label="미처리만 보기"
