@@ -193,16 +193,21 @@ export default function SetukTeacherAssignments() {
                             )}
                           />
                         )}
-                        <FormControlLabel
-                          sx={{ ml: 0, mt: 0.25, '& .MuiFormControlLabel-label': { fontSize: '0.7rem', color: '#94a3b8' } }}
-                          control={(
-                            <Checkbox
-                              size="small" checked={!!row.assign?.noAssignment}
-                              onChange={(e) => handleNoAssignmentToggle(row, e.target.checked)}
-                            />
-                          )}
-                          label="담당자 없음 (전입 등)"
-                        />
+                        {/* 이미 담당 교사가 지정된 과목엔 "담당자 없음" 체크가 의미 없으니
+                            teacherUids가 비어 있을 때(또는 이미 no-assignment로 표시된
+                            상태에서 해제할 때)만 보여준다. */}
+                        {!assignedOptions(row.assign, staffByUid).length && (
+                          <FormControlLabel
+                            sx={{ ml: 0, mt: 0.25, '& .MuiFormControlLabel-label': { fontSize: '0.7rem', color: '#94a3b8' } }}
+                            control={(
+                              <Checkbox
+                                size="small" checked={!!row.assign?.noAssignment}
+                                onChange={(e) => handleNoAssignmentToggle(row, e.target.checked)}
+                              />
+                            )}
+                            label="담당자 없음 (전입 등)"
+                          />
+                        )}
                       </Box>
                     ) : row.assign?.noAssignment ? (
                       <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>담당자 없음 (전입 등)</Typography>
