@@ -39,7 +39,6 @@ import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck'
 import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
-import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import ContentCopyIcon from '@mui/icons-material/ContentCopyOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -1405,8 +1404,48 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     return true
   }
 
+  // http(s)://나 www.으로 시작하는 것만 잡는다 — 점(.) 하나로는 "3.14"·"v2.0" 같은
+  // 평범한 글자와 못 갈라서 오탐이 난다.
+  const URL_WORD_PATTERN = /^(https?:\/\/|www\.)\S+$/i
+
+  /**
+   * 스페이스나 엔터를 치는 순간, 커서 바로 앞 "단어"가 URL 모양이면 링크로 건다
+   * (사용자 요청, 2026-09-03 — "url 주소를 입력한다면 바로 링크로 바뀌는 방식").
+   * 북마크(카드)와는 다른 기능이다 — 이건 평범한 글줄 속 링크일 뿐, 미리보기 카드가
+   * 아니다.
+   */
+  const linkifyUrlBeforeCaret = () => {
+    const sel = window.getSelection()
+    if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return false
+    const node = sel.anchorNode
+    if (!node || node.nodeType !== Node.TEXT_NODE) return false
+    if (node.parentElement?.closest('a')) return false // 이미 링크 안이면 손대지 않는다
+
+    const offset = sel.anchorOffset
+    const before = node.textContent.slice(0, offset)
+    const match = /(?:^|\s)(\S+)$/.exec(before)
+    if (!match) return false
+    const word = match[1]
+    if (!URL_WORD_PATTERN.test(word)) return false
+
+    const wordStart = offset - word.length
+    const range = document.createRange()
+    range.setStart(node, wordStart)
+    range.setEnd(node, offset)
+    sel.removeAllRanges()
+    sel.addRange(range)
+
+    const safe = /^https?:\/\//i.test(word) ? word : `https://${word}`
+    document.execCommand('createLink', false, safe)
+    sel.collapseToEnd()
+    return true
+  }
+
   const handleKeyDown = (e) => {
     if (handleCardBackspace(e)) return
+    if ((e.key === ' ' || e.key === 'Enter') && !e.nativeEvent.isComposing && linkifyUrlBeforeCaret()) {
+      emit()
+    }
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
 
     const line = readLine()
@@ -2081,9 +2120,20 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             <AddIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
-        <Tooltip title="이미지">
-          <IconButton size="small" onClick={e => { e.stopPropagation(); fileInputRef.current?.click() }}>
-            <ImageOutlinedIcon sx={{ fontSize: 18 }} />
+        {/* 사진 입력 자리 대신 북마크를 고정으로 둔다(사용자 요청, 2026-09-03 —
+            이미지는 붙여넣기·끌어놓기로도 들어가지만 북마크는 이 줄에 바로 없으면
+            매번 '+' 메뉴를 열어야 해서 자주 쓰기엔 아쉽다는 이유). */}
+        <Tooltip title="북마크">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              editorRef.current?.focus()
+              const r = e.currentTarget.getBoundingClientRect()
+              openBookmarkPicker({ top: r.top, bottom: r.top, left: r.left, right: r.left, width: 0, height: 0 })
+            }}
+          >
+            <BookmarkAddOutlinedIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
         <Tooltip title="파일">
