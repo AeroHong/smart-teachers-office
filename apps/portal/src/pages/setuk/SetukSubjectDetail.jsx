@@ -151,6 +151,22 @@ export default function SetukSubjectDetail() {
     [...new Set(groups.flatMap((g) => g.items.map((it) => it.category)))].sort((a, b) => a.localeCompare(b, 'ko'))
   ), [groups])
 
+  // 필터 드롭다운에 유형별 건수를 같이 보여준다 — "미처리만 보기"는 그대로 적용하고
+  // (지금 화면에 실제로 몇 건이 뜰지가 궁금한 것이므로), 유형 필터 자체는 무시한
+  // 채로 세어야 "전체 유형" 대비 각 유형이 몇 건인지 비교가 된다.
+  const categoryCounts = useMemo(() => {
+    const counts = {}
+    let total = 0
+    groups.forEach((g) => {
+      g.items.forEach((it) => {
+        if (unresolvedOnly && it.resolved) return
+        counts[it.category] = (counts[it.category] || 0) + 1
+        total += 1
+      })
+    })
+    return { counts, total }
+  }, [groups, unresolvedOnly])
+
   const visibleGroups = useMemo(() => (
     groups
       .map((g) => ({
@@ -173,8 +189,8 @@ export default function SetukSubjectDetail() {
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel>유형 필터</InputLabel>
           <Select label="유형 필터" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-            <MenuItem value="all">전체 유형</MenuItem>
-            {categories.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            <MenuItem value="all">전체 유형 ({categoryCounts.total})</MenuItem>
+            {categories.map((c) => <MenuItem key={c} value={c}>{c} ({categoryCounts.counts[c] || 0})</MenuItem>)}
           </Select>
         </FormControl>
         <FormControlLabel

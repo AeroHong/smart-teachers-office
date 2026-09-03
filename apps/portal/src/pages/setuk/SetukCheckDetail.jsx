@@ -130,6 +130,24 @@ export default function SetukCheckDetail() {
     setMyOnlyInitialized(true)
   }, [check, user, isAdmin, myAssignedSubjects, myOnlyInitialized])
 
+  // 유형 필터 드롭다운에 건수를 같이 보여준다 — 다른 필터(과목·처리 상태·내 담당)는
+  // 그대로 적용하고 유형 필터 자체만 무시한 채 세어야 "전체" 대비 각 유형이 몇 건인지
+  // 비교가 된다.
+  const categoryCounts = useMemo(() => {
+    const base = items
+      .filter((it) => subjectFilter === 'all' || it.subjectName === subjectFilter)
+      .filter((it) => {
+        if (statusFilter === 'unresolved') return !it.resolved
+        if (statusFilter === 'fixed') return it.resolution === 'fixed'
+        if (statusFilter === 'no_issue') return it.resolution === 'no_issue'
+        return true
+      })
+      .filter((it) => !myOnly || myAssignedSubjects.includes(it.subjectName))
+    const counts = {}
+    base.forEach((it) => { counts[it.category] = (counts[it.category] || 0) + 1 })
+    return { counts, total: base.length }
+  }, [items, subjectFilter, statusFilter, myOnly, myAssignedSubjects])
+
   const filteredItems = useMemo(() => {
     return items
       .filter((it) => subjectFilter === 'all' || it.subjectName === subjectFilter)
@@ -388,8 +406,8 @@ export default function SetukCheckDetail() {
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel>유형 필터</InputLabel>
           <Select label="유형 필터" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-            <MenuItem value="all">전체 유형</MenuItem>
-            {categories.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            <MenuItem value="all">전체 유형 ({categoryCounts.total})</MenuItem>
+            {categories.map((c) => <MenuItem key={c} value={c}>{c} ({categoryCounts.counts[c] || 0})</MenuItem>)}
           </Select>
         </FormControl>
         <FormControl size="small" sx={{ minWidth: 160 }}>
