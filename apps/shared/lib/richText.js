@@ -18,6 +18,9 @@ const ALLOWED_TAGS = [
   'a', 'img', 'hr',
   'blockquote', 'code', 'pre',
   'h1', 'h2', 'h3', 'h4',
+  // 북마크 카드(linkBookmarkCard.js)의 출처 표기용 — 다른 새 태그를 늘리지 않고 이미
+  // "작은 글씨"라는 뜻이 통하는 이 태그 하나만 추가한다.
+  'small',
   // 토글 — 긴 안내에서 세부 절차를 접어두는 용도. 자바스크립트 없이 브라우저가 여닫는다.
   'details', 'summary',
   // 콜아웃 — 꼭 봐야 할 한 문단. class는 걸러지므로 태그 자체가 서식 표시다
@@ -51,6 +54,11 @@ const ALLOWED_ATTR = [
   // 블록 반응(이모지 리액션, blockReactions.js)이 어느 블록을 가리키는지 — 반응 자체는
   // 본문(bodyHtml)이 아니라 별도 서브컬렉션에 저장되고, 이 속성은 그 문서의 ID만 담는다.
   'data-block-id',
+  // 북마크(링크 미리보기) 카드(linkBookmarkCard.js)가 클릭 시 열 주소를 담는다. href가
+  // 아니라 data-*로 두는 이유는 캔버스 삽입 카드와 같다 — contenteditable="false"로
+  // 통째로 한 덩어리로 다루면서, DOMPurify의 href 링크 처리(자동 target 등)와 섞이지
+  // 않게 하려는 것. 실제 열기 전 http/https인지는 linkBookmarkCard.js가 한 번 더 검사한다.
+  'data-bookmark-url',
 ]
 
 const STYLE_ATTR = /\sstyle="([^"]*)"/gi

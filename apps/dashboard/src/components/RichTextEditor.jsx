@@ -15,8 +15,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
+import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import FormatBoldIcon from '@mui/icons-material/FormatBold'
@@ -71,6 +73,11 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
   const [slash, setSlash] = useState(null)
   // 우클릭으로 연 서식 메뉴의 자리. 항목은 '/' 메뉴와 같고 여는 방법만 다르다.
   const [menuRect, setMenuRect] = useState(null)
+  // 링크 걸기 팝오버 — 팝오버 입력창이 포커스를 가져가면 편집기의 선택이 풀리므로,
+  // 열 때 선택 구간을 저장해 뒀다가 확정할 때 되살린다(날짜 팝오버와 같은 방식,
+  // CanvasEditor.jsx 참고).
+  const [linkPopover, setLinkPopover] = useState(null)   // { rect, url }
+  const savedRangeRef = useRef(null)
 
   // 부모가 값을 바꿨을 때만 DOM에 밀어 넣는다. 타이핑 중에 덮어쓰면 커서가 맨 앞으로 튄다.
   useEffect(() => {
@@ -499,12 +506,32 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
     files.forEach(insertImage)
   }
 
-  const addLink = () => {
-    const url = window.prompt('링크 주소를 입력하세요', 'https://')
-    if (!url || url === 'https://') return
-    const safe = /^https?:\/\//i.test(url) ? url : `https://${url}`
+  /**
+   * 고른 글에 링크 걸기. window.prompt는 데스크톱 앱(Electron)에서 조용히 반응이
+   * 없어(사용자 확인, 2026-09-03) 팝오버로 바꿨다 — 도구 막대 버튼은 onMouseDown에서
+   * 기본 동작을 막아 선택을 지키지만, 팝오버가 뜨며 입력창으로 포커스가 넘어가는
+   * 것까지는 못 막으므로 선택 구간을 미리 저장해 둔다.
+   */
+  const openLinkPopover = () => {
+    const sel = window.getSelection()
+    const range = sel?.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+    savedRangeRef.current = range
+    const rect = range?.getBoundingClientRect() || editorRef.current?.getBoundingClientRect()
+    setLinkPopover({ rect, url: 'https://' })
+  }
+
+  const confirmLinkPopover = () => {
+    const raw = (linkPopover?.url || '').trim()
+    if (!raw || raw === 'https://') { setLinkPopover(null); return }
+    const safe = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
     editorRef.current?.focus()
+    const sel = window.getSelection()
+    if (savedRangeRef.current) {
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
     document.execCommand('createLink', false, safe)
+    setLinkPopover(null)
     emit()
   }
 
@@ -531,7 +558,7 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
           </IconButton>
         </Tooltip>
         <Tooltip title="링크">
-          <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={addLink}>
+          <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={openLinkPopover}>
             <LinkIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
@@ -605,6 +632,26 @@ export default function RichTextEditor({ docId, folder = 'requests', value, onCh
               <Typography fontSize="0.83rem">{c.label}</Typography>
             </Box>
           ))}
+        </Box>
+      </Popover>
+
+      {/* 링크 걸기 */}
+      <Popover
+        open={!!linkPopover}
+        anchorReference="anchorPosition"
+        anchorPosition={linkPopover ? { top: linkPopover.rect.bottom, left: linkPopover.rect.left } : undefined}
+        onClose={() => setLinkPopover(null)}
+      >
+        <Box sx={{ p: 1.2, display: 'flex', gap: 0.8, alignItems: 'center' }}>
+          <TextField
+            size="small" autoFocus placeholder="https://..."
+            value={linkPopover?.url || ''}
+            onChange={e => setLinkPopover(p => ({ ...p, url: e.target.value }))}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmLinkPopover() } }}
+          />
+          <Button size="small" variant="contained" onClick={confirmLinkPopover}>
+            링크 추가
+          </Button>
         </Box>
       </Popover>
 

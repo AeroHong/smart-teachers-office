@@ -71,6 +71,32 @@ export const RICH_TEXT_SX = {
     bgcolor: 'action.hover',
     '&:hover': { borderColor: 'primary.light' },
   },
+  // 북마크(링크 미리보기) 카드 — linkBookmarkCard.js가 마크업을 만든다. 제목(b)·설명(span)·
+  // 출처(small)를 왼쪽에, 미리보기 이미지가 있으면 오른쪽에 통째로 붙인다.
+  '& [data-bookmark-url]': {
+    display: 'flex', alignItems: 'stretch', gap: '0.8em',
+    my: 0.6, maxWidth: 480, minHeight: 64, cursor: 'pointer', overflow: 'hidden',
+    border: '1px solid', borderColor: 'divider', borderRadius: 1.5,
+    '&:hover': { borderColor: 'primary.light', bgcolor: 'action.hover' },
+  },
+  '& [data-bookmark-url] > div': {
+    flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+    gap: '0.3em', py: '0.6em', pl: '0.9em',
+  },
+  '& [data-bookmark-url] b': {
+    display: 'block', fontWeight: 700, fontSize: '0.92rem',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  },
+  '& [data-bookmark-url] span': {
+    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+    overflow: 'hidden', color: 'text.secondary', fontSize: '0.8rem', lineHeight: 1.4,
+  },
+  '& [data-bookmark-url] small': {
+    display: 'block', color: 'text.disabled', fontSize: '0.75rem',
+  },
+  '& [data-bookmark-url] img': {
+    width: 96, flexShrink: 0, objectFit: 'cover', borderRadius: 0, my: 0,
+  },
   // #채널 · @사람 인라인 조각(channelMentionChip.js) — 카드가 아니라 문장 속에 섞이는
   // 조각이라 알약보다도 더 가볍게, 굵기와 색만으로 도드라지게 한다.
   '& [data-channel-ref]': {

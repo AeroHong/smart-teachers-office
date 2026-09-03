@@ -46,12 +46,17 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import TitleIcon from '@mui/icons-material/Title'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import NotesIcon from '@mui/icons-material/Notes'
+import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
 import Popover from '@mui/material/Popover'
+import CircularProgress from '@mui/material/CircularProgress'
 import SlashMenu from './SlashMenu'
 import CoverPicker from './CoverPicker'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { isImageFile, uploadAttachment } from '@shared/lib/requestAttachments'
 import { canvasRefCardHtml, canvasRefTarget } from '@shared/lib/canvasRefCard'
+import { linkBookmarkCardHtml, linkBookmarkTarget } from '@shared/lib/linkBookmarkCard'
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '@shared/lib/firebase'
 import { dateChipHtml, hydrateDateChips } from '@shared/lib/dateChips'
 import { makeBlockId } from '@shared/lib/blockReactions'
 import { useToast } from './ToastProvider'
@@ -69,6 +74,7 @@ const CANVAS_EXTRA_ITEMS = [
   { id: 'table', label: '표', hint: '3×3 표 넣기', keywords: 'ㅍ 표 테이블 table', Icon: TableChartOutlinedIcon, action: 'table' },
   { id: 'date', label: '날짜', hint: '리마인더 칩', keywords: 'ㄴㅉ 날짜 리마인더 date reminder', Icon: EventIcon, action: 'date' },
   { id: 'canvasRef', label: '캔버스', hint: '다른 업무 글을 카드로', keywords: 'ㅋㅂㅅ 캔버스 업무글 링크 canvas', Icon: DescriptionOutlinedIcon, action: 'canvasRef' },
+  { id: 'bookmark', label: '북마크', hint: '링크를 미리보기 카드로', keywords: 'ㅂㅁㅋ 북마크 링크 추가 bookmark link', Icon: BookmarkAddOutlinedIcon, action: 'bookmark' },
   { id: 'file', label: '파일', hint: '한글·엑셀 등 첨부', keywords: 'ㅍㅇ 파일 첨부 file attach', Icon: AttachFileIcon, action: 'file' },
   { id: 'checklist', label: '체크리스트', hint: '할 일 목록', keywords: 'ㅊㅋㄹㅅㅌ 체크리스트 할일 목록 checklist todo', Icon: PlaylistAddCheckIcon, action: 'checklist' },
 ]
@@ -212,6 +218,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   const [datePicker, setDatePicker] = useState(null)   // { rect, value }
   const savedRangeRef = useRef(null)
   const [canvasMenuAnchor, setCanvasMenuAnchor] = useState(null)   // { top, left } — 캔버스 삽입 고르기
+  // 북마크 카드를 넣을 URL 입력 팝오버 — 날짜 팝오버와 같은 이유로 커서 자리를 저장해 둔다.
+  const [bookmarkPicker, setBookmarkPicker] = useState(null)   // { rect, url, loading, error }
+  // 고른 글에 링크를 거는 팝오버(bubble 도구의 "링크") — window.prompt는 데스크톱 앱
+  // (Electron)에서 조용히 아무 반응이 없어 먹통처럼 보인다(사용자 확인, 2026-09-03).
+  const [linkPopover, setLinkPopover] = useState(null)   // { rect, url }
   // 막대로 축약된 목차에 마우스를 올리면 글자 목록을 오버레이로 펼친다.
   const [tocExpanded, setTocExpanded] = useState(false)
   // 지금 마우스가 올라가 있는 블록(에디터의 직계 자식) — 손잡이(⋮⋮)를 그 옆에 띄운다.
@@ -344,8 +355,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     }
     const table = e.target.closest?.('table')
     const cardTarget = canvasRefTarget(e.target)
+    const bookmarkUrl = linkBookmarkTarget(e.target)
     if (cardTarget) {
       onOpenCanvasRef?.(cardTarget)
+    } else if (bookmarkUrl) {
+      window.open(bookmarkUrl, '_blank', 'noopener,noreferrer')
     } else if (e.target?.tagName === 'IMG') {
       pickImage(e.target)
       setPickedTable(null)
@@ -1159,6 +1173,60 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     emit()
   }
 
+  /**
+   * 북마크(링크 미리보기) 카드 넣을 URL을 묻는 팝오버 — 날짜 팝오버와 같은 커서 저장 방식.
+   *
+   * anchorRect를 받으면 그 자리에 띄운다 — '+'/하단 삽입 막대로 열었을 때는 그 메뉴가
+   * 뜬 자리(slash.rect나 menuRect)를 그대로 넘겨받는다. 안 넘기면 지금 커서로 재본다.
+   * 빈 줄에서 collapsed selection의 rect는 너비·높이가 전부 0이 되어(막 지운 '/명령'
+   * 자리 등) editorRef 전체 사각형으로 잘못 떨어지곤 했다(사용자 확인, 2026-09-03 —
+   * "박스가 커서 근처가 아니라 아래에 나옴") — anchorRect 우선 사용으로 이 문제를 피한다.
+   */
+  const openBookmarkPicker = (anchorRect) => {
+    const sel = window.getSelection()
+    const range = sel?.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+    savedRangeRef.current = range
+    const measured = range?.getBoundingClientRect()
+    const rect = anchorRect
+      || (measured && measured.width + measured.height > 0 ? measured : null)
+      || editorRef.current?.getBoundingClientRect()
+    setBookmarkPicker({ rect, url: '', loading: false, error: '' })
+  }
+
+  /**
+   * 서버(fetchLinkPreview)에서 제목·설명·이미지를 받아와 카드로 심는다. 요청이 실패해도
+   * (사이트가 봇을 막거나, 응답이 늦거나) 에러로 막지 않는다 — linkBookmarkCardHtml이
+   * 최소 주소만으로도 카드를 만들 수 있어, 실패 시 그 형태로 대신 넣는다.
+   */
+  const confirmBookmarkPicker = async () => {
+    const raw = (bookmarkPicker?.url || '').trim()
+    if (!raw) return
+    setBookmarkPicker(p => ({ ...p, loading: true, error: '' }))
+    let meta
+    try {
+      const call = httpsCallable(functions, 'fetchLinkPreview')
+      const { data } = await call({ url: raw })
+      meta = data
+    } catch (e) {
+      const safe = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+      meta = { url: safe, title: safe, description: '', image: '', siteName: safe }
+    }
+    const html = linkBookmarkCardHtml(meta)
+    if (!html) {
+      setBookmarkPicker(p => ({ ...p, loading: false, error: '올바른 주소가 아닙니다.' }))
+      return
+    }
+    editorRef.current?.focus()
+    const sel = window.getSelection()
+    if (savedRangeRef.current) {
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
+    applyHtml(html)
+    setBookmarkPicker(null)
+    emit()
+  }
+
   /** 캔버스 삽입 — 이 채널의 다른 업무 글을 카드로 심는다. 고르기는 메뉴, 삽입은 applyHtml. */
   const pickCanvasRef = (post) => {
     setCanvasMenuAnchor(null)
@@ -1346,6 +1414,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     if (item.action === 'table') { insertTable(); emit(); return }
     if (item.action === 'checklist') { insertChecklist(); emit(); return }
     if (item.action === 'date') { openDatePicker(); return }
+    if (item.action === 'bookmark') { openBookmarkPicker(slash?.rect || menuRect); return }
     if (item.action === 'canvasRef') {
       // MUI Menu가 접근성 때문에 포커스를 자기 쪽으로 가져간다 — 고르는 순간 편집기 선택이
       // 사라지므로, 날짜 팝오버와 같은 방식으로 지금 커서 위치를 저장해 뒀다가 되살린다.
@@ -1430,12 +1499,32 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     files.forEach(insertImage)
   }
 
-  const addLink = () => {
-    const url = window.prompt('링크 주소를 입력하세요', 'https://')
-    if (!url || url === 'https://') return
-    const safe = /^https?:\/\//i.test(url) ? url : `https://${url}`
+  /**
+   * 고른 글에 링크 걸기. window.prompt는 데스크톱 앱(Electron)에서 조용히 반응이
+   * 없어(사용자 확인, 2026-09-03) 버블 도구의 다른 항목처럼 팝오버로 바꿨다 — 버튼을
+   * 누르면 선택이 풀리므로(bubble도 onMouseDown으로 막지만 팝오버가 뜨며 포커스가
+   * 옮겨가는 것까지는 못 막는다) 날짜 팝오버와 같은 방식으로 선택 구간을 저장해 둔다.
+   */
+  const openLinkPopover = () => {
+    const sel = window.getSelection()
+    const range = sel?.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+    savedRangeRef.current = range
+    const rect = range?.getBoundingClientRect() || editorRef.current?.getBoundingClientRect()
+    setLinkPopover({ rect, url: 'https://' })
+  }
+
+  const confirmLinkPopover = () => {
+    const raw = (linkPopover?.url || '').trim()
+    if (!raw || raw === 'https://') { setLinkPopover(null); return }
+    const safe = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
     editorRef.current?.focus()
+    const sel = window.getSelection()
+    if (savedRangeRef.current) {
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
     document.execCommand('createLink', false, safe)
+    setLinkPopover(null)
     emit()
   }
 
@@ -2158,6 +2247,72 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         </Box>
       </Popover>
 
+      {/* 북마크(링크 미리보기) 추가 — Notion의 "북마크 추가" 팝업과 같은 구성으로, 가로
+          배치 대신 세로로 쌓고 가운데 정렬한다(사용자 요청, 2026-09-03). URL 입력칸은
+          평소엔 옅은 회색 배경에 테두리가 안 보이다가, 눌러서 입력하기 시작하면
+          연보라색 테두리가 뜬다 — Notion 원본과 같은 느낌. */}
+      <Popover
+        open={!!bookmarkPicker}
+        anchorReference="anchorPosition"
+        anchorPosition={bookmarkPicker ? { top: bookmarkPicker.rect.bottom, left: bookmarkPicker.rect.left } : undefined}
+        onClose={() => setBookmarkPicker(null)}
+      >
+        <Box sx={{
+          p: 1, width: 260,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.6,
+        }}>
+          <TextField
+            fullWidth size="small" autoFocus
+            placeholder="URL을 붙여넣으세요(https:// ... )"
+            value={bookmarkPicker?.url || ''}
+            disabled={bookmarkPicker?.loading}
+            onChange={e => setBookmarkPicker(p => ({ ...p, url: e.target.value, error: '' }))}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmBookmarkPicker() } }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'action.hover',
+                '& fieldset': { borderColor: 'transparent' },
+                '&:hover fieldset': { borderColor: 'transparent' },
+                '&.Mui-focused fieldset': { borderColor: '#c4b5fd', borderWidth: 1.5 },
+              },
+            }}
+          />
+          <Button
+            fullWidth size="small" variant="contained"
+            disabled={!bookmarkPicker?.url?.trim() || bookmarkPicker?.loading}
+            onClick={confirmBookmarkPicker}
+          >
+            {bookmarkPicker?.loading ? <CircularProgress size={16} color="inherit" /> : '북마크 생성'}
+          </Button>
+          <Typography
+            variant="caption" display="block"
+            color={bookmarkPicker?.error ? 'error' : 'text.secondary'}
+          >
+            {bookmarkPicker?.error || '링크로 시각적 북마크 생성'}
+          </Typography>
+        </Box>
+      </Popover>
+
+      {/* 고른 글에 링크 걸기 — bubble 도구의 "링크" 버튼. */}
+      <Popover
+        open={!!linkPopover}
+        anchorReference="anchorPosition"
+        anchorPosition={linkPopover ? { top: linkPopover.rect.bottom, left: linkPopover.rect.left } : undefined}
+        onClose={() => setLinkPopover(null)}
+      >
+        <Box sx={{ p: 1.2, display: 'flex', gap: 0.8, alignItems: 'center' }}>
+          <TextField
+            size="small" autoFocus placeholder="https://..."
+            value={linkPopover?.url || ''}
+            onChange={e => setLinkPopover(p => ({ ...p, url: e.target.value }))}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmLinkPopover() } }}
+          />
+          <Button size="small" variant="contained" onClick={confirmLinkPopover}>
+            링크 추가
+          </Button>
+        </Box>
+      </Popover>
+
       {/* 캔버스 삽입 고르기 — 이 채널의 업무 글만 보여준다(부모가 canvasOptions로 넘김,
           지금 편집 중인 글 자신은 이미 빼서 넘어온다). */}
       <Menu
@@ -2204,7 +2359,7 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             </IconButton>
           </Tooltip>
           <Tooltip title="링크">
-            <IconButton size="small" onClick={addLink}>
+            <IconButton size="small" onClick={openLinkPopover}>
               <LinkIcon sx={{ fontSize: 17 }} />
             </IconButton>
           </Tooltip>

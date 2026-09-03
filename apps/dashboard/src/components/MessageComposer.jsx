@@ -13,9 +13,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
 import Popover from '@mui/material/Popover'
+import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
 import AlternateEmailIcon from '@mui/icons-material/AlternateEmail'
@@ -66,6 +68,10 @@ export default function MessageComposer({
   // 커서 위치에 바로 넣어야 해서(insertAtCursor) 편집기 ref를 쥔 이 컴포넌트 안에서
   // 끝내는 게 자연스럽다(멘션 '@' 단추와 같은 자리).
   const [emojiAnchor, setEmojiAnchor] = useState(null)
+  // 링크 팝오버 — 이모지 피커와 같은 이유로 커서 자리를 저장해 뒀다가 되살린다(아래
+  // openEmojiPicker 주석 참고). 두 팝오버가 함께 쓴다.
+  const [linkPopover, setLinkPopover] = useState(null)   // { rect, url }
+  const savedRangeRef = useRef(null)
 
   useEffect(() => {
     const el = editorRef.current
@@ -96,12 +102,32 @@ export default function MessageComposer({
     } catch { /* 여러 블록에 걸친 선택 — 포기 */ }
   }
 
-  const addLink = () => {
-    const url = window.prompt('링크 주소를 입력하세요', 'https://')
-    if (!url || url === 'https://') return
-    const safe = /^https?:\/\//i.test(url) ? url : `https://${url}`
+  /**
+   * 고른 글에 링크 걸기. window.prompt는 데스크톱 앱(Electron)에서 조용히 반응이
+   * 없어(사용자 확인, 2026-09-03) 팝오버로 바꿨다 — 이모지 피커(openEmojiPicker)와
+   * 같은 이유로 열 때 커서 자리를 저장해 뒀다가 확정할 때 되살린다.
+   */
+  const openLinkPopover = () => {
+    const sel = window.getSelection()
+    savedRangeRef.current = sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)
+      ? sel.getRangeAt(0).cloneRange()
+      : null
+    const rect = savedRangeRef.current?.getBoundingClientRect() || editorRef.current?.getBoundingClientRect()
+    setLinkPopover({ rect, url: 'https://' })
+  }
+
+  const confirmLinkPopover = () => {
+    const raw = (linkPopover?.url || '').trim()
+    if (!raw || raw === 'https://') { setLinkPopover(null); return }
+    const safe = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
     editorRef.current?.focus()
+    if (savedRangeRef.current) {
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(savedRangeRef.current)
+    }
     document.execCommand('createLink', false, safe)
+    setLinkPopover(null)
     emit()
   }
 
@@ -249,9 +275,8 @@ export default function MessageComposer({
   // 이모지 피커는 팝오버라 여는 순간 포커스가 팝오버 쪽으로 옮겨간다(MUI Popover의
   // 접근성 동작) — '@' 단추처럼 클릭 즉시 넣는 게 아니라, 그 사이 커서 위치를 잃는다.
   // CanvasEditor.jsx의 날짜 칩 팝오버(savedRangeRef)와 같은 방식으로, 열 때 커서
-  // 자리를 미리 저장해 뒀다가 이모지를 고른 순간 되살려 그 자리에 넣는다.
-  const savedRangeRef = useRef(null)
-
+  // 자리를 미리 저장해 뒀다가 이모지를 고른 순간 되살려 그 자리에 넣는다(savedRangeRef는
+  // 위 링크 팝오버와 함께 쓴다).
   const openEmojiPicker = (e) => {
     const sel = window.getSelection()
     savedRangeRef.current = sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)
@@ -289,7 +314,7 @@ export default function MessageComposer({
         ))}
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 0.5 }} />
         <Tooltip title="링크">
-          <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={addLink}>
+          <IconButton size="small" onMouseDown={e => e.preventDefault()} onClick={openLinkPopover}>
             <LinkIcon sx={{ fontSize: 17 }} />
           </IconButton>
         </Tooltip>
@@ -375,6 +400,26 @@ export default function MessageComposer({
               {emoji}
             </Box>
           ))}
+        </Box>
+      </Popover>
+
+      {/* 링크 걸기 */}
+      <Popover
+        open={!!linkPopover}
+        anchorReference="anchorPosition"
+        anchorPosition={linkPopover ? { top: linkPopover.rect.bottom, left: linkPopover.rect.left } : undefined}
+        onClose={() => setLinkPopover(null)}
+      >
+        <Box sx={{ p: 1.2, display: 'flex', gap: 0.8, alignItems: 'center' }}>
+          <TextField
+            size="small" autoFocus placeholder="https://..."
+            value={linkPopover?.url || ''}
+            onChange={e => setLinkPopover(p => ({ ...p, url: e.target.value }))}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmLinkPopover() } }}
+          />
+          <Button size="small" variant="contained" onClick={confirmLinkPopover}>
+            링크 추가
+          </Button>
         </Box>
       </Popover>
 

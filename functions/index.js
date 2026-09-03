@@ -34,6 +34,10 @@ exports.expireCallRequests = callSystem.expireCallRequests
 const postDeletion = require('./postDeletion')
 exports.deletePostDeep = postDeletion.deletePostDeep
 
+// 캔버스 북마크(링크 미리보기) — CanvasEditor.jsx
+const linkPreview = require('./linkPreview')
+exports.fetchLinkPreview = linkPreview.fetchLinkPreview
+
 const migrations = require('./migrations/migrateStudentsToWorkspaceId')
 exports.migrateStudentsToWorkspaceId = migrations.migrateStudentsToWorkspaceId
 exports.rollbackStudentsMigration = migrations.rollbackStudentsMigration

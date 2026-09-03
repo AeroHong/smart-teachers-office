@@ -38,6 +38,7 @@ import {
 } from '@shared/lib/workRequests'
 import { sanitizeHtml } from '@shared/lib/richText'
 import { canvasRefTarget } from '@shared/lib/canvasRefCard'
+import { linkBookmarkTarget } from '@shared/lib/linkBookmarkCard'
 import { hydrateDateChips } from '@shared/lib/dateChips'
 import PostComments from './PostComments'
 import RequestMaterials from './RequestMaterials'
@@ -105,10 +106,13 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
   const commentCounts = useBlockCommentCounts({ schoolId, requestId })
   const commentRects = useBlockReactionRects(bodyRef, Object.keys(commentCounts), request?.bodyHtml)
 
-  /** 본문 안 캔버스 삽입 카드를 누르면 그 글을 연다(canvasRefCard.js). */
+  /** 본문 안 캔버스 삽입 카드를 누르면 그 글을 열고, 북마크 카드를 누르면 그 주소를
+   *  새 탭으로 연다(canvasRefCard.js·linkBookmarkCard.js). */
   const handleBodyClick = (e) => {
     const target = canvasRefTarget(e.target)
-    if (target) navigate(target)
+    if (target) { navigate(target); return }
+    const bookmarkUrl = linkBookmarkTarget(e.target)
+    if (bookmarkUrl) window.open(bookmarkUrl, '_blank', 'noopener,noreferrer')
   }
 
   useEffect(() => {
