@@ -34,6 +34,16 @@ function assignedOptions(assign, staffByUid) {
   return uids.map((uid, i) => staffByUid[uid] || { uid, name: names[i] || '' })
 }
 
+/** 같은 학년 접두어를 공유하는 학급명들을 "2학년 1,2,3반"처럼 압축해서 보여준다. */
+function formatClassLabels(labels) {
+  if (labels.length === 1) return labels[0]
+  const parsed = labels.map((l) => l.match(/^(\d+학년)\s*(\d+반)$/))
+  if (parsed.every(Boolean) && new Set(parsed.map((p) => p[1])).size === 1) {
+    return `${parsed[0][1]} ${parsed.map((p) => p[2].replace('반', '')).join(',')}반`
+  }
+  return labels.join(', ')
+}
+
 export default function SetukTeacherAssignments() {
   const { schoolId, isAdmin } = useAuth()
 
@@ -65,14 +75,33 @@ export default function SetukTeacherAssignments() {
 
   const staffByUid = useMemo(() => Object.fromEntries(staff.map((s) => [s.uid, s])), [staff])
 
+  // 과목마다 학급 수만큼 같은 줄이 반복되는 게 대부분이었다(실측 — 공통 과목은 거의
+  // 전 학급이 같은 교사). 그래서 "같은 과목 + 같은 교사 배정"을 공유하는 학급들은
+  // 한 줄로 모아 보여주고, 교사를 바꾸면 그 줄에 속한 학급 전체에 한 번에 반영한다
+  // (subjectAssignments 자체는 여전히 학급별로 따로 저장돼 있으므로, 실제로 학급마다
+  // 다른 교사가 배정된 경우는 자동으로 별도 줄로 분리된다).
   const rows = useMemo(() => {
-    const list = []
+    const bySubject = new Map()
     checks.forEach((c) => {
       Object.entries(c.subjectAssignments || {}).forEach(([subjectName, assign]) => {
-        list.push({ key: `${c.id}__${subjectName}`, checkId: c.id, classLabel: c.classLabel, grade: c.grade, subjectName, assign })
+        const uids = Array.isArray(assign?.teacherUids) ? assign.teacherUids : (assign?.teacherUid ? [assign.teacherUid] : [])
+        const sigKey = [...uids].sort().join(',')
+        if (!bySubject.has(subjectName)) bySubject.set(subjectName, new Map())
+        const groups = bySubject.get(subjectName)
+        if (!groups.has(sigKey)) groups.set(sigKey, { subjectName, grade: c.grade, assign, classLabels: [], checkIds: [] })
+        const g = groups.get(sigKey)
+        g.classLabels.push(c.classLabel)
+        g.checkIds.push(c.id)
       })
     })
-    return list.sort((a, b) => a.classLabel.localeCompare(b.classLabel, 'ko') || a.subjectName.localeCompare(b.subjectName, 'ko'))
+    const list = []
+    bySubject.forEach((groups) => {
+      groups.forEach((g, sigKey) => {
+        g.classLabels.sort((a, b) => a.localeCompare(b, 'ko'))
+        list.push({ key: `${g.subjectName}__${sigKey}`, ...g })
+      })
+    })
+    return list.sort((a, b) => a.subjectName.localeCompare(b.subjectName, 'ko') || a.classLabels.join(',').localeCompare(b.classLabels.join(','), 'ko'))
   }, [checks])
 
   const optionsForRow = (row) => {
@@ -83,7 +112,7 @@ export default function SetukTeacherAssignments() {
 
   const handleAssign = async (row, staffOptions) => {
     try {
-      await updateSubjectAssignment(schoolId, row.checkId, row.subjectName, staffOptions)
+      await Promise.all(row.checkIds.map((checkId) => updateSubjectAssignment(schoolId, checkId, row.subjectName, staffOptions)))
     } catch (e) {
       setError(`담당교사 지정 실패: ${e.message}`)
     }
@@ -95,6 +124,7 @@ export default function SetukTeacherAssignments() {
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.82rem', mb: 1.5 }}>
         학급마다 들어가지 않고 전체 학급의 과목별 담당 교사를 여기서 한 번에 확인·수정할 수 있습니다. 한 과목을 여러 교사가 나눠 맡는다면 여러 명을 선택하세요.
+        같은 과목을 같은 교사가 맡는 학급은 한 줄로 모아 보여주며, 교사를 바꾸면 그 줄에 속한 학급 전체에 한 번에 반영됩니다(학급마다 실제로 다른 교사가 맡고 있다면 자동으로 줄이 나뉩니다).
         {!isAdmin && ' 수정은 관리자만 가능합니다.'}
       </Typography>
 
@@ -115,7 +145,7 @@ export default function SetukTeacherAssignments() {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.key} hover>
-                  <TableCell sx={{ color: '#64748b' }}>{row.classLabel}</TableCell>
+                  <TableCell sx={{ color: '#64748b' }}>{formatClassLabels(row.classLabels)}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{row.subjectName}</TableCell>
                   <TableCell sx={{ minWidth: 260 }}>
                     {isAdmin ? (
