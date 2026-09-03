@@ -9,7 +9,7 @@ import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import Chip from '@mui/material/Chip'
 import TextField from '@mui/material/TextField'
-import Autocomplete from '@mui/material/Autocomplete'
+import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
 import Table from '@mui/material/Table'
 import TableHead from '@mui/material/TableHead'
 import TableBody from '@mui/material/TableBody'
@@ -104,10 +104,17 @@ export default function SetukTeacherAssignments() {
     return list.sort((a, b) => a.subjectName.localeCompare(b.subjectName, 'ko') || a.classLabels.join(',').localeCompare(b.classLabels.join(','), 'ko'))
   }, [checks])
 
-  const optionsForRow = (row) => {
-    const candidateUids = new Set((teacherIndex[subjectIndexKey(row.grade, row.subjectName)] || []).map((c) => c.uid))
-    const narrowed = staff.filter((s) => candidateUids.has(s.uid))
-    return narrowed.length > 0 ? narrowed : staff
+  // 기본(입력 전)은 그 과목의 교과 배정 후보만 보여주되, 이름을 직접 입력하면
+  // 그 후보 목록을 벗어나 전체 교직원 중에서 검색되게 한다 — 교과 배정 데이터가
+  // 없거나 틀린 과목(선택과목 등)도 이름만 알면 바로 지정할 수 있어야 하므로.
+  const defaultFilter = useMemo(() => createFilterOptions(), [])
+  const filterOptionsForRow = (row) => (options, state) => {
+    if (!state.inputValue) {
+      const candidateUids = new Set((teacherIndex[subjectIndexKey(row.grade, row.subjectName)] || []).map((c) => c.uid))
+      const narrowed = options.filter((o) => candidateUids.has(o.uid))
+      return narrowed.length > 0 ? narrowed : options
+    }
+    return defaultFilter(options, state)
   }
 
   const handleAssign = async (row, staffOptions) => {
@@ -151,7 +158,8 @@ export default function SetukTeacherAssignments() {
                     {isAdmin ? (
                       <Autocomplete
                         multiple size="small" sx={{ minWidth: 260, '& .MuiAutocomplete-tag': { fontSize: '0.72rem', height: 20 } }}
-                        options={optionsForRow(row)}
+                        options={staff}
+                        filterOptions={filterOptionsForRow(row)}
                         getOptionLabel={(o) => o.name || ''}
                         isOptionEqualToValue={(a, b) => a.uid === b.uid}
                         value={assignedOptions(row.assign, staffByUid)}
