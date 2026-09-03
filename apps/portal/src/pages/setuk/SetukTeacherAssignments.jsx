@@ -11,6 +11,10 @@ import Chip from '@mui/material/Chip'
 import TextField from '@mui/material/TextField'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
 import Table from '@mui/material/Table'
 import TableHead from '@mui/material/TableHead'
@@ -22,12 +26,15 @@ import Alert from '@mui/material/Alert'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { db } from '@shared/lib/firebase'
 import { USERS, currentSchoolYear } from '@shared/lib/schema'
+import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
 import {
   subscribeChecks, updateSubjectAssignment, assignedTeacherNames,
   buildTeacherSubjectIndex, subjectIndexKey,
 } from '@shared/lib/setukCheck'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+// 평가운영계획 제출 도구(EvalPlanManagerDashboard)와 같은 학년도 선택 범위를 쓴다.
+const YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
 
 /** 배정에서 현재 선택된 교사 목록을 Autocomplete가 쓸 {uid,name} 배열로 복원한다. */
 function assignedOptions(assign, staffByUid) {
@@ -55,6 +62,19 @@ export default function SetukTeacherAssignments() {
   const [teacherIndex, setTeacherIndex] = useState({})
   const [error, setError] = useState('')
 
+  // 관리자 페이지 > 홈에서 지정한 학년도-학기 기준을 초기값으로 쓴다(평가운영계획
+  // 제출 도구와 같은 패턴) — 이후 사용자가 직접 바꾸면 그 선택을 유지한다.
+  const currentTerm = useCurrentTerm(schoolId)
+  const [year, setYear] = useState(currentTerm.year)
+  const [semester, setSemester] = useState(currentTerm.semester)
+  const [termApplied, setTermApplied] = useState(false)
+  useEffect(() => {
+    if (termApplied || !currentTerm.loaded) return
+    setYear(currentTerm.year)
+    setSemester(currentTerm.semester)
+    setTermApplied(true)
+  }, [currentTerm, termApplied])
+
   useEffect(() => {
     if (!schoolId) return
     return subscribeChecks(schoolId, (list) => { setChecks(list); setLoadingChecks(false) }, (err) => { setError(err.message); setLoadingChecks(false) })
@@ -77,19 +97,27 @@ export default function SetukTeacherAssignments() {
 
   const staffByUid = useMemo(() => Object.fromEntries(staff.map((s) => [s.uid, s])), [staff])
 
+  // 이 필드가 생기기 전(2026-09-04 이전) 업로드 건은 year/semester가 없을 수 있는데,
+  // 실제로 어느 학기 것인지 알 방법이 없으니 섣불리 추정해서 걸러내지 않고 어떤
+  // 학년도·학기를 선택해도 계속 보이게 둔다(값이 있는 새 업로드 건만 실제로 걸러진다).
+  const filteredChecks = useMemo(() => (
+    checks.filter((c) => (c.year == null || c.year === year) && (c.semester == null || c.semester === semester))
+  ), [checks, year, semester])
+
   // 과목마다 학급 수만큼 같은 줄이 반복되는 게 대부분이었다(실측 — 공통 과목은 거의
   // 전 학급이 같은 교사). 그래서 "같은 과목 + 같은 교사 배정"을 공유하는 학급들은
   // 한 줄로 모아 보여주고, 교사를 바꾸면 그 줄에 속한 학급 전체에 한 번에 반영한다
   // (subjectAssignments 자체는 여전히 학급별로 따로 저장돼 있으므로, 실제로 학급마다
-  // 다른 교사가 배정된 경우는 자동으로 별도 줄로 분리된다).
+  // 다른 교사가 배정된 경우는 자동으로 별도 줄로 분리된다). 학년을 시그니처에 포함해,
+  // 서로 다른 학년의 과목이 우연히 같은 이름·같은(빈) 배정으로 한 줄에 섞이지 않게 한다.
   const rows = useMemo(() => {
     const bySubject = new Map()
-    checks.forEach((c) => {
+    filteredChecks.forEach((c) => {
       Object.entries(c.subjectAssignments || {}).forEach(([subjectName, assign]) => {
         const uids = Array.isArray(assign?.teacherUids) ? assign.teacherUids : (assign?.teacherUid ? [assign.teacherUid] : [])
         // 담당자 없음(전입 등)으로 표시한 과목은 교사가 없다는 것 자체가 배정 상태라,
         // 아직 아무도 지정 안 한 빈 배열(sigKey '')과 섞이지 않게 별도 시그니처로 묶는다.
-        const sigKey = assign?.noAssignment ? '__NO_ASSIGNMENT__' : [...uids].sort().join(',')
+        const sigKey = `${c.grade}__${assign?.noAssignment ? '__NO_ASSIGNMENT__' : [...uids].sort().join(',')}`
         if (!bySubject.has(subjectName)) bySubject.set(subjectName, new Map())
         const groups = bySubject.get(subjectName)
         if (!groups.has(sigKey)) groups.set(sigKey, { subjectName, grade: c.grade, assign, classLabels: [], checkIds: [] })
@@ -105,8 +133,9 @@ export default function SetukTeacherAssignments() {
         list.push({ key: `${g.subjectName}__${sigKey}`, ...g })
       })
     })
-    return list.sort((a, b) => a.subjectName.localeCompare(b.subjectName, 'ko') || a.classLabels.join(',').localeCompare(b.classLabels.join(','), 'ko'))
-  }, [checks])
+    return list.sort((a, b) => (a.grade || 0) - (b.grade || 0) ||
+      a.subjectName.localeCompare(b.subjectName, 'ko') || a.classLabels.join(',').localeCompare(b.classLabels.join(','), 'ko'))
+  }, [filteredChecks])
 
   // 기본(입력 전)은 그 과목의 교과 배정 후보만 보여주되, 이름을 직접 입력하면
   // 그 후보 목록을 벗어나 전체 교직원 중에서 검색되게 한다 — 교과 배정 데이터가
@@ -151,6 +180,22 @@ export default function SetukTeacherAssignments() {
         {!isAdmin && ' 수정은 관리자만 가능합니다.'}
       </Typography>
 
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
+        <FormControl size="small" sx={{ width: 130 }}>
+          <InputLabel>학년도</InputLabel>
+          <Select label="학년도" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+            {YEAR_OPTIONS.map((y) => <MenuItem key={y} value={y}>{y}학년도</MenuItem>)}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ width: 110 }}>
+          <InputLabel>학기</InputLabel>
+          <Select label="학기" value={semester} onChange={(e) => setSemester(Number(e.target.value))}>
+            <MenuItem value={1}>1학기</MenuItem>
+            <MenuItem value={2}>2학기</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
+
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {rows.length === 0 ? (
@@ -160,6 +205,7 @@ export default function SetukTeacherAssignments() {
           <Table size="small" sx={{ '& td, & th': { fontSize: '0.8rem', py: 0.5 } }}>
             <TableHead>
               <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
+                <TableCell>학년-학기</TableCell>
                 <TableCell>학급</TableCell>
                 <TableCell>과목</TableCell>
                 <TableCell>담당 교사</TableCell>
@@ -168,6 +214,7 @@ export default function SetukTeacherAssignments() {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.key} hover>
+                  <TableCell sx={{ color: '#64748b', whiteSpace: 'nowrap' }}>{row.grade}학년-{semester}학기</TableCell>
                   <TableCell sx={{ color: '#64748b' }}>{formatClassLabels(row.classLabels)}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{row.subjectName}</TableCell>
                   <TableCell sx={{ minWidth: 260 }}>

@@ -134,7 +134,11 @@ export default function SetukUpload() {
 
       setProgressMsg('저장 중...')
       const grade = recordsWithCount.find((r) => r.grade)?.grade || null
-      const checkId = await saveCheck(schoolId, { classLabel, grade }, recordsWithCount, items, subjectAssignments, user.uid, userName, dictionaryVersion)
+      const semester = recordsWithCount.find((r) => r.semester)?.semester || null
+      const checkId = await saveCheck(
+        schoolId, { classLabel, grade, year: currentSchoolYear(), semester },
+        recordsWithCount, items, subjectAssignments, user.uid, userName, dictionaryVersion,
+      )
 
       navigate(`/setuk/${checkId}`)
     } catch (e) {
