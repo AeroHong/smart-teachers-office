@@ -1,6 +1,6 @@
 import {
-  collection, doc, getDoc, getDocs, addDoc, setDoc, deleteDoc, onSnapshot,
-  query, where, orderBy, writeBatch, serverTimestamp, increment,
+  collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot,
+  query, where, orderBy, writeBatch, serverTimestamp, increment, deleteField,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { COL, schoolPath, currentSchoolYear } from './schema'
@@ -276,19 +276,40 @@ export async function renameSubjectInCheck(schoolId, checkId, oldSubjectName, ne
     getDocs(query(itemsCol(schoolId, checkId), where('subjectName', '==', oldSubjectName))),
     getDoc(checkDoc(schoolId, checkId)),
   ])
-  if (recordsSnap.empty) throw new Error('그 과목명을 쓰는 레코드를 찾을 수 없습니다.')
 
   const checkData = checkSnap.data() || {}
-  const assignments = { ...(checkData.subjectAssignments || {}) }
-  delete assignments[oldSubjectName]
+  const existingAssignments = checkData.subjectAssignments || {}
+  const hasAssignment = Object.prototype.hasOwnProperty.call(existingAssignments, oldSubjectName)
 
-  if (!assignments[name]) {
+  // subjectAssignments는 중첩 맵 필드라, { ...spread; delete 키; setDoc(merge:true) }로
+  // "지우려" 하면 실제로는 지워지지 않는다 — setDoc은 점(.) 있는 키를 중첩 경로로
+  // 풀어주지 않고 그 문자열을 통째로 하나의 필드 이름으로 취급한다(중첩 경로로
+  // 풀어주는 건 updateDoc뿐). 그래서 예전엔 "고쳤다"고 확인했던 과목명들도 실은
+  // 레코드만 바뀌고 subjectAssignments엔 옛 이름이 유령처럼 계속 남아 있었다(실측,
+  // 2026-09-04). updateDoc + `subjectAssignments.옛이름` 점 경로 키에 deleteField()를
+  // 써야 그 중첩 필드 하나만 정확히 지워진다.
+  if (recordsSnap.empty) {
+    // subjectAssignments에는 이름이 남아 있는데 그 이름을 쓰는 레코드가 실제로는
+    // 하나도 없는 경우(위 버그로 생긴 유령 항목 등) — 고칠 대상이 없으니 이름을
+    // 바꾸는 대신 이 키 자체를 지운다. 그것도 없으면 애초에 존재한 적 없는 이름을
+    // 고치려 한 것이므로 에러로 알린다.
+    if (!hasAssignment) throw new Error('그 과목명을 쓰는 레코드를 찾을 수 없습니다.')
+    await updateDoc(checkDoc(schoolId, checkId), {
+      [`subjectAssignments.${oldSubjectName}`]: deleteField(),
+      updatedAt: serverTimestamp(),
+    })
+    return
+  }
+
+  const updates = { [`subjectAssignments.${oldSubjectName}`]: deleteField(), updatedAt: serverTimestamp() }
+
+  if (!existingAssignments[name]) {
     try {
       const grade = recordsSnap.docs[0].data().grade
       const idx = await buildTeacherSubjectIndex(schoolId, currentSchoolYear())
       const candidates = idx[subjectIndexKey(grade, name)] || []
       if (candidates.length > 0) {
-        assignments[name] = {
+        updates[`subjectAssignments.${name}`] = {
           teacherUids: candidates.map((c) => c.uid),
           teacherNames: candidates.map((c) => c.name),
           source: 'auto',
@@ -304,7 +325,7 @@ export async function renameSubjectInCheck(schoolId, checkId, oldSubjectName, ne
     chunk.forEach((d) => batch.update(d.ref, { subjectName: name }))
     await batch.commit()
   }
-  await setDoc(checkDoc(schoolId, checkId), { subjectAssignments: assignments, updatedAt: serverTimestamp() }, { merge: true })
+  await updateDoc(checkDoc(schoolId, checkId), updates)
 }
 
 /**
