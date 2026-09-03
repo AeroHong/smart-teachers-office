@@ -26,7 +26,48 @@ function stripSpaces(s) {
   return String(s || '').replace(/\s/g, '')
 }
 
+// 행에서 실제로 다른 값 몇 개가 쓰였는지 — 인쇄 폭 때문에 한 칸짜리 값(학급명 등)을
+// 여러 물리 컬럼에 똑같이 반복해 적어 두는 내보내기가 있어서(아래 findHeaderColumns
+// 참고), "이 행 전체가 사실상 값 하나뿐인가"를 판단할 때 쓴다.
+function uniqueNonEmpty(row) {
+  return [...new Set(row.map((v) => String(v || '').trim()).filter(Boolean))]
+}
+
+// 세특 문장은 규정상 항상 "~함." "~임." 처럼 마침표로 끝난다. 페이지 경계에서 진짜로
+// 잘린 문장이라면 그 잘린 위치가 우연히 마침표 뒤일 확률은 극히 낮다 — 즉 직전 조각이
+// 이미 마침표로 끝나 있다면 "문장이 다 끝난 뒤 페이지만 넘어간 것"이라, 원래 있었을
+// "마침표 + 공백" 중 공백이 각 칸을 trim()하는 과정에서 유실된 것뿐이다(단어 중간
+// 절단과 구분해서 공백을 넣어 줘야 함 — setukRtfUtils.js와 동일한 판단 기준).
+function looksUnfinished(text) {
+  const t = String(text || '').trimEnd()
+  return t.length > 0 && !/[.!?…」』]$/.test(t)
+}
+
 const CLASS_LABEL_PATTERN = /\d+학년\s*\d+반/
+
+/**
+ * 헤더 행과 각 필드의 컬럼 위치를 찾는다. 컬럼 위치를 0~5로 하드코딩하지 않는 이유:
+ * 나이스 내보내기 방식(XLS/XLS data)이나 화면 설정에 따라 맨 앞에 빈 컬럼이 붙거나,
+ * 성명·세부능력및특기사항처럼 인쇄 폭이 넓은 칸이 여러 물리 컬럼에 같은 값을 반복해서
+ * 적어 두는 경우가 실제로 있다(실측, 2026-09-03). 헤더 행에서 각 열 이름이 처음
+ * 등장하는 위치만 잡으면 되고, 뒤에 반복되는 물리 컬럼은 무시해도 값이 동일하므로
+ * 문제없다.
+ */
+function findHeaderColumns(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const subjectIdx = row.findIndex((c) => stripSpaces(c) === '과목')
+    const numIdx = row.findIndex((c) => stripSpaces(c) === '번호')
+    if (subjectIdx < 0 || numIdx < 0) continue
+    const gradeIdx = row.findIndex((c) => stripSpaces(c) === '학년')
+    const semesterIdx = row.findIndex((c) => stripSpaces(c) === '학기')
+    const nameIdx = row.findIndex((c) => stripSpaces(c) === '성명')
+    const textIdx = row.findIndex((c) => stripSpaces(c).includes('특기사항'))
+    if (gradeIdx < 0 || semesterIdx < 0 || nameIdx < 0 || textIdx < 0) continue
+    return { headerRowIdx: i, subjectIdx, gradeIdx, semesterIdx, numIdx, nameIdx, textIdx }
+  }
+  return null
+}
 
 /**
  * 나이스 "학교생활기록부 세부능력 및 특기사항" 학급별 내보내기 파일을 파싱한다.
@@ -43,15 +84,17 @@ const CLASS_LABEL_PATTERN = /\d+학년\s*\d+반/
 export async function parseNeisSetukFile(file) {
   const rows = await loadRows(file)
 
-  const headerRowIdx = rows.findIndex((r) => stripSpaces(r[0]) === '과목' && stripSpaces(r[3]) === '번호')
-  if (headerRowIdx < 0) {
+  const cols = findHeaderColumns(rows)
+  if (!cols) {
     throw new Error('나이스 "세부능력 및 특기사항" 내보내기 형식이 아닙니다. (과목/번호 헤더를 찾을 수 없습니다)')
   }
+  const { subjectIdx, gradeIdx, semesterIdx, numIdx, nameIdx, textIdx } = cols
 
   let classLabel = ''
   for (const r of rows) {
-    if (r.length && r[0] && CLASS_LABEL_PATTERN.test(r[0]) && r.slice(1).every((c) => !c)) {
-      classLabel = r[0]
+    const uniq = uniqueNonEmpty(r)
+    if (uniq.length === 1 && CLASS_LABEL_PATTERN.test(uniq[0])) {
+      classLabel = uniq[0]
       break
     }
   }
@@ -76,11 +119,13 @@ export async function parseNeisSetukFile(file) {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
-    const [subjectCell, gradeCell, semesterCell, numCell, nameCell, textCell] = row
+    const subjectCell = row[subjectIdx], gradeCell = row[gradeIdx], semesterCell = row[semesterIdx]
+    const numCell = row[numIdx], nameCell = row[nameIdx], textCell = row[textIdx]
 
     // 컬럼 헤더 행 / 학급명 행 → 스킵 (다음 데이터 블록으로)
     if (stripSpaces(subjectCell) === '과목' && stripSpaces(numCell) === '번호') { justCrossedPage = true; continue }
-    if (subjectCell && CLASS_LABEL_PATTERN.test(subjectCell) && row.slice(1).every((c) => !c)) { justCrossedPage = true; continue }
+    const rowUniq = uniqueNonEmpty(row)
+    if (rowUniq.length === 1 && CLASS_LABEL_PATTERN.test(rowUniq[0])) { justCrossedPage = true; continue }
 
     // 쪽번호 푸터 행 등 데이터가 없는 행: 번호/성명 칸이 둘 다 비어 있음
     if (!numCell && !nameCell) { justCrossedPage = true; continue }
@@ -94,7 +139,7 @@ export async function parseNeisSetukFile(file) {
     // ("와/과/의/을/를/은/는/이/가/에/로")로 끝날 때만 이어짐으로 본다.
     const sameStudent = !!open && open.studentNumber === num && open.studentName === nameCell
     const subjectMatches = !subjectCell || subjectCell === open?.subjectName || open?.subjectName?.includes(subjectCell)
-    const subjectLooksSplit = !!subjectCell && !!open && !subjectMatches &&
+    const subjectLooksSplit = !!subjectCell && !!open && !subjectMatches && looksUnfinished(open.text) &&
       (justCrossedPage || /[와과의을를은는이가에로]$/.test(open.subjectName))
     const isContinuation = sameStudent && (subjectMatches || subjectLooksSplit)
     justCrossedPage = false
@@ -104,10 +149,18 @@ export async function parseNeisSetukFile(file) {
       }
       if (open.grade == null && gradeCell) open.grade = Number(gradeCell) || null
       if (open.semester == null && semesterCell) open.semester = Number(semesterCell) || null
-      open.text += textCell || ''
+      if (textCell) open.text += looksUnfinished(open.text) ? textCell : ` ${textCell}`
     } else {
       finalizeOpen()
-      if (subjectCell) { currentSubject = normalizeSubject(subjectCell); currentGrade = Number(gradeCell) || null; currentSemester = Number(semesterCell) || null }
+      // 학년/학기 칸은 그 과목이 파일에서 처음 등장할 때만 채워지고, 같은 과목이 새
+      // 페이지 맨 위에서 다시 시작될 때(과목명은 페이지 헤더처럼 다시 나옴)는 비어
+      // 있다. 비어 있다고 null로 덮어쓰면 그 뒤로 이어지는 같은 과목 학생들이 전부
+      // 학년/학기 결측이 되어 버린다(실측, 2026-09-03) — 값이 있을 때만 갱신한다.
+      if (subjectCell) {
+        currentSubject = normalizeSubject(subjectCell)
+        if (gradeCell) currentGrade = Number(gradeCell) || currentGrade
+        if (semesterCell) currentSemester = Number(semesterCell) || currentSemester
+      }
       open = {
         studentNumber: num,
         studentName: nameCell,

@@ -27,6 +27,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { currentSchoolYear } from '@shared/lib/schema'
 import { subscribeChecks, saveCheck, deleteCheck, recheckCheck, buildTeacherSubjectIndex, subjectIndexKey, getDictionary } from '@shared/lib/setukCheck'
 import { parseNeisSetukFile, checkText, loadDictionary } from './setukUtils'
+import { parseNeisSetukRtfFile } from './setukRtfUtils'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import SetukBySubject from './SetukBySubject'
 import SetukTeacherAssignments from './SetukTeacherAssignments'
@@ -62,7 +63,14 @@ export default function SetukUpload() {
     setProcessing(true)
     try {
       setProgressMsg('파일을 읽는 중...')
-      const { classLabel, records } = await parseNeisSetukFile(file)
+      // 나이스 "XLS data" 내보내기는 사용자가 입력한 줄바꿈을 저장 시점에 통째로
+      // 없애 버린다(실측, 2026-09-03). "XLS"(data 아님)로 받으면 표준 엑셀 형식
+      // 그대로 줄바꿈이 보존되어 parseNeisSetukFile로 충분하다. "DOC"로 받으면
+      // 확장자와 달리 실제로는 RTF 문서인데, 이쪽도 줄바꿈(\par)과 페이지 나눔
+      // (\page)이 명확히 구분돼 정확하게 복원된다 — 파일 확장자로 두 파서 중
+      // 하나로 나눠 보낸다.
+      const isDoc = /\.doc$/i.test(file.name || '')
+      const { classLabel, records } = isDoc ? await parseNeisSetukRtfFile(file) : await parseNeisSetukFile(file)
 
       setProgressMsg('오타·금지어·띄어쓰기 점검 중...')
       let customDict = null
@@ -205,8 +213,14 @@ export default function SetukUpload() {
             <li>나이스 <b>학교생활기록부</b> 메뉴 → <b>학생부 조회 및 출력 → 학생부 항목별 조회</b>로 이동합니다.</li>
             <li>좌측 메뉴에서 <b>교과학습발달상황 → 세부능력및특기사항(현재학년1학기)(과목별)</b>을 선택합니다.</li>
             <li>학년도·학년·반을 선택하고 <b>조회</b>를 누릅니다.</li>
-            <li>상단 저장 아이콘을 누르고 <b>「XLS data」</b>를 선택해 다운로드합니다(「XLS」가 아닙니다).</li>
+            <li>상단 저장 아이콘을 누르고 <b>「XLS」</b>를 선택해 다운로드합니다(「XLS data」가 아닙니다).</li>
           </Box>
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
+            「XLS data」는 나이스에 줄바꿈으로 입력된 내용이 저장 과정에서 사라져 버려(실측 확인됨)
+            정확한 점검이 어려우므로 더 이상 사용하지 마세요. 「XLS」로 받으면 줄바꿈이 그대로
+            보존됩니다. 「DOC」(실제로는 워드 문서·RTF)로 받은 파일도 줄바꿈·페이지 구분이 보존되어
+            업로드할 수 있습니다.
+          </Typography>
           <Box
             component="a"
             href="/setuk/download-guide.png"
@@ -248,11 +262,11 @@ export default function SetukUpload() {
           <>
             <UploadFileIcon color="action" sx={{ fontSize: 48, mb: 1 }} />
             <Typography sx={{ fontWeight: 700, mb: 2 }}>
-              나이스 세특 엑셀 파일을 여기로 끌어다 놓거나 클릭해서 선택하세요
+              나이스 세특 파일(XLS 권장, DOC도 가능)을 여기로 끌어다 놓거나 클릭해서 선택하세요
             </Typography>
             <Button variant="contained" component="label" sx={{ textTransform: 'none', fontWeight: 700 }}>
               파일 선택
-              <input ref={fileInputRef} type="file" hidden accept=".xlsx" onChange={(e) => handleFile(e.target.files?.[0])} />
+              <input ref={fileInputRef} type="file" hidden accept=".xlsx,.doc" onChange={(e) => handleFile(e.target.files?.[0])} />
             </Button>
           </>
         )}

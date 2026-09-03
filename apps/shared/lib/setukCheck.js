@@ -3,7 +3,7 @@ import {
   query, where, orderBy, writeBatch, serverTimestamp, increment,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import { COL, schoolPath } from './schema'
+import { COL, schoolPath, currentSchoolYear } from './schema'
 
 const checksCol = (schoolId) => collection(db, ...schoolPath(schoolId, COL.SETUK_CHECKS))
 const checkDoc = (schoolId, checkId) => doc(db, ...schoolPath(schoolId, COL.SETUK_CHECKS), checkId)
@@ -249,6 +249,62 @@ export async function updateSubjectAssignment(schoolId, checkId, subjectName, te
     },
     updatedAt: serverTimestamp(),
   }, { merge: true })
+}
+
+/**
+ * 나이스 내보내기 파싱이 잘못 잘라낸 과목명을 사람이 고친다. 학생 개인의 우연한
+ * 페이지 경계 문제든, 그 페이지 전체의 과목 헤더가 깨져 여러 학생이 같은 오탈자를
+ * 공유하는 경우든 구분할 필요 없이, 이 점검 건 안에서 그 이름을 쓰는 records·items를
+ * 전부 한 번에 고친다(oldSubjectName 문자열이 정확히 같은 것만 — 부분 일치 아님).
+ *
+ * records.subjectName과 items.subjectName(비정규화 사본, 과목별 필터링용) 둘 다 고쳐야
+ * 화면 어디서나 새 이름으로 일관되게 보인다. 고친 이름이 이미 이 점검 건 안의 다른
+ * 레코드가 쓰고 있는 이름이면(오탈자였던 과목의 "진짜" 이름) 자동으로 그 과목 밑에
+ * 합쳐진다 — subjectName 문자열 일치만으로 과목별 보기·필터가 이미 동작하기 때문에
+ * 별도 병합 로직이 필요 없다. subjectAssignments도 옮긴다: 오탈자였던 이름의 배정
+ * 항목은 지우고, 고친 이름에 배정이 아직 없으면 업로드 때와 같은 방식으로 자동
+ * 매칭을 한 번 더 시도한다 — 요청한 "수정 후 기존 과목에 자동으로 배치"가 이름만이
+ * 아니라 담당 교사 배정까지 포함하는 뜻이라고 보고.
+ */
+export async function renameSubjectInCheck(schoolId, checkId, oldSubjectName, newSubjectName) {
+  const name = String(newSubjectName || '').replace(/\s+/g, ' ').trim()
+  if (!name) throw new Error('과목명을 입력하세요.')
+  if (name === oldSubjectName) return
+
+  const [recordsSnap, itemsSnap, checkSnap] = await Promise.all([
+    getDocs(query(recordsCol(schoolId, checkId), where('subjectName', '==', oldSubjectName))),
+    getDocs(query(itemsCol(schoolId, checkId), where('subjectName', '==', oldSubjectName))),
+    getDoc(checkDoc(schoolId, checkId)),
+  ])
+  if (recordsSnap.empty) throw new Error('그 과목명을 쓰는 레코드를 찾을 수 없습니다.')
+
+  const checkData = checkSnap.data() || {}
+  const assignments = { ...(checkData.subjectAssignments || {}) }
+  delete assignments[oldSubjectName]
+
+  if (!assignments[name]) {
+    try {
+      const grade = recordsSnap.docs[0].data().grade
+      const idx = await buildTeacherSubjectIndex(schoolId, currentSchoolYear())
+      const candidates = idx[subjectIndexKey(grade, name)] || []
+      if (candidates.length > 0) {
+        assignments[name] = {
+          teacherUids: candidates.map((c) => c.uid),
+          teacherNames: candidates.map((c) => c.name),
+          source: 'auto',
+        }
+      }
+    } catch (e) {
+      console.error('[renameSubjectInCheck] 담당교사 자동 매칭 실패(과목명만 수정):', e)
+    }
+  }
+
+  for (const chunk of chunkDocs([...recordsSnap.docs, ...itemsSnap.docs], 400)) {
+    const batch = writeBatch(db)
+    chunk.forEach((d) => batch.update(d.ref, { subjectName: name }))
+    await batch.commit()
+  }
+  await setDoc(checkDoc(schoolId, checkId), { subjectAssignments: assignments, updatedAt: serverTimestamp() }, { merge: true })
 }
 
 /**

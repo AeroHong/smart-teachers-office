@@ -26,10 +26,14 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import VerifiedIcon from '@mui/icons-material/Verified'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
 import { useAuth } from '@shared/contexts/AuthContext'
 import {
   subscribeCheck, subscribeItems, updateItemNote, updateItemResolved,
   getDictionary, subscribeDictionary, recheckCheck, loadRecords, isAssignedTeacher, assignedTeacherNames,
+  renameSubjectInCheck,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS, checkText, loadDictionary } from './setukUtils'
 import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight } from './setukShared'
@@ -60,6 +64,10 @@ export default function SetukCheckDetail() {
   const [myOnlyInitialized, setMyOnlyInitialized] = useState(false)
   const [groupOrder, setGroupOrder] = useState('student')
   const [savingNote, setSavingNote] = useState({})
+  // 과목명 파싱이 잘못된 것을 사람이 고치는 중 — { key, recordId, value }. key는 g.key라
+  // 한 번에 한 그룹만 고칠 수 있다(여러 곳을 동시에 열어둘 이유가 없다).
+  const [editingSubject, setEditingSubject] = useState(null)
+  const [savingSubject, setSavingSubject] = useState(false)
   const [rechecking, setRechecking] = useState(false)
   const [recordsById, setRecordsById] = useState({})
   const [dictDoc, setDictDoc] = useState(null)
@@ -93,6 +101,16 @@ export default function SetukCheckDetail() {
 
   const subjects = useMemo(() => [...new Set(items.map((it) => it.subjectName))].sort((a, b) => a.localeCompare(b, 'ko')), [items])
   const categories = useMemo(() => [...new Set(items.map((it) => it.category))].sort((a, b) => a.localeCompare(b, 'ko')), [items])
+
+  // 과목명 오탈자 수정용 — items가 아니라 records 기준이라, 걸린 항목이 하나도 없는
+  // (즉 화면 아래 목록에 아예 안 나오는) 학생×과목도 여기서는 빠짐없이 보인다. 나이스
+  // 파싱이 과목명만 잘못 잘랐을 뿐 본문 자체엔 문제가 없는 경우 이 목록이 유일한
+  // 수정 경로다.
+  const recordSubjects = useMemo(() => {
+    const counts = new Map()
+    Object.values(recordsById).forEach((r) => counts.set(r.subjectName, (counts.get(r.subjectName) || 0) + 1))
+    return [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+  }, [recordsById])
 
   // 이 교사가 담당으로 배정된 과목들 — "내 담당 과목만 보기"에 쓴다.
   const myAssignedSubjects = useMemo(() => {
@@ -180,6 +198,29 @@ export default function SetukCheckDetail() {
       setError(`메모 저장 실패: ${e.message}`)
     } finally {
       setSavingNote((prev) => ({ ...prev, [item.id]: false }))
+    }
+  }
+
+  /**
+   * 나이스 파싱이 잘못 잘라낸 과목명을 고친다. 이 점검 건 안에서 그 이름을 쓰는
+   * 레코드 전부를 한 번에 고친다(학생 한 명뿐이든, 페이지 헤더가 깨져 여러 학생이
+   * 같은 오탈자를 공유하든 구분할 필요 없음). 고친 이름이 이미 다른 레코드가 쓰고
+   * 있다면(오탈자였던 진짜 과목) subjectName 문자열만 일치하면 과목별 필터·묶음이
+   * 그대로 그 과목 밑으로 합쳐서 보여준다 — 별도 "병합" 동작이 필요 없다.
+   */
+  const handleSaveSubject = async () => {
+    if (!editingSubject) return
+    const value = editingSubject.value.trim()
+    if (!value) { setError('과목명을 입력하세요.'); return }
+    setSavingSubject(true)
+    setError('')
+    try {
+      await renameSubjectInCheck(schoolId, checkId, editingSubject.oldName, value)
+      setEditingSubject(null)
+    } catch (e) {
+      setError(`과목명 수정 실패: ${e.message}`)
+    } finally {
+      setSavingSubject(false)
     }
   }
 
@@ -282,6 +323,60 @@ export default function SetukCheckDetail() {
         </Alert>
       )}
 
+      <Accordion variant="outlined" sx={{ mt: 2, mb: 2, '&:before': { display: 'none' } }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700 }}>
+            과목 목록 ({recordSubjects.length}개) — 나이스 파싱이 과목명을 잘못 잘랐다면 여기서 고치세요
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {recordSubjects.map(({ name, count }) => {
+              const subjKey = `subj:${name}`
+              const isEditingThis = editingSubject?.key === subjKey
+              return (
+                <Paper
+                  key={name} variant="outlined"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderRadius: 1.5 }}
+                >
+                  {isEditingThis ? (
+                    <>
+                      <TextField
+                        size="small" variant="standard" autoFocus value={editingSubject.value}
+                        disabled={savingSubject}
+                        onChange={(e) => setEditingSubject((s) => ({ ...s, value: e.target.value }))}
+                        onKeyDown={(e) => {
+                          e.stopPropagation()
+                          if (e.key === 'Enter') handleSaveSubject()
+                          if (e.key === 'Escape') setEditingSubject(null)
+                        }}
+                        sx={{ '& input': { fontSize: '0.82rem', width: 100 } }}
+                      />
+                      <IconButton size="small" disabled={savingSubject} onClick={handleSaveSubject}>
+                        {savingSubject ? <CircularProgress size={14} /> : <CheckIcon sx={{ fontSize: 16 }} color="success" />}
+                      </IconButton>
+                      <IconButton size="small" disabled={savingSubject} onClick={() => setEditingSubject(null)}>
+                        <CloseIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </>
+                  ) : (
+                    <>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 600 }}>{name}</Typography>
+                      <Chip size="small" variant="outlined" label={`${count}명`} sx={{ fontSize: '0.68rem', height: 18 }} />
+                      <Tooltip title="과목명이 잘못 인식됐다면 고치세요 — 고친 이름이 이미 있는 과목이면 자동으로 그 과목에 합쳐집니다.">
+                        <IconButton size="small" onClick={() => setEditingSubject({ key: subjKey, oldName: name, value: name })}>
+                          <EditOutlinedIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
+                </Paper>
+              )
+            })}
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap', mt: 2 }}>
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel>과목 필터</InputLabel>
@@ -335,13 +430,50 @@ export default function SetukCheckDetail() {
         <Paper variant="outlined" sx={{ py: 4, textAlign: 'center', color: '#94a3b8' }}>표시할 항목이 없습니다.</Paper>
       ) : groupedItems.map((g) => {
         const unresolvedInGroup = g.items.filter((it) => !it.resolved).length
-        const recordText = recordsById[g.items[0]?.recordId]?.text
+        const recordId = g.items[0]?.recordId
+        const recordText = recordsById[recordId]?.text
+        const isEditingThis = editingSubject?.key === g.key
         return (
           <Accordion key={g.key} defaultExpanded variant="outlined" sx={{ mb: 1, '&:before': { display: 'none' } }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
                 <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem' }}>{g.studentNumber}번 {g.studentName}</Typography>
-                <Typography sx={{ fontWeight: 700, fontSize: '1.05rem' }}>{g.subjectName}</Typography>
+                {isEditingThis ? (
+                  <Box
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <TextField
+                      size="small" variant="standard" autoFocus value={editingSubject.value}
+                      disabled={savingSubject}
+                      onChange={(e) => setEditingSubject((s) => ({ ...s, value: e.target.value }))}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === 'Enter') handleSaveSubject()
+                        if (e.key === 'Escape') setEditingSubject(null)
+                      }}
+                      sx={{ '& input': { fontWeight: 700, fontSize: '1.05rem' } }}
+                    />
+                    <IconButton size="small" disabled={savingSubject} onClick={handleSaveSubject}>
+                      {savingSubject ? <CircularProgress size={16} /> : <CheckIcon fontSize="small" color="success" />}
+                    </IconButton>
+                    <IconButton size="small" disabled={savingSubject} onClick={() => setEditingSubject(null)}>
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                    <Typography sx={{ fontWeight: 700, fontSize: '1.05rem' }}>{g.subjectName}</Typography>
+                    <Tooltip title="과목명이 잘못 인식됐다면 고치세요 — 고친 이름이 이미 있는 과목이면 자동으로 그 과목에 합쳐집니다.">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); setEditingSubject({ key: g.key, oldName: g.subjectName, value: g.subjectName }) }}
+                      >
+                        <EditOutlinedIcon sx={{ fontSize: 15 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                )}
                 <Chip size="small" variant="outlined" label={`${g.items.length}건`} />
                 {unresolvedInGroup > 0 && <Chip size="small" color="warning" label={`미처리 ${unresolvedInGroup}`} />}
               </Box>
