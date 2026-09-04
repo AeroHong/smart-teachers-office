@@ -39,7 +39,7 @@ import SetukBySubject from './SetukBySubject'
 import SetukTeacherAssignments from './SetukTeacherAssignments'
 import {
   useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls, fmtDate,
-  useSetukDictionaryVersion, DictionaryVersionChip,
+  useSetukDictionaryVersion, DictionaryVersionChip, SetukGradeFilterControl,
 } from './setukShared'
 import Layout from '../../components/Layout'
 
@@ -102,7 +102,22 @@ export default function SetukUpload() {
   // "학급별 목록" 탭에 쓰는 학년도-학기 필터 — 과목별 담당 교사 화면과 같은 패턴.
   const { year, setYear, semester, setSemester } = useSetukTermFilter(checks)
   useSetukTermBackfill(schoolId, checks, isAdmin)
-  const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
+  const termFilteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
+
+  // 학년 필터 — 학년도-학기로 먼저 거른 뒤 그중에서 학년만 더 좁혀 본다.
+  const [gradeFilter, setGradeFilter] = useState('all')
+  const gradeOptions = useMemo(() => (
+    [...new Set(termFilteredChecks.map((c) => c.grade).filter((g) => g != null))].sort((a, b) => a - b)
+  ), [termFilteredChecks])
+  const gradeCounts = useMemo(() => {
+    const counts = {}
+    termFilteredChecks.forEach((c) => { counts[c.grade] = (counts[c.grade] || 0) + 1 })
+    return counts
+  }, [termFilteredChecks])
+  const filteredChecks = useMemo(() => (
+    gradeFilter === 'all' ? termFilteredChecks : termFilteredChecks.filter((c) => c.grade === gradeFilter)
+  ), [termFilteredChecks, gradeFilter])
+
   const listSort = useTableSort('gradeSemester')
 
   // 파일 하나를 파싱→점검→저장까지 처리한다. onProgress로 그 파일의 세부 진행 문구를
@@ -433,7 +448,13 @@ export default function SetukUpload() {
 
       {tab === 0 && (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-          <SetukTermFilterControls year={year} semester={semester} onYearChange={setYear} onSemesterChange={setSemester} />
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
+            <SetukTermFilterControls year={year} semester={semester} onYearChange={setYear} onSemesterChange={setSemester} />
+            <SetukGradeFilterControl
+              grade={gradeFilter} onGradeChange={setGradeFilter} gradeOptions={gradeOptions}
+              counts={gradeCounts} total={termFilteredChecks.length}
+            />
+          </Box>
           <Tooltip title={outdatedRecheckTargets.length === 0 ? '최신 점검 기준을 안 탄 학급이 없습니다' : `${outdatedRecheckTargets.length}개 학급이 최신 점검 기준을 반영하지 않았습니다`}>
             <span>
               <Button

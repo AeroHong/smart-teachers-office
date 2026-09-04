@@ -181,6 +181,19 @@ export function SetukTermFilterControls({ year, semester, onYearChange, onSemest
   )
 }
 
+/** 학년 필터 드롭다운 — "학급별 목록"·"과목별 보기"에서 학년도-학기 필터 옆에 나란히 쓴다. */
+export function SetukGradeFilterControl({ grade, onGradeChange, gradeOptions, counts, total }) {
+  return (
+    <FormControl size="small" sx={{ width: 140 }}>
+      <InputLabel>학년 필터</InputLabel>
+      <Select label="학년 필터" value={grade} onChange={(e) => onGradeChange(e.target.value)}>
+        <MenuItem value="all">전체 학년 ({total})</MenuItem>
+        {gradeOptions.map((g) => <MenuItem key={g} value={g}>{g}학년 ({counts[g] || 0})</MenuItem>)}
+      </Select>
+    </FormControl>
+  )
+}
+
 export const HIGHLIGHT_STYLE = { background: '#fecaca', color: '#7f1d1d', borderRadius: 3, padding: '0 2px', fontWeight: 700 }
 export const BADGE_STYLE = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16,
