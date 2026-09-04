@@ -2,7 +2,7 @@
 // 관리자가 학급마다 들어가지 않고 한 화면에서 전체 배정을 훑고 고칠 수 있게 모아뒀다.
 // 조회는 교사 전체, 수정은 관리자만(firestore.rules로 서버에서도 강제). 한 과목을
 // 여러 교사가 나눠 맡는 경우(공동 수업 등)가 있어 다중 선택으로 받는다.
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -11,10 +11,6 @@ import Chip from '@mui/material/Chip'
 import TextField from '@mui/material/TextField'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
-import FormControl from '@mui/material/FormControl'
-import InputLabel from '@mui/material/InputLabel'
-import Select from '@mui/material/Select'
-import MenuItem from '@mui/material/MenuItem'
 import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
 import Table from '@mui/material/Table'
 import TableHead from '@mui/material/TableHead'
@@ -26,15 +22,13 @@ import Alert from '@mui/material/Alert'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { db } from '@shared/lib/firebase'
 import { USERS, currentSchoolYear } from '@shared/lib/schema'
-import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
 import {
   subscribeChecks, updateSubjectAssignment, assignedTeacherNames,
-  buildTeacherSubjectIndex, subjectIndexKey, backfillCheckTerm,
+  buildTeacherSubjectIndex, subjectIndexKey,
 } from '@shared/lib/setukCheck'
+import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
-// 평가운영계획 제출 도구(EvalPlanManagerDashboard)와 같은 학년도 선택 범위를 쓴다.
-const YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
 
 /** 배정에서 현재 선택된 교사 목록을 Autocomplete가 쓸 {uid,name} 배열로 복원한다. */
 function assignedOptions(assign, staffByUid) {
@@ -64,16 +58,7 @@ export default function SetukTeacherAssignments() {
 
   // 관리자 페이지 > 홈에서 지정한 학년도-학기 기준을 초기값으로 쓴다(평가운영계획
   // 제출 도구와 같은 패턴) — 이후 사용자가 직접 바꾸면 그 선택을 유지한다.
-  const currentTerm = useCurrentTerm(schoolId)
-  const [year, setYear] = useState(currentTerm.year)
-  const [semester, setSemester] = useState(currentTerm.semester)
-  const [termApplied, setTermApplied] = useState(false)
-  useEffect(() => {
-    if (termApplied || !currentTerm.loaded) return
-    setYear(currentTerm.year)
-    setSemester(currentTerm.semester)
-    setTermApplied(true)
-  }, [currentTerm, termApplied])
+  const { year, setYear, semester, setSemester } = useSetukTermFilter(schoolId)
 
   useEffect(() => {
     if (!schoolId) return
@@ -81,18 +66,8 @@ export default function SetukTeacherAssignments() {
   }, [schoolId])
 
   // year/semester가 생기기 전에 업로드된 건은 필터가 항상 통과시켜 둔 채라 학기로
-  // 걸러지지 않는다 — 이 화면을 관리자가 열어볼 때 그런 건을 한 번씩 지연 보정한다
-  // (records에서 학기를 읽어와 채워 넣음). onSnapshot이 다시 쏴주는 새 값으로 필터가
-  // 바로 반영되므로 새로고침이 필요 없다. 같은 건에 중복 시도하지 않도록 ref로 추적.
-  const backfillAttempted = useRef(new Set())
-  useEffect(() => {
-    if (!schoolId || !isAdmin) return
-    checks.forEach((c) => {
-      if (c.semester != null || backfillAttempted.current.has(c.id)) return
-      backfillAttempted.current.add(c.id)
-      backfillCheckTerm(schoolId, c.id).catch((e) => console.error('[SetukTeacherAssignments] 학기 정보 보정 실패:', e))
-    })
-  }, [schoolId, isAdmin, checks])
+  // 걸러지지 않는다 — 이 화면을 관리자가 열어볼 때 그런 건을 한 번씩 지연 보정한다.
+  useSetukTermBackfill(schoolId, checks, isAdmin)
 
   useEffect(() => {
     if (!schoolId) return
@@ -111,12 +86,7 @@ export default function SetukTeacherAssignments() {
 
   const staffByUid = useMemo(() => Object.fromEntries(staff.map((s) => [s.uid, s])), [staff])
 
-  // 이 필드가 생기기 전(2026-09-04 이전) 업로드 건은 year/semester가 없을 수 있는데,
-  // 실제로 어느 학기 것인지 알 방법이 없으니 섣불리 추정해서 걸러내지 않고 어떤
-  // 학년도·학기를 선택해도 계속 보이게 둔다(값이 있는 새 업로드 건만 실제로 걸러진다).
-  const filteredChecks = useMemo(() => (
-    checks.filter((c) => (c.year == null || c.year === year) && (c.semester == null || c.semester === semester))
-  ), [checks, year, semester])
+  const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
 
   // 과목마다 학급 수만큼 같은 줄이 반복되는 게 대부분이었다(실측 — 공통 과목은 거의
   // 전 학급이 같은 교사). 그래서 "같은 과목 + 같은 교사 배정"을 공유하는 학급들은
@@ -194,21 +164,7 @@ export default function SetukTeacherAssignments() {
         {!isAdmin && ' 수정은 관리자만 가능합니다.'}
       </Typography>
 
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
-        <FormControl size="small" sx={{ width: 130 }}>
-          <InputLabel>학년도</InputLabel>
-          <Select label="학년도" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {YEAR_OPTIONS.map((y) => <MenuItem key={y} value={y}>{y}학년도</MenuItem>)}
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ width: 110 }}>
-          <InputLabel>학기</InputLabel>
-          <Select label="학기" value={semester} onChange={(e) => setSemester(Number(e.target.value))}>
-            <MenuItem value={1}>1학기</MenuItem>
-            <MenuItem value={2}>2학기</MenuItem>
-          </Select>
-        </FormControl>
-      </Box>
+      <SetukTermFilterControls year={year} semester={semester} onYearChange={setYear} onSemesterChange={setSemester} />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 

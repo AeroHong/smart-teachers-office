@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -31,6 +31,7 @@ import { parseNeisSetukRtfFile } from './setukRtfUtils'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import SetukBySubject from './SetukBySubject'
 import SetukTeacherAssignments from './SetukTeacherAssignments'
+import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
 import Layout from '../../components/Layout'
 
 export default function SetukUpload() {
@@ -56,6 +57,11 @@ export default function SetukUpload() {
     const unsub = subscribeChecks(schoolId, (list) => { setChecks(list); setLoadingList(false) }, (err) => { setError(err.message); setLoadingList(false) })
     return unsub
   }, [schoolId])
+
+  // "학급별 목록" 탭에 쓰는 학년도-학기 필터 — 과목별 담당 교사 화면과 같은 패턴.
+  const { year, setYear, semester, setSemester } = useSetukTermFilter(schoolId)
+  useSetukTermBackfill(schoolId, checks, isAdmin)
+  const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
 
   const handleFile = useCallback(async (file) => {
     if (!file) return
@@ -282,15 +288,22 @@ export default function SetukUpload() {
         <Tab label="과목별 담당 교사" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 36 }} />
       </Tabs>
 
+      {tab === 0 && (
+        <SetukTermFilterControls year={year} semester={semester} onYearChange={setYear} onSemesterChange={setSemester} />
+      )}
+
       {tab === 2 ? <SetukTeacherAssignments /> : tab === 1 ? <SetukBySubject /> : loadingList ? (
         <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
       ) : checks.length === 0 ? (
         <Typography variant="body2" color="text.secondary" textAlign="center" py={3}>아직 업로드한 점검이 없습니다.</Typography>
+      ) : filteredChecks.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" textAlign="center" py={3}>선택한 학년도·학기에 해당하는 점검이 없습니다.</Typography>
       ) : (
         <Paper variant="outlined">
           <Table size="small">
             <TableHead>
               <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
+                <TableCell>학년-학기</TableCell>
                 <TableCell>학급</TableCell>
                 <TableCell align="center">전체 항목</TableCell>
                 <TableCell align="center">미처리</TableCell>
@@ -299,8 +312,9 @@ export default function SetukUpload() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {checks.map((c) => (
+              {filteredChecks.map((c) => (
                 <TableRow key={c.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/setuk/${c.id}`)}>
+                  <TableCell sx={{ color: '#64748b', whiteSpace: 'nowrap' }}>{c.grade}학년-{c.semester ?? semester}학기</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{c.classLabel}</TableCell>
                   <TableCell align="center">{c.stats?.itemCount ?? '-'}</TableCell>
                   <TableCell align="center">

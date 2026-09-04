@@ -21,6 +21,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { subscribeChecks, loadItemsBySubject, isAssignedTeacher, renameSubjectAcrossChecks } from '@shared/lib/setukCheck'
+import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
 
 // 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
 // 그 과목의 담당 교사(여러 명 가능)만.
@@ -45,25 +46,30 @@ export default function SetukBySubject() {
     return subscribeChecks(schoolId, (list) => { setChecks(list); setLoadingChecks(false) }, (err) => { setError(err.message); setLoadingChecks(false) })
   }, [schoolId])
 
+  // "학급별 목록"·"과목별 담당 교사"와 같은 학년도-학기 필터.
+  const { year, setYear, semester, setSemester } = useSetukTermFilter(schoolId)
+  useSetukTermBackfill(schoolId, checks, isAdmin)
+  const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
+
   // "이 교사가 자격이 있는" 과목 = 관리자면 전체, 아니면 자신이 담당으로 배정됐거나
   // 자신이 업로드한(담임인) 학급에 등장하는 과목들의 합집합.
   const mySubjects = useMemo(() => {
     const set = new Set()
-    checks.forEach((c) => {
+    filteredChecks.forEach((c) => {
       Object.entries(c.subjectAssignments || {}).forEach(([subjectName, a]) => {
         if (isAdmin || c.uploadedByUid === user?.uid || isAssignedTeacher(a, user?.uid)) set.add(subjectName)
       })
     })
     return [...set].sort((a, b) => a.localeCompare(b, 'ko'))
-  }, [checks, isAdmin, user])
+  }, [filteredChecks, isAdmin, user])
 
   // 과목마다 전체/미처리 건수를 미리 집계해 둔다("학급별 목록"과 같은 방식).
   useEffect(() => {
-    if (mySubjects.length === 0 || checks.length === 0) { setSubjectStats({}); return }
+    if (mySubjects.length === 0 || filteredChecks.length === 0) { setSubjectStats({}); return }
     let cancelled = false
     setLoadingStats(true)
     Promise.all(mySubjects.map(async (subjectName) => {
-      const relevantChecks = checks.filter((c) => (
+      const relevantChecks = filteredChecks.filter((c) => (
         Object.prototype.hasOwnProperty.call(c.subjectAssignments || {}, subjectName) &&
         canSeeCheckForSubject(c, subjectName, isAdmin, user)
       ))
@@ -75,7 +81,7 @@ export default function SetukBySubject() {
       .catch((e) => !cancelled && setError(`과목별 집계 실패: ${e.message}`))
       .finally(() => !cancelled && setLoadingStats(false))
     return () => { cancelled = true }
-  }, [mySubjects, checks, schoolId, isAdmin, user])
+  }, [mySubjects, filteredChecks, schoolId, isAdmin, user])
 
   // 나이스 파싱이 잘못 잘라낸 과목명을 고친다. 이 화면은 여러 학급을 모아 과목
   // 단위로 보여주므로, 그 이름을 쓰는 학급을 전부 찾아 한 번에 고친다
@@ -98,13 +104,15 @@ export default function SetukBySubject() {
 
   if (loadingChecks) return <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
 
-  if (mySubjects.length === 0) {
-    return <Alert severity="info">배정된 담당 과목이 없습니다. 관리자에게 과목별 담당 교사 지정을 요청하세요.</Alert>
-  }
-
   return (
     <Box>
+      <SetukTermFilterControls year={year} semester={semester} onYearChange={setYear} onSemesterChange={setSemester} />
+
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {mySubjects.length === 0 ? (
+        <Alert severity="info">배정된 담당 과목이 없습니다(선택한 학년도·학기 기준). 관리자에게 과목별 담당 교사 지정을 요청하세요.</Alert>
+      ) : (
       <Paper variant="outlined">
         <Table size="small">
           <TableHead>
@@ -172,6 +180,7 @@ export default function SetukBySubject() {
           </TableBody>
         </Table>
       </Paper>
+      )}
     </Box>
   )
 }
