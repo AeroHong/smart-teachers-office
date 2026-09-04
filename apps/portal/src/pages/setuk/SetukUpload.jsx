@@ -232,6 +232,10 @@ export default function SetukUpload() {
 
   // 재점검도 삭제와 같은 권한(업로더 본인 또는 관리자)만 — 재점검이 기존 items를
   // 지우고 다시 쓰는 동작이라 firestore.rules의 items 삭제 권한과 맞춰야 한다.
+  const recheckOne = (check, dictionary, dictionaryVersion) => (
+    recheckCheck(schoolId, check.id, (text, studentName) => checkText(text, dictionary, studentName), userName, dictionaryVersion)
+  )
+
   const handleRecheck = async (check) => {
     if (!window.confirm(`"${check.classLabel}"을(를) 최신 점검 기준으로 다시 훑습니다. 더 이상 걸리지 않는 항목은 삭제되고, 처리완료·메모는 유지됩니다. 계속할까요?`)) return
     setRecheckingIds((prev) => ({ ...prev, [check.id]: true }))
@@ -244,7 +248,7 @@ export default function SetukUpload() {
         console.error('[SetukUpload] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
       }
       const dictionary = loadDictionary(customDict)
-      const count = await recheckCheck(schoolId, check.id, (text, studentName) => checkText(text, dictionary, studentName), userName, customDict?.version || 0)
+      const count = await recheckOne(check, dictionary, customDict?.version || 0)
       window.alert(`"${check.classLabel}" 재점검 완료 — 전체 ${count}건`)
     } catch (e) {
       setError(`재점검 실패: ${e.message}`)
@@ -254,6 +258,55 @@ export default function SetukUpload() {
   }
 
   const canDelete = (check) => isAdmin || check.uploadedByUid === user?.uid
+
+  // 점검 기준이 바뀔 때마다 반마다 들어가 하나씩 재점검을 누르는 게 번거롭다는
+  // 피드백 — 지금 목록(학년도-학기 필터 기준)에서 내가 재점검할 권한이 있고 아직
+  // 최신 기준을 안 탄 건만 한 번에 돌린다. 순서대로 하나씩 처리해(동시에 여러 건을
+  // Firestore에 쓰면 부하가 커서) 진행 상황을 보여준다 — 한 건이 실패해도 나머지는
+  // 계속 진행한다(부분 성공 허용, 일괄 업로드와 같은 방식).
+  const [bulkRechecking, setBulkRechecking] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState(null) // { done, total }
+
+  const outdatedRecheckTargets = useMemo(() => (
+    filteredChecks.filter((c) => canDelete(c) && !!dictDoc && (dictDoc.version || 0) > (c.dictionaryVersion || 0))
+  ), [filteredChecks, dictDoc, isAdmin, user])
+
+  const handleBulkRecheck = async () => {
+    const targets = outdatedRecheckTargets
+    if (targets.length === 0) return
+    if (!window.confirm(`지금 목록에서 최신 기준을 안 탄 학급 ${targets.length}개를 전부 다시 훑습니다. 처리완료·메모는 유지됩니다. 계속할까요?`)) return
+    setBulkRechecking(true)
+    setError('')
+    setBulkProgress({ done: 0, total: targets.length })
+    let customDict = null
+    try {
+      customDict = await getDictionary(schoolId)
+    } catch (e) {
+      console.error('[SetukUpload] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
+    }
+    const dictionary = loadDictionary(customDict)
+    const dictionaryVersion = customDict?.version || 0
+    const failed = []
+    for (let i = 0; i < targets.length; i++) {
+      const check = targets[i]
+      setRecheckingIds((prev) => ({ ...prev, [check.id]: true }))
+      try {
+        await recheckOne(check, dictionary, dictionaryVersion)
+      } catch (e) {
+        failed.push(check.classLabel)
+      } finally {
+        setRecheckingIds((prev) => ({ ...prev, [check.id]: false }))
+        setBulkProgress({ done: i + 1, total: targets.length })
+      }
+    }
+    setBulkRechecking(false)
+    setBulkProgress(null)
+    window.alert(
+      failed.length
+        ? `전체 재점검 완료 — ${targets.length - failed.length}개 성공, ${failed.length}개 실패(${failed.join(', ')})`
+        : `전체 재점검 완료 — ${targets.length}개 학급`,
+    )
+  }
 
   return (
     <Layout>
@@ -379,7 +432,21 @@ export default function SetukUpload() {
       </Tabs>
 
       {tab === 0 && (
-        <SetukTermFilterControls year={year} semester={semester} onYearChange={setYear} onSemesterChange={setSemester} />
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+          <SetukTermFilterControls year={year} semester={semester} onYearChange={setYear} onSemesterChange={setSemester} />
+          <Tooltip title={outdatedRecheckTargets.length === 0 ? '최신 점검 기준을 안 탄 학급이 없습니다' : `${outdatedRecheckTargets.length}개 학급이 최신 점검 기준을 반영하지 않았습니다`}>
+            <span>
+              <Button
+                variant="outlined" size="small" startIcon={bulkRechecking ? <CircularProgress size={14} /> : <RefreshIcon fontSize="small" />}
+                disabled={bulkRechecking || outdatedRecheckTargets.length === 0}
+                onClick={handleBulkRecheck}
+                sx={{ textTransform: 'none', fontWeight: 700 }}
+              >
+                {bulkRechecking && bulkProgress ? `재점검 중... (${bulkProgress.done}/${bulkProgress.total})` : `전체 재점검${outdatedRecheckTargets.length ? ` (${outdatedRecheckTargets.length})` : ''}`}
+              </Button>
+            </span>
+          </Tooltip>
+        </Box>
       )}
 
       {tab === 2 ? <SetukTeacherAssignments /> : tab === 1 ? <SetukBySubject /> : loadingList ? (
