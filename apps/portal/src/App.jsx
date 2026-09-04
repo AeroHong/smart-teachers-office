@@ -43,6 +43,7 @@ const TextbookPrincipalConfirm = lazy(() => import('./pages/textbook/TextbookPri
 const SetukUpload         = lazy(() => import('./pages/setuk/SetukUpload'))
 const SetukCheckDetail    = lazy(() => import('./pages/setuk/SetukCheckDetail'))
 const SetukSubjectDetail  = lazy(() => import('./pages/setuk/SetukSubjectDetail'))
+const SetukGuide          = lazy(() => import('./pages/setuk/SetukGuide'))
 
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
@@ -131,6 +132,7 @@ export default function App() {
           <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
 
           <Route path="/setuk"                        element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
+          <Route path="/setuk/guide"                  element={<ProtectedRoute anyUser><SetukGuide /></ProtectedRoute>} />
           <Route path="/setuk/subject/:subjectName"  element={<ProtectedRoute anyUser><SetukSubjectDetail /></ProtectedRoute>} />
           <Route path="/setuk/:checkId"               element={<ProtectedRoute anyUser><SetukCheckDetail /></ProtectedRoute>} />
 
