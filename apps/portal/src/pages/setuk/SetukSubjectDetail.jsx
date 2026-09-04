@@ -187,6 +187,25 @@ export default function SetukSubjectDetail() {
     return { counts, total }
   }, [groups, statusFilter, classFilter])
 
+  // 처리 상태 필터 드롭다운에 건수를 같이 보여준다 — 유형·반 필터 카운트와 같은 방식으로,
+  // 다른 필터(유형·반)는 그대로 적용하고 처리 상태 자체만 무시한 채 센다.
+  const statusCounts = useMemo(() => {
+    const base = []
+    groups.forEach((g) => {
+      if (classFilter !== 'all' && g.classLabel !== classFilter) return
+      g.items.forEach((it) => {
+        if (categoryFilter !== 'all' && it.category !== categoryFilter) return
+        base.push(it)
+      })
+    })
+    return {
+      all: base.length,
+      unresolved: base.filter((it) => !it.resolved).length,
+      fixed: base.filter((it) => it.resolution === 'fixed').length,
+      no_issue: base.filter((it) => it.resolution === 'no_issue').length,
+    }
+  }, [groups, classFilter, categoryFilter])
+
   const classCounts = useMemo(() => {
     const counts = {}
     let total = 0
@@ -234,10 +253,10 @@ export default function SetukSubjectDetail() {
         <FormControl size="small" sx={{ minWidth: 160 }}>
           <InputLabel>처리 상태</InputLabel>
           <Select label="처리 상태" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <MenuItem value="all">전체</MenuItem>
-            <MenuItem value="unresolved">미처리만</MenuItem>
-            <MenuItem value="fixed">처리완료만</MenuItem>
-            <MenuItem value="no_issue">이상없음만</MenuItem>
+            <MenuItem value="all">전체 ({statusCounts.all})</MenuItem>
+            <MenuItem value="unresolved">미처리만 ({statusCounts.unresolved})</MenuItem>
+            <MenuItem value="fixed">처리완료만 ({statusCounts.fixed})</MenuItem>
+            <MenuItem value="no_issue">이상없음만 ({statusCounts.no_issue})</MenuItem>
           </Select>
         </FormControl>
       </Box>
