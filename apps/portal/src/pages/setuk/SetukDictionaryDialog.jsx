@@ -53,6 +53,10 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
   const [groups, setGroups] = useState([])
   const [namedEntities, setNamedEntities] = useState([])
   const [meta, setMeta] = useState(null) // { version, updatedAt, updatedByName }
+  // 정부 공개데이터로 받아온 대학명·공공기관명처럼 항목이 수백 개인 그룹은 펼쳐두면
+  // 다이얼로그가 감당 안 될 만큼 길어진다 — 기본은 접어두고 개수만 보여준다.
+  const [expandedGroups, setExpandedGroups] = useState({})
+  const LARGE_GROUP_THRESHOLD = 30
 
   useEffect(() => {
     if (!open || !schoolId) return
@@ -124,6 +128,9 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
               <Box key={group.id} sx={{ mb: 2.5, opacity: group.enabled ? 1 : 0.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                   <Typography variant="subtitle2" fontWeight={700}>{group.title}</Typography>
+                  {group.type !== 'pair' && group.items.length > LARGE_GROUP_THRESHOLD && (
+                    <Chip size="small" variant="outlined" label={`${group.items.length}개`} />
+                  )}
                   {isAdmin ? (
                     <>
                       <FormControl size="small" sx={{ minWidth: 110 }}>
@@ -185,20 +192,47 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
                       </Button>
                     )}
                   </Box>
+                ) : group.items.length > LARGE_GROUP_THRESHOLD && !expandedGroups[group.id] ? (
+                  <Button
+                    size="small" sx={{ textTransform: 'none' }}
+                    onClick={() => setExpandedGroups((prev) => ({ ...prev, [group.id]: true }))}
+                  >
+                    목록 펼치기 ({group.items.length}개)
+                  </Button>
                 ) : isAdmin ? (
-                  <Autocomplete
-                    multiple freeSolo size="small"
-                    options={[]}
-                    value={group.items}
-                    onChange={(_, value) => updateGroup(group.id, { items: value })}
-                    renderInput={(params) => <TextField {...params} placeholder="입력 후 Enter로 추가" />}
-                  />
+                  <>
+                    <Autocomplete
+                      multiple freeSolo size="small"
+                      options={[]}
+                      value={group.items}
+                      onChange={(_, value) => updateGroup(group.id, { items: value })}
+                      renderInput={(params) => <TextField {...params} placeholder="입력 후 Enter로 추가" />}
+                    />
+                    {group.items.length > LARGE_GROUP_THRESHOLD && (
+                      <Button
+                        size="small" sx={{ textTransform: 'none', mt: 0.5 }}
+                        onClick={() => setExpandedGroups((prev) => ({ ...prev, [group.id]: false }))}
+                      >
+                        목록 접기
+                      </Button>
+                    )}
+                  </>
                 ) : (
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
-                    {group.items.length === 0
-                      ? <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8' }}>등록된 항목이 없습니다.</Typography>
-                      : group.items.map((phrase, i) => <Chip key={i} size="small" label={phrase} />)}
-                  </Box>
+                  <>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+                      {group.items.length === 0
+                        ? <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8' }}>등록된 항목이 없습니다.</Typography>
+                        : group.items.map((phrase, i) => <Chip key={i} size="small" label={phrase} />)}
+                    </Box>
+                    {group.items.length > LARGE_GROUP_THRESHOLD && (
+                      <Button
+                        size="small" sx={{ textTransform: 'none', mt: 0.5 }}
+                        onClick={() => setExpandedGroups((prev) => ({ ...prev, [group.id]: false }))}
+                      >
+                        목록 접기
+                      </Button>
+                    )}
+                  </>
                 )}
 
                 {gi < groups.length - 1 && <Divider sx={{ mt: 2.5 }} />}

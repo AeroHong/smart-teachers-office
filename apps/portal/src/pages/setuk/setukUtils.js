@@ -4,6 +4,11 @@
 // (나이스 인쇄용 내보내기가 페이지마다 헤더·푸터를 반복하고 셀을 생략하는 문제를 이미
 // 그 파일에서 풀어놓았다.)
 
+// "생기부 상호명·기관명 탐지 처리 방침" §4.1 공식 데이터 — 정부 공개데이터를 그대로
+// 받아와 만든 목록(2026-09-04 기준 스냅샷). 갱신 방법은 data/README.md 참고.
+import universityNames from './data/universityNames.json'
+import publicAgencyNames from './data/publicAgencyNames.json'
+
 // ── ExcelJS 공통 로딩 (asaUtils.js와 동일) ──────────────────────────────
 async function loadRows(file) {
   const ExcelJS = (await import('exceljs')).default
@@ -315,17 +320,28 @@ const RESTRICTED_MENTIONS_GROUP = {
   authority: 'official_2026', severity: 'WARNING', enabled: true,
   items: ['K-MOOC', 'MOOC', 'KOCW', '방과후학교', '연구보고서', '소논문', '대회', '수상', '수상실적', '금상', '은상', '동상', '대상', '최우수상', '우수상'],
 }
-// §7-2 사교육기관·기관명 의심 표현 — "OO학원", "OO대학교 부설 캠프"처럼 구체적인
-// 기관 고유명사를 하나하나 다 잡아낼 방법은 없다(인명·기관명 인식은 사전 매칭이
-// 아니라 문맥을 이해해야 하는 영역이라 이 도구의 범위 밖 — 학교 자체 추가 규칙에
-// 실제로 발견한 기관명을 하나씩 등록해 나가는 방식을 권장한다). 다만 "학원/과외/
-// 인강" 같은 사교육 유발 표현 자체는 종류가 적고 고정돼 있어 문자열 그대로
-// 안정적으로 잡을 수 있다 — 이런 언급 자체가 기재요령 위반이므로 등장 즉시 확인이
-// 필요하다.
+// §7-2 사교육기관 관련 언급 — "학원/과외/인강" 같은 사교육 유발 표현 자체는 종류가
+// 적고 고정돼 있어 문자열 그대로 안정적으로 잡을 수 있다. 특정 학원·대학 "이름"
+// 자체는 아래 UNIVERSITY_NAMES_GROUP·PUBLIC_AGENCY_NAMES_GROUP과 상호명·기관명
+// 사전(NamedEntityRule, checkText의 runNamedEntityRules 참고)이 담당한다.
 const INSTITUTION_MENTION_GROUP = {
   id: 'institution_mention', title: '사교육기관 관련 언급', type: 'literal',
   authority: 'official_2026', severity: 'WARNING', enabled: true,
   items: ['학원', '과외', '인강', '온라인강의', '온라인강좌', '어학연수'],
+}
+// §4.1 공식 데이터 — 정부 공개데이터(공공데이터포털 "전국대학및전문대학정보표준데이터",
+// ALIO 공공기관 현황)에서 받아온 실제 대학/공공기관 명칭 목록. 특정 대학·기관 정식
+// 명칭은 일반 문장과 충돌할 가능성이 낮아(방침 §3 "모호성 낮음") ERROR로 둔다.
+// data/README.md에 갱신 방법을 적어 뒀다.
+const UNIVERSITY_NAMES_GROUP = {
+  id: 'university_names', title: '대학명(공공데이터: 전국대학및전문대학정보표준데이터)', type: 'literal',
+  authority: 'official_2026', severity: 'ERROR', enabled: true,
+  items: universityNames,
+}
+const PUBLIC_AGENCY_NAMES_GROUP = {
+  id: 'public_agency_names', title: '공공기관명(공공데이터: ALIO 공공기관 현황)', type: 'literal',
+  authority: 'official_2026', severity: 'ERROR', enabled: true,
+  items: publicAgencyNames,
 }
 // §8-2 외국어 표기 허용 목록 — 아래 §8 외국어 표기 검사에서 이 목록에 있는 단어(대소문자
 // 무관)는 제외한다. "AI"·"PPT"처럼 이미 관용적으로 굳어진 표현을 매번 걸리지 않게
@@ -366,6 +382,7 @@ const CUSTOM_GROUP = {
 
 export const DEFAULT_RULE_GROUPS = [
   SPECIAL_SYMBOLS_GROUP, COMPARISON_GROUP, RESTRICTED_MENTIONS_GROUP, INSTITUTION_MENTION_GROUP,
+  UNIVERSITY_NAMES_GROUP, PUBLIC_AGENCY_NAMES_GROUP,
   SENTENCE_END_GROUP, CONFUSION_PAIRS_GROUP, FOREIGN_ALLOWLIST_GROUP, CUSTOM_GROUP,
 ]
 
@@ -374,6 +391,8 @@ const GROUP_MESSAGES = {
   comparison: '다른 학생과 비교·서열화하는 표현은 사용하지 않습니다.',
   restricted_mentions: '기재 제한 항목과 관련될 수 있는 표현입니다. 실제 기재 가능 여부를 확인하세요.',
   institution_mention: '사교육기관 관련 언급은 생기부에 기재할 수 없습니다. 실제 기관명이 등장했는지 확인하세요.',
+  university_names: '정부 공개데이터에 등록된 대학명입니다. 생기부 기재 가능 여부를 확인하세요.',
+  public_agency_names: '정부 공개데이터(ALIO)에 등록된 공공기관명입니다. 생기부 기재 가능 여부를 확인하세요.',
   custom: '학교에서 추가한 주의 표현입니다.',
 }
 
@@ -570,6 +589,8 @@ export function checkText(text, dictionary, studentName) {
   // §7 기재 제한 관련 언급, §7-2 사교육기관 관련 언급, §12 학교 추가 규칙, §6 오타 사전
   runLiteralGroup(items, text, byId.restricted_mentions)
   runLiteralGroup(items, text, byId.institution_mention)
+  runLiteralGroup(items, text, byId.university_names)
+  runLiteralGroup(items, text, byId.public_agency_names)
   runLiteralGroup(items, text, byId.custom)
   runPairGroup(items, text, byId.confusion_pairs)
 
