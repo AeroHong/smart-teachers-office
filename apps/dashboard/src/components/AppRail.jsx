@@ -100,7 +100,7 @@ export default function AppRail() {
         py: 1.5, gap: 0.5,
       }}
     >
-      <Typography sx={{ fontSize: '1.35rem', mb: 1 }} aria-hidden>📋</Typography>
+      <Box component="img" src="/favicon.svg" alt="" aria-hidden sx={{ width: 26, height: 26, mb: 1 }} />
 
       <RailButton
         icon={DashboardIcon}
