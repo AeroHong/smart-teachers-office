@@ -456,3 +456,33 @@ export async function saveDictionary(schoolId, groups, namedEntities, uid, name)
     groups, namedEntities: namedEntities || [], updatedByUid: uid, updatedByName: name || '', updatedAt: serverTimestamp(), version: increment(1),
   }, { merge: true })
 }
+
+// ── 점검 기준 업무 담당자 ────────────────────────────────────────────────
+// evaluationPlanManagers(AdminEvalPlanManagers.jsx)와 같은 패턴 — 학교 전체 단일
+// 목록, uid를 문서 ID로 써서 존재 여부만으로 담당자인지 판정한다(firestore.rules의
+// isSetukDictionaryManager). 관리자가 아니어도 이 목록에 있으면 점검 기준을
+// 편집할 수 있다.
+const dictionaryManagersCol = (schoolId) => collection(db, ...schoolPath(schoolId, COL.SETUK_DICTIONARY_MANAGERS))
+const dictionaryManagerDoc = (schoolId, uid) => doc(dictionaryManagersCol(schoolId), uid)
+
+export function subscribeSetukDictionaryManagers(schoolId, cb, onError) {
+  return onSnapshot(dictionaryManagersCol(schoolId), (snap) => cb(snap.docs.map((d) => ({ uid: d.id, ...d.data() }))), onError)
+}
+
+export async function addSetukDictionaryManager(schoolId, picked, addedByUid, addedByName) {
+  await setDoc(dictionaryManagerDoc(schoolId, picked.uid), {
+    uid: picked.uid, name: picked.name || '', email: picked.email || '',
+    addedBy: addedByUid, addedByName: addedByName || '', addedAt: serverTimestamp(),
+  })
+}
+
+export async function removeSetukDictionaryManager(schoolId, uid) {
+  await deleteDoc(dictionaryManagerDoc(schoolId, uid))
+}
+
+/** 이 사용자가 점검 기준 편집 담당자로 지정돼 있는지 — 다이얼로그를 여는 화면에서 한 번만 확인한다. */
+export async function isSetukDictionaryManager(schoolId, uid) {
+  if (!schoolId || !uid) return false
+  const snap = await getDoc(dictionaryManagerDoc(schoolId, uid))
+  return snap.exists()
+}

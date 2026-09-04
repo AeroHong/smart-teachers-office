@@ -137,6 +137,7 @@ export const COL = {
   // 생기부 세특 점검 도구
   SETUK_CHECKS: 'setukChecks',   // auto-ID(업로드 배치 1개). 하위에 records/{id}, items/{id} 서브컬렉션
   SETUK_DICTIONARY: 'setukDictionary', // 단일 문서 'default' — 금지어/오타 사전(관리자 편집)
+  SETUK_DICTIONARY_MANAGERS: 'setukDictionaryManagers', // ID: uid (학교 전체 단일 담당자 목록) — evaluationPlanManagers와 같은 패턴
 }
 
 /**

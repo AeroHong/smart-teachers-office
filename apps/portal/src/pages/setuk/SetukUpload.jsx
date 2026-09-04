@@ -28,7 +28,10 @@ import Tooltip from '@mui/material/Tooltip'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { useTableSort } from '@shared/hooks/useTableSort'
 import { currentSchoolYear } from '@shared/lib/schema'
-import { subscribeChecks, saveCheck, deleteCheck, recheckCheck, buildTeacherSubjectIndex, subjectIndexKey, getDictionary } from '@shared/lib/setukCheck'
+import {
+  subscribeChecks, saveCheck, deleteCheck, recheckCheck, buildTeacherSubjectIndex, subjectIndexKey, getDictionary,
+  isSetukDictionaryManager,
+} from '@shared/lib/setukCheck'
 import { parseNeisSetukFile, checkText, loadDictionary } from './setukUtils'
 import { parseNeisSetukRtfFile } from './setukRtfUtils'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
@@ -65,6 +68,15 @@ export default function SetukUpload() {
   const { user, userName, schoolId, isAdmin } = useAuth()
   const fileInputRef = useRef(null)
   const dictDoc = useSetukDictionaryVersion(schoolId)
+
+  // 관리자가 아니어도 "점검 기준 업무 담당자"로 지정된 교사는 점검 기준을 편집할 수
+  // 있다(관리자 화면에서 "점검 기준" 다이얼로그 안 "담당자 관리" 섹션으로 지정).
+  const [isDictManager, setIsDictManager] = useState(false)
+  useEffect(() => {
+    if (!schoolId || !user?.uid || isAdmin) return
+    isSetukDictionaryManager(schoolId, user.uid).then(setIsDictManager).catch(() => {})
+  }, [schoolId, user?.uid, isAdmin])
+  const canEditDictionary = isAdmin || isDictManager
 
   // 과목별 보기 상세(SetukSubjectDetail)에서 "← 과목별 보기로"를 누르면 학급별 목록이
   // 아니라 과목별 보기 탭으로 돌아오게 한다.
@@ -265,7 +277,7 @@ export default function SetukUpload() {
 
       <SetukDictionaryDialog
         open={dictOpen} onClose={() => setDictOpen(false)}
-        schoolId={schoolId} isAdmin={isAdmin} uid={user?.uid} userName={userName}
+        schoolId={schoolId} isAdmin={isAdmin} canEdit={canEditDictionary} uid={user?.uid} userName={userName}
       />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}

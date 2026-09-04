@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -18,12 +19,22 @@ import MenuItem from '@mui/material/MenuItem'
 import Chip from '@mui/material/Chip'
 import Paper from '@mui/material/Paper'
 import Divider from '@mui/material/Divider'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import { getDictionary, saveDictionary } from '@shared/lib/setukCheck'
+import { db } from '@shared/lib/firebase'
+import { USERS } from '@shared/lib/schema'
+import {
+  getDictionary, saveDictionary,
+  subscribeSetukDictionaryManagers, addSetukDictionaryManager, removeSetukDictionaryManager,
+} from '@shared/lib/setukCheck'
 import { loadDictionary, AUTHORITY_LABELS, SEVERITY_LABELS, NAMED_ENTITY_TYPES, AMBIGUITY_LABELS } from './setukUtils'
+
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
 
 function blankEntity() {
   return { canonical: '', aliases: [], type: 'institution', ambiguity: 'medium', authority: 'official_2026', severity: 'WARNING', enabled: true }
@@ -46,7 +57,7 @@ function fmtDate(ts) {
  * 점검 건이 그 뒤에 바뀐 기준을 만나면 "다시 점검하라" 경고를 띄우는 데 쓰인다
  * (SetukCheckDetail.jsx). 그래서 이 화면에 버전·수정일을 눈에 보이게 표시해 둔다.
  */
-export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin, uid, userName }) {
+export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin, canEdit, uid, userName }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -57,6 +68,12 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
   // 다이얼로그가 감당 안 될 만큼 길어진다 — 기본은 접어두고 개수만 보여준다.
   const [expandedGroups, setExpandedGroups] = useState({})
   const LARGE_GROUP_THRESHOLD = 30
+
+  // 점검 기준 편집 담당자(관리자가 아니어도 지정된 교사는 편집 가능) — 지정/해제는
+  // 관리자만. evaluationPlanManagers와 같은 패턴(AdminEvalPlanManagers.jsx 참고).
+  const [staff, setStaff] = useState([])
+  const [managers, setManagers] = useState([])
+  const [pickedManager, setPickedManager] = useState(null)
 
   useEffect(() => {
     if (!open || !schoolId) return
@@ -71,6 +88,35 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [open, schoolId])
+
+  useEffect(() => {
+    if (!open || !schoolId || !isAdmin) return
+    getDocs(query(collection(db, USERS), where('schoolId', '==', schoolId), where('role', 'in', STAFF_ROLES)))
+      .then((snap) => setStaff(snap.docs.map((d) => ({ uid: d.id, name: d.data().name || d.data().email, email: d.data().email }))))
+      .catch(() => {})
+    return subscribeSetukDictionaryManagers(schoolId, setManagers, (e) => setError(`담당자 목록 조회 실패: ${e.message}`))
+  }, [open, schoolId, isAdmin])
+
+  const managerUids = useMemo(() => new Set(managers.map((m) => m.uid)), [managers])
+  const managerCandidates = useMemo(() => staff.filter((s) => !managerUids.has(s.uid)), [staff, managerUids])
+
+  const handleAddManager = async () => {
+    if (!pickedManager) return
+    try {
+      await addSetukDictionaryManager(schoolId, pickedManager, uid, userName)
+      setPickedManager(null)
+    } catch (e) {
+      setError(`담당자 지정 실패: ${e.message}`)
+    }
+  }
+
+  const handleRemoveManager = async (managerUid) => {
+    try {
+      await removeSetukDictionaryManager(schoolId, managerUid)
+    } catch (e) {
+      setError(`담당자 해제 실패: ${e.message}`)
+    }
+  }
 
   const updateGroup = (id, patch) => {
     setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)))
@@ -102,7 +148,7 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
       <DialogTitle>
         점검 기준
         <Typography variant="caption" color="text.secondary" display="block">
-          업로드한 세특 텍스트에서 아래 기준으로 점검합니다. 기본 제공 항목도{isAdmin ? ' 자유롭게 고치거나 지울 수 있습니다' : ''}.
+          업로드한 세특 텍스트에서 아래 기준으로 점검합니다. 기본 제공 항목도{canEdit ? ' 자유롭게 고치거나 지울 수 있습니다' : ''}.
           숨은 문자, 괄호 짝, 공백 이상, 존댓말체 종결, 학생 이름 반복, 외국어 표기(아래 허용 목록 제외), 반복 표현은
           목록이 아니라 정해진 규칙으로 자동 점검되어 이 화면에서 편집할 수 없습니다.
           "외국어 표기 허용 목록"에 등록한 단어는 외국어 표기 점검에서 제외됩니다. "사교육기관 관련 언급"은
@@ -131,7 +177,7 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
                   {group.type !== 'pair' && group.items.length > LARGE_GROUP_THRESHOLD && (
                     <Chip size="small" variant="outlined" label={`${group.items.length}개`} />
                   )}
-                  {isAdmin ? (
+                  {canEdit ? (
                     <>
                       <FormControl size="small" sx={{ minWidth: 110 }}>
                         <Select value={group.authority} onChange={(e) => updateGroup(group.id, { authority: e.target.value })}>
@@ -163,27 +209,27 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
                     {group.items.map((pair, i) => (
                       <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                         <TextField
-                          size="small" label="오타" sx={{ flex: 1 }} value={pair.wrong} disabled={!isAdmin}
+                          size="small" label="오타" sx={{ flex: 1 }} value={pair.wrong} disabled={!canEdit}
                           onChange={(e) => {
                             const items = group.items.map((p, idx) => (idx === i ? { ...p, wrong: e.target.value } : p))
                             updateGroup(group.id, { items })
                           }}
                         />
                         <TextField
-                          size="small" label="올바른 표현" sx={{ flex: 1 }} value={pair.right} disabled={!isAdmin}
+                          size="small" label="올바른 표현" sx={{ flex: 1 }} value={pair.right} disabled={!canEdit}
                           onChange={(e) => {
                             const items = group.items.map((p, idx) => (idx === i ? { ...p, right: e.target.value } : p))
                             updateGroup(group.id, { items })
                           }}
                         />
-                        {isAdmin && (
+                        {canEdit && (
                           <IconButton size="small" onClick={() => updateGroup(group.id, { items: group.items.filter((_, idx) => idx !== i) })}>
                             <DeleteOutlineIcon fontSize="small" />
                           </IconButton>
                         )}
                       </Box>
                     ))}
-                    {isAdmin && (
+                    {canEdit && (
                       <Button
                         size="small" startIcon={<AddIcon />} sx={{ alignSelf: 'flex-start' }}
                         onClick={() => updateGroup(group.id, { items: [...group.items, { wrong: '', right: '' }] })}
@@ -199,7 +245,7 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
                   >
                     목록 펼치기 ({group.items.length}개)
                   </Button>
-                ) : isAdmin ? (
+                ) : canEdit ? (
                   <>
                     <Autocomplete
                       multiple freeSolo size="small"
@@ -253,11 +299,11 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
               <Paper key={i} variant="outlined" sx={{ p: 1.5, mb: 1.5, opacity: entity.enabled ? 1 : 0.6 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                   <TextField
-                    size="small" label="대표 명칭" value={entity.canonical} disabled={!isAdmin}
+                    size="small" label="대표 명칭" value={entity.canonical} disabled={!canEdit}
                     onChange={(e) => updateEntity(i, { canonical: e.target.value })}
                     sx={{ minWidth: 160 }}
                   />
-                  {isAdmin ? (
+                  {canEdit ? (
                     <>
                       <FormControl size="small" sx={{ minWidth: 100 }}>
                         <Select value={entity.type} onChange={(e) => updateEntity(i, { type: e.target.value })}>
@@ -292,7 +338,7 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
                     </>
                   )}
                 </Box>
-                {isAdmin ? (
+                {canEdit ? (
                   <Autocomplete
                     multiple freeSolo size="small"
                     options={[]}
@@ -309,20 +355,66 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
                 )}
               </Paper>
             ))}
-            {namedEntities.length === 0 && !isAdmin && (
+            {namedEntities.length === 0 && !canEdit && (
               <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8' }}>등록된 항목이 없습니다.</Typography>
             )}
-            {isAdmin && (
+            {canEdit && (
               <Button size="small" startIcon={<AddIcon />} onClick={addEntity} sx={{ mt: namedEntities.length ? 0 : 1 }}>
                 고유명사 추가
               </Button>
+            )}
+
+            {isAdmin && (
+              <>
+                <Divider sx={{ my: 2.5 }} />
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>점검 기준 편집 담당자</Typography>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
+                  여기서 지정한 교사는 관리자가 아니어도 이 점검 기준을 직접 편집할 수 있습니다(생기부 담당
+                  업무 등). 지정·해제는 관리자만 할 수 있습니다.
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Autocomplete
+                    size="small" options={managerCandidates}
+                    getOptionLabel={(o) => o.name || o.email || ''}
+                    isOptionEqualToValue={(a, b) => a.uid === b.uid}
+                    value={pickedManager}
+                    onChange={(_, value) => setPickedManager(value)}
+                    renderInput={(params) => <TextField {...params} placeholder="교사 검색" />}
+                    sx={{ flex: 1, minWidth: 200 }}
+                  />
+                  <Button variant="contained" size="small" disabled={!pickedManager} onClick={handleAddManager} sx={{ flexShrink: 0 }}>
+                    추가
+                  </Button>
+                </Paper>
+                {managers.length === 0 ? (
+                  <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8' }}>지정된 담당자가 없습니다.</Typography>
+                ) : (
+                  <List disablePadding dense>
+                    {managers.map((m) => (
+                      <ListItem
+                        key={m.uid} divider disablePadding
+                        secondaryAction={
+                          <IconButton edge="end" size="small" onClick={() => handleRemoveManager(m.uid)}>
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        }
+                      >
+                        <ListItemText
+                          primary={m.name || '(이름 없음)'} secondary={m.email}
+                          primaryTypographyProps={{ fontSize: '0.85rem' }} secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
+              </>
             )}
           </>
         )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>닫기</Button>
-        {isAdmin && (
+        {canEdit && (
           <Button variant="contained" disabled={saving || loading} onClick={handleSave}>
             {saving ? '저장 중...' : '저장'}
           </Button>

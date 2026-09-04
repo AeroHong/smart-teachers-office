@@ -1036,8 +1036,23 @@ service cloud.firestore {
         }
       }
 
-      // 오타·금지어 사전 — 조회는 교사 전체, 편집은 관리자만.
+      // 세특 점검 기준(점검 기준 다이얼로그) "업무 담당자" — evaluationPlanManagers와
+      // 같은 패턴(학교 전체 단일 목록, 존재 여부만으로 담당자인지 판정, uid를 문서 ID로 씀).
+      // 관리자가 아니어도 이 목록에 있으면 점검 기준을 편집할 수 있게 연다.
+      function isSetukDictionaryManager(schoolId) {
+        return isSignedIn() &&
+          exists(/databases/$(database)/documents/schools/$(schoolId)/setukDictionaryManagers/$(request.auth.uid));
+      }
+
+      // 오타·금지어 사전 — 조회는 교사 전체, 편집은 관리자 또는 지정된 업무 담당자만.
       match /setukDictionary/{docId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isSetukDictionaryManager(schoolId);
+      }
+
+      // 담당자 지정 목록 자체는 evaluationPlanManagers와 동일한 권한 구조 — 소속 교사
+      // 전체가 "담당자가 누구인지"는 읽을 수 있지만, 지정/해제는 관리자만 할 수 있다.
+      match /setukDictionaryManagers/{uid} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
