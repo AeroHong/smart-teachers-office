@@ -270,7 +270,7 @@ export default function SetukUpload() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      <Accordion defaultExpanded variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
+      <Accordion variant="outlined" sx={{ mb: 3, '&:before': { display: 'none' } }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="subtitle2" fontWeight={700}>
             📥 나이스에서 세특 파일 내려받는 방법
