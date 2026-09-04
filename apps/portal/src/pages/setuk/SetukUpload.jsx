@@ -26,6 +26,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { useTableSort } from '@shared/hooks/useTableSort'
 import { currentSchoolYear } from '@shared/lib/schema'
 import { subscribeChecks, saveCheck, deleteCheck, recheckCheck, buildTeacherSubjectIndex, subjectIndexKey, getDictionary } from '@shared/lib/setukCheck'
 import { parseNeisSetukFile, checkText, loadDictionary } from './setukUtils'
@@ -35,6 +36,25 @@ import SetukBySubject from './SetukBySubject'
 import SetukTeacherAssignments from './SetukTeacherAssignments'
 import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls, fmtDateTime } from './setukShared'
 import Layout from '../../components/Layout'
+
+const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
+
+function tsToMillis(ts) {
+  if (!ts) return null
+  return ts.toMillis ? ts.toMillis() : new Date(ts).getTime()
+}
+
+// "학급별 목록" 헤더 클릭 정렬 — useTableSort(평가운영계획 제출 도구 등에서 쓰는 것과
+// 같은 훅)의 getters로 원본 필드를 정렬 가능한 값으로 바꿔준다. 학년-학기는 두 값을
+// 합쳐 하나의 숫자로 만들어야 "학년 먼저, 같은 학년이면 학기순"으로 정렬된다.
+const LIST_SORT_GETTERS = {
+  gradeSemester: (c) => (c.grade ?? 0) * 10 + (c.semester ?? 0),
+  classLabel: (c) => c.classLabel,
+  itemCount: (c) => c.stats?.itemCount ?? 0,
+  unresolvedCount: (c) => (c.stats?.itemCount ?? 0) - (c.stats?.resolvedCount ?? 0),
+  uploadedByName: (c) => c.uploadedByName,
+  sourceFileCreatedAt: (c) => tsToMillis(c.sourceFileCreatedAt),
+}
 
 export default function SetukUpload() {
   const navigate = useNavigate()
@@ -67,6 +87,7 @@ export default function SetukUpload() {
   const { year, setYear, semester, setSemester } = useSetukTermFilter(checks)
   useSetukTermBackfill(schoolId, checks, isAdmin)
   const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
+  const listSort = useTableSort('gradeSemester')
 
   // 파일 하나를 파싱→점검→저장까지 처리한다. onProgress로 그 파일의 세부 진행 문구를
   // 알려준다(일괄 업로드 화면에서 파일마다 지금 어느 단계인지 보여주는 데 쓴다).
@@ -351,17 +372,17 @@ export default function SetukUpload() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
-                <TableCell>학년-학기</TableCell>
-                <TableCell>학급</TableCell>
-                <TableCell align="center">전체 항목</TableCell>
-                <TableCell align="center">미처리</TableCell>
-                <TableCell>업로드</TableCell>
-                <TableCell>원본 파일 생성일</TableCell>
+                <TableCell sx={thSortSx} onClick={() => listSort.toggle('gradeSemester')}>학년-학기{listSort.Ind('gradeSemester')}</TableCell>
+                <TableCell sx={thSortSx} onClick={() => listSort.toggle('classLabel')}>학급{listSort.Ind('classLabel')}</TableCell>
+                <TableCell align="center" sx={thSortSx} onClick={() => listSort.toggle('itemCount')}>전체 항목{listSort.Ind('itemCount')}</TableCell>
+                <TableCell align="center" sx={thSortSx} onClick={() => listSort.toggle('unresolvedCount')}>미처리{listSort.Ind('unresolvedCount')}</TableCell>
+                <TableCell sx={thSortSx} onClick={() => listSort.toggle('uploadedByName')}>업로드{listSort.Ind('uploadedByName')}</TableCell>
+                <TableCell sx={thSortSx} onClick={() => listSort.toggle('sourceFileCreatedAt')}>원본 파일 생성일{listSort.Ind('sourceFileCreatedAt')}</TableCell>
                 <TableCell align="center">관리</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredChecks.map((c) => (
+              {listSort.sortData(filteredChecks, LIST_SORT_GETTERS).map((c) => (
                 <TableRow key={c.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/setuk/${c.id}`)}>
                   <TableCell sx={{ color: '#64748b', whiteSpace: 'nowrap' }}>{c.grade}학년-{c.semester ?? semester}학기</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{c.classLabel}</TableCell>
