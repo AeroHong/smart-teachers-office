@@ -20,6 +20,7 @@ import TableCell from '@mui/material/TableCell'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { useTableSort } from '@shared/hooks/useTableSort'
 import { db } from '@shared/lib/firebase'
 import { USERS, currentSchoolYear } from '@shared/lib/schema'
 import {
@@ -29,6 +30,7 @@ import {
 import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
 
 /** 배정에서 현재 선택된 교사 목록을 Autocomplete가 쓸 {uid,name} 배열로 복원한다. */
 function assignedOptions(assign, staffByUid) {
@@ -119,6 +121,15 @@ export default function SetukTeacherAssignments() {
       a.subjectName.localeCompare(b.subjectName, 'ko') || a.classLabels.join(',').localeCompare(b.classLabels.join(','), 'ko'))
   }, [filteredChecks])
 
+  // 헤더 클릭 정렬 — 기본(클릭 전)은 위에서 만든 학년→과목→학급 순서를 그대로 쓴다.
+  const rowSort = useTableSort()
+  const rowSortGetters = {
+    grade: (r) => r.grade,
+    classLabels: (r) => formatClassLabels(r.classLabels),
+    subjectName: (r) => r.subjectName,
+    teacher: (r) => assignedTeacherNames(r.assign).join(','),
+  }
+
   // 기본(입력 전)은 그 과목의 교과 배정 후보만 보여주되, 이름을 직접 입력하면
   // 그 후보 목록을 벗어나 전체 교직원 중에서 검색되게 한다 — 교과 배정 데이터가
   // 없거나 틀린 과목(선택과목 등)도 이름만 알면 바로 지정할 수 있어야 하므로.
@@ -173,14 +184,14 @@ export default function SetukTeacherAssignments() {
           <Table size="small" sx={{ '& td, & th': { fontSize: '0.8rem', py: 0.5 } }}>
             <TableHead>
               <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
-                <TableCell>학년-학기</TableCell>
-                <TableCell>학급</TableCell>
-                <TableCell>과목</TableCell>
-                <TableCell>담당 교사</TableCell>
+                <TableCell sx={thSortSx} onClick={() => rowSort.toggle('grade')}>학년-학기{rowSort.Ind('grade')}</TableCell>
+                <TableCell sx={thSortSx} onClick={() => rowSort.toggle('classLabels')}>학급{rowSort.Ind('classLabels')}</TableCell>
+                <TableCell sx={thSortSx} onClick={() => rowSort.toggle('subjectName')}>과목{rowSort.Ind('subjectName')}</TableCell>
+                <TableCell sx={thSortSx} onClick={() => rowSort.toggle('teacher')}>담당 교사{rowSort.Ind('teacher')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((row) => (
+              {rowSort.sortData(rows, rowSortGetters).map((row) => (
                 <TableRow key={row.key} hover>
                   <TableCell sx={{ color: '#64748b', whiteSpace: 'nowrap' }}>{row.grade}학년-{semester}학기</TableCell>
                   <TableCell sx={{ color: '#64748b' }}>{formatClassLabels(row.classLabels)}</TableCell>

@@ -20,8 +20,11 @@ import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { useTableSort } from '@shared/hooks/useTableSort'
 import { subscribeChecks, loadItemsBySubject, isAssignedTeacher, renameSubjectAcrossChecks } from '@shared/lib/setukCheck'
 import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
+
+const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
 
 // 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
 // 그 과목의 담당 교사(여러 명 가능)만.
@@ -62,6 +65,16 @@ export default function SetukBySubject() {
     })
     return [...set].sort((a, b) => a.localeCompare(b, 'ko'))
   }, [filteredChecks, isAdmin, user])
+
+  // 헤더 클릭 정렬 — mySubjects는 문자열 배열이라 getter가 항목(과목명) 자체를 받아
+  // subjectStats에서 필요한 값을 찾아 반환한다. 기본(클릭 전)은 mySubjects의 가나다순을
+  // 그대로 쓴다.
+  const subjectSort = useTableSort()
+  const subjectSortGetters = {
+    subject: (s) => s,
+    total: (s) => subjectStats[s]?.total,
+    unresolved: (s) => subjectStats[s]?.unresolved,
+  }
 
   // 과목마다 전체/미처리 건수를 미리 집계해 둔다("학급별 목록"과 같은 방식).
   useEffect(() => {
@@ -117,13 +130,13 @@ export default function SetukBySubject() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
-              <TableCell>과목</TableCell>
-              <TableCell align="center">전체 항목</TableCell>
-              <TableCell align="center">미처리</TableCell>
+              <TableCell sx={thSortSx} onClick={() => subjectSort.toggle('subject')}>과목{subjectSort.Ind('subject')}</TableCell>
+              <TableCell align="center" sx={thSortSx} onClick={() => subjectSort.toggle('total')}>전체 항목{subjectSort.Ind('total')}</TableCell>
+              <TableCell align="center" sx={thSortSx} onClick={() => subjectSort.toggle('unresolved')}>미처리{subjectSort.Ind('unresolved')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {mySubjects.map((s) => {
+            {subjectSort.sortData(mySubjects, subjectSortGetters).map((s) => {
               const stat = subjectStats[s]
               const isEditingThis = editingSubject?.oldName === s
               return (
