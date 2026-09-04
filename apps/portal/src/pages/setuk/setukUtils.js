@@ -248,6 +248,27 @@ const RESTRICTED_MENTIONS_GROUP = {
   authority: 'official_2026', severity: 'WARNING', enabled: true,
   items: ['K-MOOC', 'MOOC', 'KOCW', '방과후학교', '연구보고서', '소논문', '대회', '수상', '수상실적', '금상', '은상', '동상', '대상', '최우수상', '우수상'],
 }
+// §7-2 사교육기관·기관명 의심 표현 — "OO학원", "OO대학교 부설 캠프"처럼 구체적인
+// 기관 고유명사를 하나하나 다 잡아낼 방법은 없다(인명·기관명 인식은 사전 매칭이
+// 아니라 문맥을 이해해야 하는 영역이라 이 도구의 범위 밖 — 학교 자체 추가 규칙에
+// 실제로 발견한 기관명을 하나씩 등록해 나가는 방식을 권장한다). 다만 "학원/과외/
+// 인강" 같은 사교육 유발 표현 자체는 종류가 적고 고정돼 있어 문자열 그대로
+// 안정적으로 잡을 수 있다 — 이런 언급 자체가 기재요령 위반이므로 등장 즉시 확인이
+// 필요하다.
+const INSTITUTION_MENTION_GROUP = {
+  id: 'institution_mention', title: '사교육기관 관련 언급', type: 'literal',
+  authority: 'official_2026', severity: 'WARNING', enabled: true,
+  items: ['학원', '과외', '인강', '온라인강의', '온라인강좌', '어학연수'],
+}
+// §8-2 외국어 표기 허용 목록 — 아래 §8 외국어 표기 검사에서 이 목록에 있는 단어(대소문자
+// 무관)는 제외한다. "AI"·"PPT"처럼 이미 관용적으로 굳어진 표현을 매번 걸리지 않게
+// 등록해 두는 용도. type은 다른 literal 그룹과 같지만, checkText가 이 그룹만은 직접
+// 매칭 대상으로 쓰지 않고 §8 검사의 예외 목록으로만 참조한다(runLiteralGroup을 타지
+// 않음 — 아래 checkText 참고).
+const FOREIGN_ALLOWLIST_GROUP = {
+  id: 'foreign_allowlist', title: '외국어 표기 허용 목록', type: 'literal',
+  authority: 'school_policy', severity: 'INFO', enabled: true, items: [],
+}
 // §3 문장 종결 주의 표현 — 문장 "끝"에서만 탐지한다. 문자열 전체에서 찾으면
 // "이해를 바탕으로 재설계함"처럼 무관한 문장까지 걸린다(문서에 명시된 오탐 사례).
 // 문맥을 봐야 진짜 문제인지 판단 가능한 항목이라 오탐이 가장 많다(실측 상 전체 검출량의
@@ -277,13 +298,15 @@ const CUSTOM_GROUP = {
 }
 
 export const DEFAULT_RULE_GROUPS = [
-  SPECIAL_SYMBOLS_GROUP, COMPARISON_GROUP, RESTRICTED_MENTIONS_GROUP, SENTENCE_END_GROUP, CONFUSION_PAIRS_GROUP, CUSTOM_GROUP,
+  SPECIAL_SYMBOLS_GROUP, COMPARISON_GROUP, RESTRICTED_MENTIONS_GROUP, INSTITUTION_MENTION_GROUP,
+  SENTENCE_END_GROUP, CONFUSION_PAIRS_GROUP, FOREIGN_ALLOWLIST_GROUP, CUSTOM_GROUP,
 ]
 
 const GROUP_MESSAGES = {
   special_symbols: '문장부호·특수기호 사용이 적절한지 확인하세요.',
   comparison: '다른 학생과 비교·서열화하는 표현은 사용하지 않습니다.',
   restricted_mentions: '기재 제한 항목과 관련될 수 있는 표현입니다. 실제 기재 가능 여부를 확인하세요.',
+  institution_mention: '사교육기관 관련 언급은 생기부에 기재할 수 없습니다. 실제 기관명이 등장했는지 확인하세요.',
   custom: '학교에서 추가한 주의 표현입니다.',
 }
 
@@ -467,8 +490,9 @@ export function checkText(text, dictionary, studentName) {
   }
   runSentenceEndGroup(items, text, sentences, byId.sentence_end)
 
-  // §7 기재 제한 관련 언급, §12 학교 추가 규칙, §6 오타 사전
+  // §7 기재 제한 관련 언급, §7-2 사교육기관 관련 언급, §12 학교 추가 규칙, §6 오타 사전
   runLiteralGroup(items, text, byId.restricted_mentions)
+  runLiteralGroup(items, text, byId.institution_mention)
   runLiteralGroup(items, text, byId.custom)
   runPairGroup(items, text, byId.confusion_pairs)
 
@@ -518,8 +542,15 @@ export function checkText(text, dictionary, studentName) {
     })
   }
 
-  // §8 외국어 표기(영문 2자 이상) — 확정할 수 없어 INFO로만 표시
+  // §8 외국어 표기(영문 2자 이상) — 확정할 수 없어 INFO로만 표시. §8-2 허용 목록에
+  // 등록한 단어(대소문자 무관 완전 일치)는 매번 걸리지 않게 건너뛴다.
+  const foreignAllowlist = new Set(
+    (byId.foreign_allowlist?.enabled ? byId.foreign_allowlist.items : [])
+      .map((s) => String(s || '').trim().toUpperCase())
+      .filter(Boolean),
+  )
   findAllRegex(text, /[A-Za-z]{2,}/g).forEach(({ index, matched }) => {
+    if (foreignAllowlist.has(matched.toUpperCase())) return
     pushMatch(items, { category: '외국어 표기', authority: 'style', severity: 'INFO', ruleId: 'foreign_text' },
       text, index, matched.length, '영문 표기입니다. 고유명사·약어 등 불가피한 경우가 아닌지 확인하세요.')
   })

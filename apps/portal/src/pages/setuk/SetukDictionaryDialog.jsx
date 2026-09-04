@@ -84,8 +84,11 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
         점검 기준
         <Typography variant="caption" color="text.secondary" display="block">
           업로드한 세특 텍스트에서 아래 기준으로 점검합니다. 기본 제공 항목도{isAdmin ? ' 자유롭게 고치거나 지울 수 있습니다' : ''}.
-          숨은 문자, 괄호 짝, 공백 이상, 존댓말체 종결, 학생 이름 반복, 외국어 표기, 반복 표현은
+          숨은 문자, 괄호 짝, 공백 이상, 존댓말체 종결, 학생 이름 반복, 외국어 표기(아래 허용 목록 제외), 반복 표현은
           목록이 아니라 정해진 규칙으로 자동 점검되어 이 화면에서 편집할 수 없습니다.
+          "외국어 표기 허용 목록"에 등록한 단어는 외국어 표기 점검에서 제외됩니다. "사교육기관 관련 언급"은
+          학원·과외 등 고정된 표현만 잡아낼 수 있고, 실제 기관 고유명사(특정 학원·대학교 이름 등)는
+          자동으로 알아낼 수 없어 발견하는 대로 "학교 자체 추가 규칙"에 직접 등록해야 합니다.
         </Typography>
       </DialogTitle>
       <DialogContent>
