@@ -76,7 +76,7 @@ export default function SetukUpload() {
       // (\page)이 명확히 구분돼 정확하게 복원된다 — 파일 확장자로 두 파서 중
       // 하나로 나눠 보낸다.
       const isDoc = /\.doc$/i.test(file.name || '')
-      const { classLabel, records } = isDoc ? await parseNeisSetukRtfFile(file) : await parseNeisSetukFile(file)
+      const { classLabel, records, sourceCreatedAt } = isDoc ? await parseNeisSetukRtfFile(file) : await parseNeisSetukFile(file)
 
       setProgressMsg('오타·금지어·띄어쓰기 점검 중...')
       let customDict = null
@@ -141,13 +141,8 @@ export default function SetukUpload() {
       setProgressMsg('저장 중...')
       const grade = recordsWithCount.find((r) => r.grade)?.grade || null
       const semester = recordsWithCount.find((r) => r.semester)?.semester || null
-      // 원본 파일(나이스에서 받은 xls/doc)의 마지막 수정 시각 — 대개 다운로드 시각과
-      // 같아, 같은 학급을 다시 받아 재업로드했을 때 어느 게 더 최신 스냅샷인지, 그리고
-      // 그 시점 이후로 담당 교사가 나이스에서 세특을 더 고쳤는지(재점검 필요 여부)
-      // 가늠하는 기준으로 쓴다. 브라우저가 주는 파일시스템 값이라 없을 수도 있다.
-      const sourceFileModifiedAt = file.lastModified ? new Date(file.lastModified) : null
       const checkId = await saveCheck(
-        schoolId, { classLabel, grade, year: currentSchoolYear(), semester, sourceFileModifiedAt },
+        schoolId, { classLabel, grade, year: currentSchoolYear(), semester, sourceFileCreatedAt: sourceCreatedAt },
         recordsWithCount, items, subjectAssignments, user.uid, userName, dictionaryVersion,
       )
 
@@ -332,7 +327,7 @@ export default function SetukUpload() {
                   </TableCell>
                   <TableCell sx={{ fontSize: '0.8rem' }} color="text.secondary">{c.uploadedByName}</TableCell>
                   <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }} color="text.secondary">
-                    {c.sourceFileModifiedAt ? fmtDateTime(c.sourceFileModifiedAt) : '-'}
+                    {c.sourceFileCreatedAt ? fmtDateTime(c.sourceFileCreatedAt) : '-'}
                   </TableCell>
                   <TableCell align="center">
                     {canDelete(c) && (

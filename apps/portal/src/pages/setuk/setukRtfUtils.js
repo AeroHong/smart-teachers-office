@@ -156,9 +156,26 @@ function tokensToRows(tokens) {
 
 const CLASS_LABEL_PATTERN = /\d+학년\s*\d+반/
 
+// RTF는 "선유고등학교/2026.09.03 13:43/10.35.***.172/홍창기"처럼 학교명·조회(생성)
+// 시각·IP·사용자명을 슬래시로 이어붙인 워터마크 행이 페이지마다 반복된다(실측,
+// 2026-09-04) — XLS의 날짜 전용 표기와 달리 분 단위 시각까지 있어 더 정밀하다. 이
+// 워터마크도 1칸짜리 장식 행이라 CLASS_LABEL_PATTERN과 같은 방식으로 찾는다.
+const SOURCE_TIMESTAMP_PATTERN = /(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/
+
+function extractSourceTimestamp(rows) {
+  for (const { cells } of rows) {
+    if (cells.length !== 1) continue
+    const m = SOURCE_TIMESTAMP_PATTERN.exec(cells[0])
+    if (!m) continue
+    const [, y, mo, d, h, mi] = m
+    return new Date(Number(y), Number(mo) - 1, Number(d), h ? Number(h) : 0, mi ? Number(mi) : 0)
+  }
+  return null
+}
+
 /**
  * @param {File} file 나이스 "학생부 항목별 조회"의 DOC(실제 RTF) 내보내기
- * @returns {Promise<{classLabel: string, records: Array<{studentNumber:number, studentName:string, subjectName:string, grade:number|null, semester:number|null, text:string}>}>}
+ * @returns {Promise<{classLabel: string, records: Array<{studentNumber:number, studentName:string, subjectName:string, grade:number|null, semester:number|null, text:string}>, sourceCreatedAt: Date|null}>}
  */
 export async function parseNeisSetukRtfFile(file) {
   const rtf = await file.text()
@@ -172,6 +189,7 @@ export async function parseNeisSetukRtfFile(file) {
   for (const { cells } of rows) {
     if (cells.length === 1 && CLASS_LABEL_PATTERN.test(cells[0])) { classLabel = cells[0]; break }
   }
+  const sourceCreatedAt = extractSourceTimestamp(rows)
 
   const records = []
   let currentSubject = ''
@@ -244,5 +262,5 @@ export async function parseNeisSetukRtfFile(file) {
   finalizeOpen()
 
   if (!records.length) throw new Error('인식된 세특 데이터가 없습니다. 나이스 DOC 내보내기 파일이 맞는지 확인해주세요.')
-  return { classLabel, records }
+  return { classLabel, records, sourceCreatedAt }
 }

@@ -45,6 +45,24 @@ function looksUnfinished(text) {
 
 const CLASS_LABEL_PATTERN = /\d+학년\s*\d+반/
 
+// 나이스 인쇄용 내보내기는 페이지 우측 상단에 조회(생성) 날짜를 "2026.09.03." 형태로
+// 찍어 둔다(실측, 2026-09-04) — 셀 전체가 정확히 이 형태일 때만 매칭해, 세특 본문
+// 문장 안에 우연히 등장하는 날짜 표현과 섞이지 않게 한다. 이 날짜는 그 파일이 나이스에서
+// 언제 뽑힌 스냅샷인지를 뜻해, 같은 학급을 다시 받아 재업로드했을 때 어느 게 더 최신
+// 내용인지 판단하는 기준이 된다(업로드한 브라우저의 파일 시스템 타임스탬프보다 신뢰도가
+// 높다 — 다운로드 후 옮기거나 다시 저장하면 그쪽은 어긋날 수 있음).
+const SOURCE_DATE_PATTERN = /^(\d{4})\.(\d{1,2})\.(\d{1,2})\.?$/
+
+function extractSourceDate(rows) {
+  for (const row of rows) {
+    for (const cell of row) {
+      const m = SOURCE_DATE_PATTERN.exec(String(cell || '').trim())
+      if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    }
+  }
+  return null
+}
+
 /**
  * 헤더 행과 각 필드의 컬럼 위치를 찾는다. 컬럼 위치를 0~5로 하드코딩하지 않는 이유:
  * 나이스 내보내기 방식(XLS/XLS data)이나 화면 설정에 따라 맨 앞에 빈 컬럼이 붙거나,
@@ -79,7 +97,7 @@ function findHeaderColumns(rows) {
  * 번호가 다시 1부터 시작하므로 안전).
  *
  * @param {File} file
- * @returns {Promise<{classLabel: string, records: Array<{studentNumber:number, studentName:string, subjectName:string, grade:number|null, semester:number|null, text:string}>}>}
+ * @returns {Promise<{classLabel: string, records: Array<{studentNumber:number, studentName:string, subjectName:string, grade:number|null, semester:number|null, text:string}>, sourceCreatedAt: Date|null}>}
  */
 export async function parseNeisSetukFile(file) {
   const rows = await loadRows(file)
@@ -89,6 +107,8 @@ export async function parseNeisSetukFile(file) {
     throw new Error('나이스 "세부능력 및 특기사항" 내보내기 형식이 아닙니다. (과목/번호 헤더를 찾을 수 없습니다)')
   }
   const { subjectIdx, gradeIdx, semesterIdx, numIdx, nameIdx, textIdx } = cols
+
+  const sourceCreatedAt = extractSourceDate(rows)
 
   let classLabel = ''
   for (const r of rows) {
@@ -174,7 +194,7 @@ export async function parseNeisSetukFile(file) {
   finalizeOpen()
 
   if (!records.length) throw new Error('인식된 세특 데이터가 없습니다. 나이스 내보내기 파일이 맞는지 확인해주세요.')
-  return { classLabel, records }
+  return { classLabel, records, sourceCreatedAt }
 }
 
 // ── 점검 규칙 엔진 ────────────────────────────────────────────────────────
