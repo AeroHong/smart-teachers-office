@@ -39,6 +39,11 @@ import Layout from '../../components/Layout'
 
 const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
 
+// 담임·교과 선생님께 배포하는 사용법 안내 페이지(Claude Artifact) — docx 파일을 매번
+// 다시 보내는 대신 링크 하나로 최신 내용을 공유한다. 페이지 갱신 시 이 URL은
+// 그대로 유지된다(같은 아티팩트를 재배포).
+const SETUK_GUIDE_URL = 'https://claude.ai/code/artifact/385e4113-0bd4-4b23-b3cc-4d48936329d9'
+
 function tsToMillis(ts) {
   if (!ts) return null
   return ts.toMillis ? ts.toMillis() : new Date(ts).getTime()
@@ -245,9 +250,17 @@ export default function SetukUpload() {
         <Typography variant="h5" fontWeight={700} mb={0.5}>
           생기부 세특 점검
         </Typography>
-        <Button size="small" onClick={() => setDictOpen(true)} sx={{ textTransform: 'none', fontWeight: 700 }}>
-          점검 기준 보기
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            size="small" component="a" href={SETUK_GUIDE_URL} target="_blank" rel="noopener noreferrer"
+            sx={{ textTransform: 'none', fontWeight: 700 }}
+          >
+            사용법 안내
+          </Button>
+          <Button size="small" onClick={() => setDictOpen(true)} sx={{ textTransform: 'none', fontWeight: 700 }}>
+            점검 기준 보기
+          </Button>
+        </Box>
       </Box>
       <Typography variant="body2" color="text.secondary" mb={2}>
         나이스에서 내려받은 학급 세특 엑셀을 업로드하면 오타·띄어쓰기·금지어·유의어를 자동으로 점검합니다.
