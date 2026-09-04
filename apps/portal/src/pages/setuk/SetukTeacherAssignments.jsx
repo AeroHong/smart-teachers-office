@@ -2,7 +2,7 @@
 // 관리자가 학급마다 들어가지 않고 한 화면에서 전체 배정을 훑고 고칠 수 있게 모아뒀다.
 // 조회는 교사 전체, 수정은 관리자만(firestore.rules로 서버에서도 강제). 한 과목을
 // 여러 교사가 나눠 맡는 경우(공동 수업 등)가 있어 다중 선택으로 받는다.
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -29,7 +29,7 @@ import { USERS, currentSchoolYear } from '@shared/lib/schema'
 import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
 import {
   subscribeChecks, updateSubjectAssignment, assignedTeacherNames,
-  buildTeacherSubjectIndex, subjectIndexKey,
+  buildTeacherSubjectIndex, subjectIndexKey, backfillCheckTerm,
 } from '@shared/lib/setukCheck'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
@@ -79,6 +79,20 @@ export default function SetukTeacherAssignments() {
     if (!schoolId) return
     return subscribeChecks(schoolId, (list) => { setChecks(list); setLoadingChecks(false) }, (err) => { setError(err.message); setLoadingChecks(false) })
   }, [schoolId])
+
+  // year/semester가 생기기 전에 업로드된 건은 필터가 항상 통과시켜 둔 채라 학기로
+  // 걸러지지 않는다 — 이 화면을 관리자가 열어볼 때 그런 건을 한 번씩 지연 보정한다
+  // (records에서 학기를 읽어와 채워 넣음). onSnapshot이 다시 쏴주는 새 값으로 필터가
+  // 바로 반영되므로 새로고침이 필요 없다. 같은 건에 중복 시도하지 않도록 ref로 추적.
+  const backfillAttempted = useRef(new Set())
+  useEffect(() => {
+    if (!schoolId || !isAdmin) return
+    checks.forEach((c) => {
+      if (c.semester != null || backfillAttempted.current.has(c.id)) return
+      backfillAttempted.current.add(c.id)
+      backfillCheckTerm(schoolId, c.id).catch((e) => console.error('[SetukTeacherAssignments] 학기 정보 보정 실패:', e))
+    })
+  }, [schoolId, isAdmin, checks])
 
   useEffect(() => {
     if (!schoolId) return

@@ -29,6 +29,22 @@ export async function loadRecords(schoolId, checkId) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
+/**
+ * year/semester 필드가 생기기 전(2026-09-04 이전)에 업로드된 건은 이 필드가 비어 있어
+ * "과목별 담당 교사" 화면의 학년도-학기 필터가 걸러내지 못한다(의도적으로 항상 통과시켜
+ * 두었음). 그 건의 records에서 학기를 한 번 읽어와 채워 넣는 지연 마이그레이션 —
+ * year는 그 시점엔 알 수 없어 지금 학년도로 채운다(이 필드가 없는 건은 모두 최근에
+ * 업로드된 것이므로 실제로도 맞다). 이미 semester가 있으면 아무것도 하지 않는다.
+ */
+export async function backfillCheckTerm(schoolId, checkId) {
+  const records = await loadRecords(schoolId, checkId)
+  const semester = records.find((r) => r.semester)?.semester || null
+  if (!semester) return null
+  const year = currentSchoolYear()
+  await updateDoc(checkDoc(schoolId, checkId), { year, semester })
+  return { year, semester }
+}
+
 /** 과목별 보기(여러 학급을 가로질러 한 과목만 모아보기)에서 학급 하나의 항목을 가져온다. */
 export async function loadItemsBySubject(schoolId, checkId, subjectName) {
   const snap = await getDocs(query(itemsCol(schoolId, checkId), where('subjectName', '==', subjectName)))
