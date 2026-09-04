@@ -445,13 +445,14 @@ export function subscribeDictionary(schoolId, cb, onError) {
 }
 
 /**
- * groups: setukUtils.js의 loadDictionary()가 반환하는 형태 그대로 저장한다(완전 대체).
- * 저장할 때마다 version을 1씩 올려서, 이미 점검을 끝낸 건이 그 뒤에 바뀐 기준을 놓치지
- * 않고 "다시 점검하라" 경고를 띄울 수 있게 한다(각 점검 건은 saveCheck/recheckCheck 시점의
- * version을 자기 문서에 함께 기록해 둔다).
+ * groups·namedEntities: setukUtils.js의 loadDictionary()가 반환하는 형태 그대로
+ * 저장한다(완전 대체). namedEntities는 상호명·기관명 고유명사 사전(방침 문서
+ * NamedEntityRule[] 구조)이다. 저장할 때마다 version을 1씩 올려서, 이미 점검을 끝낸
+ * 건이 그 뒤에 바뀐 기준을 놓치지 않고 "다시 점검하라" 경고를 띄울 수 있게 한다(각
+ * 점검 건은 saveCheck/recheckCheck 시점의 version을 자기 문서에 함께 기록해 둔다).
  */
-export async function saveDictionary(schoolId, groups, uid, name) {
+export async function saveDictionary(schoolId, groups, namedEntities, uid, name) {
   await setDoc(dictionaryDoc(schoolId), {
-    groups, updatedByUid: uid, updatedByName: name || '', updatedAt: serverTimestamp(), version: increment(1),
+    groups, namedEntities: namedEntities || [], updatedByUid: uid, updatedByName: name || '', updatedAt: serverTimestamp(), version: increment(1),
   }, { merge: true })
 }

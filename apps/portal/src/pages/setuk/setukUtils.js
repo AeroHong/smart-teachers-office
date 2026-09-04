@@ -222,6 +222,73 @@ export const AUTHORITY_LABELS = {
 
 export const SEVERITY_LABELS = { ERROR: '금지 표현', WARNING: '주의 표현', INFO: '참고 표현' }
 
+// ── 상호명·기관명 고유명사 사전 ──────────────────────────────────────────
+// 사용자가 정리해 준 "생기부 상호명·기관명 탐지 처리 방침"(2026-09-04)을 그대로
+// 구현한다. 핵심 원칙: AI 의미 판단이 아니라 결정론적 사전(canonical+aliases) 매칭 +
+// 구조화된 규칙만 쓴다. 특정 대학·기관·기업·브랜드·서비스명이 등장 자체로 기재 제한에
+// 걸릴 수 있어, groups(문자열 목록)와 별도로 canonical/aliases/type/ambiguity를 갖는
+// 전용 사전으로 관리한다 — 방침 §2.1의 NamedEntityRule 구조.
+export const NAMED_ENTITY_TYPES = {
+  university: '대학', institution: '기관', company: '기업/상호', brand: '브랜드',
+  service: '서비스', organization: '단체',
+}
+export const AMBIGUITY_LABELS = { low: '낮음(고유성 높음)', medium: '보통', high: '높음(일반명사 충돌 가능)' }
+
+/**
+ * 방침 §3: 일반명사와 충돌 가능성이 있는(ambiguity가 low가 아닌) 항목은 severity를
+ * ERROR로 등록해 두었어도 WARNING까지만 표시한다 — "미래", "희망" 같은 흔한 상호를
+ * 등록했다가 확정 오류로 잘못 단정하는 걸 막기 위함.
+ */
+function effectiveNamedEntitySeverity(entity) {
+  if (entity.ambiguity !== 'low' && entity.severity === 'ERROR') return 'WARNING'
+  return entity.severity
+}
+
+/**
+ * 방침 §2.1/§6: 등록된 고유명사(canonical+aliases)를 정확히 매칭한다. 영문 별칭은
+ * 대소문자를 구분하지 않는다. 방침 §2.3에 따라 공백을 지우는 식의 매칭은 하지 않는다
+ * (오탐 위험) — 원문 그대로에 별칭 문자열을 대소문자만 무시하고 찾는다.
+ */
+// 매칭된 구간을 반환해, 이미 등록된 이름으로 잡힌 자리는 아래 미등록 후보 패턴이
+// 같은 자리를 또 잡아 중복 표시하지 않게 한다("OO대학교"를 등록해 두면 등록된 이름
+// 매칭 하나만 뜨고, "~대학교" 접미사 패턴이 같은 자리를 다시 잡지 않는다).
+function runNamedEntityRules(items, text, namedEntities) {
+  const spans = []
+  ;(namedEntities || []).forEach((entity) => {
+    if (!entity.enabled || !entity.canonical) return
+    const severity = effectiveNamedEntitySeverity(entity)
+    const aliases = entity.aliases?.length ? entity.aliases : [entity.canonical]
+    aliases.forEach((alias) => {
+      const trimmed = String(alias || '').trim()
+      if (!trimmed) return
+      findAllRegex(text, new RegExp(escapeRegExp(trimmed), 'gi')).forEach(({ index, matched }) => {
+        spans.push({ index, length: matched.length })
+        pushMatch(items, {
+          category: '상호명·기관명', authority: entity.authority || 'official_2026', severity,
+          ruleId: `named_entity_${entity.canonical}`,
+        }, text, index, matched.length, `"${entity.canonical}"(으)로 등록된 고유명사입니다. 생기부 기재 가능 여부를 확인하세요.`)
+      })
+    })
+  })
+  return spans
+}
+
+// 방침 §3/§6: 사전에 없어도 "~대학교·~연구원·~협회·~재단·~공사·~공단·~진흥원·~평가원"
+// 같은 접미사 패턴이면 미등록 기관명 후보로 보고 WARNING으로만 표시한다(확정 판정
+// 아님 — 항상 교사 확인이 필요하다는 뜻에서 §12 학교 추가 규칙처럼 끄고 켤 수 있게 하지
+// 않고 항상 켜둔다. 이미 특정 이름으로 사전에 등록해 둔 항목과 굳이 중복 표시할
+// 필요는 없어 이름별로 한 번씩만 잡는 findAllRegex의 기본 동작을 그대로 쓴다).
+const INSTITUTION_CANDIDATE_PATTERN = /[가-힣A-Za-z0-9]{2,}(?:대학교|대학원|연구원|연구소|협회|재단|공사|공단|진흥원|평가원)/g
+
+function runInstitutionCandidatePattern(items, text, excludeSpans) {
+  findAllRegex(text, INSTITUTION_CANDIDATE_PATTERN).forEach(({ index, matched }) => {
+    const overlapsRegistered = (excludeSpans || []).some((s) => index < s.index + s.length && index + matched.length > s.index)
+    if (overlapsRegistered) return
+    pushMatch(items, { category: '상호명·기관명 후보', authority: 'official_2026', severity: 'WARNING', ruleId: 'institution_candidate' },
+      text, index, matched.length, '사전에 없는 기관명 후보입니다. 실제 특정 기관을 가리키는지 확인하세요.')
+  })
+}
+
 // 그룹 종류: literal(문자열 그대로 탐지) / pair(오타→올바른 표현) / sentence_end(문장 "끝"에서만 탐지)
 // §5 문장부호·특수기호 — 실제로는 쉼표·마침표 외 문장부호는 거의 쓰이지 않고, 물음표·
 // 느낌표도 특수기호와 같은 성격으로 취급해 하나로 묶는다(쉼표·마침표 자체는 정상적으로
@@ -321,7 +388,12 @@ export function loadDictionary(custom) {
   const customById = Object.fromEntries((custom?.groups || []).map((g) => [g.id, g]))
   const groups = DEFAULT_RULE_GROUPS.map((g) => (customById[g.id] ? { ...g, ...customById[g.id] } : g))
   ;(custom?.groups || []).forEach((g) => { if (!DEFAULT_RULE_GROUPS.some((d) => d.id === g.id)) groups.push(g) })
-  return { groups }
+  // 상호명·기관명 사전은 기본값이 없다(방침 문서의 예시는 데이터 모델 설명용일 뿐,
+  // "유튜브"·"구글" 같은 흔한 서비스명을 실제로 기본 활성화해 두면 정상적인 세특 서술
+  // ("유튜브 영상을 참고하여" 등)까지 대량으로 걸려 오히려 신뢰를 떨어뜨린다 — 학교가
+  // 실제 판단 기준에 맞는 항목을 직접 등록해 나가는 것을 원칙으로 한다).
+  const namedEntities = custom?.namedEntities || []
+  return { groups, namedEntities }
 }
 
 function escapeRegExp(s) {
@@ -455,6 +527,11 @@ export function checkText(text, dictionary, studentName) {
     pushMatch(items, { category: '구조/숨은 문자', authority: 'school_policy', severity: 'ERROR', ruleId: 'hidden_char' },
       text, index, matched.length || 1, '복사·붙여넣기 과정에서 섞인 보이지 않는 문자로 보입니다.', '(보이지 않는 문자)')
   })
+
+  // 상호명·기관명 — 학교가 등록한 고유명사 사전과 정확히 일치하는 표현, 그리고
+  // 사전에 없어도 접미사 패턴으로 짐작되는 미등록 기관명 후보.
+  const namedEntitySpans = runNamedEntityRules(items, text, dictionary.namedEntities)
+  runInstitutionCandidatePattern(items, text, namedEntitySpans)
 
   // 괄호·인용부호 짝
   const bracketIssue = checkBrackets(text)
