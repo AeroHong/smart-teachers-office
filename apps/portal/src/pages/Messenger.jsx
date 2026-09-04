@@ -181,7 +181,7 @@ export default function Messenger() {
       <Box sx={{ maxWidth: 1040, mx: 'auto' }}>
         {/* 히어로 */}
         <Box sx={{ textAlign: 'center', pt: { xs: 6, md: 10 }, pb: { xs: 6, md: 8 } }}>
-          <Box sx={{ fontSize: '2.75rem', lineHeight: 1, mb: 2 }}>💬</Box>
+          <Box component="img" src="/favicon.svg" alt="" sx={{ width: 56, height: 56, mb: 2 }} />
           <Typography
             fontWeight={800}
             sx={{ fontSize: { xs: '2.1rem', md: '3rem' }, lineHeight: 1.15, mb: 2.5 }}
