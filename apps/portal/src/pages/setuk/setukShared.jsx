@@ -10,6 +10,7 @@ import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import Chip from '@mui/material/Chip'
 import Tooltip from '@mui/material/Tooltip'
+import IconButton from '@mui/material/IconButton'
 import { currentSchoolYear, currentYearSemester } from '@shared/lib/schema'
 import { backfillCheckTerm, subscribeDictionary } from '@shared/lib/setukCheck'
 
@@ -22,6 +23,32 @@ export const SEVERITY_COLORS = { ERROR: 'error', WARNING: 'warning', INFO: 'info
  * self_name_repeat 규칙 등 실제 이름 문자열이 필요한 처리 로직에는 쓰지 않는다 —
  * 화면 표시(SetukCheckDetail.jsx, SetukSubjectDetail.jsx)에서만 사용.
  */
+/**
+ * 처리완료·이상없음 버튼 — 눌렸는지 아닌지 한눈에 안 보인다는 피드백을 반영해,
+ * 눌린 상태는 색이 꽉 찬 원(흰 아이콘)으로 확실히 도드라지게 하고, 안 눌렸지만
+ * 누를 수 있는 상태는 옅은 테두리의 중간 톤 아이콘으로, 아예 누를 권한이 없는
+ * 상태는 아주 옅게 처리해 세 상태가 뚜렷이 구분되게 한다.
+ */
+export function ResolutionButton({ active, allowed, colorKey, icon: Icon, tooltip, onClick }) {
+  return (
+    <Tooltip title={tooltip}>
+      <span>
+        <IconButton
+          size="small" disabled={!allowed} onClick={onClick}
+          sx={{
+            border: '1.5px solid', borderColor: active ? `${colorKey}.main` : '#e2e8f0',
+            bgcolor: active ? `${colorKey}.main` : '#fff',
+            '&:hover': { bgcolor: active ? `${colorKey}.dark` : '#f1f5f9' },
+            '&.Mui-disabled': { border: '1.5px solid #f1f5f9' },
+          }}
+        >
+          <Icon fontSize="small" sx={{ color: active ? '#fff' : (allowed ? '#94a3b8' : '#cbd5e1') }} />
+        </IconButton>
+      </span>
+    </Tooltip>
+  )
+}
+
 export function maskName(name) {
   const s = String(name || '')
   if (s.length <= 1) return s

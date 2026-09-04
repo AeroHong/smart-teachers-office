@@ -10,15 +10,11 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Paper from '@mui/material/Paper'
 import Chip from '@mui/material/Chip'
-import Checkbox from '@mui/material/Checkbox'
 import TextField from '@mui/material/TextField'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
-import Tooltip from '@mui/material/Tooltip'
-import IconButton from '@mui/material/IconButton'
 import Accordion from '@mui/material/Accordion'
 import AccordionSummary from '@mui/material/AccordionSummary'
 import AccordionDetails from '@mui/material/AccordionDetails'
@@ -32,7 +28,7 @@ import {
   subscribeChecks, loadRecords, loadItemsBySubject, updateItemNote, updateItemResolved, isAssignedTeacher,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS } from './setukUtils'
-import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, fmtDateTime } from './setukShared'
+import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, fmtDateTime, ResolutionButton } from './setukShared'
 import Layout from '../../components/Layout'
 
 // 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
@@ -53,8 +49,12 @@ export default function SetukSubjectDetail() {
   const [recordsById, setRecordsById] = useState({})
   const [loadingGroups, setLoadingGroups] = useState(false)
   const [error, setError] = useState('')
-  const [unresolvedOnly, setUnresolvedOnly] = useState(true)
+  // 기본은 전체 보기 — 예전엔 미처리만 기본으로 보여줘서 이미 처리완료한 항목을
+  // 다시 확인하기 불편하다는 피드백을 반영해 상태 필터로 바꿨다(학급별 상세와
+  // 같은 방식: 전체/미처리/처리완료/이상없음).
+  const [statusFilter, setStatusFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [classFilter, setClassFilter] = useState('all')
   const [savingNote, setSavingNote] = useState({})
 
   const goBack = () => navigate('/setuk', { state: { tab: 1 } })
@@ -157,32 +157,56 @@ export default function SetukSubjectDetail() {
     [...new Set(groups.flatMap((g) => g.items.map((it) => it.category)))].sort((a, b) => a.localeCompare(b, 'ko'))
   ), [groups])
 
-  // 필터 드롭다운에 유형별 건수를 같이 보여준다 — "미처리만 보기"는 그대로 적용하고
-  // (지금 화면에 실제로 몇 건이 뜰지가 궁금한 것이므로), 유형 필터 자체는 무시한
-  // 채로 세어야 "전체 유형" 대비 각 유형이 몇 건인지 비교가 된다.
+  // 반별로 보기 — 이 과목을 담당하는 학급이 여러 반일 때 하나만 골라 볼 수 있게 한다.
+  const classLabels = useMemo(() => (
+    [...new Set(groups.map((g) => g.classLabel))].sort((a, b) => a.localeCompare(b, 'ko'))
+  ), [groups])
+
+  const matchesStatus = (it) => {
+    if (statusFilter === 'unresolved') return !it.resolved
+    if (statusFilter === 'fixed') return it.resolution === 'fixed'
+    if (statusFilter === 'no_issue') return it.resolution === 'no_issue'
+    return true
+  }
+
+  // 필터 드롭다운에 유형별·반별 건수를 같이 보여준다 — 처리 상태 필터는 그대로
+  // 적용하고(지금 화면에 실제로 몇 건이 뜰지가 궁금한 것이므로), 유형·반 필터
+  // 자체는 서로 무시한 채로 세어야 "전체" 대비 각 값이 몇 건인지 비교가 된다.
   const categoryCounts = useMemo(() => {
     const counts = {}
     let total = 0
     groups.forEach((g) => {
+      if (classFilter !== 'all' && g.classLabel !== classFilter) return
       g.items.forEach((it) => {
-        if (unresolvedOnly && it.resolved) return
+        if (!matchesStatus(it)) return
         counts[it.category] = (counts[it.category] || 0) + 1
         total += 1
       })
     })
     return { counts, total }
-  }, [groups, unresolvedOnly])
+  }, [groups, statusFilter, classFilter])
+
+  const classCounts = useMemo(() => {
+    const counts = {}
+    let total = 0
+    groups.forEach((g) => {
+      const n = g.items.filter((it) => matchesStatus(it) && (categoryFilter === 'all' || it.category === categoryFilter)).length
+      if (n === 0) return
+      counts[g.classLabel] = (counts[g.classLabel] || 0) + n
+      total += n
+    })
+    return { counts, total }
+  }, [groups, statusFilter, categoryFilter])
 
   const visibleGroups = useMemo(() => (
     groups
+      .filter((g) => classFilter === 'all' || g.classLabel === classFilter)
       .map((g) => ({
         ...g,
-        items: g.items.filter((it) => (
-          (!unresolvedOnly || !it.resolved) && (categoryFilter === 'all' || it.category === categoryFilter)
-        )),
+        items: g.items.filter((it) => matchesStatus(it) && (categoryFilter === 'all' || it.category === categoryFilter)),
       }))
       .filter((g) => g.items.length > 0)
-  ), [groups, unresolvedOnly, categoryFilter])
+  ), [groups, statusFilter, categoryFilter, classFilter])
 
   return (
     <Layout wide>
@@ -192,6 +216,13 @@ export default function SetukSubjectDetail() {
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <Typography variant="h5" fontWeight={700}>{subject}</Typography>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel>학급 필터</InputLabel>
+          <Select label="학급 필터" value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+            <MenuItem value="all">전체 학급 ({classCounts.total})</MenuItem>
+            {classLabels.map((c) => <MenuItem key={c} value={c}>{c} ({classCounts.counts[c] || 0})</MenuItem>)}
+          </Select>
+        </FormControl>
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel>유형 필터</InputLabel>
           <Select label="유형 필터" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
@@ -199,10 +230,15 @@ export default function SetukSubjectDetail() {
             {categories.map((c) => <MenuItem key={c} value={c}>{c} ({categoryCounts.counts[c] || 0})</MenuItem>)}
           </Select>
         </FormControl>
-        <FormControlLabel
-          control={<Checkbox checked={unresolvedOnly} onChange={(e) => setUnresolvedOnly(e.target.checked)} />}
-          label="미처리만 보기"
-        />
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel>처리 상태</InputLabel>
+          <Select label="처리 상태" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <MenuItem value="all">전체</MenuItem>
+            <MenuItem value="unresolved">미처리만</MenuItem>
+            <MenuItem value="fixed">처리완료만</MenuItem>
+            <MenuItem value="no_issue">이상없음만</MenuItem>
+          </Select>
+        </FormControl>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
@@ -244,20 +280,16 @@ export default function SetukSubjectDetail() {
                           <Chip size="small" variant="outlined" label={AUTHORITY_LABELS[it.authority] || it.authority} sx={{ fontSize: '0.66rem' }} />
                           <Chip size="small" label={it.category} color={SEVERITY_COLORS[it.severity]} sx={{ fontWeight: 700 }} />
                           <Box sx={{ flex: 1 }} />
-                          <Tooltip title={fixedAllowed ? '처리완료(나이스 수정 반영함)' : (it.subjectAssignments?.[it.subjectName]?.noAssignment ? '담당자 없음(전입 등) 과목은 담임·관리자만 표시할 수 있습니다.' : '담당 교사만 표시할 수 있습니다.')}>
-                            <span>
-                              <IconButton size="small" disabled={!fixedAllowed} onClick={() => handleSetResolution(it, 'fixed')}>
-                                <TaskAltIcon fontSize="small" color={it.resolution === 'fixed' ? 'success' : 'disabled'} />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={noIssueAllowed ? '이상없음(고유명사·도서명 등 오탐 확인함)' : '담당 교사·담임·관리자만 표시할 수 있습니다.'}>
-                            <span>
-                              <IconButton size="small" disabled={!noIssueAllowed} onClick={() => handleSetResolution(it, 'no_issue')}>
-                                <VerifiedIcon fontSize="small" color={it.resolution === 'no_issue' ? 'info' : 'disabled'} />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
+                          <ResolutionButton
+                            active={it.resolution === 'fixed'} allowed={fixedAllowed} colorKey="success" icon={TaskAltIcon}
+                            onClick={() => handleSetResolution(it, 'fixed')}
+                            tooltip={fixedAllowed ? '처리완료(나이스 수정 반영함)' : (it.subjectAssignments?.[it.subjectName]?.noAssignment ? '담당자 없음(전입 등) 과목은 담임·관리자만 표시할 수 있습니다.' : '담당 교사만 표시할 수 있습니다.')}
+                          />
+                          <ResolutionButton
+                            active={it.resolution === 'no_issue'} allowed={noIssueAllowed} colorKey="info" icon={VerifiedIcon}
+                            onClick={() => handleSetResolution(it, 'no_issue')}
+                            tooltip={noIssueAllowed ? '이상없음(고유명사·도서명 등 오탐 확인함)' : '담당 교사·담임·관리자만 표시할 수 있습니다.'}
+                          />
                         </Box>
                         <Typography sx={{ fontSize: '0.82rem' }}>
                           <span style={{ color: '#94a3b8' }}>{it.before}</span>

@@ -83,6 +83,17 @@ export default function SetukBySubject() {
     return map
   }, [mySubjects, filteredChecks, isAdmin, user])
 
+  // 전입생 등으로 우리 학교에 개설되지 않아 담당 교사를 지정할 수 없다고 표시한
+  // 과목("과목별 담당 교사" 화면의 노 아님 체크)인지 — 여러 학급 중 하나라도 그렇게
+  // 표시돼 있으면 이 목록에서도 놓치지 않도록 보여준다.
+  const subjectNoAssignment = useMemo(() => {
+    const map = {}
+    Object.entries(subjectRelevantChecks).forEach(([subjectName, list]) => {
+      map[subjectName] = list.some((c) => c.subjectAssignments?.[subjectName]?.noAssignment)
+    })
+    return map
+  }, [subjectRelevantChecks])
+
   // 한 과목이 여러 학급에 걸쳐 있어 학급마다 점검 기준 버전이 다를 수 있다 — 가장
   // 오래된(낮은) 버전을 대표로 보여준다. 하나라도 최신이 아니면 "다시 점검 필요"를
   // 놓치지 않기 위함(DictionaryVersionChip이 이 값과 현재 버전을 비교해 표시한다).
@@ -190,8 +201,11 @@ export default function SetukBySubject() {
                         </IconButton>
                       </Box>
                     ) : (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, flexWrap: 'wrap' }}>
                         {s}
+                        {subjectNoAssignment[s] && (
+                          <Chip size="small" variant="outlined" color="warning" label="담당자 없음(전입)" sx={{ fontSize: '0.68rem', height: 20 }} />
+                        )}
                         <Tooltip title="과목명이 잘못 인식됐다면 고치세요 — 고친 이름이 이미 있는 과목이면 자동으로 그 과목에 합쳐집니다.">
                           <IconButton
                             size="small"

@@ -36,7 +36,7 @@ import {
   renameSubjectInCheck,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS, checkText, loadDictionary } from './setukUtils'
-import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName } from './setukShared'
+import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, ResolutionButton } from './setukShared'
 import { exportCheckResults } from './setukExport'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import Layout from '../../components/Layout'
@@ -526,20 +526,16 @@ export default function SetukCheckDetail() {
                           <Chip size="small" variant="outlined" label={AUTHORITY_LABELS[it.authority] || it.authority} sx={{ fontSize: '0.66rem' }} />
                           <Chip size="small" label={it.category} color={SEVERITY_COLORS[it.severity]} sx={{ fontWeight: 700 }} />
                           <Box sx={{ flex: 1 }} />
-                          <Tooltip title={fixedAllowed ? '처리완료(나이스 수정 반영함)' : (check.subjectAssignments?.[it.subjectName]?.noAssignment ? '담당자 없음(전입 등) 과목은 담임·관리자만 표시할 수 있습니다.' : `담당 교사${assignedName ? `(${assignedName})` : ''}만 표시할 수 있습니다.`)}>
-                            <span>
-                              <IconButton size="small" disabled={!fixedAllowed} onClick={() => handleSetResolution(it, 'fixed')}>
-                                <TaskAltIcon fontSize="small" color={it.resolution === 'fixed' ? 'success' : 'disabled'} />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={noIssueAllowed ? '이상없음(고유명사·도서명 등 오탐 확인함)' : '담당 교사·담임·관리자만 표시할 수 있습니다.'}>
-                            <span>
-                              <IconButton size="small" disabled={!noIssueAllowed} onClick={() => handleSetResolution(it, 'no_issue')}>
-                                <VerifiedIcon fontSize="small" color={it.resolution === 'no_issue' ? 'info' : 'disabled'} />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
+                          <ResolutionButton
+                            active={it.resolution === 'fixed'} allowed={fixedAllowed} colorKey="success" icon={TaskAltIcon}
+                            onClick={() => handleSetResolution(it, 'fixed')}
+                            tooltip={fixedAllowed ? '처리완료(나이스 수정 반영함)' : (check.subjectAssignments?.[it.subjectName]?.noAssignment ? '담당자 없음(전입 등) 과목은 담임·관리자만 표시할 수 있습니다.' : `담당 교사${assignedName ? `(${assignedName})` : ''}만 표시할 수 있습니다.`)}
+                          />
+                          <ResolutionButton
+                            active={it.resolution === 'no_issue'} allowed={noIssueAllowed} colorKey="info" icon={VerifiedIcon}
+                            onClick={() => handleSetResolution(it, 'no_issue')}
+                            tooltip={noIssueAllowed ? '이상없음(고유명사·도서명 등 오탐 확인함)' : '담당 교사·담임·관리자만 표시할 수 있습니다.'}
+                          />
                         </Box>
                         <Typography sx={{ fontSize: '0.82rem' }}>
                           <span style={{ color: '#94a3b8' }}>{it.before}</span>
