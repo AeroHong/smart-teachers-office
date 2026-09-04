@@ -8,8 +8,10 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
+import Chip from '@mui/material/Chip'
+import Tooltip from '@mui/material/Tooltip'
 import { currentSchoolYear, currentYearSemester } from '@shared/lib/schema'
-import { backfillCheckTerm } from '@shared/lib/setukCheck'
+import { backfillCheckTerm, subscribeDictionary } from '@shared/lib/setukCheck'
 
 export const SEVERITY_COLORS = { ERROR: 'error', WARNING: 'warning', INFO: 'info' }
 
@@ -74,6 +76,40 @@ export function useSetukTermBackfill(schoolId, checks, isAdmin) {
       backfillCheckTerm(schoolId, c.id).catch((e) => console.error('[setukShared] 학기 정보 보정 실패:', e))
     })
   }, [schoolId, isAdmin, checks])
+}
+
+/**
+ * 현재 점검 기준(setukDictionary/default) 문서를 구독한다 — "학급별 목록"·"과목별
+ * 보기"에서 각 건이 어느 버전으로 점검됐는지, 최신 기준인지 표시하는 데 쓴다
+ * (SetukCheckDetail.jsx가 학급 상세 화면에서 쓰는 것과 같은 문서).
+ */
+export function useSetukDictionaryVersion(schoolId) {
+  const [dictDoc, setDictDoc] = useState(null)
+  useEffect(() => {
+    if (!schoolId) return
+    return subscribeDictionary(schoolId, setDictDoc, (e) => console.error('[setukShared] 점검 기준 조회 실패:', e))
+  }, [schoolId])
+  return dictDoc
+}
+
+/**
+ * 점검 건 하나(또는 과목별 보기처럼 여러 건을 모은 경우 그중 가장 오래된 버전)가
+ * 지금 몇 번 기준으로 점검됐는지 보여준다. 최신 기준보다 낮으면 다시 점검이
+ * 필요하다는 뜻으로 경고색을 쓴다(SetukCheckDetail.jsx의 "다시 점검하라" 배너와
+ * 같은 판단 기준: dictDoc.version > 이 건의 dictionaryVersion).
+ */
+export function DictionaryVersionChip({ version, dictDoc }) {
+  const v = version || 0
+  const currentVersion = dictDoc?.version || 0
+  const isOutdated = !!dictDoc && currentVersion > v
+  const label = isOutdated ? `기준 v${v} · 최신 아님` : `기준 v${v}`
+  const chip = <Chip size="small" variant={isOutdated ? 'filled' : 'outlined'} color={isOutdated ? 'warning' : 'default'} label={label} sx={{ fontSize: '0.7rem' }} />
+  if (!isOutdated) return chip
+  return (
+    <Tooltip title={`점검 기준이 최신(v${currentVersion})으로 바뀌었습니다. 재점검하면 새 기준이 반영됩니다.`}>
+      {chip}
+    </Tooltip>
+  )
 }
 
 /** 학년도·학기 Select 한 쌍 — 여러 화면에서 똑같은 모양으로 재사용한다. */

@@ -34,7 +34,10 @@ import { parseNeisSetukRtfFile } from './setukRtfUtils'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import SetukBySubject from './SetukBySubject'
 import SetukTeacherAssignments from './SetukTeacherAssignments'
-import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls, fmtDateTime } from './setukShared'
+import {
+  useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls, fmtDateTime,
+  useSetukDictionaryVersion, DictionaryVersionChip,
+} from './setukShared'
 import Layout from '../../components/Layout'
 
 const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
@@ -61,6 +64,7 @@ export default function SetukUpload() {
   const location = useLocation()
   const { user, userName, schoolId, isAdmin } = useAuth()
   const fileInputRef = useRef(null)
+  const dictDoc = useSetukDictionaryVersion(schoolId)
 
   // 과목별 보기 상세(SetukSubjectDetail)에서 "← 과목별 보기로"를 누르면 학급별 목록이
   // 아니라 과목별 보기 탭으로 돌아오게 한다.
@@ -383,6 +387,7 @@ export default function SetukUpload() {
                 <TableCell align="center" sx={thSortSx} onClick={() => listSort.toggle('unresolvedCount')}>미처리{listSort.Ind('unresolvedCount')}</TableCell>
                 <TableCell sx={thSortSx} onClick={() => listSort.toggle('uploadedByName')}>업로드{listSort.Ind('uploadedByName')}</TableCell>
                 <TableCell sx={thSortSx} onClick={() => listSort.toggle('sourceFileCreatedAt')}>원본 파일 생성일{listSort.Ind('sourceFileCreatedAt')}</TableCell>
+                <TableCell>점검 기준</TableCell>
                 <TableCell align="center">관리</TableCell>
               </TableRow>
             </TableHead>
@@ -402,6 +407,9 @@ export default function SetukUpload() {
                   <TableCell sx={{ fontSize: '0.8rem' }} color="text.secondary">{c.uploadedByName}</TableCell>
                   <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }} color="text.secondary">
                     {c.sourceFileCreatedAt ? fmtDateTime(c.sourceFileCreatedAt) : '-'}
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <DictionaryVersionChip version={c.dictionaryVersion} dictDoc={dictDoc} />
                   </TableCell>
                   <TableCell align="center">
                     {canDelete(c) && (

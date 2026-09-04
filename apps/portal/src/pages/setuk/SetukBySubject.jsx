@@ -22,7 +22,10 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { useTableSort } from '@shared/hooks/useTableSort'
 import { subscribeChecks, loadItemsBySubject, isAssignedTeacher, renameSubjectAcrossChecks } from '@shared/lib/setukCheck'
-import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
+import {
+  useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls,
+  useSetukDictionaryVersion, DictionaryVersionChip,
+} from './setukShared'
 
 const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
 
@@ -43,6 +46,7 @@ export default function SetukBySubject() {
   const [error, setError] = useState('')
   const [editingSubject, setEditingSubject] = useState(null) // { oldName, value }
   const [savingSubject, setSavingSubject] = useState(false)
+  const dictDoc = useSetukDictionaryVersion(schoolId)
 
   useEffect(() => {
     if (!schoolId) return
@@ -66,6 +70,31 @@ export default function SetukBySubject() {
     return [...set].sort((a, b) => a.localeCompare(b, 'ko'))
   }, [filteredChecks, isAdmin, user])
 
+  // 과목마다 그 과목을 볼 자격이 있는 학급(check) 목록 — 통계 집계와 점검 기준
+  // 버전 표시가 똑같은 기준으로 학급을 골라야 해서 한 곳에서 계산해 재사용한다.
+  const subjectRelevantChecks = useMemo(() => {
+    const map = {}
+    mySubjects.forEach((subjectName) => {
+      map[subjectName] = filteredChecks.filter((c) => (
+        Object.prototype.hasOwnProperty.call(c.subjectAssignments || {}, subjectName) &&
+        canSeeCheckForSubject(c, subjectName, isAdmin, user)
+      ))
+    })
+    return map
+  }, [mySubjects, filteredChecks, isAdmin, user])
+
+  // 한 과목이 여러 학급에 걸쳐 있어 학급마다 점검 기준 버전이 다를 수 있다 — 가장
+  // 오래된(낮은) 버전을 대표로 보여준다. 하나라도 최신이 아니면 "다시 점검 필요"를
+  // 놓치지 않기 위함(DictionaryVersionChip이 이 값과 현재 버전을 비교해 표시한다).
+  const subjectMinVersion = useMemo(() => {
+    const map = {}
+    Object.entries(subjectRelevantChecks).forEach(([subjectName, list]) => {
+      const versions = list.map((c) => c.dictionaryVersion || 0)
+      map[subjectName] = versions.length ? Math.min(...versions) : 0
+    })
+    return map
+  }, [subjectRelevantChecks])
+
   // 헤더 클릭 정렬 — mySubjects는 문자열 배열이라 getter가 항목(과목명) 자체를 받아
   // subjectStats에서 필요한 값을 찾아 반환한다. 기본(클릭 전)은 mySubjects의 가나다순을
   // 그대로 쓴다.
@@ -74,6 +103,7 @@ export default function SetukBySubject() {
     subject: (s) => s,
     total: (s) => subjectStats[s]?.total,
     unresolved: (s) => subjectStats[s]?.unresolved,
+    version: (s) => subjectMinVersion[s],
   }
 
   // 과목마다 전체/미처리 건수를 미리 집계해 둔다("학급별 목록"과 같은 방식).
@@ -82,10 +112,7 @@ export default function SetukBySubject() {
     let cancelled = false
     setLoadingStats(true)
     Promise.all(mySubjects.map(async (subjectName) => {
-      const relevantChecks = filteredChecks.filter((c) => (
-        Object.prototype.hasOwnProperty.call(c.subjectAssignments || {}, subjectName) &&
-        canSeeCheckForSubject(c, subjectName, isAdmin, user)
-      ))
+      const relevantChecks = subjectRelevantChecks[subjectName] || []
       const itemsPerCheck = await Promise.all(relevantChecks.map((c) => loadItemsBySubject(schoolId, c.id, subjectName)))
       const allItems = itemsPerCheck.flat()
       return [subjectName, { total: allItems.length, unresolved: allItems.filter((it) => !it.resolved).length }]
@@ -94,7 +121,7 @@ export default function SetukBySubject() {
       .catch((e) => !cancelled && setError(`과목별 집계 실패: ${e.message}`))
       .finally(() => !cancelled && setLoadingStats(false))
     return () => { cancelled = true }
-  }, [mySubjects, filteredChecks, schoolId, isAdmin, user])
+  }, [mySubjects, filteredChecks, schoolId, subjectRelevantChecks])
 
   // 나이스 파싱이 잘못 잘라낸 과목명을 고친다. 이 화면은 여러 학급을 모아 과목
   // 단위로 보여주므로, 그 이름을 쓰는 학급을 전부 찾아 한 번에 고친다
@@ -133,6 +160,7 @@ export default function SetukBySubject() {
               <TableCell sx={thSortSx} onClick={() => subjectSort.toggle('subject')}>과목{subjectSort.Ind('subject')}</TableCell>
               <TableCell align="center" sx={thSortSx} onClick={() => subjectSort.toggle('total')}>전체 항목{subjectSort.Ind('total')}</TableCell>
               <TableCell align="center" sx={thSortSx} onClick={() => subjectSort.toggle('unresolved')}>미처리{subjectSort.Ind('unresolved')}</TableCell>
+              <TableCell sx={thSortSx} onClick={() => subjectSort.toggle('version')}>점검 기준{subjectSort.Ind('version')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -186,6 +214,9 @@ export default function SetukBySubject() {
                         color={(stat?.unresolved ?? 0) > 0 ? 'warning' : 'success'}
                       />
                     )}
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <DictionaryVersionChip version={subjectMinVersion[s]} dictDoc={dictDoc} />
                   </TableCell>
                 </TableRow>
               )
