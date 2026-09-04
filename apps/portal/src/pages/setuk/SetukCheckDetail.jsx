@@ -36,7 +36,7 @@ import {
   renameSubjectInCheck,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS, checkText, loadDictionary } from './setukUtils'
-import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight } from './setukShared'
+import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName } from './setukShared'
 import { exportCheckResults } from './setukExport'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import Layout from '../../components/Layout'
@@ -461,7 +461,7 @@ export default function SetukCheckDetail() {
           <Accordion key={g.key} defaultExpanded variant="outlined" sx={{ mb: 1, '&:before': { display: 'none' } }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
-                <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem' }}>{g.studentNumber}번 {g.studentName}</Typography>
+                <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem' }}>{g.studentNumber}번 {maskName(g.studentName)}</Typography>
                 {isEditingThis ? (
                   <Box
                     sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}
@@ -547,6 +547,11 @@ export default function SetukCheckDetail() {
                           <span style={{ color: '#94a3b8' }}>{it.after}</span>
                         </Typography>
                         {it.message && <Typography sx={{ fontSize: '0.74rem', color: '#64748b', mt: 0.25 }}>→ {it.message}</Typography>}
+                        {it.resolved && (
+                          <Typography sx={{ fontSize: '0.7rem', color: '#94a3b8', mt: 0.25 }}>
+                            {it.resolution === 'fixed' ? '처리완료' : '이상없음'} · {it.resolvedByName || '이름 없음'} · {fmtDate(it.resolvedAt)}
+                          </Typography>
+                        )}
                         <TextField
                           sx={{ mt: 1 }} size="small" fullWidth variant="standard" placeholder="메모"
                           defaultValue={it.note || ''}

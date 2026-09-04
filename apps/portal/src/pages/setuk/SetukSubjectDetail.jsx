@@ -32,7 +32,7 @@ import {
   subscribeChecks, loadRecords, loadItemsBySubject, updateItemNote, updateItemResolved, isAssignedTeacher,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS } from './setukUtils'
-import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight } from './setukShared'
+import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, fmtDateTime } from './setukShared'
 import Layout from '../../components/Layout'
 
 // 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
@@ -219,7 +219,7 @@ export default function SetukSubjectDetail() {
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
                 <Typography sx={{ fontWeight: 700, fontSize: '1.05rem' }}>{g.classLabel}</Typography>
-                <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem' }}>{g.studentNumber}번 {g.studentName}</Typography>
+                <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem' }}>{g.studentNumber}번 {maskName(g.studentName)}</Typography>
                 <Chip size="small" variant="outlined" label={`${g.items.length}건`} />
                 {unresolvedInGroup > 0 && <Chip size="small" color="warning" label={`미처리 ${unresolvedInGroup}`} />}
               </Box>
@@ -265,6 +265,11 @@ export default function SetukSubjectDetail() {
                           <span style={{ color: '#94a3b8' }}>{it.after}</span>
                         </Typography>
                         {it.message && <Typography sx={{ fontSize: '0.74rem', color: '#64748b', mt: 0.25 }}>→ {it.message}</Typography>}
+                        {it.resolved && (
+                          <Typography sx={{ fontSize: '0.7rem', color: '#94a3b8', mt: 0.25 }}>
+                            {it.resolution === 'fixed' ? '처리완료' : '이상없음'} · {it.resolvedByName || '이름 없음'} · {fmtDateTime(it.resolvedAt)}
+                          </Typography>
+                        )}
                         <TextField
                           sx={{ mt: 1 }} size="small" fullWidth variant="standard" placeholder="메모"
                           defaultValue={it.note || ''}

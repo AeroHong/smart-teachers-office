@@ -15,6 +15,20 @@ import { backfillCheckTerm, subscribeDictionary } from '@shared/lib/setukCheck'
 
 export const SEVERITY_COLORS = { ERROR: 'error', WARNING: 'warning', INFO: 'info' }
 
+/**
+ * 화면에 학생 이름을 보여줄 때 가운데 글자를 전부 ○로 가린다("홍길동" → "홍○동",
+ * 4글자 이상이면 가운데 전부: "김민준서" → "김○○서"). 2글자 이름은 마지막 글자만
+ * 가린다("이나" → "이○"). 세특 원문에서 학생 본인 이름 재언급을 찾는 checkText의
+ * self_name_repeat 규칙 등 실제 이름 문자열이 필요한 처리 로직에는 쓰지 않는다 —
+ * 화면 표시(SetukCheckDetail.jsx, SetukSubjectDetail.jsx)에서만 사용.
+ */
+export function maskName(name) {
+  const s = String(name || '')
+  if (s.length <= 1) return s
+  if (s.length === 2) return `${s[0]}○`
+  return `${s[0]}${'○'.repeat(s.length - 2)}${s[s.length - 1]}`
+}
+
 // 평가운영계획 제출 도구(EvalPlanManagerDashboard)에서 쓰던 것과 같은 학년도 선택 범위.
 export const SETUK_YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
 
