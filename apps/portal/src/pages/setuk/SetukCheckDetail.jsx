@@ -64,6 +64,9 @@ export default function SetukCheckDetail() {
   const [myOnlyInitialized, setMyOnlyInitialized] = useState(false)
   const [groupOrder, setGroupOrder] = useState('student')
   const [savingNote, setSavingNote] = useState({})
+  // 메모 입력을 실시간으로 들고 있어야 "처리완료" 클릭 시 blur 저장을 기다리지 않고도
+  // 바로 빈 메모 여부를 확인할 수 있다(키만 undefined면 아직 items의 저장된 값을 씀).
+  const [noteDrafts, setNoteDrafts] = useState({})
   // 과목명 파싱이 잘못된 것을 사람이 고치는 중 — { key, recordId, value }. key는 g.key라
   // 한 번에 한 그룹만 고칠 수 있다(여러 곳을 동시에 열어둘 이유가 없다).
   const [editingSubject, setEditingSubject] = useState(null)
@@ -221,6 +224,16 @@ export default function SetukCheckDetail() {
     const allowed = resolution === 'fixed' ? canResolveFixed(item) : canResolveNoIssue(item)
     if (!allowed) return
     const turningOn = item.resolution !== resolution
+    // "처리완료"는 나이스에 실제로 반영했다는 뜻이라, 무슨 내용을 고쳤는지 메모 없이
+    // 그냥 눌러버리면 나중에 아무도 뭘 고쳤는지 알 수 없다 — 메모가 비어 있으면 클릭
+    // 자체를 막는다(이상없음은 판단만 남기는 것이라 메모를 강제하지 않는다).
+    if (turningOn && resolution === 'fixed') {
+      const draft = noteDrafts[item.id] !== undefined ? noteDrafts[item.id] : (item.note || '')
+      if (!draft.trim()) {
+        window.alert('처리완료(반드시 수정해야 하는 경우)로 표시하려면 먼저 메모에 무엇을 수정했는지 입력하세요.')
+        return
+      }
+    }
     try {
       await updateItemResolved(schoolId, checkId, item.id, turningOn, turningOn ? resolution : null, user?.uid, userName)
     } catch (e) {
@@ -570,9 +583,11 @@ export default function SetukCheckDetail() {
                           </Typography>
                         )}
                         <TextField
-                          sx={{ mt: 1 }} size="small" fullWidth variant="standard" placeholder="메모"
-                          defaultValue={it.note || ''}
+                          sx={{ mt: 1 }} size="small" fullWidth variant="standard"
+                          placeholder={it.resolution === 'fixed' ? '메모(필수) — 무엇을 수정했는지 입력하세요' : '메모'}
+                          value={noteDrafts[it.id] !== undefined ? noteDrafts[it.id] : (it.note || '')}
                           disabled={!!savingNote[it.id]}
+                          onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [it.id]: e.target.value }))}
                           onBlur={(e) => handleNoteBlur(it, e.target.value)}
                         />
                       </Box>
