@@ -21,6 +21,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -46,7 +48,10 @@ export default function SetukUpload() {
   const [checks, setChecks] = useState([])
   const [loadingList, setLoadingList] = useState(true)
   const [processing, setProcessing] = useState(false)
-  const [progressMsg, setProgressMsg] = useState('')
+  // 한 번에 여러 파일을 올릴 수 있어(일괄 업로드), 파일마다 진행 상태를 따로 추적한다
+  // — {name, status: 'pending'|'processing'|'done'|'error', message}. 한 파일이
+  // 실패해도 나머지는 계속 처리한다(부분 성공 허용).
+  const [fileStatuses, setFileStatuses] = useState([])
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [dictOpen, setDictOpen] = useState(false)
@@ -63,98 +68,121 @@ export default function SetukUpload() {
   useSetukTermBackfill(schoolId, checks, isAdmin)
   const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
 
-  const handleFile = useCallback(async (file) => {
-    if (!file) return
+  // 파일 하나를 파싱→점검→저장까지 처리한다. onProgress로 그 파일의 세부 진행 문구를
+  // 알려준다(일괄 업로드 화면에서 파일마다 지금 어느 단계인지 보여주는 데 쓴다).
+  const processOneFile = useCallback(async (file, onProgress) => {
+    onProgress?.('파일을 읽는 중...')
+    // 나이스 "XLS data" 내보내기는 사용자가 입력한 줄바꿈을 저장 시점에 통째로
+    // 없애 버린다(실측, 2026-09-03). "XLS"(data 아님)로 받으면 표준 엑셀 형식
+    // 그대로 줄바꿈이 보존되어 parseNeisSetukFile로 충분하다. "DOC"로 받으면
+    // 확장자와 달리 실제로는 RTF 문서인데, 이쪽도 줄바꿈(\par)과 페이지 나눔
+    // (\page)이 명확히 구분돼 정확하게 복원된다 — 파일 확장자로 두 파서 중
+    // 하나로 나눠 보낸다.
+    const isDoc = /\.doc$/i.test(file.name || '')
+    const { classLabel, records, sourceCreatedAt } = isDoc ? await parseNeisSetukRtfFile(file) : await parseNeisSetukFile(file)
+
+    onProgress?.('오타·금지어·띄어쓰기 점검 중...')
+    let customDict = null
+    try {
+      customDict = await getDictionary(schoolId)
+    } catch (e) {
+      console.error('[SetukUpload] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
+    }
+    const dictionary = loadDictionary(customDict)
+    const dictionaryVersion = customDict?.version || 0
+    const items = []
+    const recordsWithCount = records.map((r, recordIndex) => {
+      const flags = checkText(r.text, dictionary, r.studentName)
+      flags.forEach((f) => {
+        items.push({
+          recordIndex,
+          studentNumber: r.studentNumber,
+          studentName: r.studentName,
+          subjectName: r.subjectName,
+          ruleId: f.ruleId,
+          category: f.category,
+          authority: f.authority,
+          severity: f.severity,
+          matched: f.matched,
+          index: f.index,
+          length: f.length,
+          message: f.message,
+          before: f.before,
+          after: f.after,
+          resolved: false,
+          resolution: null,
+          resolvedByUid: null,
+          resolvedByName: null,
+          resolvedAt: null,
+          note: '',
+        })
+      })
+      return { ...r, flagCount: flags.length }
+    })
+
+    onProgress?.('담당 교사 자동 매칭 중...')
+    let subjectAssignments = {}
+    try {
+      const idx = await buildTeacherSubjectIndex(schoolId, currentSchoolYear())
+      const bySubject = {}
+      recordsWithCount.forEach((r) => { bySubject[r.subjectName] = r.grade })
+      subjectAssignments = Object.fromEntries(
+        Object.entries(bySubject).map(([subjectName, grade]) => {
+          // 한 과목을 여러 교사가 나눠 맡는 경우(공동 수업 등) 후보 전원을 자동 배정한다.
+          const candidates = idx[subjectIndexKey(grade, subjectName)] || []
+          return [subjectName, {
+            teacherUids: candidates.map((c) => c.uid),
+            teacherNames: candidates.map((c) => c.name),
+            source: candidates.length > 0 ? 'auto' : 'manual',
+          }]
+        }),
+      )
+    } catch (e) {
+      console.error('[SetukUpload] 담당교사 자동 매칭 실패(수동 지정으로 계속):', e)
+    }
+
+    onProgress?.('저장 중...')
+    const grade = recordsWithCount.find((r) => r.grade)?.grade || null
+    const semester = recordsWithCount.find((r) => r.semester)?.semester || null
+    const checkId = await saveCheck(
+      schoolId, { classLabel, grade, year: currentSchoolYear(), semester, sourceFileCreatedAt: sourceCreatedAt },
+      recordsWithCount, items, subjectAssignments, user.uid, userName, dictionaryVersion,
+    )
+    return { checkId, classLabel }
+  }, [schoolId, user, userName])
+
+  // 여러 파일을 골라도(드래그로 여러 개, 또는 파일 선택창에서 다중 선택) 한 번에
+  // 순서대로 처리한다 — 한 학년 전체 반을 한 번에 올리는 게 목적이라 하나씩 다시
+  // 파일 선택창을 여는 수고를 없앤다. 한 파일이 실패해도 나머지는 계속 처리하고
+  // (부분 성공 허용), 파일별 결과를 목록으로 보여준다. 여러 학급이 섞여 있으니
+  // 업로드 뒤 특정 상세 화면으로 자동 이동하지는 않고(파일 1개일 때만 예외),
+  // 목록 탭에 남아 결과를 한눈에 확인하게 한다.
+  const handleFiles = useCallback(async (fileList) => {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
     setError('')
     setProcessing(true)
-    try {
-      setProgressMsg('파일을 읽는 중...')
-      // 나이스 "XLS data" 내보내기는 사용자가 입력한 줄바꿈을 저장 시점에 통째로
-      // 없애 버린다(실측, 2026-09-03). "XLS"(data 아님)로 받으면 표준 엑셀 형식
-      // 그대로 줄바꿈이 보존되어 parseNeisSetukFile로 충분하다. "DOC"로 받으면
-      // 확장자와 달리 실제로는 RTF 문서인데, 이쪽도 줄바꿈(\par)과 페이지 나눔
-      // (\page)이 명확히 구분돼 정확하게 복원된다 — 파일 확장자로 두 파서 중
-      // 하나로 나눠 보낸다.
-      const isDoc = /\.doc$/i.test(file.name || '')
-      const { classLabel, records, sourceCreatedAt } = isDoc ? await parseNeisSetukRtfFile(file) : await parseNeisSetukFile(file)
+    setFileStatuses(files.map((f) => ({ name: f.name, status: 'pending', message: '' })))
 
-      setProgressMsg('오타·금지어·띄어쓰기 점검 중...')
-      let customDict = null
+    let lastCheckId = null
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      setFileStatuses((prev) => prev.map((s, idx) => (idx === i ? { ...s, status: 'processing' } : s)))
       try {
-        customDict = await getDictionary(schoolId)
-      } catch (e) {
-        console.error('[SetukUpload] 학교 추가 사전 조회 실패(기본 목록만 사용):', e)
-      }
-      const dictionary = loadDictionary(customDict)
-      const dictionaryVersion = customDict?.version || 0
-      const items = []
-      const recordsWithCount = records.map((r, recordIndex) => {
-        const flags = checkText(r.text, dictionary, r.studentName)
-        flags.forEach((f) => {
-          items.push({
-            recordIndex,
-            studentNumber: r.studentNumber,
-            studentName: r.studentName,
-            subjectName: r.subjectName,
-            ruleId: f.ruleId,
-            category: f.category,
-            authority: f.authority,
-            severity: f.severity,
-            matched: f.matched,
-            index: f.index,
-            length: f.length,
-            message: f.message,
-            before: f.before,
-            after: f.after,
-            resolved: false,
-            resolution: null,
-            resolvedByUid: null,
-            resolvedByName: null,
-            resolvedAt: null,
-            note: '',
-          })
+        const { checkId } = await processOneFile(file, (message) => {
+          setFileStatuses((prev) => prev.map((s, idx) => (idx === i ? { ...s, message } : s)))
         })
-        return { ...r, flagCount: flags.length }
-      })
-
-      setProgressMsg('담당 교사 자동 매칭 중...')
-      let subjectAssignments = {}
-      try {
-        const idx = await buildTeacherSubjectIndex(schoolId, currentSchoolYear())
-        const bySubject = {}
-        recordsWithCount.forEach((r) => { bySubject[r.subjectName] = r.grade })
-        subjectAssignments = Object.fromEntries(
-          Object.entries(bySubject).map(([subjectName, grade]) => {
-            // 한 과목을 여러 교사가 나눠 맡는 경우(공동 수업 등) 후보 전원을 자동 배정한다.
-            const candidates = idx[subjectIndexKey(grade, subjectName)] || []
-            return [subjectName, {
-              teacherUids: candidates.map((c) => c.uid),
-              teacherNames: candidates.map((c) => c.name),
-              source: candidates.length > 0 ? 'auto' : 'manual',
-            }]
-          }),
-        )
+        lastCheckId = checkId
+        setFileStatuses((prev) => prev.map((s, idx) => (idx === i ? { ...s, status: 'done', message: '' } : s)))
       } catch (e) {
-        console.error('[SetukUpload] 담당교사 자동 매칭 실패(수동 지정으로 계속):', e)
+        setFileStatuses((prev) => prev.map((s, idx) => (idx === i ? { ...s, status: 'error', message: e.message } : s)))
       }
-
-      setProgressMsg('저장 중...')
-      const grade = recordsWithCount.find((r) => r.grade)?.grade || null
-      const semester = recordsWithCount.find((r) => r.semester)?.semester || null
-      const checkId = await saveCheck(
-        schoolId, { classLabel, grade, year: currentSchoolYear(), semester, sourceFileCreatedAt: sourceCreatedAt },
-        recordsWithCount, items, subjectAssignments, user.uid, userName, dictionaryVersion,
-      )
-
-      navigate(`/setuk/${checkId}`)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setProcessing(false)
-      setProgressMsg('')
-      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [schoolId, user, userName, navigate])
+
+    setProcessing(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (files.length === 1 && lastCheckId) navigate(`/setuk/${lastCheckId}`)
+  }, [processOneFile, navigate])
 
   const handleDelete = async (check) => {
     if (!window.confirm(`"${check.classLabel}" 점검 결과를 삭제할까요? 되돌릴 수 없습니다.`)) return
@@ -255,7 +283,7 @@ export default function SetukUpload() {
         variant="outlined"
         onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files?.[0]) }}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
         sx={{
           p: 5, mb: 3, borderRadius: '12px', textAlign: 'center',
           borderStyle: 'dashed', borderWidth: 2, borderColor: dragOver ? 'primary.main' : 'divider',
@@ -263,20 +291,40 @@ export default function SetukUpload() {
           transition: 'all 0.15s',
         }}
       >
-        {processing ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, py: 2 }}>
-            <CircularProgress />
-            <Typography variant="body2" color="text.secondary" fontWeight={600}>{progressMsg}</Typography>
+        {fileStatuses.length > 0 ? (
+          <Box sx={{ textAlign: 'left', maxWidth: 460, mx: 'auto' }}>
+            {fileStatuses.map((s, idx) => (
+              <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.6 }}>
+                <Box sx={{ width: 18, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+                  {s.status === 'processing' && <CircularProgress size={16} />}
+                  {s.status === 'done' && <CheckCircleIcon fontSize="small" color="success" />}
+                  {s.status === 'error' && <ErrorOutlineIcon fontSize="small" color="error" />}
+                </Box>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontSize: '0.85rem', fontWeight: 600 }} noWrap title={s.name}>{s.name}</Typography>
+                  {s.message && (
+                    <Typography sx={{ fontSize: '0.76rem', color: s.status === 'error' ? 'error.main' : 'text.secondary' }}>
+                      {s.message}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            ))}
+            {!processing && (
+              <Button size="small" onClick={() => setFileStatuses([])} sx={{ mt: 1, textTransform: 'none', fontWeight: 700 }}>
+                닫기
+              </Button>
+            )}
           </Box>
         ) : (
           <>
             <UploadFileIcon color="action" sx={{ fontSize: 48, mb: 1 }} />
             <Typography sx={{ fontWeight: 700, mb: 2 }}>
-              나이스 세특 파일(XLS 권장, DOC도 가능)을 여기로 끌어다 놓거나 클릭해서 선택하세요
+              나이스 세특 파일(XLS 권장, DOC도 가능)을 여기로 끌어다 놓거나 클릭해서 선택하세요 — 여러 학급 파일을 한 번에 선택할 수 있습니다.
             </Typography>
             <Button variant="contained" component="label" sx={{ textTransform: 'none', fontWeight: 700 }}>
               파일 선택
-              <input ref={fileInputRef} type="file" hidden accept=".xlsx,.doc" onChange={(e) => handleFile(e.target.files?.[0])} />
+              <input ref={fileInputRef} type="file" multiple hidden accept=".xlsx,.doc" onChange={(e) => handleFiles(e.target.files)} />
             </Button>
           </>
         )}
