@@ -28,7 +28,7 @@ import {
   subscribeChecks, loadRecords, loadItemsBySubject, updateItemNote, updateItemResolved, isAssignedTeacher,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS } from './setukUtils'
-import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, fmtDateTime, ResolutionButton } from './setukShared'
+import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, fmtDateTime, fmtDate, ResolutionButton } from './setukShared'
 import Layout from '../../components/Layout'
 
 // 이 교사가 어떤 학급의 항목을 볼 자격이 있는지 — 관리자, 그 학급 담임(업로더),
@@ -96,6 +96,7 @@ export default function SetukSubjectDetail() {
                 key, checkId: check.id, classLabel: check.classLabel,
                 studentNumber: it.studentNumber, studentName: it.studentName,
                 uploadedByUid: check.uploadedByUid, subjectAssignments: check.subjectAssignments,
+                sourceFileCreatedAt: check.sourceFileCreatedAt,
                 items: [],
               })
             }
@@ -253,11 +254,16 @@ export default function SetukSubjectDetail() {
         return (
           <Accordion key={g.key} defaultExpanded variant="outlined" sx={{ mb: 1, '&:before': { display: 'none' } }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap', width: '100%' }}>
                 <Typography sx={{ fontWeight: 700, fontSize: '1.05rem' }}>{g.classLabel}</Typography>
                 <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem' }}>{g.studentNumber}번 {maskName(g.studentName)}</Typography>
                 <Chip size="small" variant="outlined" label={`${g.items.length}건`} />
                 {unresolvedInGroup > 0 && <Chip size="small" color="warning" label={`미처리 ${unresolvedInGroup}`} />}
+                {g.sourceFileCreatedAt && (
+                  <Typography sx={{ ml: 'auto', fontSize: '0.72rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                    나이스 원본 {fmtDate(g.sourceFileCreatedAt)}
+                  </Typography>
+                )}
               </Box>
             </AccordionSummary>
             <AccordionDetails sx={{ p: 0 }}>

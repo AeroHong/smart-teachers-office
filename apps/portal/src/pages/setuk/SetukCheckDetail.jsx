@@ -36,7 +36,7 @@ import {
   renameSubjectInCheck,
 } from '@shared/lib/setukCheck'
 import { AUTHORITY_LABELS, checkText, loadDictionary } from './setukUtils'
-import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, ResolutionButton } from './setukShared'
+import { SEVERITY_COLORS, BADGE_STYLE, MultiHighlight, maskName, ResolutionButton, fmtDate as fmtDateOnly } from './setukShared'
 import { exportCheckResults } from './setukExport'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import Layout from '../../components/Layout'
@@ -460,7 +460,7 @@ export default function SetukCheckDetail() {
         return (
           <Accordion key={g.key} defaultExpanded variant="outlined" sx={{ mb: 1, '&:before': { display: 'none' } }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap', width: '100%' }}>
                 <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem' }}>{g.studentNumber}번 {maskName(g.studentName)}</Typography>
                 {isEditingThis ? (
                   <Box
@@ -500,6 +500,11 @@ export default function SetukCheckDetail() {
                 )}
                 <Chip size="small" variant="outlined" label={`${g.items.length}건`} />
                 {unresolvedInGroup > 0 && <Chip size="small" color="warning" label={`미처리 ${unresolvedInGroup}`} />}
+                {check.sourceFileCreatedAt && (
+                  <Typography sx={{ ml: 'auto', fontSize: '0.72rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                    나이스 원본 {fmtDateOnly(check.sourceFileCreatedAt)}
+                  </Typography>
+                )}
               </Box>
             </AccordionSummary>
             <AccordionDetails sx={{ p: 0 }}>

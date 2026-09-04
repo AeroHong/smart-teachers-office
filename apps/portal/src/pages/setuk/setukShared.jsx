@@ -66,6 +66,13 @@ export function fmtDateTime(ts) {
   return d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+/** 나이스 원본 파일의 "산출일자"처럼 시각 정보가 없는 날짜용 — "YYYY.MM.DD" 형식으로. */
+export function fmtDate(ts) {
+  if (!ts) return ''
+  const d = ts.toDate ? ts.toDate() : new Date(ts)
+  return d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
 /**
  * "학급별 목록"·"과목별 보기"·"과목별 담당 교사" 세 화면이 함께 쓰는 학년도-학기 필터
  * 상태 — 관리자 페이지 > 홈에서 지정한 기준(학교 전체 업무 기준)이 아니라, 현재

@@ -38,7 +38,7 @@ import SetukDictionaryDialog from './SetukDictionaryDialog'
 import SetukBySubject from './SetukBySubject'
 import SetukTeacherAssignments from './SetukTeacherAssignments'
 import {
-  useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls, fmtDateTime,
+  useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls, fmtDate,
   useSetukDictionaryVersion, DictionaryVersionChip,
 } from './setukShared'
 import Layout from '../../components/Layout'
@@ -485,7 +485,7 @@ export default function SetukUpload() {
                   </TableCell>
                   <TableCell sx={{ fontSize: '0.8rem' }} color="text.secondary">{c.uploadedByName}</TableCell>
                   <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }} color="text.secondary">
-                    {c.sourceFileCreatedAt ? fmtDateTime(c.sourceFileCreatedAt) : '-'}
+                    {c.sourceFileCreatedAt ? fmtDate(c.sourceFileCreatedAt) : '-'}
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <DictionaryVersionChip version={c.dictionaryVersion} dictDoc={dictDoc} />
