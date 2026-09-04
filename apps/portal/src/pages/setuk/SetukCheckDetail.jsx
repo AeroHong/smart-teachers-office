@@ -528,6 +528,7 @@ export default function SetukCheckDetail() {
                 <Box sx={{
                   flex: '1 1 50%', p: 2, fontSize: '0.85rem', lineHeight: 1.9, bgcolor: '#fafafa',
                   borderRight: { md: '1px solid #e5e7eb' }, borderBottom: { xs: '1px solid #e5e7eb', md: 'none' },
+                  whiteSpace: 'pre-line',
                 }}
                 >
                   <MultiHighlight text={recordText} groupItems={g.items} />
