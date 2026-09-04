@@ -1,12 +1,17 @@
 // 생기부 세특 점검 도구 사용법 안내 — 담임·교과 선생님께 공유하는 페이지. docx 파일을
 // 매번 다시 만들어 보내는 대신, 이 사이트 안의 한 페이지로 두고 SetukUpload.jsx의
 // "사용법 안내" 버튼에서 링크만 공유하면 항상 최신 내용을 보여줄 수 있다.
+//
+// 로그인 없이도 열리는 공개 페이지다(App.jsx에서 ProtectedRoute로 감싸지 않음) —
+// 로그인 전에도 링크만으로 바로 확인할 수 있어야 하므로. 그래서 로그인 상태를
+// 가정하는 공용 Layout(사이드바에 다른 업무 메뉴가 잔뜩 있고 useAuth 상태에 기대는
+// 컴포넌트라 비로그인 접근을 상정하고 만들지 않았다)을 쓰지 않고, 이 페이지만의
+// 가벼운 헤더를 직접 둔다.
 import { useNavigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import Button from '@mui/material/Button'
-import Layout from '../../components/Layout'
 
 const GUIDE_BASE = '/setuk/guide'
 
@@ -33,7 +38,14 @@ export default function SetukGuide() {
   const navigate = useNavigate()
 
   return (
-    <Layout>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc' }}>
+      <Box sx={{ bgcolor: '#fff', borderBottom: '1px solid #e5e7eb' }}>
+        <Box sx={{ maxWidth: 1100, mx: 'auto', px: { xs: 2, md: 4 }, py: 1.5 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>선유고 스마트 교무실</Typography>
+        </Box>
+      </Box>
+
+      <Box sx={{ maxWidth: 1100, mx: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
       <Button size="small" onClick={() => navigate('/setuk')} sx={{ mb: 2, textTransform: 'none', color: '#64748b' }}>
         ← 세특 점검으로
       </Button>
@@ -100,6 +112,7 @@ export default function SetukGuide() {
       <Button size="small" onClick={() => navigate('/setuk')} sx={{ mt: 2, textTransform: 'none', color: '#64748b' }}>
         ← 세특 점검으로
       </Button>
-    </Layout>
+      </Box>
+    </Box>
   )
 }

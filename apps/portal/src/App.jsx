@@ -132,7 +132,8 @@ export default function App() {
           <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
 
           <Route path="/setuk"                        element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
-          <Route path="/setuk/guide"                  element={<ProtectedRoute anyUser><SetukGuide /></ProtectedRoute>} />
+          {/* 로그인 없이도 링크만으로 바로 볼 수 있어야 하는 사용법 안내 — 의도적으로 ProtectedRoute로 감싸지 않음 */}
+          <Route path="/setuk/guide"                  element={<SetukGuide />} />
           <Route path="/setuk/subject/:subjectName"  element={<ProtectedRoute anyUser><SetukSubjectDetail /></ProtectedRoute>} />
           <Route path="/setuk/:checkId"               element={<ProtectedRoute anyUser><SetukCheckDetail /></ProtectedRoute>} />
 
