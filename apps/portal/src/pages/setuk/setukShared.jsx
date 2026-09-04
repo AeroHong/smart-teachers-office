@@ -1,15 +1,14 @@
 // 세특 점검 결과를 보여주는 화면들(학급별 목록 SetukUpload, 과목별 보기 SetukBySubject,
 // 학급별 상세 SetukCheckDetail, 과목별 담당 교사 SetukTeacherAssignments)이 공통으로
 // 쓰는 표시 조각 — 중복 구현을 피하려고 분리했다.
-import { useState, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
-import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
-import { currentSchoolYear } from '@shared/lib/schema'
+import { currentSchoolYear, currentYearSemester } from '@shared/lib/schema'
 import { backfillCheckTerm } from '@shared/lib/setukCheck'
 
 export const SEVERITY_COLORS = { ERROR: 'error', WARNING: 'warning', INFO: 'info' }
@@ -17,22 +16,34 @@ export const SEVERITY_COLORS = { ERROR: 'error', WARNING: 'warning', INFO: 'info
 // 평가운영계획 제출 도구(EvalPlanManagerDashboard)에서 쓰던 것과 같은 학년도 선택 범위.
 export const SETUK_YEAR_OPTIONS = [currentSchoolYear() - 1, currentSchoolYear(), currentSchoolYear() + 1]
 
+/** Firestore Timestamp/Date/숫자를 "YYYY.MM.DD HH:mm" 형식으로. */
+export function fmtDateTime(ts) {
+  if (!ts) return ''
+  const d = ts.toDate ? ts.toDate() : new Date(ts)
+  return d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 /**
  * "학급별 목록"·"과목별 보기"·"과목별 담당 교사" 세 화면이 함께 쓰는 학년도-학기 필터
- * 상태 — 관리자 페이지 > 홈에서 지정한 기준을 초기값으로 쓰고, 이후 사용자가 직접
- * 바꾸면 그 선택을 유지한다(평가운영계획 제출 도구와 같은 패턴).
+ * 상태 — 관리자 페이지 > 홈에서 지정한 기준(학교 전체 업무 기준)이 아니라, 현재
+ * 등록된 데이터 중 가장 최근 것(checks는 uploadedAt 내림차순이라 맨 앞)의 학년도·학기를
+ * 기본값으로 쓴다. 학교 기준과 실제 업로드된 데이터의 학기가 어긋나면 필터가 항상
+ * 빈 화면을 보여주는 문제가 있었기 때문 — 실제 데이터를 우선한다. 사용자가 직접
+ * Select를 바꾸면 그 선택으로 고정되고(override), checks가 계속 갱신돼도 되돌아가지
+ * 않는다. 아직 학기 정보가 있는 건이 하나도 없으면(로딩 중이거나 옛 데이터의 지연
+ * 보정이 안 끝난 경우, 또는 업로드가 전혀 없는 경우) 오늘 날짜 기준값으로 잠정 표시한다.
  */
-export function useSetukTermFilter(schoolId) {
-  const currentTerm = useCurrentTerm(schoolId)
-  const [year, setYear] = useState(currentTerm.year)
-  const [semester, setSemester] = useState(currentTerm.semester)
-  const [termApplied, setTermApplied] = useState(false)
-  useEffect(() => {
-    if (termApplied || !currentTerm.loaded) return
-    setYear(currentTerm.year)
-    setSemester(currentTerm.semester)
-    setTermApplied(true)
-  }, [currentTerm, termApplied])
+export function useSetukTermFilter(checks) {
+  const latest = useMemo(() => checks.find((c) => c.year != null && c.semester != null), [checks])
+  const fallback = useMemo(() => currentYearSemester(), [])
+  const autoYear = latest?.year ?? fallback.year
+  const autoSemester = latest?.semester ?? fallback.semester
+
+  const [override, setOverride] = useState(null)
+  const year = override?.year ?? autoYear
+  const semester = override?.semester ?? autoSemester
+  const setYear = (y) => setOverride({ year: y, semester })
+  const setSemester = (s) => setOverride({ year, semester: s })
   return { year, setYear, semester, setSemester }
 }
 

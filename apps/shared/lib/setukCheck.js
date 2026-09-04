@@ -58,11 +58,14 @@ export async function loadItemsBySubject(schoolId, checkId, subjectName) {
  * 개로 나뉠 수 있음).
  *
  * @param {string} schoolId
- * @param {{classLabel:string, grade:number|null, year:number|null, semester:number|null}} meta
+ * @param {{classLabel:string, grade:number|null, year:number|null, semester:number|null, sourceFileModifiedAt:Date|null}} meta
  * year/semester는 "과목별 담당 교사" 화면의 학년도-학기 필터·구분 표시에 쓴다(업로드 시점의
  * currentSchoolYear()와, 레코드에서 뽑아낸 대표 학기 — 한 업로드는 보통 한 학기 분량이라
- * grade와 같은 방식으로 대표값 하나만 저장한다). 둘 다 이 필드가 생기기 전(2026-09-04 이전)
- * 업로드 건에는 없을 수 있어, 화면에서 없을 때의 기본값 처리를 해야 한다.
+ * grade와 같은 방식으로 대표값 하나만 저장한다). sourceFileModifiedAt은 업로드한 원본
+ * xls/doc 파일의 마지막 수정 시각(대개 나이스 다운로드 시각과 같음) — 같은 학급을 다시
+ * 받아 재업로드했을 때 어느 게 최신 스냅샷인지, 그 시점 이후로 담당 교사가 나이스에서
+ * 세특을 더 고쳐 재점검이 필요한지 가늠하는 데 쓴다. 셋 다 이 필드가 생기기 전
+ * (2026-09-04 이전) 업로드 건에는 없을 수 있어, 화면에서 없을 때의 기본값 처리를 해야 한다.
  * @param {Array<{studentNumber,studentName,subjectName,grade,semester,text,flagCount}>} records
  * @param {Array<object>} items records와 같은 순서로 대응할 필요 없음(각자 recordIndex를 들고 있음)
  * @param {{[subjectName]: {teacherUid, teacherName, source}}} subjectAssignments
@@ -78,6 +81,7 @@ export async function saveCheck(schoolId, meta, records, items, subjectAssignmen
     grade: meta.grade,
     year: meta.year ?? null,
     semester: meta.semester ?? null,
+    sourceFileModifiedAt: meta.sourceFileModifiedAt ?? null,
     uploadedByUid: uid,
     uploadedByName: uploadedByName || '',
     uploadedAt: serverTimestamp(),

@@ -56,10 +56,6 @@ export default function SetukTeacherAssignments() {
   const [teacherIndex, setTeacherIndex] = useState({})
   const [error, setError] = useState('')
 
-  // 관리자 페이지 > 홈에서 지정한 학년도-학기 기준을 초기값으로 쓴다(평가운영계획
-  // 제출 도구와 같은 패턴) — 이후 사용자가 직접 바꾸면 그 선택을 유지한다.
-  const { year, setYear, semester, setSemester } = useSetukTermFilter(schoolId)
-
   useEffect(() => {
     if (!schoolId) return
     return subscribeChecks(schoolId, (list) => { setChecks(list); setLoadingChecks(false) }, (err) => { setError(err.message); setLoadingChecks(false) })
@@ -86,6 +82,8 @@ export default function SetukTeacherAssignments() {
 
   const staffByUid = useMemo(() => Object.fromEntries(staff.map((s) => [s.uid, s])), [staff])
 
+  // 현재 등록된 데이터 중 가장 최근 것의 학년도-학기를 기본값으로 쓴다.
+  const { year, setYear, semester, setSemester } = useSetukTermFilter(checks)
   const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
 
   // 과목마다 학급 수만큼 같은 줄이 반복되는 게 대부분이었다(실측 — 공통 과목은 거의

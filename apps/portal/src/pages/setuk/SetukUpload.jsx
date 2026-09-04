@@ -31,7 +31,7 @@ import { parseNeisSetukRtfFile } from './setukRtfUtils'
 import SetukDictionaryDialog from './SetukDictionaryDialog'
 import SetukBySubject from './SetukBySubject'
 import SetukTeacherAssignments from './SetukTeacherAssignments'
-import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
+import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls, fmtDateTime } from './setukShared'
 import Layout from '../../components/Layout'
 
 export default function SetukUpload() {
@@ -59,7 +59,7 @@ export default function SetukUpload() {
   }, [schoolId])
 
   // "학급별 목록" 탭에 쓰는 학년도-학기 필터 — 과목별 담당 교사 화면과 같은 패턴.
-  const { year, setYear, semester, setSemester } = useSetukTermFilter(schoolId)
+  const { year, setYear, semester, setSemester } = useSetukTermFilter(checks)
   useSetukTermBackfill(schoolId, checks, isAdmin)
   const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
 
@@ -141,8 +141,13 @@ export default function SetukUpload() {
       setProgressMsg('저장 중...')
       const grade = recordsWithCount.find((r) => r.grade)?.grade || null
       const semester = recordsWithCount.find((r) => r.semester)?.semester || null
+      // 원본 파일(나이스에서 받은 xls/doc)의 마지막 수정 시각 — 대개 다운로드 시각과
+      // 같아, 같은 학급을 다시 받아 재업로드했을 때 어느 게 더 최신 스냅샷인지, 그리고
+      // 그 시점 이후로 담당 교사가 나이스에서 세특을 더 고쳤는지(재점검 필요 여부)
+      // 가늠하는 기준으로 쓴다. 브라우저가 주는 파일시스템 값이라 없을 수도 있다.
+      const sourceFileModifiedAt = file.lastModified ? new Date(file.lastModified) : null
       const checkId = await saveCheck(
-        schoolId, { classLabel, grade, year: currentSchoolYear(), semester },
+        schoolId, { classLabel, grade, year: currentSchoolYear(), semester, sourceFileModifiedAt },
         recordsWithCount, items, subjectAssignments, user.uid, userName, dictionaryVersion,
       )
 
@@ -308,6 +313,7 @@ export default function SetukUpload() {
                 <TableCell align="center">전체 항목</TableCell>
                 <TableCell align="center">미처리</TableCell>
                 <TableCell>업로드</TableCell>
+                <TableCell>원본 파일 생성일</TableCell>
                 <TableCell align="center">관리</TableCell>
               </TableRow>
             </TableHead>
@@ -325,6 +331,9 @@ export default function SetukUpload() {
                     />
                   </TableCell>
                   <TableCell sx={{ fontSize: '0.8rem' }} color="text.secondary">{c.uploadedByName}</TableCell>
+                  <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }} color="text.secondary">
+                    {c.sourceFileModifiedAt ? fmtDateTime(c.sourceFileModifiedAt) : '-'}
+                  </TableCell>
                   <TableCell align="center">
                     {canDelete(c) && (
                       <Tooltip title="최신 점검 기준으로 재점검">

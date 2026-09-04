@@ -47,7 +47,7 @@ export default function SetukBySubject() {
   }, [schoolId])
 
   // "학급별 목록"·"과목별 담당 교사"와 같은 학년도-학기 필터.
-  const { year, setYear, semester, setSemester } = useSetukTermFilter(schoolId)
+  const { year, setYear, semester, setSemester } = useSetukTermFilter(checks)
   useSetukTermBackfill(schoolId, checks, isAdmin)
   const filteredChecks = useMemo(() => filterChecksByTerm(checks, year, semester), [checks, year, semester])
 
