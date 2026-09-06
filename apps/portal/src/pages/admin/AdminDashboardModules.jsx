@@ -108,6 +108,7 @@ export default function AdminDashboardModules() {
                   <Autocomplete
                     multiple
                     size="small"
+                    autoHighlight
                     options={staff}
                     getOptionLabel={o => o.name}
                     isOptionEqualToValue={(a, b) => a.uid === b.uid}

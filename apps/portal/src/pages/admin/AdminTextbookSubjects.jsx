@@ -331,7 +331,7 @@ export default function AdminTextbookSubjects() {
 
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>평가위원</Typography>
           <Autocomplete
-            multiple size="small" sx={{ mb: 2 }}
+            multiple size="small" autoHighlight sx={{ mb: 2 }}
             options={staff}
             getOptionLabel={(o) => o.name || o.email || ''}
             isOptionEqualToValue={(a, b) => a.uid === b.uid}
@@ -370,6 +370,7 @@ export default function AdminTextbookSubjects() {
               관리자 홈 &gt; 교과부장 지정에서 별도로 지정한다. */}
           <Autocomplete
             size="small"
+            autoHighlight
             options={staff}
             getOptionLabel={(o) => o.name || o.email || ''}
             isOptionEqualToValue={(a, b) => a.uid === b.uid}

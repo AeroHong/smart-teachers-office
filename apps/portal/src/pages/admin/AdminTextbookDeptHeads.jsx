@@ -101,6 +101,7 @@ export default function AdminTextbookDeptHeads() {
                     <TableCell>
                       <Autocomplete
                         size="small"
+                        autoHighlight
                         options={staff}
                         getOptionLabel={(o) => o.name || o.email || ''}
                         isOptionEqualToValue={(a, b) => a.uid === b.uid}

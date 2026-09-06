@@ -203,7 +203,7 @@ export default function SetukTeacherAssignments() {
                           <Typography sx={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>담당자 없음 (전입 등)</Typography>
                         ) : (
                           <Autocomplete
-                            multiple size="small" sx={{ minWidth: 260, '& .MuiAutocomplete-tag': { fontSize: '0.72rem', height: 20 } }}
+                            multiple size="small" autoHighlight sx={{ minWidth: 260, '& .MuiAutocomplete-tag': { fontSize: '0.72rem', height: 20 } }}
                             options={staff}
                             filterOptions={filterOptionsForRow(row)}
                             getOptionLabel={(o) => o.name || ''}

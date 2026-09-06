@@ -110,6 +110,12 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
     }
   }
 
+  // Autocomplete가 값을 선택하면(마우스 클릭이든, 검색 후 엔터든) 바로 등록한다 — 따로
+  // "추가" 버튼을 눌러야 하는 단계를 없애, 검색 결과가 1명뿐일 때 엔터 한 번으로 끝나게 한다.
+  useEffect(() => {
+    if (pickedManager) handleAddManager()
+  }, [pickedManager])
+
   const handleRemoveManager = async (managerUid) => {
     try {
       await removeSetukDictionaryManager(schoolId, managerUid)
@@ -374,7 +380,7 @@ export default function SetukDictionaryDialog({ open, onClose, schoolId, isAdmin
                 </Typography>
                 <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, display: 'flex', gap: 1, alignItems: 'center' }}>
                   <Autocomplete
-                    size="small" options={managerCandidates}
+                    size="small" autoHighlight options={managerCandidates}
                     getOptionLabel={(o) => o.name || o.email || ''}
                     isOptionEqualToValue={(a, b) => a.uid === b.uid}
                     value={pickedManager}

@@ -149,6 +149,7 @@ export default function NoticeComposeModal({ open, onClose, replyTo, presetRecip
       <DialogContent dividers>
         <Autocomplete
           multiple
+          autoHighlight
           options={staff}
           getOptionLabel={o => o.name}
           isOptionEqualToValue={(a, b) => a.uid === b.uid}

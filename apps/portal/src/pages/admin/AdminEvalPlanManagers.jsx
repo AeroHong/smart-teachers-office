@@ -68,6 +68,12 @@ export default function AdminEvalPlanManagers() {
     }
   }
 
+  // Autocomplete가 값을 선택하면(마우스 클릭이든, 검색 후 엔터든) 바로 등록한다 — 따로
+  // "추가" 버튼을 눌러야 하는 단계를 없애, 검색 결과가 1명뿐일 때 엔터 한 번으로 끝나게 한다.
+  useEffect(() => {
+    if (picked) handleAdd()
+  }, [picked])
+
   const handleRemove = async (uid) => {
     try {
       await deleteDoc(doc(db, ...schoolPath(schoolId, COL.EVALUATION_PLAN_MANAGERS), uid))
@@ -87,7 +93,7 @@ export default function AdminEvalPlanManagers() {
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3, display: 'flex', gap: 1, alignItems: 'center' }}>
         <Autocomplete
-          size="small"
+          size="small" autoHighlight
           options={candidates}
           getOptionLabel={(o) => o.name || o.email || ''}
           isOptionEqualToValue={(a, b) => a.uid === b.uid}

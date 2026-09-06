@@ -120,7 +120,7 @@ export default function TargetPicker({ members, value, onChange, label = '대상
         onToggle={() => setOpenManual(v => !v)}
       >
         <Autocomplete
-          multiple size="small" options={members}
+          multiple size="small" autoHighlight options={members}
           getOptionLabel={m => m.name}
           isOptionEqualToValue={(a, b) => a.uid === b.uid}
           value={pickMembers(rule.includeUids)}
@@ -130,7 +130,7 @@ export default function TargetPicker({ members, value, onChange, label = '대상
           sx={{ mb: 1, ...COMPACT_FIELD }}
         />
         <Autocomplete
-          multiple size="small" options={members}
+          multiple size="small" autoHighlight options={members}
           getOptionLabel={m => m.name}
           isOptionEqualToValue={(a, b) => a.uid === b.uid}
           value={pickMembers(rule.excludeUids)}
