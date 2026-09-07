@@ -14,6 +14,7 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
 import Paper from '@mui/material/Paper'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
@@ -21,7 +22,9 @@ import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
@@ -32,6 +35,7 @@ import {
   needsManualReinstall,
 } from '@shared/lib/desktopClients'
 import WorkspaceLayout from '../components/WorkspaceLayout'
+import { useToast } from '../components/ToastProvider'
 import { formatDateTime, formatRelative } from '../lib/formatTime'
 import useSchoolMembers from '../lib/useSchoolMembers'
 
@@ -49,29 +53,38 @@ function SummaryCard({ label, value, tone = 'default', note }) {
 export default function AdminDesktop() {
   const { schoolId, userName } = useAuth()
   const { members, loading: membersLoading } = useSchoolMembers()
+  const toast = useToast()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [pushing, setPushing] = useState(false)
-  const [pushedAt, setPushedAt] = useState(null)
+  // '*' = 전체 방송, 그 외에는 지금 요청 중인 uid — 버튼 하나만 로딩 상태가 되게
+  // 구분한다(전체·개별을 같은 상태로 두면 하나가 도는 동안 나머지 버튼도 다 잠긴다).
+  const [pushingKey, setPushingKey] = useState(null)
 
   // 배포 직후 10분(웹)·4시간(데스크톱 설치 파일) 자동 확인을 못 기다릴 때 쓴다 —
   // useAppUpdate.js가 schools/{schoolId}.forceUpdateCheckAt 변화를 보고 즉시 재확인한다.
-  // 확인만 강제할 뿐 설치(재시작)는 그대로 사용자가 눌러야 한다 — 열어둔 문서 작업이
-  // 갑자기 끊기면 안 되기 때문(사용자 결정, 2026-09-07).
-  const handleForceUpdateCheck = async () => {
-    if (!window.confirm('지금 접속 중인 모든 교사의 앱에 업데이트 확인을 강제로 요청할까요?\n(자동으로 설치되지는 않고, 새 버전이 있으면 평소처럼 안내만 뜹니다.)')) return
-    setPushing(true)
+  // targetUid를 주면 그 사람 세션만 반응한다(개별 푸시, 사용자 요청 2026-09-07 —
+  // "개별 사용자에 대해 버전이 다른 경우"). 안 주면 항상 null로 명시해 지운다 — 이전에
+  // 개별 푸시를 보낸 적이 있으면 그 값이 남아 있어, 다음 "전체" 요청이 그 사람에게만
+  // 가는 걸로 잘못 좁혀지기 때문이다. 확인만 강제할 뿐 설치(재시작)는 그대로 각자
+  // 눌러야 한다 — 열어둔 문서 작업이 갑자기 끊기면 안 되기 때문(사용자 결정).
+  const handleForceUpdateCheck = async (targetUid, targetName) => {
+    setPushingKey(targetUid || '*')
     try {
       await updateDoc(doc(db, 'schools', schoolId), {
         forceUpdateCheckAt: serverTimestamp(),
         forceUpdateCheckBy: userName || '',
+        forceUpdateCheckTargetUid: targetUid || null,
       })
-      setPushedAt(new Date())
+      toast.success(
+        targetUid
+          ? `${targetName}님 앱에 업데이트 확인을 요청했습니다.`
+          : '접속 중인 모든 앱에 업데이트 확인을 요청했습니다.',
+      )
     } catch (e) {
-      setError(e)
+      toast.error('업데이트 확인 요청을 보내지 못했습니다.', e)
     } finally {
-      setPushing(false)
+      setPushingKey(null)
     }
   }
 
@@ -145,13 +158,12 @@ export default function AdminDesktop() {
             </Typography>
           </Box>
           <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-            <Button variant="outlined" size="small" disabled={pushing} onClick={handleForceUpdateCheck}>
-              {pushing ? '요청 중…' : '지금 업데이트 확인 강제'}
+            <Button variant="outlined" size="small" disabled={!!pushingKey} onClick={() => handleForceUpdateCheck(null)}>
+              {pushingKey === '*' ? '요청 중…' : '전체에 업데이트 확인 강제'}
             </Button>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, maxWidth: 220 }}>
-              {pushedAt
-                ? `${pushedAt.toLocaleTimeString('ko-KR')}에 요청함 — 설치는 각자 안내를 눌러야 적용됩니다.`
-                : '접속 중인 앱에 즉시 확인시킵니다. 자동 설치는 안 됩니다.'}
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, maxWidth: 240 }}>
+              접속 중인 앱에 즉시 확인시킵니다. 자동 설치는 안 되고, 아래 표에서 한
+              사람에게만 보낼 수도 있습니다.
             </Typography>
           </Box>
         </Box>
@@ -211,6 +223,7 @@ export default function AdminDesktop() {
                     <TableCell>상태</TableCell>
                     <TableCell>마지막 실행</TableCell>
                     <TableCell>처음 설치</TableCell>
+                    <TableCell align="center">동작</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -235,6 +248,27 @@ export default function AdminDesktop() {
                       </TableCell>
                       <TableCell sx={{ color: 'text.secondary' }}>
                         {row.client ? formatDateTime(row.client.firstSeenAt) : '—'}
+                      </TableCell>
+                      <TableCell align="center">
+                        {/* 설치 파일 자체가 옛날이라 자동 업데이트를 확인 안 하는
+                            사람(row.outdated)은 이 요청을 보내도 반응하지 않는다 —
+                            그래도 버튼을 숨기지는 않는다(눌러서 확인해보는 것도 방법). */}
+                        {row.client && (
+                          <Tooltip title={`${row.name}님 앱에만 지금 확인 요청`}>
+                            <span>
+                              <IconButton
+                                size="small"
+                                color={row.outdated || row.stale ? 'warning' : 'default'}
+                                disabled={!!pushingKey}
+                                onClick={() => handleForceUpdateCheck(row.uid, row.name)}
+                              >
+                                {pushingKey === row.uid
+                                  ? <CircularProgress size={16} />
+                                  : <NotificationsActiveOutlinedIcon fontSize="small" />}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

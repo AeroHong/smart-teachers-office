@@ -33,7 +33,7 @@ import { isOutdated, signatureFrom, signatureFromHtml } from '@shared/lib/appVer
 const CHECK_INTERVAL_MS = 10 * 60 * 1000
 
 export default function useAppUpdate() {
-  const { schoolId } = useAuth()
+  const { schoolId, user } = useAuth()
   const [latest, setLatest] = useState(null)     // 서버에 올라와 있는 서명
   const [dismissed, setDismissed] = useState(null)
   const currentRef = useRef('')
@@ -82,16 +82,20 @@ export default function useAppUpdate() {
 
   // 관리자 강제 확인 신호 구독 — 마운트 이후의 "변화"에만 반응한다(처음 값을 그대로
   // 트리거로 보면 화면을 막 열었을 뿐인데도 매번 강제 확인이 도는 꼴이 된다).
+  // forceUpdateCheckTargetUid가 있으면(개별 푸시, AdminDesktop.jsx) 그 사람 세션만
+  // 반응하고 나머지는 조용히 무시한다 — 없으면(전체 방송) 누구나 반응한다.
   useEffect(() => {
     if (!import.meta.env.PROD || !schoolId) return undefined
     let first = true
     return onSnapshot(doc(db, 'schools', schoolId), (snap) => {
       if (first) { first = false; return }
-      if (!snap.data()?.forceUpdateCheckAt) return
+      const data = snap.data()
+      if (!data?.forceUpdateCheckAt) return
+      if (data.forceUpdateCheckTargetUid && data.forceUpdateCheckTargetUid !== user?.uid) return
       checkRef.current()
       window.smartOfficeDesktop?.checkForUpdates?.().catch(() => {})
     }, () => {})
-  }, [schoolId])
+  }, [schoolId, user?.uid])
 
   const reload = useCallback(() => { window.location.reload() }, [])
 
