@@ -389,6 +389,39 @@ export default function Channels() {
     return { ...memberDiff(active.memberUids, resolved.uids), uids: resolved.uids }
   }, [active, dm, members, membersLoading])
 
+  // members·allUserNames 둘 다 로그인 직후 프로필 동기화 쓰기와 경합할 수 있는 목록
+  // 쿼리라(useSchoolMembers.js 설명 참고), 재수 없으면 "본인이 아닌 다른 사람" 한 명이
+  // 두 쿼리 모두에서 동시에 빠질 수 있다 — 그러면 nameOf가 "(명단에 없음)"만 내놓아
+  // "누가 빠진 건지 안 보인다"는 불만으로 이어진다(사용자 지적, 2026-09-07). users/{uid}
+  // 규칙이 본인 문서만 읽기를 허용해 다른 사람 uid를 단건으로 다시 읽어올 수는 없으니
+  // (useSchoolMembers.js의 "내가 빠졌을 때" 자기 자신 한정 처리와 같은 이유), 대신
+  // 잠깐 뒤 두 목록 쿼리를 통째로 한 번 다시 읽는다 — 경합이던 쓰기가 그 사이 끝나
+  // 있을 확률이 높다. 같은 사람이 계속 이름이 안 붙으면(진짜로 없는 계정) 매 렌더
+  // 재시도하지 않도록 이번에 이미 시도한 조합은 기억해 둔다.
+  const retriedForRef = useRef('')
+  useEffect(() => {
+    const key = [...sync.added, ...sync.removed].sort().join(',')
+    if (!key) { retriedForRef.current = ''; return }
+    if (retriedForRef.current === key) return
+    const byUid = new Map(members.map(m => [m.uid, m.name]))
+    const unresolved = [...sync.added, ...sync.removed].some(uid => !byUid.get(uid) && !allUserNames[uid])
+    if (!unresolved) return
+    retriedForRef.current = key
+    const t = setTimeout(() => {
+      refetchMembers().catch(() => {})
+      if (schoolId) {
+        getDocs(query(collection(db, USERS), where('schoolId', '==', schoolId)))
+          .then(snap => {
+            const map = {}
+            snap.docs.forEach(d => { map[d.id] = d.data().name || d.data().email || '' })
+            setAllUserNames(map)
+          })
+          .catch(() => {})
+      }
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [sync.added, sync.removed, members, allUserNames, schoolId, refetchMembers])
+
   const nameOf = useMemo(() => {
     const byUid = new Map(members.map(m => [m.uid, m.name]))
     // members(올해 배정)에 없으면 allUserNames(학교 전체 users, 배정 무관)에서 찾는다 —
