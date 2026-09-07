@@ -430,11 +430,15 @@ export default function Channels() {
   }, [members, allUserNames])
 
   // 메시지 입력칸의 '@' 자동완성 — 학교 전체가 아니라 이 채널 참여자로 좁힌다
-  // (ChannelMessages.jsx).
+  // (ChannelMessages.jsx). active.memberUids가 아니라 sync.uids(조건을 지금 다시 푼
+  // 결과)를 우선 쓴다 — memberUids는 "참여자 갱신" 버튼을 눌러야 반영되는 저장값이라
+  // 인사이동 직후에는 낡아 있을 수 있고, 그 상태에서 memberUids만 보면 실제로는
+  // 채널에 있어야 할 사람이 멘션 후보에서 빠진다(사용자 지적, 2026-09-07 — "일부
+  // 구성원이 빠지는 이슈"). DM(sync가 NO_DIFF라 uids가 없음)은 그대로 memberUids를 쓴다.
   const channelMembers = useMemo(() => {
-    const uids = new Set(active?.memberUids || [])
+    const uids = new Set(sync.uids || active?.memberUids || [])
     return members.filter(m => uids.has(m.uid))
-  }, [members, active])
+  }, [members, active, sync.uids])
 
   // 이름 중복 검사에는 보관·나간 채널까지 넣는다. 보관함에 '성적-마감'이 있는데 같은
   // 이름으로 새로 만들 수 있으면, 나중에 보관을 푸는 순간 사이드바에 같은 이름이 둘이 된다.

@@ -23,17 +23,28 @@ export default function MentionMenu({ open, anchorRect, items, onSelect, onClose
   const [cursor, setCursor] = useState(0)
   const listRef = useRef(null)
 
-  useEffect(() => { setCursor(0) }, [items])
+  // items는 매 렌더 새 배열로 넘어온다(호출부가 useMemo 없이 매번 새로 만들어도
+  // 안전해야 한다 — SlashMenu.jsx는 query라는 값(문자열)에 의존해 이 문제가 없는데,
+  // 여기는 배열 참조에 의존해서 채널 안의 무관한 이유(다른 사람 활동 등)로 부모가
+  // 다시 그릴 때마다 방향키로 옮긴 위치가 0으로 되돌아갔다(사용자 지적, 2026-09-07 —
+  // "방향키로 골라도 늘 첫 항목이 선택된다"). 항목 목록 자체가 바뀌었는지는 id
+  // 조합으로 판단한다.
+  const itemsKey = items.map(it => it.id).join('|')
+  useEffect(() => { setCursor(0) }, [itemsKey])
 
   useEffect(() => {
     if (!open) return
     const onKey = (e) => {
       if (e.isComposing || e.keyCode === 229) return
-      if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(c => Math.min(c + 1, items.length - 1)) }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor(c => Math.max(c - 1, 0)) }
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setCursor(c => Math.min(c + 1, items.length - 1)) }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setCursor(c => Math.max(c - 1, 0)) }
       else if (e.key === 'Enter' || e.key === 'Tab') {
-        if (items[cursor]) { e.preventDefault(); onSelect(items[cursor]) }
-      } else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+        // stopPropagation이 중요하다 — 이 메뉴가 열려 있을 때의 Enter는 항목을
+        // 고르는 것이지 메시지 전송이 아닌데, 막지 않으면 편집기의 "Enter=보내기"
+        // 핸들러까지 같은 키 입력을 받아 고른 즉시 메시지가 전송돼 버렸다(같은 사용자
+        // 지적).
+        if (items[cursor]) { e.preventDefault(); e.stopPropagation(); onSelect(items[cursor]) }
+      } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)

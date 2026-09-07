@@ -11,7 +11,7 @@
  * `#`·`@`는 SlashMenu와 같은 패턴(MentionMenu.jsx)이다 — 커서 위치를 잰 뒤 그
  * 자리에 뜨는 자동완성. 고르면 클릭 가능한 인라인 조각을 심는다(channelMentionChip.js).
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
@@ -31,6 +31,7 @@ import InsertEmoticonIcon from '@mui/icons-material/InsertEmoticonOutlined'
 import LinkIcon from '@mui/icons-material/Link'
 import SendIcon from '@mui/icons-material/Send'
 import StrikethroughSIcon from '@mui/icons-material/StrikethroughS'
+import { useAuth } from '@shared/contexts/AuthContext'
 import { channelMentionHtml, channelWideMentionHtml, userMentionHtml } from '@shared/lib/channelMentionChip'
 import MentionMenu from './MentionMenu'
 import { RICH_TEXT_SX } from './richTextStyles'
@@ -61,6 +62,7 @@ export default function MessageComposer({
   channels = [], members = [], placeholder = '메시지를 입력하세요',
   onPlusClick, showAttach = true,
 }) {
+  const { user } = useAuth()
   const editorRef = useRef(null)
   // '#'·'@' 둘 다 같은 모양이라 하나의 상태로 다룬다 — { trigger:'#'|'@', query, length, rect }
   const [trigger, setTrigger] = useState(null)
@@ -175,27 +177,37 @@ export default function MessageComposer({
     emit()
   }
 
-  const channelItems = trigger?.trigger === '#'
-    ? channels
-      .filter(c => c.name?.toLowerCase().includes((trigger.query || '').toLowerCase()))
-      .slice(0, 8)
-      .map(c => ({ id: c.id, label: `#${c.name}`, _channel: c }))
-    : []
-  // 채널 전체 호출(@전체) — 특정 uid가 아니라 합성 항목이라 people 목록 맨 앞에 끼워
-  // 넣는다. query가 비었거나 "전체"/"channel"을 포함할 때만 후보에 든다 — 사람 이름
-  // 검색 중에 늘 맨 위를 차지하면 오히려 원하는 사람을 찾기 방해된다.
-  const channelWideItem = { id: '__channel__', label: '전체', sublabel: '채널 전체에게 알림' }
-  const memberItems = trigger?.trigger === '@'
-    ? [
-      ...(!(trigger.query || '') || '전체'.startsWith(trigger.query) || 'channel'.startsWith((trigger.query || '').toLowerCase())
-        ? [channelWideItem]
-        : []),
+  // MentionMenu는 items 배열의 "참조"가 바뀔 때마다 방향키로 옮긴 선택 위치를 0으로
+  // 되돌린다 — useMemo 없이 매 렌더 새 배열을 넘기면(채널 안 다른 사람의 활동 등
+  // 이 컴포넌트와 무관한 이유로도 리렌더는 수시로 일어난다) 방향키를 눌러도 매번
+  // 첫 항목으로 되돌아가 버렸다(사용자 지적, 2026-09-07). trigger·channels/members가
+  // 실제로 바뀔 때만 새 배열을 만든다.
+  const channelItems = useMemo(() => (
+    trigger?.trigger === '#'
+      ? channels
+        .filter(c => c.name?.toLowerCase().includes((trigger.query || '').toLowerCase()))
+        .slice(0, 8)
+        .map(c => ({ id: c.id, label: `#${c.name}`, _channel: c }))
+      : []
+  ), [trigger, channels])
+
+  const memberItems = useMemo(() => {
+    if (trigger?.trigger !== '@') return []
+    // 채널 전체 호출(@전체) — 특정 uid가 아니라 합성 항목이라 people 목록 맨 앞에 끼워
+    // 넣는다. query가 비었거나 "전체"/"channel"을 포함할 때만 후보에 든다 — 사람 이름
+    // 검색 중에 늘 맨 위를 차지하면 오히려 원하는 사람을 찾기 방해된다.
+    const channelWideItem = { id: '__channel__', label: '전체', sublabel: '채널 전체에게 알림' }
+    const query = (trigger.query || '').toLowerCase()
+    return [
+      ...(!query || '전체'.startsWith(trigger.query) || 'channel'.startsWith(query) ? [channelWideItem] : []),
       ...members
-        .filter(m => m.name?.toLowerCase().includes((trigger.query || '').toLowerCase()))
+        // 나 자신은 멘션 후보에서 뺀다 — 스스로에게 알림을 보낼 일이 없다(사용자 지적,
+        // 2026-09-07 — "내 이름이 나오고 있고").
+        .filter(m => m.uid !== user?.uid && m.name?.toLowerCase().includes(query))
         .slice(0, 8)
         .map(m => ({ id: m.uid, label: m.name, sublabel: m.department, _member: m })),
     ]
-    : []
+  }, [trigger, members, user?.uid])
 
   const submit = () => {
     if (disabled) return
