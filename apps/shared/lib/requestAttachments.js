@@ -28,6 +28,13 @@ export function isImageFile(file) {
   return IMAGE_EXTENSIONS.includes(ext)
 }
 
+/** 저장된 첨부 메타데이터(이름만 있고 File 객체가 아님)로 이미지 여부를 판정한다 —
+ *  채널 메시지의 FileCard가 미리보기를 그릴지 정하는 데 쓴다(ChannelMessages.jsx). */
+export function isImageName(name = '') {
+  const ext = name.split('.').pop()?.toLowerCase() || ''
+  return IMAGE_EXTENSIONS.includes(ext)
+}
+
 /** 확장자별 표시용 아이콘. 한글 파일이 주력이라 눈에 바로 띄게 구분한다. */
 export function fileKind(name = '') {
   const ext = name.split('.').pop()?.toLowerCase() || ''

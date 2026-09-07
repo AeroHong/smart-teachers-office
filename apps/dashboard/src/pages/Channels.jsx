@@ -22,6 +22,10 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import ListItemAvatar from '@mui/material/ListItemAvatar'
+import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Tab from '@mui/material/Tab'
@@ -43,6 +47,7 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { ALL_STAFF_CHANNEL_ID, COL, USERS, schoolPath } from '@shared/lib/schema'
 import { resolveTargets } from '@shared/lib/targeting'
+import { memberSubtitle } from '@shared/lib/directory'
 import {
   CANVAS_TAB_MAX, POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft,
   isAllStaffChannel, isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
@@ -53,7 +58,7 @@ import {
   toggleCanvasTabHidden, toggleFavorite,
 } from '@shared/lib/channelPrefs'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
-import { MiniChip } from '../components/sidebarUi'
+import { MiniChip, PresenceAvatar } from '../components/sidebarUi'
 import ChannelDialog from '../components/ChannelDialog'
 import ChannelIntro from '../components/ChannelIntro'
 import ChannelMessages from '../components/ChannelMessages'
@@ -65,11 +70,13 @@ import PostComposer from '../components/PostComposer'
 import PostDetail from '../components/PostDetail'
 import BlockCommentsPanel from '../components/BlockCommentsPanel'
 import ThreadPanel from '../components/ThreadPanel'
+import PersonAvatar from '../components/PersonAvatar'
 import { useToast } from '../components/ToastProvider'
 import useChannels from '../lib/useChannels'
 import useChannelPrefs from '../lib/useChannelPrefs'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import usePublicChannels from '../lib/usePublicChannels'
+import usePresenceMap from '../lib/usePresenceMap'
 import {
   duplicatePost, joinPublicChannel, openDm, refreshChannelMembers, setChannelArchived,
   setChannelLeft, setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
@@ -129,6 +136,12 @@ export default function Channels() {
   const [preset, setPreset] = useState(null)        // 새 채널을 미리 채워 열 때(디렉터리 그룹)
   const [pickingDm, setPickingDm] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState(null)
+  // 참여자 목록 보기(조회 전용) — 관리자만 보던 걸 일반 참여자도 볼 수 있게(사용자 요청,
+  // 2026-09-07 — "일반 참여자는 멘션으로 볼 수 있겠지만, 조회 전용 기능 추가 필요해").
+  // 고치기(연필 아이콘)는 그대로 관리자 전용으로 남긴다 — 이름 변경·조건 규칙·보관까지
+  // 열리는 화면이라 일반 참여자에게 통째로 내주기엔 범위가 넓다.
+  const [viewingMembers, setViewingMembers] = useState(false)
+  const presence = usePresenceMap()
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
   const [busy, setBusy] = useState(false)
   // 캔버스 탭은 주소(requestId)가 정하고, 이 상태는 글이 열려 있지 않을 때만 쓴다.
@@ -658,8 +671,12 @@ export default function Channels() {
                 상단 영역 디자인 최적화"). */}
             {!dm && (
               <Typography
+                component="button" type="button" onClick={() => setViewingMembers(true)}
                 fontSize="0.76rem" color="text.secondary"
-                sx={{ flexShrink: 0, whiteSpace: 'nowrap', mt: '3px' }}
+                sx={{
+                  flexShrink: 0, whiteSpace: 'nowrap', mt: '3px', border: 0, background: 'none',
+                  p: 0, font: 'inherit', cursor: 'pointer', '&:hover': { color: 'text.primary', textDecoration: 'underline' },
+                }}
               >
                 {isPrivateChannel(active) && '비공개 · '}
                 참여 {active.memberUids?.length ?? 0}명
@@ -1221,6 +1238,37 @@ export default function Channels() {
         onClose={() => setPickingDm(false)}
         onPick={startDm}
       />
+
+      {/* 참여자 목록(조회 전용) — 관리자만 보던 "채널 고치기"와 별개로, 참여자 수를
+          누르면 누구나 열 수 있다(사용자 요청, 2026-09-07). */}
+      <Dialog open={viewingMembers} onClose={() => setViewingMembers(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>참여자 {active?.memberUids?.length ?? 0}명</DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          <List dense disablePadding>
+            {[...(active?.memberUids || [])]
+              .sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'ko'))
+              .map(uid => {
+                const m = members.find(mm => mm.uid === uid)
+                return (
+                  <ListItem key={uid}>
+                    <ListItemAvatar>
+                      <PresenceAvatar status={presence[uid]}>
+                        <PersonAvatar name={nameOf(uid)} photoURL={m?.photoURL} size={32} />
+                      </PresenceAvatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={nameOf(uid) + (uid === user?.uid ? ' (나)' : '')}
+                      secondary={m ? memberSubtitle(m) || null : null}
+                    />
+                  </ListItem>
+                )
+              })}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewingMembers(false)}>닫기</Button>
+        </DialogActions>
+      </Dialog>
     </WorkspaceLayout>
   )
 }

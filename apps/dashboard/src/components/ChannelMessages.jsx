@@ -48,7 +48,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { hasCanvasRef, validateMessage } from '@shared/lib/channelMessages'
 import { channelMentionTarget, isChannelWideMention, userMentionTarget } from '@shared/lib/channelMentionChip'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
-import { fileKind, formatBytes, uploadAttachment } from '@shared/lib/requestAttachments'
+import { fileKind, formatBytes, isImageName, uploadAttachment } from '@shared/lib/requestAttachments'
 import { REACTION_EMOJIS } from '@shared/lib/blockReactions'
 import { formatDateTime } from '../lib/formatTime'
 import { useToast } from './ToastProvider'
@@ -649,9 +649,29 @@ function CanvasCard({ message, onOpen }) {
   )
 }
 
-/** 메시지에 실린 파일. 새 탭에서 연다 — 한글·엑셀은 다운로드로, 이미지는 브라우저가 보여준다. */
+/** 메시지에 실린 파일. 새 탭에서 연다 — 한글·엑셀은 다운로드로, 이미지는 브라우저가 보여준다.
+ *  이미지는 파일명 카드 대신 작은 미리보기 그림으로 바로 보여준다(사용자 요청, 2026-09-07 —
+ *  "채팅 창에서 바로 보면 좋겠다") — 어떤 사진인지 보려고 매번 새 탭을 열 필요가 없다. */
 function FileCard({ attachment }) {
   const kind = fileKind(attachment.name)
+
+  if (isImageName(attachment.name)) {
+    return (
+      <Box
+        component="a" href={attachment.url} target="_blank" rel="noopener noreferrer"
+        sx={{ display: 'inline-block', mt: 0.5, lineHeight: 0 }}
+      >
+        <Box
+          component="img" src={attachment.url} alt={attachment.name}
+          sx={{
+            display: 'block', maxWidth: 260, maxHeight: 220, borderRadius: 1,
+            border: '1px solid', borderColor: 'divider', objectFit: 'cover',
+          }}
+        />
+      </Box>
+    )
+  }
+
   return (
     <Box
       component="a" href={attachment.url} target="_blank" rel="noopener noreferrer"
