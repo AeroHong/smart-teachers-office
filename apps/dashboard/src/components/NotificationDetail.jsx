@@ -1,8 +1,10 @@
 /**
- * 알림(멘션·쪽지·채널 신설) 3단 상세 — 공지는 PostDetail을 그대로 쓰므로 여기 없다.
+ * 알림(멘션·DM·쪽지·채널 신설) 3단 상세 — 공지는 PostDetail을 그대로 쓰므로 여기 없다.
  *
- * 다 짧다. 멘션은 채널 메시지 하나, 쪽지는 Messages.jsx의 본문 표시와 같은 모양, 채널
- * 신설은 채널 소개 한 장이라 굳이 별도 파일로 더 쪼개지 않는다.
+ * 다 짧다. 멘션·DM은 채널 메시지 하나(같은 모양이라 MentionDetail을 같이 쓴다 — DM은
+ * 상대 메시지가 곧 알림감이라 멘션 표시가 없을 뿐, item.data 구조는 같다), 쪽지는
+ * Messages.jsx의 본문 표시와 같은 모양, 채널 신설은 채널 소개 한 장이라 굳이 별도
+ * 파일로 더 쪼개지 않는다.
  */
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -32,7 +34,7 @@ export function MentionDetail({ item, onOpenChannel }) {
         <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: '0.95rem', mb: 3 }}>{m.body}</Typography>
       )}
       <Button variant="contained" startIcon={<OpenInNewIcon sx={{ fontSize: 17 }} />} onClick={() => onOpenChannel(m.channelId)}>
-        채널에서 열기
+        {item.type === 'dm' ? '대화 열기' : '채널에서 열기'}
       </Button>
     </Box>
   )

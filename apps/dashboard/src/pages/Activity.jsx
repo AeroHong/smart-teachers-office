@@ -61,7 +61,7 @@ export default function Activity() {
     // 공지·멘션·채널 신설·댓글은 채널 단위 읽음이라, 열어본 채널을 지금 읽은 것으로
     // 같이 표시해야 굵은 글씨(안읽음)가 실제로 없어진다 — useNotificationFeed.js 위쪽
     // 주석 참고.
-    if (item.type === 'notice' || item.type === 'mention' || item.type === 'comment') markChannelRead(item.data.channelId)
+    if (item.type === 'notice' || item.type === 'mention' || item.type === 'dm' || item.type === 'comment') markChannelRead(item.data.channelId)
     if (item.type === 'channel') markChannelRead(item.id)
 
     // 공지·댓글은 둘 다 PostDetail이 이미 보여주는 화면(댓글은 그 글 맨 아래)이라
@@ -144,7 +144,7 @@ export default function Activity() {
     <WorkspaceLayout sidebar={sidebar}>
       {requestId ? (
         <PostDetail requestId={requestId} onDeleted={() => navigate('/activity')} />
-      ) : selectedNotif?.type === 'mention' ? (
+      ) : selectedNotif?.type === 'mention' || selectedNotif?.type === 'dm' ? (
         <MentionDetail item={selectedNotif} onOpenChannel={(channelId) => navigate(`/channels/${channelId}`)} />
       ) : selectedNotif?.type === 'message' ? (
         <MessageDetail item={selectedNotif} />

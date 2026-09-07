@@ -764,7 +764,7 @@ function SystemNotice({ message, onOpenCanvas }) {
         sx={{
           fontSize: '0.72rem', color: 'text.secondary', textAlign: 'center',
           ...(clickable && {
-            border: 0, background: 'none', p: 0, font: 'inherit', cursor: 'pointer',
+            border: 0, background: 'none', p: 0, fontFamily: 'inherit', cursor: 'pointer',
             '&:hover': { color: 'text.primary', textDecoration: 'underline' },
           }),
         }}
