@@ -487,12 +487,19 @@ service cloud.firestore {
             (isSchoolAdmin(schoolId) &&
              channelData(schoolId, channelId).get('type', 'channel') == 'channel');
 
+          // 시스템 알림(참여자 변화·캔버스 신설/수정, 사용자 요청 2026-09-07)은
+          // channelAllowsPost를 건너뛴다 — "공지 전용" 채널도 "OO님이 나갔습니다" 같은
+          // 사실 한 줄은 늘 남아야 하는데, 그 규칙은 대화 글쓰기 권한(postPolicy)이지
+          // 이런 자동 기록의 권한이 아니다. authorUid==caller 조건은 그대로라 남을
+          // 사칭해 알림을 만들 수는 없다.
           allow create: if isChannelMember(schoolId, channelId) &&
             request.resource.data.authorUid == request.auth.uid &&
-            channelAllowsPost(schoolId, channelId);
+            (request.resource.data.get('type', null) == 'system' ||
+             channelAllowsPost(schoolId, channelId));
 
           allow update: if isSuperAdmin() ||
             (isChannelMember(schoolId, channelId) && resource.data.authorUid == request.auth.uid &&
+             resource.data.get('type', null) != 'system' &&
              request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['body', 'bodyHtml', 'mentionedUids', 'mentionsChannel', 'updatedAt'])) ||
             (isChannelMember(schoolId, channelId) &&
@@ -501,8 +508,12 @@ service cloud.firestore {
 
           // 글쓴이에게 남의 메시지 삭제 권한을 주지 않는다(댓글과 같은 이유) —
           // 채널 주인이 불편한 질문을 지울 수 있으면 "답을 모두가 함께 본다"가 깨진다.
+          //
+          // 시스템 알림은 그 문장에 이름이 나오는 당사자(authorUid)도 못 지운다 —
+          // 자동 기록은 관리자만 정리한다(감사 기록 성격).
           allow delete: if isSchoolAdmin(schoolId) ||
-            (isTeacher(schoolId) && resource.data.authorUid == request.auth.uid);
+            (isTeacher(schoolId) && resource.data.authorUid == request.auth.uid &&
+             resource.data.get('type', null) != 'system');
         }
 
         // 메시지 반응(이모지 리액션) — blockReactions와 같은 패턴이다(문서 하나 =

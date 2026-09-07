@@ -45,7 +45,7 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { hasCanvasRef, validateMessage } from '@shared/lib/channelMessages'
+import { hasCanvasRef, isSystemMessage, validateMessage } from '@shared/lib/channelMessages'
 import { channelMentionTarget, isChannelWideMention, userMentionTarget } from '@shared/lib/channelMentionChip'
 import { htmlToText, sanitizeHtml } from '@shared/lib/richText'
 import { fileKind, formatBytes, isImageName, uploadAttachment } from '@shared/lib/requestAttachments'
@@ -235,6 +235,9 @@ export default function ChannelMessages({
         ) : rows.map(m => (
           <Box key={m.id}>
             {m.dayLabel && <DayDivider label={m.dayLabel} />}
+            {isSystemMessage(m) ? (
+              <SystemNotice message={m} onOpenCanvas={onOpenCanvas} />
+            ) : (
             <MessageRow
               message={m}
               members={members}
@@ -257,6 +260,7 @@ export default function ChannelMessages({
               onSaveEdit={saveEdit}
               onCancelEdit={cancelEdit}
             />
+            )}
           </Box>
         ))}
         <div ref={bottomRef} />
@@ -737,6 +741,38 @@ export function groupMessages(messages) {
     prev = m
     return { ...m, grouped, dayLabel: (newDay && date) ? formatDayLabel(date) : null }
   })
+}
+
+/**
+ * 시스템 알림 한 줄 — 참여자 변화·캔버스 신설/수정처럼 누가 한 말이 아니라 "무슨 일이
+ * 있었는지"를 작게·가운데 정렬로 남긴다(사용자 요청, 2026-09-07). MessageRow와 달리
+ * 아바타·반응·편집 메뉴가 전혀 없다 — 시스템이 남긴 사실 한 줄일 뿐이라 누를 수 있는
+ * 것은 캔버스를 가리킬 때(refRequestId) 그 링크뿐이다.
+ */
+function SystemNotice({ message, onOpenCanvas }) {
+  const clickable = hasCanvasRef(message)
+  const target = message.refChannelId
+    ? `/channels/${message.refChannelId}/${message.refRequestId}`
+    : `/posts/${message.refRequestId}`
+
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', my: 0.7 }}>
+      <Typography
+        component={clickable ? 'button' : 'span'}
+        type={clickable ? 'button' : undefined}
+        onClick={clickable ? () => onOpenCanvas?.(target) : undefined}
+        sx={{
+          fontSize: '0.72rem', color: 'text.secondary', textAlign: 'center',
+          ...(clickable && {
+            border: 0, background: 'none', p: 0, font: 'inherit', cursor: 'pointer',
+            '&:hover': { color: 'text.primary', textDecoration: 'underline' },
+          }),
+        }}
+      >
+        {message.body}
+      </Typography>
+    </Box>
+  )
 }
 
 /** 요일 구분선 — 선 사이에 날짜 알약(사용자 요청, 2026-08-27, 슬랙 참고). */

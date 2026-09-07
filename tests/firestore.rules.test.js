@@ -278,11 +278,27 @@ test('[메시지] 공지 전용 채널에는 참여자가 못 쓴다 — 안내�
   await assertSucceeds(setDoc(doc(as(A), ...path('channels', 'notice', 'messages', 'y')), msg()))
 })
 
-test('[메시지] 보낸 뒤에도 고칠 수 없다 — 편집 화면이 없는데 규칙이 넓으면 몰래 말을 바꾼다', async () => {
+// 2026-08-27부터 본인 글의 내용 필드는 고칠 수 있다(편집 화면이 생기면서 허용) —
+// 아래는 그 허용 범위가 "본인의 내용 필드"에서 더 안 넓어졌는지 보는 회귀 테스트다.
+test('[메시지] 본인 글의 내용은 고칠 수 있다', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), ...path('channels', 'pub', 'messages', 'm1')), msg())
   })
-  await assertFails(updateDoc(doc(as(A), ...path('channels', 'pub', 'messages', 'm1')), { body: '바꿈' }))
+  await assertSucceeds(updateDoc(doc(as(A), ...path('channels', 'pub', 'messages', 'm1')), { body: '바꿈' }))
+})
+
+test('[메시지] 남의 메시지는 여전히 못 고친다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('channels', 'pub', 'messages', 'm2')), msg())
+  })
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'pub', 'messages', 'm2')), { body: '바꿈' }))
+})
+
+test('[메시지] 내용 필드 밖은 본인 글이라도 못 바꾼다 ★', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('channels', 'pub', 'messages', 'm3')), msg())
+  })
+  await assertFails(updateDoc(doc(as(A), ...path('channels', 'pub', 'messages', 'm3')), { authorUid: B }))
 })
 
 test('[메시지] 자기 메시지는 지울 수 있고 남의 것은 못 지운다', async () => {
@@ -317,6 +333,34 @@ test('[메시지] lastMessageAt을 핑계로 명단을 못 바꾼다', async () 
 
 test('[메시지] 비참여자는 lastMessageAt도 못 건드린다', async () => {
   await assertFails(updateDoc(doc(as(B), ...path('channels', 'priv')), { lastMessageAt: new Date() }))
+})
+
+// ── 6b. 시스템 알림 메시지 (참여자 변화·캔버스 신설/수정, 2026-09-07) ──────
+//
+// 일반 메시지와 같은 컬렉션에 type:'system'으로 섞여 들어간다. "공지 전용" 채널도
+// 사실 기록은 늘 남아야 해서 channelAllowsPost를 건너뛰지만, 남을 사칭하거나
+// 나중에 내용을 바꾸는 길은 그대로 막혀 있어야 한다.
+
+test('[시스템 알림] 공지 전용 채널에서도 참여자가 시스템 알림은 남길 수 있다', async () => {
+  await assertSucceeds(setDoc(
+    doc(as(B), ...path('channels', 'notice', 'messages', 'sys1')),
+    msg({ authorUid: B, type: 'system' }),
+  ))
+})
+
+test('[시스템 알림] 글쓴이(당사자)도 나중에 고칠 수 없다 ★', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('channels', 'pub', 'messages', 'sys2')), msg({ type: 'system' }))
+  })
+  await assertFails(updateDoc(doc(as(A), ...path('channels', 'pub', 'messages', 'sys2')), { body: '바꿈' }))
+})
+
+test('[시스템 알림] 당사자도 못 지우고 관리자만 지운다 ★', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('channels', 'pub', 'messages', 'sys3')), msg({ type: 'system' }))
+  })
+  await assertFails(deleteDoc(doc(as(A), ...path('channels', 'pub', 'messages', 'sys3'))))
+  await assertSucceeds(deleteDoc(doc(as(ADMIN), ...path('channels', 'pub', 'messages', 'sys3'))))
 })
 
 // ── 7. DM (P2b) ───────────────────────────────────────────────

@@ -80,7 +80,7 @@ import useSchoolMembers from '../lib/useSchoolMembers'
 import usePublicChannels from '../lib/usePublicChannels'
 import usePresenceMap from '../lib/usePresenceMap'
 import {
-  duplicatePost, inviteToChannel, joinPublicChannel, openDm, refreshChannelMembers,
+  duplicatePost, inviteToChannel, joinPublicChannel, openDm, postSystemNotice, refreshChannelMembers,
   setChannelArchived, setChannelLeft, setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
 } from '../lib/channelActions'
 
@@ -480,6 +480,24 @@ export default function Channels() {
     }
   }
 
+  /** memberDiff 결과를 "OO님을 추가/제외했습니다" 시스템 알림으로 남긴다(사용자 요청,
+   *  2026-09-07) — 채널 고치기 저장과 참여자 갱신 두 경로가 함께 쓴다. 본 저장은 이미
+   *  끝난 뒤에 붙이는 부가 기록이라 실패는 조용히 흡수한다. */
+  const notifyMemberDiff = (channelId, diff) => {
+    if (diff.added.length > 0) {
+      postSystemNotice({
+        schoolId, channelId, actorUid: user.uid,
+        text: `${userName}님이 ${diff.added.map(nameOf).join(', ')}님을 추가했습니다.`,
+      }).catch(() => {})
+    }
+    if (diff.removed.length > 0) {
+      postSystemNotice({
+        schoolId, channelId, actorUid: user.uid,
+        text: `${userName}님이 ${diff.removed.map(nameOf).join(', ')}님을 제외했습니다.`,
+      }).catch(() => {})
+    }
+  }
+
   const saveChannel = async (payload) => {
     try {
       if (editing === 'new') {
@@ -506,6 +524,7 @@ export default function Channels() {
           channelAfter: { ...editing, ...rest },
           posts: editing.posts || [],
         })
+        if (rest.memberUids) notifyMemberDiff(editing.id, memberDiff(editing.memberUids, rest.memberUids))
         toast.success('채널을 저장했습니다.')
       }
     } catch (e) {
@@ -543,7 +562,7 @@ export default function Channels() {
    *  "됐나?" 싶어 한 번 더 누르게 된다. */
   const joinChannel = async (channel) => {
     const ok = await run(
-      () => joinPublicChannel({ schoolId, channelId: channel.id, uid: user.uid }),
+      () => joinPublicChannel({ schoolId, channelId: channel.id, uid: user.uid, actorName: userName }),
       `'${channel.name}' 채널에 참여했습니다.`,
       '채널에 참여하지 못했습니다.',
     )
@@ -557,7 +576,10 @@ export default function Channels() {
   const inviteMembers = async (uids) => {
     if (uids.length === 0) return
     await run(
-      () => inviteToChannel({ schoolId, channelId: active.id, uids }),
+      () => inviteToChannel({
+        schoolId, channelId: active.id, uids,
+        actorUid: user.uid, actorName: userName, names: uids.map(nameOf),
+      }),
       `${uids.length}명을 초대했습니다.`,
       '초대하지 못했습니다.',
     )
@@ -761,6 +783,10 @@ export default function Channels() {
                     schoolId, channelId: active.id, memberUids: freshUids,
                     channel: active, posts: active.posts || [],
                   })
+                  // 화면에 보이던 sync.added/removed가 아니라 지금 막 쓴 값(freshUids)으로
+                  // 다시 diff한다 — sync는 마운트 시점 명단으로 계산한 값이라 방금 저장한
+                  // 것과 어긋날 수 있다(바로 위 onRefresh 설명과 같은 이유).
+                  notifyMemberDiff(active.id, memberDiff(active.memberUids, freshUids))
                 },
                 '참여자를 갱신했습니다.',
                 '참여자를 갱신하지 못했습니다.',
@@ -1116,7 +1142,7 @@ export default function Channels() {
             onClick={() => {
               setMenuAnchor(null)
               run(
-                () => setChannelLeft({ schoolId, channelId: active.id, uid: user.uid, left: false }),
+                () => setChannelLeft({ schoolId, channelId: active.id, uid: user.uid, left: false, actorName: userName }),
                 '다시 참여했습니다.',
                 '다시 참여하지 못했습니다.',
               )
@@ -1221,7 +1247,7 @@ export default function Channels() {
         onConfirm={() => {
           setConfirm(null)
           run(
-            () => setChannelLeft({ schoolId, channelId: active.id, uid: user.uid, left: true }),
+            () => setChannelLeft({ schoolId, channelId: active.id, uid: user.uid, left: true, actorName: userName }),
             '채널에서 나갔습니다.',
             '채널에서 나가지 못했습니다.',
           )

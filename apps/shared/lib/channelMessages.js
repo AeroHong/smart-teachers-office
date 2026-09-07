@@ -105,6 +105,43 @@ export function hasCanvasRef(message) {
   return !!message?.refRequestId
 }
 
+/** 시스템 알림 메시지인가 — 사람이 쓴 말이 아니라 참여자 변화·캔버스 신설/수정처럼
+ *  "무슨 일이 있었는지"를 자동으로 남긴 한 줄(ChannelMessages.jsx가 작게·가운데
+ *  정렬로 그린다, 사용자 요청 2026-09-07). */
+export function isSystemMessage(message) {
+  return message?.type === 'system'
+}
+
+/**
+ * 시스템 알림 메시지 문서.
+ *
+ * 일반 메시지(newMessagePayload)와 같은 컬렉션에 두어야 시간순으로 함께 섞여 보이지만,
+ * 멘션·서식·첨부·수정 이력 같은 사람 메시지의 처리는 전혀 필요 없어 훨씬 좁은 필드만
+ * 채우는 별도 함수로 둔다.
+ *
+ * authorUid를 이 알림을 유발한 행동을 한 사람(actor)으로 남긴다 — "메시지를 쓰는 사람은
+ * 곧 authorUid"라는 기존 보안 규칙 전제를 그대로 재사용할 수 있다. 화면은 authorUid로
+ * 아바타·이름줄을 그리지 않는다(문장 자체에 이미 이름이 들어 있다 — text가 완성된 문장).
+ */
+export function newSystemMessagePayload({
+  actorUid, text, refRequestId = null, refTitle = '', refChannelId = null,
+}) {
+  return {
+    type: 'system',
+    authorUid: actorUid,
+    authorName: '',
+    body: String(text || '').trim().slice(0, MESSAGE_BODY_MAX),
+    bodyHtml: null,
+    mentionedUids: [],
+    mentionsChannel: false,
+    refRequestId: refRequestId || null,
+    refTitle: refRequestId ? String(refTitle || '').trim().slice(0, 120) : '',
+    refChannelId: refRequestId ? (refChannelId || null) : null,
+    attachment: null,
+    parentMessageId: null,
+  }
+}
+
 /**
  * bodyHtml 안의 @사람 조각(channelMentionChip.js의 userMentionHtml)에서 uid를 모두
  * 뽑는다. DOM 없이 정규식으로 처리한다 — 이 파일은 Node 테스트에서도 도는 순수 함수라

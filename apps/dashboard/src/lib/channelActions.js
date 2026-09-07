@@ -12,10 +12,35 @@ import {
 import { db } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { newDmPayload, postVisibilityFor } from '@shared/lib/channels'
-import { dmChannelId, newMessagePayload } from '@shared/lib/channelMessages'
+import { dmChannelId, newMessagePayload, newSystemMessagePayload } from '@shared/lib/channelMessages'
 
 function channelRef(schoolId, channelId) {
   return doc(db, ...schoolPath(schoolId, COL.CHANNELS), channelId)
+}
+
+/**
+ * 시스템 알림 한 줄을 채널에 남긴다 — 참여자 변화·캔버스 신설/수정을 알리는 자리
+ * (사용자 요청, 2026-09-07). 보통 메시지 보내기와 같은 배치 모양(메시지 추가 +
+ * lastMessageAt)을 쓴다 — 안 그러면 알림은 남았는데 사이드바 안읽음 점이 안 뜬다.
+ *
+ * 호출부가 실패를 안 던지고 흡수하는 것을 전제로 한다(best-effort) — 본 동작(참여자
+ * 변경·캔버스 저장)이 이미 끝난 뒤에 붙이는 부가 기록이라, 알림 한 줄이 못 나갔다고
+ * 방금 성공한 동작까지 실패로 보이면 안 된다.
+ */
+export async function postSystemNotice({
+  schoolId, channelId, actorUid, text, refRequestId = null, refTitle = '',
+}) {
+  const channel = channelRef(schoolId, channelId)
+  const messageRef = doc(collection(channel, COL.CHANNEL_MESSAGES))
+  const batch = writeBatch(db)
+  batch.set(messageRef, {
+    ...newSystemMessagePayload({
+      actorUid, text, refRequestId, refTitle, refChannelId: refRequestId ? channelId : null,
+    }),
+    createdAt: serverTimestamp(),
+  })
+  batch.update(channel, { lastMessageAt: serverTimestamp() })
+  await batch.commit()
 }
 
 function postRef(schoolId, requestId) {
@@ -92,12 +117,22 @@ export async function setPostArchived({ schoolId, requestId, archived }) {
  *
  * arrayUnion·arrayRemove를 쓰는 이유는 두 사람이 동시에 나가도 서로의 기록을 덮어쓰지
  * 않기 위해서다. 읽어서 배열을 통째로 다시 쓰면 늦게 저장한 쪽이 앞사람을 지운다.
+ *
+ * actorName이 있으면 "OO님이 나갔습니다/다시 참여했습니다" 시스템 알림을 채널에
+ * 남긴다(사용자 요청, 2026-09-07) — 실패해도 나가기/참여 자체는 이미 끝난 뒤라 조용히
+ * 흡수한다.
  */
-export async function setChannelLeft({ schoolId, channelId, uid, left }) {
+export async function setChannelLeft({ schoolId, channelId, uid, left, actorName = '' }) {
   await updateDoc(channelRef(schoolId, channelId), {
     leftUids: left ? arrayUnion(uid) : arrayRemove(uid),
     updatedAt: serverTimestamp(),
   })
+  if (actorName) {
+    postSystemNotice({
+      schoolId, channelId, actorUid: uid,
+      text: left ? `${actorName}님이 채널을 나갔습니다.` : `${actorName}님이 다시 참여했습니다.`,
+    }).catch(() => {})
+  }
 }
 
 /**
@@ -113,12 +148,15 @@ export async function setChannelLeft({ schoolId, channelId, uid, left }) {
  * 비공개 채널에는 쓸 수 없다(규칙이 막는다). 애초에 디렉터리에 뜨지도 않지만, 공개 채널은
  * 어차피 누구나 읽을 수 있어서 스스로 들어가도 새로 얻는 권한이 없다는 것이 근거다.
  */
-export async function joinPublicChannel({ schoolId, channelId, uid }) {
+export async function joinPublicChannel({ schoolId, channelId, uid, actorName = '' }) {
   await updateDoc(channelRef(schoolId, channelId), {
     memberUids: arrayUnion(uid),
     leftUids: arrayRemove(uid),
     updatedAt: serverTimestamp(),
   })
+  if (actorName) {
+    postSystemNotice({ schoolId, channelId, actorUid: uid, text: `${actorName}님이 참여했습니다.` }).catch(() => {})
+  }
 }
 
 /**
@@ -127,12 +165,18 @@ export async function joinPublicChannel({ schoolId, channelId, uid }) {
  * 공개+openInvite 채널에서 memberUids를 늘리는 것만 허용하고 줄이는 것은 막으므로,
  * 여기서도 arrayUnion/arrayRemove로 늘리기만 한다.
  */
-export async function inviteToChannel({ schoolId, channelId, uids }) {
+export async function inviteToChannel({ schoolId, channelId, uids, actorUid, actorName = '', names = [] }) {
   await updateDoc(channelRef(schoolId, channelId), {
     memberUids: arrayUnion(...uids),
     leftUids: arrayRemove(...uids),
     updatedAt: serverTimestamp(),
   })
+  if (actorName && names.length > 0) {
+    postSystemNotice({
+      schoolId, channelId, actorUid,
+      text: `${actorName}님이 ${names.join(', ')}님을 초대했습니다.`,
+    }).catch(() => {})
+  }
 }
 
 /**

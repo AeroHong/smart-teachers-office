@@ -67,16 +67,21 @@ export default function useMentionNotifications() {
         (snap) => {
           // 최초 스냅샷은 건너뛴다 — 채널에 예전부터 있던 멘션이 앱을 켤 때마다 되살아나면 안 된다.
           if (first) { first = false; return }
+          const dm = isDm(c)
           snap.docChanges().forEach((change) => {
             if (change.type !== 'added') return
             const m = change.doc.data()
             if (m.authorUid === user.uid) return   // 내가 보낸 메시지는 알리지 않는다
-            const mentioned = (m.mentionedUids || []).includes(user.uid) || !!m.mentionsChannel
+            // DM은 상대가 보낸 메시지가 곧 알림감이다 — 여러 명 채널과 달리 @멘션을
+            // 붙여야 알아채는 구조는 1:1 대화에는 안 맞는다(버그 신고, 2026-09-07 —
+            // "답장이 왔는데 알림에 안 뜸").
+            const mentioned = dm || (m.mentionedUids || []).includes(user.uid) || !!m.mentionsChannel
             if (!mentioned) return
-            const channelLabel = isDm(c) ? dmTitle(c, user.uid) : (c.name || '채널')
+            const channelLabel = dm ? dmTitle(c, user.uid) : (c.name || '채널')
             notifyOnce(
               `mention:${change.doc.id}`,
-              m.mentionsChannel ? `${channelLabel}에서 전체 호출` : `${m.authorName || ''}님이 멘션했습니다`,
+              dm ? `${channelLabel}님이 메시지를 보냈습니다`
+                : (m.mentionsChannel ? `${channelLabel}에서 전체 호출` : `${m.authorName || ''}님이 멘션했습니다`),
               previewText(m.bodyHtml || m.body || ''),
               `/channels/${c.id}`,
               { category: channelLabel },

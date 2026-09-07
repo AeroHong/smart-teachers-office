@@ -63,7 +63,7 @@ import TargetPicker from './TargetPicker'
 import CanvasEditor from './CanvasEditor'
 import { useToast } from './ToastProvider'
 import { updatePostContent } from '../lib/requestActions'
-import { shareCanvasToChannel } from '../lib/channelActions'
+import { postSystemNotice, shareCanvasToChannel } from '../lib/channelActions'
 import { CLOUD_DANCER } from '../lib/pantone'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
@@ -171,6 +171,14 @@ export default function PostComposer({
   // 방금 내가 막 저장한 문서를 다시 읽어와 그사이 친 글자를 덮어써 버릴 뻔했다 —
   // 이 플래그가 "방금 내가 만든 것"이면 그 재조회를 한 번 건너뛰게 한다.
   const justCreatedRef = useRef(false)
+  // 이번에 다루는 글이 이 화면에 들어올 때 이미 저장돼 있던 것인가 — 새로 쓰다가 방금
+  // 만들어진 글과 "원래 있던 글을 고치는 중"을 가르는 데 쓴다(아래 flushRef, 사용자
+  // 요청 2026-09-07 — "기존 캔버스가 수정된다거나" 시스템 알림). 새로 만든 직후의
+  // 계속된 편집에는 "수정됨" 알림을 또 붙이지 않는다 — 만들었다는 알림과 중복이다.
+  const wasAlreadyCreatedRef = useRef(!!editingId)
+  // 이번 방문에서 실제로 내용이 바뀌었는가. 자동저장마다 알리면 타이핑할 때마다 알림이
+  // 쌓이므로, 이 화면을 떠날 때(flushRef의 silent 호출) 한 번만 모아 알린다.
+  const editedThisSessionRef = useRef(false)
 
   /**
    * 고칠 글을 한 번만 읽어온다. onSnapshot으로 구독하지 않는 이유: 쓰는 도중에 서버 값이
@@ -202,9 +210,16 @@ export default function PostComposer({
       setLoadingPost(false)
       setCreated(false)
       setSaveState('idle')
-      return
+      wasAlreadyCreatedRef.current = false
+      editedThisSessionRef.current = false
+      // 고치던 글에서 '새 글'로 건너뛴 것도 그 글을 "떠나는" 순간이다 — 마지막 편집을
+      // 조용히 저장하고, 쌓여 있던 "수정함" 알림이 있으면 여기서 내보낸다.
+      return () => { flushRef.current({ silent: true }).catch(() => {}) }
     }
-    if (justCreatedRef.current) { justCreatedRef.current = false; return }
+    if (justCreatedRef.current) {
+      justCreatedRef.current = false
+      return () => { flushRef.current({ silent: true }).catch(() => {}) }
+    }
     let alive = true
     getDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), editingId))
       .then(snap => {
@@ -235,6 +250,8 @@ export default function PostComposer({
         setCompletedUids(post.completedUids || [])
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
         keptCoverPathRef.current = post.coverImagePath || null
+        wasAlreadyCreatedRef.current = true
+        editedThisSessionRef.current = false
         setLoadingPost(false)
       })
       .catch(e => {
@@ -242,7 +259,9 @@ export default function PostComposer({
         toast.error('글을 불러오지 못했습니다.', e)
         setLoadingPost(false)
       })
-    return () => { alive = false }
+    // 이 글을 떠날 때(다른 글을 고치러 가거나 이 컴포넌트가 사라질 때) 마지막 편집을
+    // 조용히 저장하고, 이번 방문에서 실제로 바뀐 게 있으면 "수정함" 알림을 내보낸다.
+    return () => { alive = false; flushRef.current({ silent: true }).catch(() => {}) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, schoolId])
 
@@ -312,6 +331,14 @@ export default function PostComposer({
     const isEmpty = !title.trim() && isEmptyHtml(bodyHtml) && attachments.length === 0
     if (!created && isEmpty) return
 
+    // 이 화면을 떠날 때(silent) 두 정리 함수(글을 바꿔 타는 이펙트·완전히 사라질 때의
+    // 이펙트)가 거의 동시에 flushRef.current를 부를 수 있다 — 둘 다 언마운트 한 번에
+    // 걸리기 때문이다. "수정함" 알림을 낼지는 그 경합이 끼어들기 전, await 없는 지금
+    // 이 자리에서 미리 정하고 플래그를 바로 꺼둔다. 그래야 뒤이어 들어온 두 번째 호출은
+    // 이미 꺼진 플래그를 보고 조용히 넘어간다 — 안 그러면 같은 편집을 두 번 알린다.
+    const shouldNotifyEdit = silent && editedThisSessionRef.current
+    if (shouldNotifyEdit) editedThisSessionRef.current = false
+
     try {
       const safeHtml = sanitizeHtml(bodyHtml)
       const payload = newRequestPayload({
@@ -341,6 +368,15 @@ export default function PostComposer({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         })
+        // 이 채널에 "새 캔버스를 만들었다"고 작게 남긴다(사용자 요청, 2026-09-07) —
+        // silent(언마운트 중 첫 저장)여도 문서 자체는 만들어졌으니 알림도 그대로 낸다.
+        postSystemNotice({
+          schoolId, channelId: channel.id, actorUid: user.uid,
+          text: payload.title
+            ? `${userName}님이 새 캔버스를 만들었습니다: ${payload.title}`
+            : `${userName}님이 새 캔버스를 만들었습니다.`,
+          refRequestId: requestId, refTitle: payload.title,
+        }).catch(() => {})
         if (!silent) { justCreatedRef.current = true; setCreated(true); onSaved(requestId) }
       } else {
         // 고칠 때 넘기지 않는 것 — completedUids(이미 한 사람의 기록), status(마감 여부),
@@ -375,6 +411,9 @@ export default function PostComposer({
         if (keptCoverPathRef.current && keptCoverPathRef.current !== coverImagePath) {
           deleteAttachment({ path: keptCoverPathRef.current }).catch(() => {})
         }
+        // 원래 있던 글을 고치는 중일 때만 표시한다 — 방금 만든 글을 계속 쓰는 것은
+        // 위에서 이미 "만들었다"고 알렸으니 또 "수정했다"고 겹쳐 알리지 않는다.
+        if (wasAlreadyCreatedRef.current) editedThisSessionRef.current = true
       }
       if (!silent) setSaveState('saved')
     } catch (e) {
@@ -382,6 +421,17 @@ export default function PostComposer({
         setSaveState('error')
         toast.error('저장하지 못했습니다.', e)
       }
+    }
+
+    // 이 글을 떠나는 순간(silent)에만, 이번 방문에서 실제로 뭔가 바뀌었을 때만 한 번
+    // 알린다 — 자동저장마다 알리면 타이핑할 때마다 알림이 쌓인다(사용자 요청,
+    // 2026-09-07 — "기존 캔버스가 수정된다거나").
+    if (shouldNotifyEdit) {
+      postSystemNotice({
+        schoolId, channelId: channel.id, actorUid: user.uid,
+        text: title ? `${userName}님이 캔버스를 수정했습니다: ${title}` : `${userName}님이 캔버스를 수정했습니다.`,
+        refRequestId: requestId, refTitle: title,
+      }).catch(() => {})
     }
   }
 

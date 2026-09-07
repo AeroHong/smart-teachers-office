@@ -111,11 +111,17 @@ export default function useNotificationFeed() {
         limit(MENTION_WINDOW),
       ),
       snap => {
-        const channelLabel = isDm(c) ? dmTitle(c, user.uid) : (c.name || '채널')
+        const dm = isDm(c)
+        const channelLabel = dm ? dmTitle(c, user.uid) : (c.name || '채널')
+        // DM은 상대가 보낸 메시지는 전부 알림감이다 — @멘션을 붙여야 알림이 뜨는
+        // 여러 명 채널과 달리, 1:1 대화에서 "멘션이 아니라서 못 봤다"는 말이 안 된다
+        // (버그 신고, 2026-09-07 — "메시지를 보내도 답장이 왔는데 알림에 안 뜸").
         const mine = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
-          .filter(m => m.authorUid !== user.uid && ((m.mentionedUids || []).includes(user.uid) || !!m.mentionsChannel))
-          .map(m => ({ ...m, channelId: c.id, channelLabel }))
+          .filter(m => m.authorUid !== user.uid && (
+            dm || (m.mentionedUids || []).includes(user.uid) || !!m.mentionsChannel
+          ))
+          .map(m => ({ ...m, channelId: c.id, channelLabel, isDm: dm }))
         setMentionsByChannel(prev => ({ ...prev, [c.id]: mine }))
       },
       () => {},
@@ -188,14 +194,18 @@ export default function useNotificationFeed() {
     }))
 
     const mentionItems = Object.values(mentionsByChannel).flat().map(m => ({
-      type: 'mention',
+      type: m.isDm ? 'dm' : 'mention',
       id: m.id,
       createdAt: m.createdAt,
       isNew: toMillis(m.createdAt) > readAt(m.channelId),
-      label: m.mentionsChannel
-        ? `${m.channelLabel}: 전체 호출`
-        : `${m.channelLabel}: ${m.authorName || '누군가'}님이 멘션`,
-      chipLabel: '멘션',
+      // DM은 상대 이름이 곧 channelLabel이라 "OO님이 멘션"을 그대로 쓰면 이름이
+      // 겹쳐 보인다 — 대신 온 메시지를 미리 보여준다.
+      label: m.isDm
+        ? `${m.channelLabel}: ${(m.body || '').trim().slice(0, 40) || '메시지'}`
+        : (m.mentionsChannel
+          ? `${m.channelLabel}: 전체 호출`
+          : `${m.channelLabel}: ${m.authorName || '누군가'}님이 멘션`),
+      chipLabel: m.isDm ? '대화' : '멘션',
       data: m,
     }))
 
