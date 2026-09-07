@@ -9,7 +9,7 @@ import Typography from '@mui/material/Typography'
 import { ToneChip } from './widgetUi'
 
 // CalendarGrid.jsx도 같은 매핑을 쓴다(월 그리드의 이벤트 칩 색) — 한 곳에서만 정의한다.
-export const TYPE_TONE = { 시험: 'danger', 휴업일: 'success', 행사: 'info' }
+export const TYPE_TONE = { 시험: 'danger', 휴업일: 'success', 행사: 'info', 업무: 'warning' }
 
 const DAY_MS = 86400000
 
@@ -37,13 +37,25 @@ export default function EventDetail({ event }) {
     <Box sx={{ p: 2.5, maxWidth: 640 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
         <Typography sx={{ fontSize: '1.1rem' }}>🗓</Typography>
-        <Typography variant="h6" fontWeight={800}>{event.title}</Typography>
-        {dday && <ToneChip label={dday} tone={days <= 0 ? 'danger' : days <= 7 ? 'warning' : 'neutral'} />}
+        <Typography
+          variant="h6" fontWeight={800}
+          sx={event.closed ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}
+        >
+          {event.title}
+        </Typography>
+        {/* 채널 업무 글이 마감(완료) 처리되면 D-day 대신 완료를 보여준다 — 이미 끝난
+            일에 "며칠 지남"을 계속 띄우는 게 의미 없다(requestCalendarSync.js). */}
+        {event.closed ? (
+          <ToneChip label="완료" tone="success" />
+        ) : (
+          dday && <ToneChip label={dday} tone={days <= 0 ? 'danger' : days <= 7 ? 'warning' : 'neutral'} />
+        )}
         {event.type && <ToneChip label={event.type} tone={TYPE_TONE[event.type] || 'neutral'} />}
         {/* 구글 캘린더에서 가져온 일정은 여기서 못 고친다는 것을 알려준다 — 다음 날
             동기화가 구글 쪽 내용으로 다시 덮어쓰기 때문(관리자 화면에서도 편집·삭제를
             막아 둠, AdminAcademicCalendar.jsx). */}
         {event.source === 'googleCalendar' && <ToneChip label="구글 캘린더" tone="neutral" />}
+        {event.source === 'request' && <ToneChip label="채널 업무" tone="neutral" />}
       </Box>
 
       <Typography color="text.secondary" fontSize="0.9rem">

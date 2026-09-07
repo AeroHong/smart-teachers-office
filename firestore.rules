@@ -271,9 +271,14 @@ service cloud.firestore {
       // 관리자만 쓸 수 있었으나 실제로 안내를 내는 사람은 교무부 담당 교사라 권한이 맞지
       // 않았고, 요청과 필요한 것이 같아 화면·모델을 한 벌로 합쳤다.
 
-      // 학사일정 — 관리자만 쓰기, 소속 교사 전체 읽기
+      // 학사일정 — 관리자만 쓰기, 소속 교사 전체 읽기.
+      // 단, 채널 업무 글 마감일이 자동 반영된 문서(requestCalendarSync.js, visibleToUids
+      // 있음)는 그 업무 글 대상자와 관리자만 읽을 수 있다 — 학교 전체 공개 일정(구글
+      // 동기화·관리자 수동 등록)은 이 필드 자체가 없어 그대로 전체 공개다.
       match /academicCalendar/{eventId} {
-        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) &&
+           (!('visibleToUids' in resource.data) || request.auth.uid in resource.data.visibleToUids));
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 

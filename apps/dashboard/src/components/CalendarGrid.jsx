@@ -134,6 +134,9 @@ export default function CalendarGrid({ events = [], onSelectEvent }) {
                         bgcolor: alpha((TONE_PALETTE[TYPE_TONE[ev.type]] || TONE_PALETTE.neutral)(theme), 0.12),
                         color: (TONE_PALETTE[TYPE_TONE[ev.type]] || TONE_PALETTE.neutral)(theme),
                         '&:hover': { bgcolor: alpha((TONE_PALETTE[TYPE_TONE[ev.type]] || TONE_PALETTE.neutral)(theme), 0.22) },
+                        // 채널 업무 글이 마감(완료) 처리되면 캘린더에서 사라지지 않고
+                        // 취소선으로 "끝난 일"임을 보여준다(requestCalendarSync.js).
+                        ...(ev.closed && { textDecoration: 'line-through', opacity: 0.6 }),
                       })}
                     >
                       {ev.title}

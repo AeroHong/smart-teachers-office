@@ -53,6 +53,10 @@ exports.refreshMyClaims = userClaims.refreshMyClaims
 // 평가 운영 계획 확정 → 교직원 관리(기본배정·과목배정) 자동 반영
 exports.syncEvaluationPlanToStaff = evaluationPlanSync.syncEvaluationPlanToStaff
 
+// 채널 업무 글 마감일 → 학사일정 자동 반영(대상자 한정)
+const requestCalendarSync = require('./requestCalendarSync')
+exports.syncRequestToCalendar = requestCalendarSync.syncRequestToCalendar
+
 /**
  * superAdmin Custom Claims 초기 부여 (1회 실행용)
  *

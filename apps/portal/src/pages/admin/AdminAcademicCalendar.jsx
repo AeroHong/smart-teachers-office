@@ -29,6 +29,7 @@ const TYPE_STYLE = {
   시험: { bg: '#fdecea', fg: '#d32f2f' },
   휴업일: { bg: '#e8f5e9', fg: '#2e7d32' },
   행사: { bg: '#e7edf1', fg: '#3d5872' },
+  업무: { bg: '#fff3e0', fg: '#e65100' },
 }
 const DEFAULT_STYLE = { bg: '#f1f3f4', fg: '#5f6368' }
 const SYNC_CHIP_STYLE = { bg: '#f1f3f4', fg: '#5f6368' }
@@ -234,23 +235,34 @@ export default function AdminAcademicCalendar() {
                 {formatDate(item._start)}{item._end && item._end.getTime() !== item._start?.getTime() ? ` ~ ${formatDate(item._end)}` : ''}
               </td>
               <td style={table.td}>
-                <Chip size="small" label={item.type} sx={{ bgcolor: (TYPE_STYLE[item.type] || DEFAULT_STYLE).bg, color: (TYPE_STYLE[item.type] || DEFAULT_STYLE).fg, fontWeight: 600, mr: item.source === 'googleCalendar' ? 0.6 : 0 }} />
+                <Chip size="small" label={item.type} sx={{ bgcolor: (TYPE_STYLE[item.type] || DEFAULT_STYLE).bg, color: (TYPE_STYLE[item.type] || DEFAULT_STYLE).fg, fontWeight: 600, mr: item.source === 'googleCalendar' || item.source === 'request' ? 0.6 : 0 }} />
                 {item.source === 'googleCalendar' && (
                   <Chip size="small" label="구글 캘린더" sx={{ bgcolor: SYNC_CHIP_STYLE.bg, color: SYNC_CHIP_STYLE.fg, fontWeight: 600 }} />
                 )}
+                {item.source === 'request' && (
+                  <Chip size="small" label={item.closed ? '채널 업무 · 완료' : '채널 업무'} sx={{ bgcolor: SYNC_CHIP_STYLE.bg, color: SYNC_CHIP_STYLE.fg, fontWeight: 600 }} />
+                )}
               </td>
-              <td style={table.td}>{item.title}</td>
+              <td style={{ ...table.td, ...(item.closed ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>{item.title}</td>
               <td style={table.td}>
                 <RowActions>
                   <EditAction
                     onClick={() => openEdit(item)}
-                    disabled={item.source === 'googleCalendar'}
-                    title={item.source === 'googleCalendar' ? '구글 캘린더에서 가져온 일정입니다 — 원본에서 고치세요' : '수정'}
+                    disabled={item.source === 'googleCalendar' || item.source === 'request'}
+                    title={
+                      item.source === 'googleCalendar' ? '구글 캘린더에서 가져온 일정입니다 — 원본에서 고치세요'
+                        : item.source === 'request' ? '채널 업무 글에서 만들어진 일정입니다 — 그 업무 글에서 고치세요'
+                          : '수정'
+                    }
                   />
                   <DeleteAction
                     onClick={() => handleDelete(item)}
-                    disabled={item.source === 'googleCalendar'}
-                    title={item.source === 'googleCalendar' ? '구글 캘린더에서 가져온 일정입니다 — 원본에서 지우세요' : '삭제'}
+                    disabled={item.source === 'googleCalendar' || item.source === 'request'}
+                    title={
+                      item.source === 'googleCalendar' ? '구글 캘린더에서 가져온 일정입니다 — 원본에서 지우세요'
+                        : item.source === 'request' ? '채널 업무 글에서 만들어진 일정입니다 — 그 업무 글에서 지우세요'
+                          : '삭제'
+                    }
                   />
                 </RowActions>
               </td>
