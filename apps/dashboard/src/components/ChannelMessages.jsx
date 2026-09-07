@@ -103,6 +103,7 @@ export default function ChannelMessages({
   const [uploadingFile, setUploadingFile] = useState(false)
   const [pickerAnchor, setPickerAnchor] = useState(null)
   const bottomRef = useRef(null)
+  const scrollBoxRef = useRef(null)
   const fileInputRef = useRef(null)
   // 파일을 올리려면 문서 ID가 먼저 있어야 한다(uploadAttachment의 저장 경로가 docId를
   // 씀) — 같은 메시지를 쓰는 동안은 같은 ID를 계속 쓴다. ref인 이유는 이 값 자체가
@@ -117,9 +118,37 @@ export default function ChannelMessages({
 
   // 새 메시지가 오면 아래로 내린다. 대화는 아래쪽이 현재라, 위에 멈춰 있으면 방금 온 말을
   // 놓친다.
+  //
+  // scrollIntoView를 딱 한 번만 부르면, 그 순간까지 브라우저가 반영한 레이아웃
+  // 기준으로만 위치를 잡는다 — 대화가 길어 리렌더 비용이 크거나 이미지·첨부가 든
+  // 메시지처럼 실제 높이가 늦게 확정되는 경우, 그 시점 이후에 콘텐츠가 더 자라나면
+  // "맨 아래로 갔는데도 애매하게 중간만 보이는" 결과가 된다(사용자 지적, 2026-09-07).
+  // 다음 페인트 이후 한 번 더 불러 자리를 맞춘다.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
+    const scrollToBottom = () => bottomRef.current?.scrollIntoView({ block: 'end' })
+    scrollToBottom()
+    const raf = requestAnimationFrame(scrollToBottom)
+    return () => cancelAnimationFrame(raf)
   }, [messages.length, channelId])
+
+  // 위 이펙트로도 못 잡는 경우 — 이미지 등 네트워크로 늦게 로드되는 콘텐츠는 requestAnimationFrame
+  // 한 번으로도 안 끝날 수 있다. 스크롤 상자의 실제 콘텐츠 높이가 바뀔 때마다(ResizeObserver),
+  // 지금 맨 아래 근처에 있던 경우에만 다시 맨 아래로 붙인다 — 대화 기록을 위로 올려 읽던
+  // 사람의 위치를 엉뚱하게 빼앗지 않기 위함이다.
+  useEffect(() => {
+    const box = scrollBoxRef.current
+    if (!box || typeof ResizeObserver === 'undefined') return undefined
+    let nearBottom = true
+    const trackPosition = () => {
+      nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80
+    }
+    box.addEventListener('scroll', trackPosition, { passive: true })
+    const ro = new ResizeObserver(() => {
+      if (nearBottom) bottomRef.current?.scrollIntoView({ block: 'end' })
+    })
+    ro.observe(box)
+    return () => { ro.disconnect(); box.removeEventListener('scroll', trackPosition) }
+  }, [channelId])
 
   // 답장은 이 목록에 안 보인다(파일 위 설명 참고) — parentMessageId가 있는 문서는 뺀다.
   // 옛 메시지엔 이 필드가 아예 없어(undefined) '있어도 falsy'라 자연히 최상위로 남는다.
@@ -193,7 +222,7 @@ export default function ChannelMessages({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2, py: 1.5 }}>
+      <Box ref={scrollBoxRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2, py: 1.5 }}>
         {loading ? null : rows.length === 0 ? (
           // 빈 화면을 바깥에서 그리게 열어 둔다. 채널을 막 만든 사람에게는 "무엇부터
           // 해야 하나"를 깔아주고(ChannelIntro), DM에는 한 줄이면 충분하다 — 그 판단에
