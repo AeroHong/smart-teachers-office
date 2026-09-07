@@ -46,12 +46,14 @@ export default function useAcademicCalendar() {
   ), [events])
 }
 
-/** "다가오는 일정" 목록용 — 오늘(또는 진행 중인 종료일) 이후만, 최대 N건.
- *  AcademicCalendar.jsx의 사이드바 목록이 쓴다(예전에 이 훅 안에 있던 로직). */
-export function upcomingEvents(events, limitCount = 12) {
+/** "다가오는 일정" 목록용 — 오늘(또는 진행 중인 종료일) 이후 `windowDays`일 이내만.
+ *  AcademicCalendar.jsx의 사이드바 목록이 쓴다(예전에 이 훅 안에 있던 로직). 예전엔
+ *  "최대 12건"으로만 잘랐는데, 학사일정에 항목이 쌓이면서(채널 업무 마감 자동 반영 포함)
+ *  몇 달 뒤 일정까지 12건을 채워 보여주는 게 오히려 당장 급한 일을 눈에 안 띄게 만들었다
+ *  — 기간(2주) 기준으로 바꾼다. */
+export function upcomingEvents(events, windowDays = 14) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  return events
-    .filter(e => (e._end || e._start) >= today)
-    .slice(0, limitCount)
+  const cutoff = new Date(today.getTime() + windowDays * 86400000)
+  return events.filter(e => (e._end || e._start) >= today && e._start < cutoff)
 }

@@ -55,7 +55,10 @@ export default function EventDetail({ event }) {
             동기화가 구글 쪽 내용으로 다시 덮어쓰기 때문(관리자 화면에서도 편집·삭제를
             막아 둠, AdminAcademicCalendar.jsx). */}
         {event.source === 'googleCalendar' && <ToneChip label="구글 캘린더" tone="neutral" />}
-        {event.source === 'request' && <ToneChip label="채널 업무" tone="neutral" />}
+        {/* 여러 채널에서 마감일이 쌓이면 제목만으로는 어느 채널 일인지 안 보인다 —
+            채널명을 그대로 분류 라벨로 보여준다(requestCalendarSync.js가 채널 문서에서
+            스냅샷 떠온 이름, 못 찾았으면 일반 라벨로 대체). */}
+        {event.source === 'request' && <ToneChip label={event.channelName ? `# ${event.channelName}` : '채널 업무'} tone="neutral" />}
       </Box>
 
       <Typography color="text.secondary" fontSize="0.9rem">

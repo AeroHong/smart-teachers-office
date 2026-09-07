@@ -42,6 +42,11 @@ export default function AcademicCalendar() {
               {e.source === 'googleCalendar' && (
                 <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'text.disabled', flexShrink: 0 }} />
               )}
+              {/* 채널 업무 마감 — 어느 채널인지는 상세(EventDetail)의 "# 채널명" 칩으로
+                  보여주고, 목록 한 줄에서는 googleCalendar와 같은 방식으로 점만 찍는다. */}
+              {e.source === 'request' && (
+                <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'warning.main', flexShrink: 0 }} />
+              )}
               <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</Box>
             </Box>
           )}
