@@ -30,6 +30,7 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
+import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
@@ -80,8 +81,9 @@ import useSchoolMembers from '../lib/useSchoolMembers'
 import usePublicChannels from '../lib/usePublicChannels'
 import usePresenceMap from '../lib/usePresenceMap'
 import {
-  duplicatePost, inviteToChannel, joinPublicChannel, openDm, postSystemNotice, refreshChannelMembers,
-  setChannelArchived, setChannelLeft, setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
+  deleteChannel, duplicatePost, inviteToChannel, joinPublicChannel, openDm, postSystemNotice,
+  refreshChannelMembers, setChannelArchived, setChannelLeft, setPostArchived, shareCanvasToChannel,
+  updateChannelAndPosts,
 } from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -148,6 +150,11 @@ export default function Channels() {
   const [inviting, setInviting] = useState(false)
   const presence = usePresenceMap()
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
+  // 채널 완전 삭제 — 안의 캔버스까지 함께 지워지는 되돌릴 수 없는 동작이라, 한 번
+  // 더 누르는 것만으로는 부족하다고 판단해 이름을 입력해야 열리는 전용 대화상자를
+  // 따로 뒀다(사용자 요청, 2026-09-08). 위 confirm과 분리한 이유는 그 입력값(typed)
+  // 상태를 대화상자 쪽에서 스스로 들고 있는 편이 더 단순하기 때문이다.
+  const [deletingChannel, setDeletingChannel] = useState(false)
   const [busy, setBusy] = useState(false)
   // 캔버스 탭은 주소(requestId)가 정하고, 이 상태는 글이 열려 있지 않을 때만 쓴다.
   // 캔버스를 주소로 고르는 것은 P2a 이전부터 그랬고, 그래야 쿨메신저에 붙여넣은 링크가
@@ -1212,6 +1219,19 @@ export default function Channels() {
             </MenuItem>
           )
         )}
+        {/* 보관과 다른 위험 구역이라 구분선으로 갈라 둔다 — 안의 캔버스까지 함께
+            지워지는 되돌릴 수 없는 동작이다(사용자 요청, 2026-09-08). */}
+        {canManage && !allStaff && (
+          <Divider />
+        )}
+        {canManage && !allStaff && (
+          <MenuItem
+            sx={{ fontSize: '0.85rem', color: 'error.main' }}
+            onClick={() => { setMenuAnchor(null); setDeletingChannel(true) }}
+          >
+            채널 완전 삭제
+          </MenuItem>
+        )}
       </Menu>
 
       <ConfirmDialog
@@ -1251,6 +1271,22 @@ export default function Channels() {
             '채널에서 나갔습니다.',
             '채널에서 나가지 못했습니다.',
           )
+        }}
+      />
+
+      <DeleteChannelDialog
+        open={deletingChannel}
+        channel={active}
+        canvasCount={active?.posts?.length || 0}
+        busy={busy}
+        onCancel={() => setDeletingChannel(false)}
+        onConfirm={() => {
+          setDeletingChannel(false)
+          run(
+            () => deleteChannel({ schoolId, channelId: active.id }),
+            '채널을 완전히 삭제했습니다.',
+            '채널을 삭제하지 못했습니다.',
+          ).then(ok => { if (ok) navigate('/') })
         }}
       />
 
@@ -1388,6 +1424,47 @@ function ConfirmDialog({ open, title, name, body, action, busy, onCancel, onConf
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onCancel}>취소</Button>
         <Button variant="contained" disabled={busy} onClick={onConfirm}>{action}</Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+/**
+ * 채널 완전 삭제 확인 — 보관·나가기와 달리 되돌릴 수 없고 안의 캔버스까지 함께
+ * 사라지므로, 버튼 한 번으로는 부족하다고 보고 채널 이름을 그대로 입력해야 삭제
+ * 버튼이 눌리게 했다(사용자 요청, 2026-09-08 — PostDetail.jsx의 글 삭제 확인보다
+ * 한 단계 더 무거운 동작이라 그만큼 확인도 무겁게 뒀다).
+ */
+function DeleteChannelDialog({ open, channel, canvasCount, busy, onCancel, onConfirm }) {
+  const [typed, setTyped] = useState('')
+  useEffect(() => { if (!open) setTyped('') }, [open])
+  const matches = channel?.name && typed.trim() === channel.name
+
+  return (
+    <Dialog open={open} onClose={onCancel} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: '1rem', fontWeight: 800, color: 'error.main' }}>
+        채널을 완전히 삭제할까요?
+      </DialogTitle>
+      <DialogContent>
+        <Typography fontSize="0.9rem"><strong>{channel?.name}</strong></Typography>
+        <Typography color="text.secondary" fontSize="0.85rem" sx={{ mt: 1 }}>
+          {canvasCount > 0 && `캔버스 ${canvasCount}개를 포함해 `}
+          이 채널의 메시지와 첨부 파일이 모두 사라집니다. 보관과 달리 되돌릴 수 없습니다.
+        </Typography>
+        <Typography color="text.secondary" fontSize="0.8rem" sx={{ mt: 1.5 }}>
+          확인을 위해 채널 이름 <strong>{channel?.name}</strong>을(를) 아래에 입력하세요.
+        </Typography>
+        <TextField
+          autoFocus fullWidth size="small" sx={{ mt: 1 }}
+          value={typed} onChange={e => setTyped(e.target.value)}
+          placeholder={channel?.name}
+        />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onCancel}>취소</Button>
+        <Button variant="contained" color="error" disabled={busy || !matches} onClick={onConfirm}>
+          완전 삭제
+        </Button>
       </DialogActions>
     </Dialog>
   )

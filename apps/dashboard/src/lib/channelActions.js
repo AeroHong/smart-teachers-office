@@ -9,7 +9,8 @@
 import {
   arrayRemove, arrayUnion, collection, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch,
 } from 'firebase/firestore'
-import { db } from '@shared/lib/firebase'
+import { httpsCallable } from 'firebase/functions'
+import { db, functions } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { newDmPayload, postVisibilityFor } from '@shared/lib/channels'
 import { dmChannelId, newMessagePayload, newSystemMessagePayload } from '@shared/lib/channelMessages'
@@ -93,6 +94,23 @@ export async function setChannelArchived({ schoolId, channelId, archived }) {
     archived,
     updatedAt: serverTimestamp(),
   })
+}
+
+/**
+ * 채널 완전 삭제 — 안의 캔버스·메시지·첨부까지 함께(사용자 요청, 2026-09-08).
+ *
+ * 클라이언트에서 채널 문서만 지우면 안 된다. 그 채널의 캔버스(requests)는 channelId로
+ * 최상위 컬렉션에 따로 있어 채널 없는 유령으로 남고, 메시지 첨부 파일도 저장소에
+ * 그대로 남는다. 함수(deleteChannelDeep, functions/channelDeletion.js)가 Admin SDK로
+ * 캔버스부터 하나씩 완전히 지운 뒤 채널까지 지운다 — "완전 삭제"라는 이름 그대로,
+ * 안에 있던 것이 뭐든 함께 사라진다.
+ *
+ * @returns {{ deletedPosts: number, deletedMessages: number, deletedFiles: number }}
+ */
+export async function deleteChannel({ schoolId, channelId }) {
+  const call = httpsCallable(functions, 'deleteChannelDeep')
+  const { data } = await call({ schoolId, channelId })
+  return data
 }
 
 /**

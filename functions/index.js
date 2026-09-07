@@ -34,6 +34,10 @@ exports.expireCallRequests = callSystem.expireCallRequests
 const postDeletion = require('./postDeletion')
 exports.deletePostDeep = postDeletion.deletePostDeep
 
+// 채널 완전 삭제 — 채널 안 캔버스·메시지·첨부까지 함께
+const channelDeletion = require('./channelDeletion')
+exports.deleteChannelDeep = channelDeletion.deleteChannelDeep
+
 // 캔버스 북마크(링크 미리보기) — CanvasEditor.jsx
 const linkPreview = require('./linkPreview')
 exports.fetchLinkPreview = linkPreview.fetchLinkPreview

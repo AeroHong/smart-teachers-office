@@ -56,16 +56,13 @@ async function requireCanDelete(db, request, schoolId, requestId) {
  * 저장소를 먼저 지운다. 문서를 먼저 지우면 그 뒤 저장소 삭제가 실패했을 때 어느 글의
  * 파일이었는지 알 방법이 사라진다. 반대로 저장소가 먼저 지워지고 문서가 남으면
  * 다시 눌러 지울 수 있다.
+ *
+ * 권한 확인 없이 지우기만 하는 내부 함수로 뽑아 둔다 — channelDeletion.js의 채널 완전
+ * 삭제가 그 채널의 캔버스를 하나씩 지울 때 이걸 그대로 재사용한다. 그때는 "채널을
+ * 지울 권한이 있는가"만 한 번 확인하면 되고, 캔버스마다 다시 글쓴이인지 볼 필요가
+ * 없다(채널을 통째로 지우는 이상 그 안의 글도 함께 지워지는 것이 맞다).
  */
-exports.deletePostDeep = onCall({ region: REGION }, async (request) => {
-  const db = getFirestore()
-  const { schoolId, requestId } = request.data || {}
-  if (!schoolId || !requestId) {
-    throw new HttpsError('invalid-argument', 'schoolId와 requestId가 필요합니다.')
-  }
-
-  await requireCanDelete(db, request, schoolId, requestId)
-
+async function deletePostFilesAndDoc(db, schoolId, requestId) {
   let deletedFiles = 0
   try {
     const prefix = `schools/${schoolId}/requests/${requestId}/`
@@ -81,4 +78,16 @@ exports.deletePostDeep = onCall({ region: REGION }, async (request) => {
   await db.recursiveDelete(ref)
 
   return { deletedFiles }
+}
+exports.deletePostFilesAndDoc = deletePostFilesAndDoc
+
+exports.deletePostDeep = onCall({ region: REGION }, async (request) => {
+  const db = getFirestore()
+  const { schoolId, requestId } = request.data || {}
+  if (!schoolId || !requestId) {
+    throw new HttpsError('invalid-argument', 'schoolId와 requestId가 필요합니다.')
+  }
+
+  await requireCanDelete(db, request, schoolId, requestId)
+  return deletePostFilesAndDoc(db, schoolId, requestId)
 })

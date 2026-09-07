@@ -60,7 +60,7 @@ import {
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
 export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }) {
-  const { user, userName, schoolId } = useAuth()
+  const { user, userName, schoolId, isAdmin } = useAuth()
   const navigate = useNavigate()
   const toast = useToast()
   const { members } = useSchoolMembers()
@@ -125,6 +125,10 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
   }, [schoolId, requestId])
 
   const isOwner = request?.createdBy === user?.uid
+  // 삭제는 글쓴이 말고 관리자도 할 수 있다 — deletePostDeep 함수(postDeletion.js)의
+  // 권한 판정과 맞춘다. 편집은 여전히 글쓴이만(다른 사람 내용을 관리자가 손대는 건
+  // 별개 문제라 요청받은 범위 밖이다).
+  const canDelete = isOwner || isAdmin
   const isTarget = isTargetOf(request, user?.uid)
   // 안내는 읽으면 끝이라 완료 표시도, 진행률도 없다
   const trackCompletion = isRequest(request)
@@ -202,7 +206,7 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
               수정
             </Button>
           )}
-          {isOwner && (
+          {canDelete && (
             <Button
               size="small" color="error" startIcon={<DeleteIcon sx={{ fontSize: 17 }} />}
               disabled={busy}
