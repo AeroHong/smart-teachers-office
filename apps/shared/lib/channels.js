@@ -203,6 +203,11 @@ export function newDmPayload({ me, other }) {
   }
 }
 
+/** DM 상대의 uid — 나 자신과의 DM(메모 용도)이면 없다. */
+export function dmOtherUid(channel, myUid) {
+  return (channel?.memberUids || []).find(uid => uid !== myUid) || null
+}
+
 /**
  * DM을 목록에 뭐라고 적을 것인가 — 상대의 이름.
  *
@@ -210,10 +215,9 @@ export function newDmPayload({ me, other }) {
  * 열어둔 경우)은 상대가 없으므로 그렇게 밝힌다.
  */
 export function dmTitle(channel, myUid) {
-  const names = channel?.memberNames || {}
-  const otherUid = (channel?.memberUids || []).find(uid => uid !== myUid)
+  const otherUid = dmOtherUid(channel, myUid)
   if (!otherUid) return '나와의 대화'
-  return names[otherUid] || '(이름 없음)'
+  return (channel?.memberNames || {})[otherUid] || '(이름 없음)'
 }
 
 /**

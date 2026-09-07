@@ -652,6 +652,7 @@ export default function Channels() {
       archivedChannels={archivedChannels}
       leftChannels={leftChannels}
       dms={dms}
+      members={members}
       myUid={user?.uid}
       loading={loading}
       activeChannelId={channelId}

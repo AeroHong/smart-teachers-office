@@ -41,7 +41,7 @@ import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import TagIcon from '@mui/icons-material/Tag'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { canManageChannel, dmTitle, isAllStaffChannel, isPrivateChannel } from '@shared/lib/channels'
+import { canManageChannel, dmOtherUid, dmTitle, isAllStaffChannel, isPrivateChannel } from '@shared/lib/channels'
 import { hasUnread } from '@shared/lib/channelMessages'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
@@ -50,6 +50,7 @@ import {
   toggleMuted, validateSectionName,
 } from '@shared/lib/channelPrefs'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from './sidebarUi'
+import PersonAvatar from './PersonAvatar'
 import { useToast } from './ToastProvider'
 import useChannelPrefs from '../lib/useChannelPrefs'
 import useFavoritedPosts from '../lib/useFavoritedPosts'
@@ -62,12 +63,16 @@ import { setChannelArchived } from '../lib/channelActions'
 const GROUP_ICON = { favorites: StarIcon, section: FolderIcon, default: TagIcon }
 
 export default function ChannelSidebar({
-  channels, archivedChannels, leftChannels, dms = [], myUid,
+  channels, archivedChannels, leftChannels, dms = [], members = [], myUid,
   loading, activeChannelId, directoryActive, onNewChannel, onNewDm, onSelfDm,
 }) {
   const navigate = useNavigate()
   const toast = useToast()
   const { schoolId, user, isAdmin } = useAuth()
+  // 이름만 있는 목록은 밋밋하다(사용자 지적, 2026-09-08 — "이름만 표시하니까 안
+  // 이쁘다") — 사진을 붙이려면 uid로 찾아야 하는데 DM 채널 문서엔 이름(memberNames)만
+  // 있고 사진은 없다. Map으로 한 번만 만들어 두고 매 줄에서 조회한다.
+  const photoByUid = useMemo(() => new Map(members.map(m => [m.uid, m.photoURL])), [members])
   const { prefs, reads, update } = useChannelPrefs()
   // 즐겨찾기·섹션에 캔버스(업무 글)가 들어있으면 그 최신 title 등을 가져온다
   // (channelPrefs.js favoritedPostIds 주석 참고 — 학교 전체 글이 아니라 이것만 구독).
@@ -312,15 +317,19 @@ export default function ChannelSidebar({
         />
         {otherDms.length === 0 ? (
           <SidebarEmpty>대화가 없습니다</SidebarEmpty>
-        ) : otherDms.map(c => (
-          <SidebarItem
-            key={c.id}
-            label={dmTitle(c, myUid)}
-            selected={c.id === activeChannelId}
-            strong={hasUnread(c, reads)}
-            onClick={() => navigate(`/channels/${c.id}`)}
-          />
-        ))}
+        ) : otherDms.map(c => {
+          const otherUid = dmOtherUid(c, myUid)
+          return (
+            <SidebarItem
+              key={c.id}
+              label={dmTitle(c, myUid)}
+              avatar={<PersonAvatar name={dmTitle(c, myUid)} photoURL={photoByUid.get(otherUid)} size={22} />}
+              selected={c.id === activeChannelId}
+              strong={hasUnread(c, reads)}
+              onClick={() => navigate(`/channels/${c.id}`)}
+            />
+          )
+        })}
         <SidebarItem
           label={(
             <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, color: 'text.secondary' }}>
