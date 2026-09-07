@@ -7,13 +7,48 @@
  * 줄은 제목 하나로 끝낸다. 부제·시각·설명을 붙이면 한 줄이 두 줄이 되고, 제목만 훑어
  * 고르려고 목록/상세로 바꾼 의미가 사라진다. 급한 것만 오른쪽에 작은 칩으로 알린다.
  */
+import Badge from '@mui/material/Badge'
 import Box from '@mui/material/Box'
 import Collapse from '@mui/material/Collapse'
+import Tooltip from '@mui/material/Tooltip'
 import { alpha } from '@mui/material/styles'
 import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
+import { PRESENCE } from '@shared/lib/presence'
+
+/**
+ * 아바타 오른쪽 아래에 재실 상태 점을 붙인다 — 디렉터리·구성원 화면에서 "지금 접속해
+ * 있고 앱이 켜져 있는지"를 한눈에 보여 달라는 요청(2026-09-07)에 대응한다. 값은
+ * usePresenceMap.js가 schools/{schoolId}/presence 컬렉션에서 한 번에 읽어온 것을
+ * 그대로 받는다 — 여기서는 점만 그린다.
+ *
+ * status가 'unknown'(확인 안 됨 — 데스크톱 앱을 안 쓰거나 4시간 넘게 갱신이 없음)이면
+ * 점을 아예 안 그린다. 다들 회색 점을 달고 있으면 그 자체가 신호로 안 읽혀서, "정말
+ * 재실·자리비움이 확인된 사람"만 표시하는 편이 오히려 눈에 띈다.
+ */
+export function PresenceAvatar({ status, children }) {
+  const p = status && status !== 'unknown' ? PRESENCE[status] : null
+  if (!p) return children
+  return (
+    <Tooltip title={p.label}>
+      <Badge
+        overlap="rectangular"
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        badgeContent={(
+          <Box sx={{
+            width: 8, height: 8, borderRadius: '50%', bgcolor: p.color,
+            border: '1.5px solid', borderColor: 'background.paper',
+          }}
+          />
+        )}
+      >
+        {children}
+      </Badge>
+    </Tooltip>
+  )
+}
 
 /**
  * 접이식 섹션 머리. 접혀 있어도 건수는 보여야 열지 말지 판단할 수 있다.

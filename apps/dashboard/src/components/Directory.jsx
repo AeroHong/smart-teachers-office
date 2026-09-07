@@ -25,9 +25,10 @@ import { isMember } from '@shared/lib/channels'
 import {
   autoGroups, filterMembers, groupToMemberRule, homeroomLabel, memberSubtitle, sortMembers,
 } from '@shared/lib/directory'
-import { SidebarEmpty, SidebarSection } from './sidebarUi'
+import { PresenceAvatar, SidebarEmpty, SidebarSection } from './sidebarUi'
 import PersonAvatar from './PersonAvatar'
 import { useProfileCard } from './ProfileCardProvider'
+import usePresenceMap from '../lib/usePresenceMap'
 
 export default function Directory({
   members, membersLoading, myUid, busy,
@@ -35,6 +36,7 @@ export default function Directory({
   onStartDm, onNewChannelFromGroup,
 }) {
   const [tab, setTab] = useState('people')
+  const presence = usePresenceMap()
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -56,7 +58,7 @@ export default function Directory({
       <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: 2.5, py: 1.5 }}>
         {tab === 'people' && (
           <PeopleTab
-            members={members} loading={membersLoading} myUid={myUid} busy={busy}
+            members={members} loading={membersLoading} myUid={myUid} busy={busy} presence={presence}
             onStartDm={onStartDm}
           />
         )}
@@ -68,7 +70,7 @@ export default function Directory({
         )}
         {tab === 'groups' && (
           <GroupsTab
-            members={members} loading={membersLoading} myUid={myUid} busy={busy}
+            members={members} loading={membersLoading} myUid={myUid} busy={busy} presence={presence}
             onStartDm={onStartDm} onNewChannelFromGroup={onNewChannelFromGroup}
           />
         )}
@@ -83,7 +85,7 @@ export default function Directory({
  * 필터는 갈래마다 하나씩 켜진다(부서 ∧ 교과). 같은 칩을 다시 누르면 꺼진다 — 끄는 방법을
  * 따로 두면 갈래마다 '전체' 칩이 하나씩 더 붙어 칩 줄이 두 배가 된다.
  */
-function PeopleTab({ members, loading, myUid, busy, onStartDm }) {
+function PeopleTab({ members, loading, myUid, busy, presence, onStartDm }) {
   const [keyword, setKeyword] = useState('')
   const [filter, setFilter] = useState({})
 
@@ -140,6 +142,7 @@ function PeopleTab({ members, loading, myUid, busy, onStartDm }) {
         {shown.map(m => (
           <MemberCard
             key={m.uid} member={m} isMe={m.uid === myUid} busy={busy}
+            status={presence[m.uid]}
             onStartDm={() => onStartDm(m)}
           />
         ))}
@@ -148,7 +151,7 @@ function PeopleTab({ members, loading, myUid, busy, onStartDm }) {
   )
 }
 
-function MemberCard({ member, isMe, busy, onStartDm }) {
+function MemberCard({ member, isMe, busy, status, onStartDm }) {
   const subtitle = memberSubtitle(member)
   const homeroom = homeroomLabel(member)
   const { open: openProfile } = useProfileCard()
@@ -168,7 +171,9 @@ function MemberCard({ member, isMe, busy, onStartDm }) {
           sx={{ border: 0, background: 'none', p: 0, cursor: 'pointer', lineHeight: 0, flexShrink: 0 }}
           aria-label={`${member.name} 프로필`}
         >
-          <PersonAvatar name={member.name} photoURL={member.photoURL} size={28} />
+          <PresenceAvatar status={status}>
+            <PersonAvatar name={member.name} photoURL={member.photoURL} size={28} />
+          </PresenceAvatar>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6, minWidth: 0 }}>
           <Typography fontSize="0.92rem" fontWeight={700} noWrap>{member.name}</Typography>
@@ -294,7 +299,7 @@ function ChannelsTab({ channels, loading, myUid, busy, onOpen, onJoin }) {
  * 구성원 화면의 조직도 트리와 같은 구조다 — 한 사람이 부서·교과·사무실·담임 여러 곳에
  * 등장하고, 그 각각이 그 사람을 찾는 경로다.
  */
-function GroupsTab({ members, loading, myUid, busy, onStartDm, onNewChannelFromGroup }) {
+function GroupsTab({ members, loading, myUid, busy, presence, onStartDm, onNewChannelFromGroup }) {
   const sections = useMemo(() => autoGroups(members), [members])
   const [open, setOpen] = useState({})
 
@@ -352,6 +357,7 @@ function GroupsTab({ members, loading, myUid, busy, onStartDm, onNewChannelFromG
                     {g.members.map(m => (
                       <MemberCard
                         key={m.uid} member={m} isMe={m.uid === myUid} busy={busy}
+                        status={presence[m.uid]}
                         onStartDm={() => onStartDm(m)}
                       />
                     ))}

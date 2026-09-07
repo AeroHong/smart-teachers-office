@@ -27,17 +27,20 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { SCHOOLS, USERS } from '@shared/lib/schema'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
-import { SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
+import { PresenceAvatar, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
 import NoticeComposeModal from '../components/NoticeComposeModal'
 import PersonAvatar from '../components/PersonAvatar'
 import EditableAvatar from '../components/EditableAvatar'
 import useSchoolMembers from '../lib/useSchoolMembers'
 import useMyAvatar from '../lib/useMyAvatar'
+import usePresenceMap from '../lib/usePresenceMap'
+import { PRESENCE } from '@shared/lib/presence'
 import { ROOT_GROUPS, buildRosterTree, defaultExpanded, memberSubtitle, nodeId, searchMembers } from '../lib/rosterTree'
 
 export default function Members() {
   const { user, schoolId } = useAuth()
   const { members, loading, refetch } = useSchoolMembers()
+  const presence = usePresenceMap()
   const [expanded, setExpanded] = useState(null)
   const [keyword, setKeyword] = useState('')
   const [selected, setSelected] = useState(null)
@@ -166,7 +169,11 @@ export default function Members() {
             <SidebarItem
               key={m.uid}
               label={memberLabel(m)}
-              avatar={<PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />}
+              avatar={(
+                <PresenceAvatar status={presence[m.uid]}>
+                  <PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />
+                </PresenceAvatar>
+              )}
               selected={!picking && selected?.uid === m.uid}
               onClick={() => onMemberClick(m)}
               chip={picking ? <PickMark on={isPicked(m.uid)} /> : null}
@@ -209,7 +216,11 @@ export default function Members() {
                 <SidebarItem
                   key={`${g.id}:${m.uid}`}
                   label={memberLabel(m)}
-                  avatar={<PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />}
+                  avatar={(
+                    <PresenceAvatar status={presence[m.uid]}>
+                      <PersonAvatar name={m.name} photoURL={m.photoURL} size={22} />
+                    </PresenceAvatar>
+                  )}
                   indent={1.2}
                   selected={!picking && selected?.uid === m.uid}
                   onClick={() => onMemberClick(m)}
@@ -237,16 +248,28 @@ export default function Members() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
             {/* 본인 사진만 바꿀 수 있다 — 눌러도 아무 일 없는 사진은 오히려 "고장 났나"로
                 읽힌다, 그래서 본인일 때만 EditableAvatar(눌러서 바꾸기)를 쓴다. */}
-            {selected.uid === user?.uid ? (
-              <EditableAvatar
-                name={selected.name} photoURL={selected.photoURL} size={56}
-                uploading={uploadingAvatar} onPick={uploadAvatar}
-              />
-            ) : (
-              <PersonAvatar name={selected.name} photoURL={selected.photoURL} size={56} />
-            )}
+            <PresenceAvatar status={presence[selected.uid]}>
+              {selected.uid === user?.uid ? (
+                <EditableAvatar
+                  name={selected.name} photoURL={selected.photoURL} size={56}
+                  uploading={uploadingAvatar} onPick={uploadAvatar}
+                />
+              ) : (
+                <PersonAvatar name={selected.name} photoURL={selected.photoURL} size={56} />
+              )}
+            </PresenceAvatar>
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h6" fontWeight={800}>{selected.name}</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
+                <Typography variant="h6" fontWeight={800}>{selected.name}</Typography>
+                {presence[selected.uid] && presence[selected.uid] !== 'unknown' && (
+                  <Typography
+                    fontSize="0.76rem" fontWeight={700}
+                    sx={{ color: PRESENCE[presence[selected.uid]].color }}
+                  >
+                    {PRESENCE[presence[selected.uid]].label}
+                  </Typography>
+                )}
+              </Box>
               <Typography color="text.secondary" fontSize="0.88rem">
                 {memberSubtitle(selected) || '소속 정보가 없습니다'}
               </Typography>
