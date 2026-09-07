@@ -38,6 +38,15 @@
  * 댓글 리스너는 "내가 대상이거나 담당인 글"만 여는데, 이 범위가 한 학기 내내 쌓여
  * 멘션(채널 수만큼)보다 훨씬 커질 수 있다. 실제로 느려지면 "마감 지난 지 오래된 글은
  * 제외" 같은 기간 제한을 여기 더한다 — 지금은 두지 않는다.
+ *
+ * ── 확인한 알림은 3일 뒤 목록에서 뺀다 (2026-09-07) ──────────────────
+ *
+ * 안 읽은 건 그대로 계속 남아 계속 보여야 하지만(놓친 걸 나중에라도 봐야 하니까),
+ * 이미 확인한 건 Activity.jsx가 취소선으로 표시한 뒤에도 목록에 계속 쌓여 정작
+ * 최근 확인한 것과 안 읽은 것을 눈으로 가려내기 번거로워졌다(사용자 지적). 항목별로
+ * "언제 확인했는지"를 따로 기록하지 않으므로(읽음이 채널 단위라 그런 필드가 없다),
+ * 대신 그 항목 자체의 시각(createdAt)이 3일보다 오래됐고 이미 읽음이면 목록에서
+ * 뺀다 — 안 읽은 건 아무리 오래돼도 계속 남는다.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore'
@@ -55,6 +64,8 @@ const MENTION_WINDOW = 20
 const MESSAGE_LIMIT = 50
 /** 글 하나당 최근 이 정도에서만 댓글을 찾는다 — 멘션과 같은 기준. */
 const COMMENT_WINDOW = 10
+/** 확인한 알림을 목록에서 빼는 기준 — 위 파일 설명 참고. */
+const READ_ITEM_TTL_MS = 3 * 86400000
 
 function toMillis(v) {
   return v?.toMillis?.() ?? (v instanceof Date ? v.getTime() : 0)
@@ -219,7 +230,9 @@ export default function useNotificationFeed() {
       data: c,
     }))
 
+    const cutoff = Date.now() - READ_ITEM_TTL_MS
     return [...noticeItems, ...mentionItems, ...messageItems, ...channelItems, ...commentItems]
+      .filter(i => i.isNew || toMillis(i.createdAt) >= cutoff)
       .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt))
   }, [notices, mentionsByChannel, messages, channels, commentsByPost, user, reads])
 

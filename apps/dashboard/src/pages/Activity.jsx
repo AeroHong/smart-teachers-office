@@ -125,6 +125,11 @@ export default function Activity() {
               label={item.label}
               selected={selected}
               strong={item.isNew}
+              // 확인한 알림은 취소선으로 — "업무 진행 중"의 완료 표시(muted)와 같은
+              // 방식이다. useNotificationFeed.js가 이미 읽고 3일 지난 항목은 목록에서
+              // 아예 빼므로, 여기 보이는 muted 항목은 "확인했지만 아직 3일이 안 지난"
+              // 것들이다(사용자 요청, 2026-09-07).
+              muted={!item.isNew}
               highlightUnread
               onClick={() => openNotif(item)}
               chip={<MiniChip label={item.chipLabel} tone={item.isNew ? 'info' : 'neutral'} selected={selected} />}
