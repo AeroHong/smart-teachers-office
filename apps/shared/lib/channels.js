@@ -259,6 +259,7 @@ export function newChannelPayload({
   visibility = VISIBILITY.PUBLIC,
   postPolicy = POST_POLICY.MEMBERS,
   type = CHANNEL_TYPE.CHANNEL,
+  openInvite = false,
 }) {
   return {
     name: (name || '').trim().slice(0, CHANNEL_NAME_MAX),
@@ -275,6 +276,7 @@ export function newChannelPayload({
     type: type === CHANNEL_TYPE.DM ? CHANNEL_TYPE.DM : CHANNEL_TYPE.CHANNEL,
     visibility: visibility === VISIBILITY.PRIVATE ? VISIBILITY.PRIVATE : VISIBILITY.PUBLIC,
     postPolicy: postPolicy === POST_POLICY.OWNER ? POST_POLICY.OWNER : POST_POLICY.MEMBERS,
+    openInvite: !!openInvite,
   }
 }
 
@@ -391,6 +393,16 @@ export function isMember(channel, uid) {
 export function canManageChannel(channel, uid, isAdmin = false) {
   if (!channel || !uid) return false
   return !!isAdmin || channel.createdBy === uid
+}
+
+/**
+ * 참여자가 남을 이 채널로 직접 데려올 수 있는가 ("누구나 초대 가능", 사용자 요청,
+ * 2026-09-07). 공개 채널로만 연다 — 비공개는 참여자 명단이 곧 글 열람 권한(visibleUids)
+ * 이라, 초대 한 번이 다른 사람의 명단까지 조용히 넓히는 셈이 된다(firestore.rules도
+ * 같은 이유로 공개 채널만 허용한다).
+ */
+export function canInviteToChannel(channel, uid) {
+  return isMember(channel, uid) && !isPrivateChannel(channel) && !!channel?.openInvite
 }
 
 /**

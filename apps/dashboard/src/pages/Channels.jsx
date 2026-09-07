@@ -41,6 +41,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
+import PersonAddIcon from '@mui/icons-material/PersonAddAlt1'
 import PersonIcon from '@mui/icons-material/PersonOutline'
 import TagIcon from '@mui/icons-material/Tag'
 import { db } from '@shared/lib/firebase'
@@ -49,8 +50,8 @@ import { ALL_STAFF_CHANNEL_ID, COL, USERS, schoolPath } from '@shared/lib/schema
 import { resolveTargets } from '@shared/lib/targeting'
 import { memberSubtitle } from '@shared/lib/directory'
 import {
-  CANVAS_TAB_MAX, POST_POLICY, canManageChannel, canPostTo, channelPostPolicy, dmTitle, hasLeft,
-  isAllStaffChannel, isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
+  CANVAS_TAB_MAX, POST_POLICY, canInviteToChannel, canManageChannel, canPostTo, channelPostPolicy,
+  dmTitle, hasLeft, isAllStaffChannel, isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
 } from '@shared/lib/channels'
 import { completionStats, dueState, isRequest } from '@shared/lib/workRequests'
 import {
@@ -65,6 +66,7 @@ import ChannelMessages from '../components/ChannelMessages'
 import ChannelSidebar from '../components/ChannelSidebar'
 import Directory from '../components/Directory'
 import DmDialog from '../components/DmDialog'
+import InviteMembersDialog from '../components/InviteMembersDialog'
 import ShareCanvasDialog from '../components/ShareCanvasDialog'
 import PostComposer from '../components/PostComposer'
 import PostDetail from '../components/PostDetail'
@@ -78,8 +80,8 @@ import useSchoolMembers from '../lib/useSchoolMembers'
 import usePublicChannels from '../lib/usePublicChannels'
 import usePresenceMap from '../lib/usePresenceMap'
 import {
-  duplicatePost, joinPublicChannel, openDm, refreshChannelMembers, setChannelArchived,
-  setChannelLeft, setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
+  duplicatePost, inviteToChannel, joinPublicChannel, openDm, refreshChannelMembers,
+  setChannelArchived, setChannelLeft, setPostArchived, shareCanvasToChannel, updateChannelAndPosts,
 } from '../lib/channelActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
@@ -141,6 +143,9 @@ export default function Channels() {
   // 고치기(연필 아이콘)는 그대로 관리자 전용으로 남긴다 — 이름 변경·조건 규칙·보관까지
   // 열리는 화면이라 일반 참여자에게 통째로 내주기엔 범위가 넓다.
   const [viewingMembers, setViewingMembers] = useState(false)
+  // "누구나 초대 가능" 채널에서 참여자가 남을 데려오는 대화상자 — 관리자 전용 "채널
+  // 고치기"와 별개의 좁은 동작이다(사용자 요청, 2026-09-07).
+  const [inviting, setInviting] = useState(false)
   const presence = usePresenceMap()
   const [confirm, setConfirm] = useState(null)      // null | 'archive' | 'leave'
   const [busy, setBusy] = useState(false)
@@ -548,6 +553,16 @@ export default function Channels() {
     navigate(`/channels/${channel.id}`)
   }
 
+  /** "누구나 초대 가능" 채널에서 고른 사람들을 데려온다. */
+  const inviteMembers = async (uids) => {
+    if (uids.length === 0) return
+    await run(
+      () => inviteToChannel({ schoolId, channelId: active.id, uids }),
+      `${uids.length}명을 초대했습니다.`,
+      '초대하지 못했습니다.',
+    )
+  }
+
   /** 그룹을 조건 그대로 들고 새 채널 대화상자를 연다. uid를 복사하지 않는 이유는
    *  directory.js의 groupToMemberRule 주석 참고 — 조건이어야 인사이동 뒤에 갱신 표시가 뜬다. */
   const newChannelFromGroup = ({ name, rule }) => {
@@ -693,6 +708,13 @@ export default function Channels() {
               >
                 {targetOpen ? '접기' : '대상 좁히기'}
               </Button>
+            )}
+            {!canManage && canInviteToChannel(active, user?.uid) && (
+              <Tooltip title="참여자 초대">
+                <IconButton size="small" onClick={() => setInviting(true)}>
+                  <PersonAddIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
             )}
             {canManage && (
               <Tooltip title="채널 고치기">
@@ -1269,6 +1291,15 @@ export default function Channels() {
           <Button onClick={() => setViewingMembers(false)}>닫기</Button>
         </DialogActions>
       </Dialog>
+
+      <InviteMembersDialog
+        open={inviting}
+        members={members}
+        memberUids={active?.memberUids || []}
+        busy={busy}
+        onClose={() => setInviting(false)}
+        onInvite={inviteMembers}
+      />
     </WorkspaceLayout>
   )
 }

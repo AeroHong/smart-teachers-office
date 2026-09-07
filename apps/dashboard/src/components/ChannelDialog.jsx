@@ -27,6 +27,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Switch from '@mui/material/Switch'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import CampaignIcon from '@mui/icons-material/CampaignOutlined'
+import PersonAddIcon from '@mui/icons-material/PersonAddAlt1'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import {
@@ -60,6 +61,7 @@ export default function ChannelDialog({ open, channel, preset, existingNames = [
   const [rule, setRule] = useState(EMPTY_RULE)
   const [isPrivate, setIsPrivate] = useState(false)
   const [ownerOnly, setOwnerOnly] = useState(false)
+  const [openInvite, setOpenInvite] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const editing = !!channel
@@ -76,6 +78,7 @@ export default function ChannelDialog({ open, channel, preset, existingNames = [
     })
     setIsPrivate(channelVisibility(channel) === VISIBILITY.PRIVATE)
     setOwnerOnly(channelPostPolicy(channel) === POST_POLICY.OWNER)
+    setOpenInvite(!!channel?.openInvite)
   }, [open, channel, preset, user])
 
   const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
@@ -100,6 +103,7 @@ export default function ChannelDialog({ open, channel, preset, existingNames = [
           members: targets,
           visibility: isPrivate ? VISIBILITY.PRIVATE : VISIBILITY.PUBLIC,
           postPolicy: ownerOnly ? POST_POLICY.OWNER : POST_POLICY.MEMBERS,
+          openInvite: !isPrivate && openInvite,
         }),
       })
       onClose()
@@ -156,6 +160,26 @@ export default function ChannelDialog({ open, channel, preset, existingNames = [
               ? '참여자가 아니면 이 채널이 있다는 것조차 알 수 없습니다. 목록·검색 어디에도 나오지 않고, 채널에 올린 글도 참여자만 봅니다.'
               : '소속 교사 누구나 채널 이름과 글을 볼 수 있습니다. 참여자가 아닌 사람도 보고 "넣어달라"고 말할 수 있습니다.'}
           </Typography>
+
+          {!isPrivate && (
+            <>
+              <FormControlLabel
+                sx={{ mt: 1 }}
+                control={<Switch size="small" checked={openInvite} onChange={e => setOpenInvite(e.target.checked)} />}
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                    <PersonAddIcon sx={{ fontSize: 16, color: openInvite ? 'primary.main' : 'text.disabled' }} />
+                    <Typography fontSize="0.85rem" fontWeight={600}>누구나 초대 가능</Typography>
+                  </Box>
+                }
+              />
+              <Typography fontSize="0.74rem" color="text.secondary" sx={{ ml: 4.5, mt: -0.3 }}>
+                {openInvite
+                  ? '참여자 누구나 다른 사람을 이 채널로 직접 데려올 수 있습니다.'
+                  : '참여자를 늘리는 것은 만든 사람과 관리자만 할 수 있습니다.'}
+              </Typography>
+            </>
+          )}
 
           <FormControlLabel
             sx={{ mt: 1 }}

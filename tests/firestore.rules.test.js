@@ -73,6 +73,17 @@ beforeEach(async () => {
     })
     await setDoc(doc(db, ...path('channels', 'pub')), channel())
     await setDoc(doc(db, ...path('channels', 'priv')), channel({ visibility: 'private' }))
+    // B는 만든 사람이 아닌 평범한 참여자로 넣는다 — "만든 사람은 원래 뭐든 고칠 수
+    // 있다"는 별개의 조항과 섞이지 않게, openInvite 전용 조항만 걸러 시험하기 위해서다.
+    await setDoc(doc(db, ...path('channels', 'open')), channel({
+      openInvite: true, memberUids: [A, B], leftUids: [C],
+    }))
+    await setDoc(doc(db, ...path('channels', 'pubOpenOff')), channel({
+      openInvite: false, memberUids: [A, B],
+    }))
+    await setDoc(doc(db, ...path('channels', 'openPriv')), channel({
+      visibility: 'private', openInvite: true, memberUids: [A, B],
+    }))
     await setDoc(doc(db, ...path('channels', 'notice')), channel({ postPolicy: 'owner', memberUids: [A, B] }))
     await setDoc(doc(db, ...path('channels', `dm_${A}_${B}`)), channel({
       type: 'dm', visibility: 'private', name: '', memberUids: [A, B],
@@ -463,4 +474,57 @@ test('[참여] 둘러보기 쿼리는 공개 채널만 돌려준다 ★', async 
 
 test('[참여] 조건 없이 채널을 통째로 훑을 수는 없다', async () => {
   await assertFails(getDocs(collection(as(B), ...path('channels'))))
+})
+
+// ── 9. "누구나 초대 가능" — 참여자가 남을 데려온다 ────────────────
+//
+// 자가 참여(§8)와 짝이지만, 움직이는 uid가 나 자신이 아니어도 된다는 점이 다르다.
+// 그래서 늘리는 쪽만 열고 줄이는 쪽(내보내기)은 이 조항으로는 아예 못 하게 막았는지가
+// 검증의 핵심이다.
+
+test('[초대] openInvite 켠 공개 채널은 만든 사람이 아닌 참여자도 남을 데려온다', async () => {
+  await assertSucceeds(updateDoc(doc(as(B), ...path('channels', 'open')), {
+    memberUids: [A, B, C], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[초대] 참여자가 아니면 남을 데려올 수 없다', async () => {
+  // C 자신을 넣는 게 아니라 제3자('teacher-d')를 끌어들이려는 시도라, 자가 참여
+  // 조항(selfOnlyUidChange)으로도 못 빠져나간다 — 참여자가 아니라는 것만 걸린다.
+  await assertFails(updateDoc(doc(as(C), ...path('channels', 'open')), {
+    memberUids: [A, B, 'teacher-d'], updatedAt: new Date(),
+  }))
+})
+
+test('[초대] openInvite 꺼진 공개 채널에서는 참여자도 남을 못 데려온다 ★', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'pubOpenOff')), {
+    memberUids: [A, B, C], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[초대] 초대를 핑계로 남을 내보낼 수는 없다 ★', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'open')), {
+    memberUids: [B, C], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[초대] 비공개 채널은 openInvite를 켜놔도 초대가 안 된다 ★', async () => {
+  // 참여자 명단이 곧 글 열람 권한이라(visibleUids), 공개 채널에만 여는 것이 원칙이다.
+  // B는 만든 사람이 아닌 평범한 참여자라, 이 실패는 오직 이 조항의 판단이다.
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'openPriv')), {
+    memberUids: [A, B, C], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[초대] 예전에 나갔던 사람을 다시 데려오면 나감 표시도 같이 지워진다', async () => {
+  // 'open' 채널 fixture는 leftUids에 C를 미리 넣어 두었다
+  await assertSucceeds(updateDoc(doc(as(B), ...path('channels', 'open')), {
+    memberUids: [A, B, C], leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[초대] 초대를 핑계로 다른 필드를 못 바꾼다', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', 'open')), {
+    memberUids: [A, B, C], name: '가로챈 이름', updatedAt: new Date(),
+  }))
 })

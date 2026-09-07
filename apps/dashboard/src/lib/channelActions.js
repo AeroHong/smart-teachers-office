@@ -122,6 +122,20 @@ export async function joinPublicChannel({ schoolId, channelId, uid }) {
 }
 
 /**
+ * "누구나 초대 가능" 공개 채널에서 참여자가 다른 사람들을 데려온다 — joinPublicChannel과
+ * 같은 모양이지만 대상이 나 자신이 아니라 고른 사람들이다. 규칙(firestore.rules)이
+ * 공개+openInvite 채널에서 memberUids를 늘리는 것만 허용하고 줄이는 것은 막으므로,
+ * 여기서도 arrayUnion/arrayRemove로 늘리기만 한다.
+ */
+export async function inviteToChannel({ schoolId, channelId, uids }) {
+  await updateDoc(channelRef(schoolId, channelId), {
+    memberUids: arrayUnion(...uids),
+    leftUids: arrayRemove(...uids),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/**
  * 캔버스를 다른 채널로 넘긴다 — 그 채널에 이 글을 가리키는 메시지 하나를 남긴다.
  *
  * ── 복사가 아니라 링크다 ────────────────────────────────────

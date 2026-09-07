@@ -110,6 +110,22 @@ service cloud.firestore {
              before.difference(after).hasOnly([request.auth.uid]);
     }
 
+    // "누구나 초대 가능"(openInvite) 채널에서 참여자가 남을 데려올 때 쓴다 — 늘어나는
+    // 것만 확인하고 줄어드는 건 아예 못 보게 막아, 이 조항으로는 아무도 못 뺀다.
+    function onlyAddsUids(field) {
+      let before = resource.data.get(field, []).toSet();
+      let after = request.resource.data.get(field, []).toSet();
+      return before.difference(after).size() == 0;
+    }
+
+    // 위와 짝 — leftUids 쪽은 반대로 "줄어드는 것만" 허용한다(초대된 사람이 예전에
+    // 나갔었다면 그 표시를 지워야 목록에서 '나간 채널'로 안 보인다).
+    function onlyRemovesUids(field) {
+      let before = resource.data.get(field, []).toSet();
+      let after = request.resource.data.get(field, []).toSet();
+      return after.difference(before).size() == 0;
+    }
+
     // 호출 시스템 키오스크 기기 — 관리자가 발급한 페어링 코드로 Custom Claims를 받은
     // 익명 계정만 통과. 사무실(kioskOffice) 단위까지 범위를 좁힌다.
     function isKioskDevice(schoolId) {
@@ -419,6 +435,22 @@ service cloud.firestore {
                   .hasOnly(['memberUids', 'leftUids', 'updatedAt']) &&
                 selfOnlyUidChange('memberUids') &&
                 selfOnlyUidChange('leftUids')) ||
+               // "누구나 초대 가능"(openInvite) 켠 공개 채널은 지금 참여자 누구나 남을
+               // 더 데려올 수 있다(사용자 요청, 2026-09-07). 위 self-join과 짝이지만
+               // 움직이는 uid가 내가 아니어도 되는 대신, 늘리기만 되고 줄이기(내보내기)는
+               // 안 된다 — 그건 여전히 만든 사람·관리자만 하는 일로 남겨둔다.
+               //
+               // **공개 채널에만 연다.** 비공개는 참여자 명단이 곧 글 열람 권한이라
+               // (visibleUids, §3) 아무나 남을 늘리면 그 사람들 몰래 글 열람 범위가
+               // 넓어진다.
+               (isTeacher(schoolId) &&
+                resource.data.visibility == 'public' &&
+                resource.data.get('openInvite', false) == true &&
+                request.auth.uid in resource.data.memberUids &&
+                request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['memberUids', 'leftUids', 'updatedAt']) &&
+                onlyAddsUids('memberUids') &&
+                onlyRemovesUids('leftUids')) ||
                // 메시지를 보내면 참여자가 lastMessageAt을 갱신한다. 이 값 하나로 사이드바
                // 안읽음 점이 계산되므로(추가 읽기 0회), 참여자에게 열지 않으면 메시지 자체를
                // 보낼 수 없다. 바꿀 수 있는 키를 이것 하나로 못 박아 명단·이름은 못 건드리게 한다.
