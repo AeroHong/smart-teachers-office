@@ -9,8 +9,9 @@
  * 나열하면 정작 알아야 할 안 깐 사람이 화면에 없다.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Paper from '@mui/material/Paper'
@@ -46,11 +47,33 @@ function SummaryCard({ label, value, tone = 'default', note }) {
 }
 
 export default function AdminDesktop() {
-  const { schoolId } = useAuth()
+  const { schoolId, userName } = useAuth()
   const { members, loading: membersLoading } = useSchoolMembers()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [pushing, setPushing] = useState(false)
+  const [pushedAt, setPushedAt] = useState(null)
+
+  // 배포 직후 10분(웹)·4시간(데스크톱 설치 파일) 자동 확인을 못 기다릴 때 쓴다 —
+  // useAppUpdate.js가 schools/{schoolId}.forceUpdateCheckAt 변화를 보고 즉시 재확인한다.
+  // 확인만 강제할 뿐 설치(재시작)는 그대로 사용자가 눌러야 한다 — 열어둔 문서 작업이
+  // 갑자기 끊기면 안 되기 때문(사용자 결정, 2026-09-07).
+  const handleForceUpdateCheck = async () => {
+    if (!window.confirm('지금 접속 중인 모든 교사의 앱에 업데이트 확인을 강제로 요청할까요?\n(자동으로 설치되지는 않고, 새 버전이 있으면 평소처럼 안내만 뜹니다.)')) return
+    setPushing(true)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId), {
+        forceUpdateCheckAt: serverTimestamp(),
+        forceUpdateCheckBy: userName || '',
+      })
+      setPushedAt(new Date())
+    } catch (e) {
+      setError(e)
+    } finally {
+      setPushing(false)
+    }
+  }
 
   // 설치 현황은 실시간으로 볼 이유가 없다(보고 주기가 6시간이다). 화면을 열 때 한 번 읽는다.
   useEffect(() => {
@@ -113,11 +136,25 @@ export default function AdminDesktop() {
   return (
     <WorkspaceLayout>
       <Box sx={{ p: 3, maxWidth: 1000 }}>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>데스크톱 설치 현황</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          실행 중인 데스크톱 앱이 스스로 보고한 버전입니다. 앱을 한 번도 실행하지 않았거나
-          로그인하지 않은 사람은 &lsquo;미설치&rsquo;로 보입니다.
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>데스크톱 설치 현황</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              실행 중인 데스크톱 앱이 스스로 보고한 버전입니다. 앱을 한 번도 실행하지 않았거나
+              로그인하지 않은 사람은 &lsquo;미설치&rsquo;로 보입니다.
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+            <Button variant="outlined" size="small" disabled={pushing} onClick={handleForceUpdateCheck}>
+              {pushing ? '요청 중…' : '지금 업데이트 확인 강제'}
+            </Button>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, maxWidth: 220 }}>
+              {pushedAt
+                ? `${pushedAt.toLocaleTimeString('ko-KR')}에 요청함 — 설치는 각자 안내를 눌러야 적용됩니다.`
+                : '접속 중인 앱에 즉시 확인시킵니다. 자동 설치는 안 됩니다.'}
+            </Typography>
+          </Box>
+        </Box>
 
         {error && (
           <Typography variant="body2" color="error.main" sx={{ mt: 2 }}>

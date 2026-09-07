@@ -14,16 +14,30 @@
  * 순간이기도 하다(다른 일을 하다 돌아온 참이라 쓰던 글을 잃을 걱정이 적다).
  *
  * index.html은 600바이트 남짓이고 no-cache라 이 정도 주기는 부담이 없다.
+ *
+ * ── 관리자 강제 확인 (2026-09-07) ──────────────────────────────
+ *
+ * 급한 수정을 배포했는데 10분(또는 데스크톱 앱은 4시간)을 못 기다리는 경우를 위해,
+ * 관리자가 AdminDesktop.jsx에서 누르면 schools/{schoolId}.forceUpdateCheckAt이
+ * 갱신된다. 그 값이 바뀌는 걸 보면 여기서도 즉시 재확인하고(웹 배너), 데스크톱 앱이면
+ * electron-updater 설치 파일 확인(window.smartOfficeDesktop.checkForUpdates)도 같이
+ * 강제한다 — 다만 다운로드된 뒤 설치(재시작)는 기존과 똑같이 사용자가 눌러야 한다
+ * (자리 비운 사이 강제 재시작되면 쓰던 문서를 잃을 수 있다, 사용자 결정).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { doc, onSnapshot } from 'firebase/firestore'
+import { db } from '@shared/lib/firebase'
+import { useAuth } from '@shared/contexts/AuthContext'
 import { isOutdated, signatureFrom, signatureFromHtml } from '@shared/lib/appVersion'
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000
 
 export default function useAppUpdate() {
+  const { schoolId } = useAuth()
   const [latest, setLatest] = useState(null)     // 서버에 올라와 있는 서명
   const [dismissed, setDismissed] = useState(null)
   const currentRef = useRef('')
+  const checkRef = useRef(async () => {})
 
   useEffect(() => {
     // 개발 서버에는 해시 번들이 없어 판정 자체가 성립하지 않는다. 매번 요청만 나간다.
@@ -50,6 +64,7 @@ export default function useAppUpdate() {
         // 오프라인·차단 — 다음 차례에 다시 본다. 실패를 알리지 않는다.
       }
     }
+    checkRef.current = check
 
     check()
     const timer = setInterval(check, CHECK_INTERVAL_MS)
@@ -64,6 +79,19 @@ export default function useAppUpdate() {
       window.removeEventListener('focus', check)
     }
   }, [])
+
+  // 관리자 강제 확인 신호 구독 — 마운트 이후의 "변화"에만 반응한다(처음 값을 그대로
+  // 트리거로 보면 화면을 막 열었을 뿐인데도 매번 강제 확인이 도는 꼴이 된다).
+  useEffect(() => {
+    if (!import.meta.env.PROD || !schoolId) return undefined
+    let first = true
+    return onSnapshot(doc(db, 'schools', schoolId), (snap) => {
+      if (first) { first = false; return }
+      if (!snap.data()?.forceUpdateCheckAt) return
+      checkRef.current()
+      window.smartOfficeDesktop?.checkForUpdates?.().catch(() => {})
+    }, () => {})
+  }, [schoolId])
 
   const reload = useCallback(() => { window.location.reload() }, [])
 
