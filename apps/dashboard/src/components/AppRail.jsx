@@ -25,6 +25,7 @@ import { isDoneBy } from '@shared/lib/workRequests'
 import { portalLink } from '../lib/portalUrl'
 import useUnreadNotices from '../lib/useUnreadNotices'
 import useMyRequests from '../lib/useMyRequests'
+import useNotificationFeed from '../lib/useNotificationFeed'
 import PersonAvatar, { avatarRadius } from './PersonAvatar'
 import { useProfileCard } from './ProfileCardProvider'
 
@@ -88,6 +89,11 @@ export default function AppRail() {
   const unreadNotices = useUnreadNotices()
   const myRequests = useMyRequests()
   const pendingCount = myRequests.filter(r => !isDoneBy(r, user?.uid)).length
+  // "알림" 종(bell) 배지가 지금까지 pendingCount(업무 진행 중)만 보고 있었다 — 새 공지·
+  // 멘션·DM·댓글이 와도 이 종 자체에는 아무 표시가 없었다(사용자 지적, 2026-09-09 —
+  // "알림 페이지엔 숫자가 있는데 왼쪽엔 표시가 없다"). Activity.jsx의 "알림" 섹션이
+  // 쓰는 것과 같은 훅을 여기서도 불러 더한다.
+  const { unreadCount: notifUnread } = useNotificationFeed()
 
   return (
     <Box
@@ -113,7 +119,7 @@ export default function AppRail() {
         label="알림"
         to="/activity"
         active={pathname.startsWith('/activity')}
-        badge={pendingCount}
+        badge={pendingCount + notifUnread}
       />
       <RailButton
         icon={EventIcon}
