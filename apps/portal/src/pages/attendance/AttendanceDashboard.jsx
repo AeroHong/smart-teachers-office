@@ -332,40 +332,7 @@ export default function AttendanceDashboard() {
   const [outingReason, setOutingReason] = useState('')
   const [now, setNow] = useState(new Date())
 
-  // 3열 패널 너비 (퍼센트, 합계 100)
-  const [colWidths, setColWidths] = useState([27, 37, 36])
-  const [hoveredDiv, setHoveredDiv] = useState(null)
-  const containerRef = useRef(null)
-
-  // ── 드래그 리사이즈 ────────────────────────────────────────────
-  const startDrag = (e, divIdx) => {
-    e.preventDefault()
-    const containerWidth = containerRef.current?.getBoundingClientRect().width ?? 1000
-    const startX = e.clientX
-    const startWidths = [...colWidths]
-
-    const onMove = (e) => {
-      const dx = e.clientX - startX
-      const dPct = (dx / containerWidth) * 100
-      const next = [...startWidths]
-      next[divIdx] += dPct
-      next[divIdx + 1] -= dPct
-      if (next[divIdx] < 15 || next[divIdx + 1] < 15) return
-      setColWidths(next)
-    }
-
-    const onUp = () => {
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
+  // 3열 드래그 리사이즈는 슬라이드로 바뀌면서 필요 없어졌다(SlideCarousel, 아래).
 
   // ── 이벤트 실시간 구독 + 학생 그룹 최초 1회 로드 ─────────────
   useEffect(() => {
@@ -463,7 +430,12 @@ export default function AttendanceDashboard() {
     return map
   })()
 
-  const attended = students.filter(s => attendedMap[s.studentId])
+  // 체크인 등수(checkinRankMap) 순으로 정렬한다 — 예전엔 학생부 번호순 그대로라
+  // 메달(1·2·3등)이 목록 중간중간에 흩어져 보였다(사용자 지적, 2026-09-09 —
+  // "정렬 규칙을 모르겠다"). 먼저 체크인한 사람이 위로 오게 한다.
+  const attended = students
+    .filter(s => attendedMap[s.studentId])
+    .sort((a, b) => checkinRankMap[a.studentId] - checkinRankMap[b.studentId])
   const absent = students.filter(s => !attendedMap[s.studentId])
   const rate = students.length > 0 ? Math.round((attended.length / students.length) * 100) : null
 
@@ -481,6 +453,43 @@ export default function AttendanceDashboard() {
       confettiShownRef.current = false
     }
   }, [attended.length, students.length])
+
+  // ── 오늘의 추첨(행운번호) ──────────────────────────────────────
+  // 매일 시스템이 자동으로 번호 하나를 뽑는다 — 그 번호와 같은 체크인 등수의 학생이
+  // "행운상"을 받는다(사용자 요청, 2026-09-09). 새로고침마다 번호가 바뀌면 안 되므로
+  // (같은 날 여러 번 봐도 같은 결과여야 "오늘의" 추첨이라 할 수 있다) Firestore에
+  // 하루 한 번만 저장해 두고 그 뒤로는 읽기만 한다. 1~3등은 이미 메달로 따로
+  // 표시하므로, 행운번호는 겹치지 않게 4등부터만 뽑는다 — 4명이 안 되면(학생 3명
+  // 이하) 추첨 자체를 하지 않는다.
+  const [luckyNumber, setLuckyNumber] = useState(null)
+  useEffect(() => {
+    if (!schoolId || !eventId || !selectedDate || students.length < 4) { setLuckyNumber(null); return undefined }
+    let alive = true
+    const ref = doc(db, 'schools', schoolId, 'events', eventId, 'luckyDraws', selectedDate)
+    getDoc(ref).then(async (snap) => {
+      if (!alive) return
+      if (snap.exists()) { setLuckyNumber(snap.data().number); return }
+      const number = Math.floor(Math.random() * (students.length - 3)) + 4
+      await setDoc(ref, { number, createdAt: serverTimestamp() }).catch(() => {})
+      if (alive) setLuckyNumber(number)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [schoolId, eventId, selectedDate, students.length])
+
+  // 뽑힌 번호와 같은 등수로 이미 체크인한 학생 — 아직 아무도 그 등수에 도달하지
+  // 않았으면 undefined(추첨 배너가 "진행 중"으로 표시한다).
+  const luckyStudentId = luckyNumber
+    ? Object.keys(checkinRankMap).find(id => checkinRankMap[id] === luckyNumber)
+    : null
+  const luckyBanner = luckyNumber && (
+    <div style={styles.luckyBanner}>
+      <span style={{ fontSize: '1.1rem' }}>🎰</span>
+      <span>오늘의 행운번호 <strong>{luckyNumber}등</strong></span>
+      {luckyStudentId
+        ? <span style={styles.luckyWinnerName}>🍀 {attendedMap[luckyStudentId]?.studentName} 당첨!</span>
+        : <span style={styles.luckyPending}>아직 도전 중…</span>}
+    </div>
+  )
 
   const hasLateCheck = event?.type === '조회' && event?.lateCheckTime
   const lateCount = hasLateCheck ? attended.filter(s => attendedMap[s.studentId]?.late).length : 0
@@ -797,6 +806,115 @@ export default function AttendanceDashboard() {
     </>
   )
 
+  // ── 출석 패널 내용 ────────────────────────────────────────────
+  // 모바일·데스크톱이 각자 따로 들고 있던 거의 같은 목록을 하나로 합쳤다 — 학생 그룹이
+  // 없을 때의 대체 표시(원본 로그만 나열)는 예전엔 데스크톱에만 있었는데, 이제 둘 다
+  // 같은 걸 본다. 3열 리사이즈 대신 슬라이드로 바뀌면서(사용자 요청, 2026-09-09)
+  // 화면마다 다른 레이아웃을 유지할 이유도 없어졌다.
+  const classDurRow = (
+    <div style={styles.classDurRow}>
+      <span style={styles.classDurLabel}>수업시간</span>
+      {[50, 45, 40, 35].map(d => (
+        <button key={d} onClick={() => setClassDuration(d)}
+          style={{ ...styles.classDurBtn, ...(classDuration === d ? styles.classDurBtnActive : {}) }}>
+          {d}분
+        </button>
+      ))}
+    </div>
+  )
+
+  const AttendedPanel = () => {
+    if (!hasGroup) {
+      const noGroupLogs = filteredLogs.filter(l => l.method !== 'absent')
+        .sort((a, b) => (checkinRankMap[a.studentId] ?? 0) - (checkinRankMap[b.studentId] ?? 0))
+      return noGroupLogs.length === 0
+        ? <p style={styles.empty}>출석 기록이 없습니다.</p>
+        : noGroupLogs.map(l => {
+            const rank = checkinRankMap[l.studentId]
+            return (
+              <div key={l.id} style={styles.studentRow}>
+                <div style={styles.studentInfo}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    {rank && rank <= 3 && <span style={{ fontSize: '1rem', lineHeight: 1 }}>{MEDALS[rank]}</span>}
+                    <span style={styles.studentName}>{l.studentName}</span>
+                    {rank && rank <= 3 && <span style={rankBadgeStyle(rank)}>{rank}등</span>}
+                    {rank && rank === luckyNumber && <span style={luckyBadgeStyle}>🍀 행운상</span>}
+                  </div>
+                  <span style={styles.studentIdText}>{l.grade}학년 {l.class}반 {l.number}번</span>
+                </div>
+                <span style={styles.timeText}>{formatTime(l.checkedAt)}</span>
+              </div>
+            )
+          })
+    }
+    if (attended.length === 0) return <p style={styles.empty}>아직 출석한 학생이 없습니다.</p>
+    return attended.map(s => {
+      const log = attendedMap[s.studentId]
+      const activeOuting = getActiveOuting(s.studentId)
+      const totalMs = getTotalOutingMs(s.studentId)
+      const isOver = totalMs > classDuration * 60000 / 3
+      const rank = checkinRankMap[s.studentId]
+      return (
+        <div key={s.studentId}>
+          <div style={styles.studentRow}>
+            <StudentInfo student={s} rank={rank} isLucky={rank === luckyNumber} />
+            <div style={styles.logInfo}>
+              <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>{log?.method === 'manual' ? '수동' : 'QR'}</span>
+              {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
+              <span style={styles.timeText}>{formatTime(log?.checkedAt)}</span>
+              {activeOuting && (
+                <span style={styles.outingActiveBadge}>
+                  🚶 {fmtMs(now - (activeOuting.exitAt?.toDate?.() ?? new Date(activeOuting.exitAt)))}
+                </span>
+              )}
+              {!activeOuting && totalMs > 0 && (
+                <span style={log?.outingOverLimit ? styles.outingWarnBadge : isOver ? styles.outingWarnBadge : styles.outingDoneBadge}>
+                  {log?.outingOverLimit ? '⚠기록됨' : isOver ? '⚠' : '✓'} {fmtMs(totalMs)}
+                </span>
+              )}
+              {isOver && !log?.outingOverLimit && (
+                <button onClick={() => saveOutingWarning(s)} disabled={processingId === s.studentId} style={styles.outingWarnSaveBtn}>⚠저장</button>
+              )}
+              <button onClick={() => cancelCheckin(s)} disabled={processingId === s.studentId} style={styles.cancelBtn}>취소</button>
+              {activeOuting
+                ? <button onClick={() => endOuting(s)} disabled={processingId === s.studentId} style={styles.returnBtn}>↙복귀</button>
+                : <button onClick={() => setOutingPanel(p => p === s.studentId ? null : s.studentId)} style={styles.outingBtn}>↗외출</button>
+              }
+            </div>
+          </div>
+          {outingPanel === s.studentId && !activeOuting && (
+            <div style={styles.outingPanelInline}>
+              {['보건실', '화장실', '기타'].map(t => (
+                <button key={t} onClick={() => setOutingType(t)}
+                  style={{ ...styles.outingTypeBtn, ...(outingType === t ? styles.outingTypeBtnActive : {}) }}>
+                  {t}
+                </button>
+              ))}
+              <input value={outingReason} onChange={e => setOutingReason(e.target.value)}
+                placeholder="메모 (선택)" style={styles.outingReasonInput} />
+              <button onClick={() => startOuting(s)} disabled={processingId === s.studentId} style={styles.outingConfirmBtn}>출발</button>
+              <button onClick={() => setOutingPanel(null)} style={styles.outingCancelSmBtn}>✕</button>
+            </div>
+          )}
+        </div>
+      )
+    })
+  }
+
+  // 슬라이드 3장 — QR·출석·미출석. 3열 리사이즈를 대신한다(사용자 요청, 2026-09-09 —
+  // "3개 구역을 별도로 슬라이드 할 수 있도록"). 모바일·데스크톱 모두 같은 걸 쓴다.
+  const panelsSlider = (
+    <SlideCarousel
+      titles={['QR 출석', `✅ 출석 ${attended.length}명`, `❌ 미출석 ${absent.length}명`]}
+      colors={[undefined, '#2e7d32', '#c62828']}
+      panels={[
+        <QRPanelContent key="qr" />,
+        <>{classDurRow}<AttendedPanel /></>,
+        hasGroup ? <AbsentPanel /> : <p style={styles.empty}>학생 그룹이 연결되지 않았습니다.</p>,
+      ]}
+    />
+  )
+
   // 이벤트에서 허용된 요일 추출
   const allowedDays = event?.schedules?.length > 0
     ? [...new Set(event.schedules.map(s => s.dayOfWeek))]
@@ -852,87 +970,14 @@ export default function AttendanceDashboard() {
             <div style={styles.progressWrap}><div style={{ ...styles.progressBar, width: `${rate ?? 0}%` }} /></div>
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={styles.panel}><h3 style={styles.qrPanelTitle}>QR 출석</h3><QRPanelContent /></div>
-          {hasGroup && (
-            <>
-              <div style={styles.panel}>
-                <h3 style={{ ...styles.panelTitle, color: '#2e7d32' }}>✅ 출석 {attended.length}명</h3>
-                <div style={styles.classDurRow}>
-                  <span style={styles.classDurLabel}>수업시간</span>
-                  {[50, 45, 40, 35].map(d => (
-                    <button key={d} onClick={() => setClassDuration(d)}
-                      style={{ ...styles.classDurBtn, ...(classDuration === d ? styles.classDurBtnActive : {}) }}>
-                      {d}분
-                    </button>
-                  ))}
-                </div>
-                {attended.length === 0 ? <p style={styles.empty}>아직 출석한 학생이 없습니다.</p>
-                  : attended.map(s => {
-                      const log = attendedMap[s.studentId]
-                      const activeOuting = getActiveOuting(s.studentId)
-                      const totalMs = getTotalOutingMs(s.studentId)
-                      const isOver = totalMs > classDuration * 60000 / 3
-                      return (
-                        <div key={s.studentId}>
-                          <div style={styles.studentRow}>
-                            <StudentInfo student={s} rank={checkinRankMap[s.studentId]} />
-                            <div style={styles.logInfo}>
-                              <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>{log?.method === 'manual' ? '수동' : 'QR'}</span>
-                              {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
-                              <span style={styles.timeText}>{formatTime(log?.checkedAt)}</span>
-                              {activeOuting && (
-                                <span style={styles.outingActiveBadge}>
-                                  🚶 {fmtMs(now - (activeOuting.exitAt?.toDate?.() ?? new Date(activeOuting.exitAt)))}
-                                </span>
-                              )}
-                              {!activeOuting && totalMs > 0 && (
-                                <span style={log?.outingOverLimit ? styles.outingWarnBadge : isOver ? styles.outingWarnBadge : styles.outingDoneBadge}>
-                                  {log?.outingOverLimit ? '⚠기록됨' : isOver ? '⚠' : '✓'} {fmtMs(totalMs)}
-                                </span>
-                              )}
-                              {isOver && !log?.outingOverLimit && (
-                                <button onClick={() => saveOutingWarning(s)} disabled={processingId === s.studentId} style={styles.outingWarnSaveBtn}>⚠저장</button>
-                              )}
-                              <button onClick={() => cancelCheckin(s)} disabled={processingId === s.studentId} style={styles.cancelBtn}>취소</button>
-                              {activeOuting
-                                ? <button onClick={() => endOuting(s)} disabled={processingId === s.studentId} style={styles.returnBtn}>↙복귀</button>
-                                : <button onClick={() => setOutingPanel(p => p === s.studentId ? null : s.studentId)} style={styles.outingBtn}>↗외출</button>
-                              }
-                            </div>
-                          </div>
-                          {outingPanel === s.studentId && !activeOuting && (
-                            <div style={styles.outingPanelInline}>
-                              {['보건실', '화장실', '기타'].map(t => (
-                                <button key={t} onClick={() => setOutingType(t)}
-                                  style={{ ...styles.outingTypeBtn, ...(outingType === t ? styles.outingTypeBtnActive : {}) }}>
-                                  {t}
-                                </button>
-                              ))}
-                              <input value={outingReason} onChange={e => setOutingReason(e.target.value)}
-                                placeholder="메모 (선택)" style={styles.outingReasonInput} />
-                              <button onClick={() => startOuting(s)} disabled={processingId === s.studentId} style={styles.outingConfirmBtn}>출발</button>
-                              <button onClick={() => setOutingPanel(null)} style={styles.outingCancelSmBtn}>✕</button>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })
-                }
-              </div>
-              <div style={styles.panel}>
-                <h3 style={{ ...styles.panelTitle, color: '#c62828' }}>❌ 미출석 {absent.length}명</h3>
-                <AbsentPanel />
-              </div>
-            </>
-          )}
-        </div>
+        {luckyBanner}
+        {panelsSlider}
         {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
       </Layout>
     )
   }
 
-  // ── 데스크탑: 3열 드래그 리사이즈 ────────────────────────────
+  // ── 데스크탑 ──────────────────────────────────────────────────
   return (
     <Layout wide>
       {/* 통계 바 + 달력 좌우 배치 */}
@@ -1014,134 +1059,8 @@ export default function AttendanceDashboard() {
         </>
       )}
 
-      {/* 3열 리사이즈 레이아웃 */}
-      <div ref={containerRef} style={styles.threeCol}>
-
-        {/* ── QR 패널 ── */}
-        <div style={{ ...styles.panelCol, width: colWidths[0] + '%' }}>
-          <div style={styles.panel}>
-            <h3 style={styles.qrPanelTitle}>QR 출석</h3>
-            <QRPanelContent />
-          </div>
-        </div>
-
-        {/* 구분선 1 */}
-        <div
-          style={styles.divider}
-          onMouseDown={e => startDrag(e, 0)}
-          onMouseEnter={() => setHoveredDiv(0)}
-          onMouseLeave={() => setHoveredDiv(null)}
-        >
-          <DragHandle active={hoveredDiv === 0} />
-        </div>
-
-        {/* ── 출석 패널 ── */}
-        <div style={{ ...styles.panelCol, width: colWidths[1] + '%' }}>
-          <div style={styles.panel}>
-            <h3 style={{ ...styles.panelTitle, color: '#2e7d32' }}>✅ 출석 {attended.length}명</h3>
-            <div style={styles.classDurRow}>
-              <span style={styles.classDurLabel}>수업시간</span>
-              {[50, 45, 40, 35].map(d => (
-                <button key={d} onClick={() => setClassDuration(d)}
-                  style={{ ...styles.classDurBtn, ...(classDuration === d ? styles.classDurBtnActive : {}) }}>
-                  {d}분
-                </button>
-              ))}
-            </div>
-            {!hasGroup ? (
-              filteredLogs.filter(l => l.method !== 'absent').length === 0
-                ? <p style={styles.empty}>출석 기록이 없습니다.</p>
-                : filteredLogs.filter(l => l.method !== 'absent').map(l => {
-                    const rank = checkinRankMap[l.studentId]
-                    const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' }
-                    return (
-                      <div key={l.id} style={styles.studentRow}>
-                        <div style={styles.studentInfo}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            {rank && rank <= 3 && <span style={{ fontSize: '1rem', lineHeight: 1 }}>{MEDALS[rank]}</span>}
-                            <span style={styles.studentName}>{l.studentName}</span>
-                            {rank && rank <= 3 && <span style={rankBadgeStyle(rank)}>{rank}등</span>}
-                          </div>
-                          <span style={styles.studentIdText}>{l.grade}학년 {l.class}반 {l.number}번</span>
-                        </div>
-                        <span style={styles.timeText}>{formatTime(l.checkedAt)}</span>
-                      </div>
-                    )
-                  })
-            ) : attended.length === 0
-              ? <p style={styles.empty}>아직 출석한 학생이 없습니다.</p>
-              : attended.map(s => {
-                  const log = attendedMap[s.studentId]
-                  const activeOuting = getActiveOuting(s.studentId)
-                  const totalMs = getTotalOutingMs(s.studentId)
-                  const isOver = totalMs > classDuration * 60000 / 3
-                  return (
-                    <div key={s.studentId}>
-                      <div style={styles.studentRow}>
-                        <StudentInfo student={s} rank={checkinRankMap[s.studentId]} />
-                        <div style={styles.logInfo}>
-                          <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>
-                            {log?.method === 'manual' ? '수동' : 'QR'}
-                          </span>
-                          {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
-                          <span style={styles.timeText}>{formatTime(log?.checkedAt)}</span>
-                          {activeOuting && (
-                            <span style={styles.outingActiveBadge}>
-                              🚶 {fmtMs(now - (activeOuting.exitAt?.toDate?.() ?? new Date(activeOuting.exitAt)))}
-                            </span>
-                          )}
-                          {!activeOuting && totalMs > 0 && (
-                            <span style={isOver ? styles.outingWarnBadge : styles.outingDoneBadge}>
-                              {isOver ? '⚠' : '✓'} {fmtMs(totalMs)}
-                            </span>
-                          )}
-                          <button onClick={() => cancelCheckin(s)} disabled={processingId === s.studentId} style={styles.cancelBtn}>취소</button>
-                          {activeOuting
-                            ? <button onClick={() => endOuting(s)} disabled={processingId === s.studentId} style={styles.returnBtn}>↙복귀</button>
-                            : <button onClick={() => setOutingPanel(p => p === s.studentId ? null : s.studentId)} style={styles.outingBtn}>↗외출</button>
-                          }
-                        </div>
-                      </div>
-                      {outingPanel === s.studentId && !activeOuting && (
-                        <div style={styles.outingPanelInline}>
-                          {['보건실', '화장실', '기타'].map(t => (
-                            <button key={t} onClick={() => setOutingType(t)}
-                              style={{ ...styles.outingTypeBtn, ...(outingType === t ? styles.outingTypeBtnActive : {}) }}>
-                              {t}
-                            </button>
-                          ))}
-                          <input value={outingReason} onChange={e => setOutingReason(e.target.value)}
-                            placeholder="메모 (선택)" style={styles.outingReasonInput} />
-                          <button onClick={() => startOuting(s)} disabled={processingId === s.studentId} style={styles.outingConfirmBtn}>출발</button>
-                          <button onClick={() => setOutingPanel(null)} style={styles.outingCancelSmBtn}>✕</button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-            }
-          </div>
-        </div>
-
-        {/* 구분선 2 */}
-        <div
-          style={styles.divider}
-          onMouseDown={e => startDrag(e, 1)}
-          onMouseEnter={() => setHoveredDiv(1)}
-          onMouseLeave={() => setHoveredDiv(null)}
-        >
-          <DragHandle active={hoveredDiv === 1} />
-        </div>
-
-        {/* ── 미출석 패널 ── */}
-        <div style={{ ...styles.panelCol, width: colWidths[2] + '%' }}>
-          <div style={styles.panel}>
-            <h3 style={{ ...styles.panelTitle, color: '#c62828' }}>❌ 미출석 {absent.length}명</h3>
-            {hasGroup ? <AbsentPanel /> : <p style={styles.empty}>학생 그룹이 연결되지 않았습니다.</p>}
-          </div>
-        </div>
-
-      </div>
+      {luckyBanner}
+      {panelsSlider}
       {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
     </Layout>
   )
@@ -1247,45 +1166,64 @@ function ConfettiCelebration({ onDone }) {
   )
 }
 
-// 드래그 핸들: QR 코드 중앙 라인에 sticky 고정
-// top 값 = 헤더(~80px) + 통계바(~70px) + QR 패널 타이틀(~56px) + QR 높이의 절반
-// QR는 패널 너비를 채우므로 화면 크기에 따라 다름 → 35vh 기준으로 sticky
-function DragHandle({ active }) {
+// 슬라이드 캐러셀 — QR·출석·미출석 3개 구역을 화면 하나에서 넘겨보게 한다(3열 드래그
+// 리사이즈 대신, 사용자 요청 2026-09-09 — "3개 구역을 별도로 슬라이드 할 수 있도록").
+// 탭(제목) 클릭·좌우 화살표·터치 스와이프 세 가지를 다 지원해서 마우스로 쓰는 교사도,
+// 태블릿/키오스크로 화면만 띄워 놓고 보는 경우도 같은 방식으로 넘길 수 있다. 탭 글자
+// 자체가 각 패널의 제목(참여자 수 포함)을 대신하므로 패널 안에는 따로 제목을 두지 않는다.
+function SlideCarousel({ panels, titles, colors = [] }) {
+  const [index, setIndex] = useState(0)
+  const touchStartX = useRef(null)
+  const touchDeltaX = useRef(null)
+
+  const goTo = (i) => setIndex(Math.max(0, Math.min(panels.length - 1, i)))
+
+  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; touchDeltaX.current = 0 }
+  const onTouchMove = (e) => {
+    if (touchStartX.current == null) return
+    touchDeltaX.current = e.touches[0].clientX - touchStartX.current
+  }
+  const onTouchEnd = () => {
+    if (touchDeltaX.current != null && Math.abs(touchDeltaX.current) > 50) {
+      goTo(index + (touchDeltaX.current < 0 ? 1 : -1))
+    }
+    touchStartX.current = null
+    touchDeltaX.current = null
+  }
+
   return (
-    <div style={{ position: 'sticky', top: 'calc(35vh)', display: 'flex', justifyContent: 'center' }}>
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '3px',
-        padding: '8px 5px',
-        borderRadius: '8px',
-        backgroundColor: active ? '#e8f0fe' : 'rgba(255,255,255,0.85)',
-        border: active ? '1px solid #c5d8fc' : '1px solid #e8ecf0',
-        boxShadow: active ? '0 2px 8px rgba(26,115,232,0.2)' : '0 1px 4px rgba(0,0,0,0.08)',
-        transition: 'all 0.15s',
-        backdropFilter: 'blur(4px)',
-      }}>
-        {[0, 1, 2].map(row => (
-          <div key={row} style={{ display: 'flex', gap: '3px' }}>
-            {[0, 1].map(col => (
-              <div key={col} style={{
-                width: '4px', height: '4px',
-                borderRadius: '50%',
-                backgroundColor: active ? '#1a73e8' : '#b0b8c4',
-                transition: 'background-color 0.15s',
-              }} />
-            ))}
-          </div>
-        ))}
-        {active && (
-          <div style={{
-            fontSize: '0.65rem', color: '#1a73e8', marginTop: '3px',
-            fontWeight: 700,
-          }}>
-            ↔
-          </div>
-        )}
+    <div style={styles.slideWrap}>
+      <div style={styles.slideNav}>
+        <button onClick={() => goTo(index - 1)} disabled={index === 0}
+          style={{ ...styles.slideArrowBtn, ...(index === 0 ? { opacity: 0.35, cursor: 'default' } : {}) }}
+          aria-label="이전 화면">‹</button>
+        <div style={styles.slideTabs}>
+          {titles.map((t, i) => (
+            <button
+              key={i} onClick={() => goTo(i)}
+              style={{
+                ...styles.slideTabBtn,
+                ...(i === index
+                  ? { ...styles.slideTabBtnActive, color: colors[i] || '#1a73e8', borderBottomColor: colors[i] || '#1a73e8' }
+                  : {}),
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => goTo(index + 1)} disabled={index === panels.length - 1}
+          style={{ ...styles.slideArrowBtn, ...(index === panels.length - 1 ? { opacity: 0.35, cursor: 'default' } : {}) }}
+          aria-label="다음 화면">›</button>
+      </div>
+      <div style={styles.slideViewport} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+        <div style={{ ...styles.slideTrack, width: `${panels.length * 100}%`, transform: `translateX(-${index * (100 / panels.length)}%)` }}>
+          {panels.map((p, i) => (
+            <div key={i} style={{ ...styles.slidePanelOuter, width: `${100 / panels.length}%` }}>
+              <div style={styles.panel}>{p}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -1298,14 +1236,19 @@ const rankBadgeStyle = (rank) => ({
   backgroundColor: rank === 1 ? '#fef3c7' : rank === 2 ? '#f3f4f6' : '#fef9e7',
   padding: '0.1rem 0.3rem', borderRadius: '4px',
 })
+const luckyBadgeStyle = {
+  fontSize: '0.68rem', fontWeight: 700, color: '#15803d', backgroundColor: '#dcfce7',
+  padding: '0.1rem 0.3rem', borderRadius: '4px',
+}
 
-function StudentInfo({ student: s, rank }) {
+function StudentInfo({ student: s, rank, isLucky }) {
   return (
     <div style={styles.studentInfo}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
         {rank && rank <= 3 && <span style={{ fontSize: '1rem', lineHeight: 1 }}>{MEDALS[rank]}</span>}
         <span style={styles.studentName}>{s.name}</span>
         {rank && rank <= 3 && <span style={rankBadgeStyle(rank)}>{rank}등</span>}
+        {isLucky && <span style={luckyBadgeStyle}>🍀 행운상</span>}
       </div>
       <span style={styles.studentIdText}>{s.grade}학년 {s.class}반 {s.number}번</span>
     </div>
@@ -1441,18 +1384,33 @@ const styles = {
   progressBar: { height: '100%', backgroundColor: '#1a73e8', borderRadius: '4px', transition: 'width 0.4s' },
   noGroupNote: { color: '#888', fontSize: '0.85rem', marginBottom: '1rem' },
 
-  // 3열 레이아웃
-  threeCol: { display: 'flex', alignItems: 'flex-start', gap: 0, width: '100%' },
-  panelCol: { minWidth: 0, overflow: 'hidden' },
-
-  // 드래그 구분선
-  divider: {
-    flexShrink: 0, width: '20px',
-    alignSelf: 'stretch',
-    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-    cursor: 'col-resize',
-    zIndex: 10,
+  // 슬라이드 캐러셀 (QR·출석·미출석) — 3열 드래그 리사이즈를 대신한다
+  slideWrap: { width: '100%' },
+  slideNav: { display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' },
+  slideTabs: { display: 'flex', flex: 1, overflowX: 'auto', gap: '0.25rem' },
+  slideTabBtn: {
+    flexShrink: 0, padding: '0.5rem 0.9rem', fontSize: '0.85rem', fontWeight: 700,
+    color: '#888', backgroundColor: 'transparent', border: 'none',
+    borderBottom: '2px solid transparent', cursor: 'pointer', whiteSpace: 'nowrap',
   },
+  slideTabBtnActive: { borderBottomWidth: '2px', borderBottomStyle: 'solid' },
+  slideArrowBtn: {
+    flexShrink: 0, width: '32px', height: '32px', borderRadius: '50%', border: '1px solid #e0e0e0',
+    backgroundColor: '#fff', color: '#555', fontSize: '1.2rem', lineHeight: 1, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  slideViewport: { overflow: 'hidden', width: '100%', touchAction: 'pan-y' },
+  slideTrack: { display: 'flex', transition: 'transform 0.25s ease' },
+  slidePanelOuter: { boxSizing: 'border-box', padding: '0 0.25rem', minHeight: '60vh' },
+
+  // 오늘의 추첨(행운번호) 배너
+  luckyBanner: {
+    display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+    backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px',
+    padding: '0.6rem 1rem', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#9a3412',
+  },
+  luckyWinnerName: { fontWeight: 700, color: '#15803d' },
+  luckyPending: { color: '#b45309' },
 
   // 패널 공통
   panel: { backgroundColor: '#fff', borderRadius: '10px', padding: '1rem 1.25rem', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', height: '100%', boxSizing: 'border-box' },

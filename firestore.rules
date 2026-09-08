@@ -816,6 +816,12 @@ service cloud.firestore {
             ));
         }
 
+        // 오늘의 행운번호 추첨 — 날짜별 1문서, 교사만 읽고 쓴다
+        match /luckyDraws/{date} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow write: if isSuperAdmin() || isTeacher(schoolId);
+        }
+
       }
 
       match /trainings/{trainingId} {
