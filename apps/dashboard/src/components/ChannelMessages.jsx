@@ -735,6 +735,7 @@ export function groupMessages(messages) {
     const newDay = !prevDate || !date || startOfDay(date).getTime() !== startOfDay(prevDate).getTime()
     const grouped = !newDay
       && !!prev
+      && !isSystemMessage(prev)
       && prev.authorUid === m.authorUid
       && at > 0 && prevAt > 0
       && at - prevAt < GROUP_WINDOW_MS
