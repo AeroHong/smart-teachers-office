@@ -9,7 +9,7 @@ import Typography from '@mui/material/Typography'
 import { ToneChip } from './widgetUi'
 
 // CalendarGrid.jsx도 같은 매핑을 쓴다(월 그리드의 이벤트 칩 색) — 한 곳에서만 정의한다.
-export const TYPE_TONE = { 시험: 'danger', 휴업일: 'success', 행사: 'info', 업무: 'warning' }
+export const TYPE_TONE = { 시험: 'danger', 휴업일: 'success', 행사: 'info', 업무: 'warning', 공휴일: 'danger' }
 
 const DAY_MS = 86400000
 

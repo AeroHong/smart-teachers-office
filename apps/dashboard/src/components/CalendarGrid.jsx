@@ -105,6 +105,9 @@ export default function CalendarGrid({ events = [], onSelectEvent }) {
               const dayEvents = events.filter(e => isEventOnDay(e, day))
               const shown = dayEvents.slice(0, MAX_CHIPS_PER_DAY)
               const overflow = dayEvents.length - shown.length
+              // 공휴일도 일요일처럼 빨간색으로 — 요일과 무관하게 그 날짜에 공휴일이
+              // 껴 있으면 우선한다(사용자 요청, 2026-09-09).
+              const isHoliday = dayEvents.some(e => e.type === '공휴일')
 
               return (
                 <Box
@@ -118,7 +121,7 @@ export default function CalendarGrid({ events = [], onSelectEvent }) {
                 >
                   <Typography
                     fontSize="0.76rem" fontWeight={isToday ? 800 : 600}
-                    color={day.getDay() === 0 ? 'error.main' : day.getDay() === 6 ? 'primary.main' : 'text.primary'}
+                    color={day.getDay() === 0 || isHoliday ? 'error.main' : day.getDay() === 6 ? 'primary.main' : 'text.primary'}
                   >
                     {day.getDate()}
                   </Typography>

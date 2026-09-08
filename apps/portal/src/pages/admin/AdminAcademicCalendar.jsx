@@ -30,6 +30,7 @@ const TYPE_STYLE = {
   휴업일: { bg: '#e8f5e9', fg: '#2e7d32' },
   행사: { bg: '#e7edf1', fg: '#3d5872' },
   업무: { bg: '#fff3e0', fg: '#e65100' },
+  공휴일: { bg: '#fdecea', fg: '#d32f2f' },
 }
 const DEFAULT_STYLE = { bg: '#f1f3f4', fg: '#5f6368' }
 const SYNC_CHIP_STYLE = { bg: '#f1f3f4', fg: '#5f6368' }
@@ -248,20 +249,22 @@ export default function AdminAcademicCalendar() {
                 <RowActions>
                   <EditAction
                     onClick={() => openEdit(item)}
-                    disabled={item.source === 'googleCalendar' || item.source === 'request'}
+                    disabled={item.source === 'googleCalendar' || item.source === 'request' || item.source === 'holiday'}
                     title={
                       item.source === 'googleCalendar' ? '구글 캘린더에서 가져온 일정입니다 — 원본에서 고치세요'
                         : item.source === 'request' ? '채널 업무 글에서 만들어진 일정입니다 — 그 업무 글에서 고치세요'
-                          : '수정'
+                          : item.source === 'holiday' ? '자동으로 동기화되는 공휴일입니다 — 고칠 수 없습니다'
+                            : '수정'
                     }
                   />
                   <DeleteAction
                     onClick={() => handleDelete(item)}
-                    disabled={item.source === 'googleCalendar' || item.source === 'request'}
+                    disabled={item.source === 'googleCalendar' || item.source === 'request' || item.source === 'holiday'}
                     title={
                       item.source === 'googleCalendar' ? '구글 캘린더에서 가져온 일정입니다 — 원본에서 지우세요'
                         : item.source === 'request' ? '채널 업무 글에서 만들어진 일정입니다 — 그 업무 글에서 지우세요'
-                          : '삭제'
+                          : item.source === 'holiday' ? '자동으로 동기화되는 공휴일입니다 — 지울 수 없습니다'
+                            : '삭제'
                     }
                   />
                 </RowActions>

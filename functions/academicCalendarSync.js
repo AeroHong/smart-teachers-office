@@ -72,15 +72,12 @@ async function fetchEvents(calendar, calendarId) {
   return events.filter(ev => ev.status !== 'cancelled')
 }
 
-async function syncSchoolCalendar(db, schoolId, schoolData) {
-  const cfg = schoolData.academicCalendarSync
-  if (!cfg?.enabled || !cfg.calendarId) return null
-
-  const calendar = await getCalendarClient()
-  const rawEvents = await fetchEvents(calendar, cfg.calendarId)
-
-  const col = db.collection('schools').doc(schoolId).collection('academicCalendar')
-  const existingSnap = await col.where('source', '==', 'googleCalendar').get()
+/** 구글 캘린더 이벤트 목록을 academicCalendar 컬렉션과 맞춘다(신규/변경 반영,
+ *  사라진 것 삭제) — source 값으로 자기 몫만 건드린다. syncSchoolCalendar(개인
+ *  구글 캘린더)와 syncHolidays(공휴일)가 calendarId·source·type만 다르고
+ *  나머지 로직이 같아 여기로 뺐다. */
+async function applyCalendarSync(col, rawEvents, { source, type }) {
+  const existingSnap = await col.where('source', '==', source).get()
   const existingByGoogleId = new Map(
     existingSnap.docs.map(d => [d.data().googleEventId, d]),
   )
@@ -98,8 +95,8 @@ async function syncSchoolCalendar(db, schoolId, schoolData) {
 
     if (!existing) {
       await col.add({
-        title, type: '행사', date: dates.date, endDate: dates.endDate,
-        source: 'googleCalendar', googleEventId: ev.id,
+        title, type, date: dates.date, endDate: dates.endDate,
+        source, googleEventId: ev.id,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       })
       created++
@@ -130,6 +127,28 @@ async function syncSchoolCalendar(db, schoolId, schoolData) {
   return { total: rawEvents.length, created, updated, deleted }
 }
 
+async function syncSchoolCalendar(db, schoolId, schoolData) {
+  const cfg = schoolData.academicCalendarSync
+  if (!cfg?.enabled || !cfg.calendarId) return null
+
+  const calendar = await getCalendarClient()
+  const rawEvents = await fetchEvents(calendar, cfg.calendarId)
+  const col = db.collection('schools').doc(schoolId).collection('academicCalendar')
+  return applyCalendarSync(col, rawEvents, { source: 'googleCalendar', type: '행사' })
+}
+
+// 구글이 제공하는 대한민국 공휴일 공개 캘린더 — API 키만으로 조회 가능(별도 공유 불필요).
+// 학교별 설정(academicCalendarSync.enabled)과 무관하게 모든 학교에 똑같이 적용된다
+// (사용자 요청, 2026-09-09 — "대한민국의 공휴일 정보를 받아 표시").
+const HOLIDAY_CALENDAR_ID = 'ko.south_korea#holiday@group.v.calendar.google.com'
+
+async function syncHolidays(db, schoolId) {
+  const calendar = await getCalendarClient()
+  const rawEvents = await fetchEvents(calendar, HOLIDAY_CALENDAR_ID)
+  const col = db.collection('schools').doc(schoolId).collection('academicCalendar')
+  return applyCalendarSync(col, rawEvents, { source: 'holiday', type: '공휴일' })
+}
+
 // ── 매일 새벽 4시(KST) 자동 동기화 — workspaceSync(3시)와 안 겹치게 ──────────
 exports.syncAcademicCalendar = onSchedule(
   { schedule: 'every day 04:00', timeZone: 'Asia/Seoul', region: 'asia-northeast3', timeoutSeconds: 300 },
@@ -138,6 +157,12 @@ exports.syncAcademicCalendar = onSchedule(
     const schoolsSnap = await db.collection('schools').get()
 
     for (const schoolDoc of schoolsSnap.docs) {
+      try {
+        const holidayResult = await syncHolidays(db, schoolDoc.id)
+        console.log(`[${schoolDoc.id}] 공휴일 동기화 완료:`, JSON.stringify(holidayResult))
+      } catch (e) {
+        console.error(`[${schoolDoc.id}] 공휴일 동기화 실패:`, e.message)
+      }
       try {
         const result = await syncSchoolCalendar(db, schoolDoc.id, schoolDoc.data())
         if (result) console.log(`[${schoolDoc.id}] 학사일정 동기화 완료:`, JSON.stringify(result))
@@ -171,14 +196,13 @@ exports.runAcademicCalendarSyncNow = onCall(
     const schoolDoc = await db.collection('schools').doc(schoolId).get()
     if (!schoolDoc.exists) throw new HttpsError('not-found', '학교를 찾을 수 없습니다.')
 
-    const cfg = schoolDoc.data().academicCalendarSync
-    if (!cfg?.enabled) {
-      throw new HttpsError('failed-precondition', '학사일정 동기화가 설정되지 않았습니다.')
-    }
-
     try {
-      const result = await syncSchoolCalendar(db, schoolId, schoolDoc.data())
-      return { success: true, result }
+      // 공휴일은 학교별 설정과 무관하게 항상 동기화한다 — 개인 구글 캘린더
+      // 연동을 아직 안 켠 학교도 "지금 동기화" 버튼으로 즉시 받아볼 수 있다.
+      const holidayResult = await syncHolidays(db, schoolId)
+      const cfg = schoolDoc.data().academicCalendarSync
+      const result = cfg?.enabled ? await syncSchoolCalendar(db, schoolId, schoolDoc.data()) : null
+      return { success: true, result, holidayResult }
     } catch (e) {
       console.error(`[${schoolId}] 수동 동기화 실패:`, e)
       throw new HttpsError('internal', e.message || '동기화 중 오류가 발생했습니다.')
