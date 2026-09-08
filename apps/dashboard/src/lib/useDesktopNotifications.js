@@ -1,6 +1,6 @@
 /**
  * 데스크톱(Electron) 전용 OS 알림 파이프라인
- * — 호출·새 공지·새 요청·새 쪽지·마감임박·다시 알림.
+ * — 호출·새 공지·새 요청·새 쪽지·마감임박·다시 알림·새 채널 소속·댓글.
  *
  * window.smartOfficeDesktop(apps/desktop/preload.js가 노출)이 있을 때만 동작한다.
  * apps/dashboard는 일반 브라우저에서도 열리는 공용 웹앱이라, 이 마커가 없으면
@@ -10,14 +10,15 @@
  * 중복 알림이 된다. 재사용: 신규 판정은 CallAlert.jsx의 seenRef 패턴, 마감임박
  * 판정은 workRequests.js의 dueState()를 그대로 쓴다.
  */
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { ALL_STAFF_CHANNEL_ID, COL, schoolPath } from '@shared/lib/schema'
-import { dueState } from '@shared/lib/workRequests'
+import { dueState, isOwner, isTargetOf } from '@shared/lib/workRequests'
 import { htmlToText } from '@shared/lib/richText'
+import useChannels from './useChannels'
 
 // 채널 아래 주소로 바로 보낸다. PostRedirect.jsx(옛 /posts/:id)를 거치지 않는 것은
 // 클릭 한 번에 한 번의 이동이 자연스럽기 때문이다 — 모든 글이 channelId를 갖는(P3-A)
@@ -27,6 +28,8 @@ function postRoute(r, id) {
 }
 
 const DUE_CHECK_INTERVAL_MS = 30 * 60 * 1000
+/** 글 하나당 최근 이 정도에서만 댓글을 찾는다 — useNotificationFeed.js와 같은 기준. */
+const COMMENT_WINDOW = 10
 
 // useMentionNotifications.js도 이 판정·발사 함수를 그대로 쓴다(같은 트레이 파이프라인,
 // 감시 대상만 다르다) — export해 둔다.
@@ -90,6 +93,10 @@ export default function useDesktopNotifications() {
   const { user, schoolId } = useAuth()
   const navigate = useNavigate()
   const requestsRef = useRef([])
+  // 새 채널 소속·댓글 알림에 쓴다 — useMentionNotifications.js도 이미 이 훅을 부르고
+  // 있어(같은 "내가 속한 채널" 구독) 새 구독을 하나 더 늘리는 셈이지만, 그 훅과 이 훅은
+  // 서로 다른 감시 목적이라 합치지 않는다(파일 위 설명, 호출·공지 등과 같은 결).
+  const { channels } = useChannels()
 
   // 알림 클릭 → 메인 프로세스가 창을 복원한 뒤 이동할 경로를 돌려준다.
   useEffect(() => {
@@ -265,4 +272,71 @@ export default function useDesktopNotifications() {
     const timer = setInterval(checkDueSoon, DUE_CHECK_INTERVAL_MS)
     return () => clearInterval(timer)
   }, [checkDueSoon])
+
+  // 7) 새 채널 소속 — 조건에 걸리거나 개별 지정으로 채널에 들어가면 목록에 없던 채널이
+  // 하나 온다(사용자 지적, 2026-09-09 — "댓글/새 채널은 알림이 안 온다"). DM은 대화가
+  // 시작될 때마다 새로 생기는 구조라 "신설"이라 부를 사건이 아니라 뺀다. 내가 만든
+  // 채널은 이미 만들며 봤으므로 알릴 이유가 없다(useNotificationFeed.js와 같은 판단).
+  useEffect(() => {
+    if (!isDesktop() || !schoolId || !user) return
+    let first = true
+    return onSnapshot(
+      query(
+        collection(db, ...schoolPath(schoolId, COL.CHANNELS)),
+        where('memberUids', 'array-contains', user.uid),
+      ),
+      (snap) => {
+        if (first) { first = false; return }
+        snap.docChanges().forEach((change) => {
+          if (change.type !== 'added') return
+          const c = change.doc.data()
+          if ((c.type || 'channel') === 'dm') return
+          if (c.createdBy === user.uid) return
+          notifyOnce(`channel:${change.doc.id}`, '새 채널에 추가되었습니다', c.name || '', `/channels/${change.doc.id}`)
+        })
+      },
+      () => {},
+    )
+  }, [schoolId, user])
+
+  // 8) 댓글 — 내가 대상이거나 담당인 글마다 최근 댓글을 구독해 그중 내가 안 쓴 것만
+  // 알린다. useNotificationFeed.js의 댓글 알림과 같은 범위 판정·같은 이유(글 목록은
+  // useChannels()가 이미 읽어둔 것을 재사용해 새 쿼리를 늘리지 않는다).
+  const stakeholderPosts = useMemo(() => {
+    if (!user) return []
+    return channels.flatMap(c => c.posts || [])
+      .filter(p => isTargetOf(p, user.uid) || isOwner(p, user.uid) || p.createdBy === user.uid)
+  }, [channels, user])
+  const stakeholderKey = stakeholderPosts.map(p => p.id).sort().join(',')
+
+  useEffect(() => {
+    if (!isDesktop() || !schoolId || !user) return undefined
+    const unsubs = stakeholderPosts.map((p) => {
+      let first = true
+      return onSnapshot(
+        query(
+          collection(db, ...schoolPath(schoolId, COL.REQUESTS, p.id, COL.REQUEST_COMMENTS)),
+          orderBy('createdAt', 'desc'),
+          limit(COMMENT_WINDOW),
+        ),
+        (snap) => {
+          if (first) { first = false; return }
+          snap.docChanges().forEach((change) => {
+            if (change.type !== 'added') return
+            const c = change.doc.data()
+            if (c.authorUid === user.uid) return
+            notifyOnce(
+              `comment:${change.doc.id}`,
+              `${p.title || '(제목 없음)'}에 댓글`,
+              `${c.authorName || '누군가'}: ${previewText(c.bodyHtml || c.body || '')}`,
+              postRoute(p, p.id),
+            )
+          })
+        },
+        () => {},
+      )
+    })
+    return () => unsubs.forEach(u => u())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId, user, stakeholderKey])
 }

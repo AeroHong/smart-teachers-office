@@ -212,11 +212,18 @@ export default function PostComposer({
       setSaveState('idle')
       wasAlreadyCreatedRef.current = false
       editedThisSessionRef.current = false
-      // 고치던 글에서 '새 글'로 건너뛴 것도 그 글을 "떠나는" 순간이다 — 마지막 편집을
-      // 조용히 저장하고, 쌓여 있던 "수정함" 알림이 있으면 여기서 내보낸다.
-      return () => { flushRef.current({ silent: true }).catch(() => {}) }
+      // 여기서 flushRef.current({silent:true})를 부르면 안 된다 — 한때 그렇게 했다가
+      // 실제 데이터가 깨지는 사고로 이어졌다(2026-09-09). 이 정리 함수가 실행되는
+      // 시점엔 이미 다음 렌더(새 editingId)가 먼저 커밋된 뒤라 flushRef.current가
+      // 새 글(비어 있는 draftId)을 가리키는데, 정작 state(title 등)는 아직 옛 글의
+      // 값 그대로다 — 그 상태로 flush하면 옛 글의 내용이 새 글로 잘못 저장된다.
+      // "이 글을 수정했다"는 시스템 알림은 진짜 언마운트(아래 useEffect)에서만 낸다.
+      return undefined
     }
     if (justCreatedRef.current) {
+      // 여기는 안전하다 — 방금 막 만든 글의 editingId가 그 글 자신의 requestId와
+      // 같아서(justCreatedRef가 막 세팅된 그 글), flushRef.current가 가리키는
+      // 대상이 바뀌지 않는다.
       justCreatedRef.current = false
       return () => { flushRef.current({ silent: true }).catch(() => {}) }
     }
@@ -259,9 +266,15 @@ export default function PostComposer({
         toast.error('글을 불러오지 못했습니다.', e)
         setLoadingPost(false)
       })
-    // 이 글을 떠날 때(다른 글을 고치러 가거나 이 컴포넌트가 사라질 때) 마지막 편집을
-    // 조용히 저장하고, 이번 방문에서 실제로 바뀐 게 있으면 "수정함" 알림을 내보낸다.
-    return () => { alive = false; flushRef.current({ silent: true }).catch(() => {}) }
+    // 이 정리 함수에서 flushRef.current({silent:true})를 부르지 않는다 — 캔버스 탭을
+    // 바로 옆 탭으로 옮겨 다닐 때(editingId가 real id → 다른 real id로 바뀔 때) 이
+    // 정리 함수가 실행되는 시점엔 이미 새 editingId로 렌더가 끝난 뒤라, flushRef.current는
+    // 새 글을 가리키는데 state는 아직 옛 글 값 그대로다. 그 상태로 저장하면 옛 글의
+    // 제목·본문이 새 글에 덮어써진다 — 실제로 두 캔버스 탭을 오가며 테스트하다 이
+    // 사고를 재현했다(2026-09-09, 탭 순서 버그를 고치던 중 발견 — 사용자가 신고한
+    // 건 아니고 검증 과정에서 직접 찾음). "수정함" 알림은 진짜 언마운트(아래
+    // useEffect)에서만 낸다 — 탭만 옮기는 경우는 놓치지만, 데이터가 깨지는 것보다는 낫다.
+    return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, schoolId])
 

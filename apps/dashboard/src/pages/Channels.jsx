@@ -283,7 +283,14 @@ export default function Channels() {
     const barTop = startRect.top
     const barHeight = startRect.height
     const label = canvas.tabs.find(p => p.id === postId)?.title || ''
-    setDragTab({ postId, label, barTop, barHeight, ghostLeft: startRect.left, insertBeforeId: null, indicatorLeft: null })
+    // insertBeforeId의 시작값을 "지금 이 탭 바로 다음 탭"으로 잡아 둔다 — null로 두면
+    // pointermove가 한 번도 안 오는 순수 클릭(마우스가 실제로는 안 움직인 경우, 흔하다)에서
+    // onUp이 그대로 "맨 끝으로 옮기기"로 읽어, 맨 왼쪽 탭을 그냥 눌렀을 뿐인데 오른쪽 탭과
+    // 자리가 바뀌었다(사용자 신고, 2026-09-09). 다음 탭 바로 앞에 도로 끼워 넣으면 원래
+    // 자리 그대로라 순수 클릭은 항상 아무 일도 안 일어난다 — 맨 끝 탭이면 다음 탭이 없어
+    // null이 되고, 그건 "끝에 그대로 둔다"는 뜻이라 마찬가지로 안전하다.
+    const nextId = order[order.indexOf(postId) + 1] ?? null
+    setDragTab({ postId, label, barTop, barHeight, ghostLeft: startRect.left, insertBeforeId: nextId, indicatorLeft: null })
 
     const onMove = (ev) => {
       let insertBeforeId = null
