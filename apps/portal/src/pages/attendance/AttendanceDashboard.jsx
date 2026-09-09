@@ -332,8 +332,6 @@ export default function AttendanceDashboard() {
   const [outingReason, setOutingReason] = useState('')
   const [now, setNow] = useState(new Date())
 
-  // 3열 드래그 리사이즈는 슬라이드로 바뀌면서 필요 없어졌다(SlideCarousel, 아래).
-
   // ── 이벤트 실시간 구독 + 학생 그룹 최초 1회 로드 ─────────────
   useEffect(() => {
     if (!schoolId) return
@@ -809,8 +807,7 @@ export default function AttendanceDashboard() {
   // ── 출석 패널 내용 ────────────────────────────────────────────
   // 모바일·데스크톱이 각자 따로 들고 있던 거의 같은 목록을 하나로 합쳤다 — 학생 그룹이
   // 없을 때의 대체 표시(원본 로그만 나열)는 예전엔 데스크톱에만 있었는데, 이제 둘 다
-  // 같은 걸 본다. 3열 리사이즈 대신 슬라이드로 바뀌면서(사용자 요청, 2026-09-09)
-  // 화면마다 다른 레이아웃을 유지할 이유도 없어졌다.
+  // 같은 걸 본다.
   const classDurRow = (
     <div style={styles.classDurRow}>
       <span style={styles.classDurLabel}>수업시간</span>
@@ -901,10 +898,12 @@ export default function AttendanceDashboard() {
     })
   }
 
-  // 슬라이드 3장 — QR·출석·미출석. 3열 리사이즈를 대신한다(사용자 요청, 2026-09-09 —
-  // "3개 구역을 별도로 슬라이드 할 수 있도록"). 모바일·데스크톱 모두 같은 걸 쓴다.
-  const panelsSlider = (
-    <SlideCarousel
+  // QR·출석·미출석을 한 화면에 3분할해서 동시에 보여준다 — 슬라이드로 하나씩 넘겨보게
+  // 했더니 오히려 불편하다는 피드백(사용자 요청, 2026-09-09: "3가지를 슬라이드 방식이
+  // 아니고, 한 화면에 한번에 보이도록"). 칸마다 내용이 길어지면 그 칸만 스크롤된다.
+  // 모바일·데스크톱 모두 같은 3분할 레이아웃을 쓴다.
+  const panelsGrid = (
+    <ThreeColumnPanels
       titles={['QR 출석', `✅ 출석 ${attended.length}명`, `❌ 미출석 ${absent.length}명`]}
       colors={[undefined, '#2e7d32', '#c62828']}
       panels={[
@@ -971,7 +970,7 @@ export default function AttendanceDashboard() {
           </div>
         )}
         {luckyBanner}
-        {panelsSlider}
+        {panelsGrid}
         {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
       </Layout>
     )
@@ -1060,7 +1059,7 @@ export default function AttendanceDashboard() {
       )}
 
       {luckyBanner}
-      {panelsSlider}
+      {panelsGrid}
       {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
     </Layout>
   )
@@ -1171,60 +1170,17 @@ function ConfettiCelebration({ onDone }) {
 // 탭(제목) 클릭·좌우 화살표·터치 스와이프 세 가지를 다 지원해서 마우스로 쓰는 교사도,
 // 태블릿/키오스크로 화면만 띄워 놓고 보는 경우도 같은 방식으로 넘길 수 있다. 탭 글자
 // 자체가 각 패널의 제목(참여자 수 포함)을 대신하므로 패널 안에는 따로 제목을 두지 않는다.
-function SlideCarousel({ panels, titles, colors = [] }) {
-  const [index, setIndex] = useState(0)
-  const touchStartX = useRef(null)
-  const touchDeltaX = useRef(null)
-
-  const goTo = (i) => setIndex(Math.max(0, Math.min(panels.length - 1, i)))
-
-  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; touchDeltaX.current = 0 }
-  const onTouchMove = (e) => {
-    if (touchStartX.current == null) return
-    touchDeltaX.current = e.touches[0].clientX - touchStartX.current
-  }
-  const onTouchEnd = () => {
-    if (touchDeltaX.current != null && Math.abs(touchDeltaX.current) > 50) {
-      goTo(index + (touchDeltaX.current < 0 ? 1 : -1))
-    }
-    touchStartX.current = null
-    touchDeltaX.current = null
-  }
-
+// QR·출석·미출석을 나란히 3분할해서 동시에 보여준다 — 칸마다 제목을 고정해 두고
+// 내용만 그 칸 안에서 스크롤된다(사용자 요청, 2026-09-09).
+function ThreeColumnPanels({ panels, titles, colors = [] }) {
   return (
-    <div style={styles.slideWrap}>
-      <div style={styles.slideNav}>
-        <button onClick={() => goTo(index - 1)} disabled={index === 0}
-          style={{ ...styles.slideArrowBtn, ...(index === 0 ? { opacity: 0.35, cursor: 'default' } : {}) }}
-          aria-label="이전 화면">‹</button>
-        <div style={styles.slideTabs}>
-          {titles.map((t, i) => (
-            <button
-              key={i} onClick={() => goTo(i)}
-              style={{
-                ...styles.slideTabBtn,
-                ...(i === index
-                  ? { ...styles.slideTabBtnActive, color: colors[i] || '#1a73e8', borderBottomColor: colors[i] || '#1a73e8' }
-                  : {}),
-              }}
-            >
-              {t}
-            </button>
-          ))}
+    <div style={styles.threeCol}>
+      {panels.map((p, i) => (
+        <div key={i} style={styles.threeColPanel}>
+          <h3 style={{ ...styles.threeColTitle, color: colors[i] || '#333' }}>{titles[i]}</h3>
+          <div style={styles.threeColBody}>{p}</div>
         </div>
-        <button onClick={() => goTo(index + 1)} disabled={index === panels.length - 1}
-          style={{ ...styles.slideArrowBtn, ...(index === panels.length - 1 ? { opacity: 0.35, cursor: 'default' } : {}) }}
-          aria-label="다음 화면">›</button>
-      </div>
-      <div style={styles.slideViewport} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-        <div style={{ ...styles.slideTrack, width: `${panels.length * 100}%`, transform: `translateX(-${index * (100 / panels.length)}%)` }}>
-          {panels.map((p, i) => (
-            <div key={i} style={{ ...styles.slidePanelOuter, width: `${100 / panels.length}%` }}>
-              <div style={styles.panel}>{p}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      ))}
     </div>
   )
 }
@@ -1384,24 +1340,15 @@ const styles = {
   progressBar: { height: '100%', backgroundColor: '#1a73e8', borderRadius: '4px', transition: 'width 0.4s' },
   noGroupNote: { color: '#888', fontSize: '0.85rem', marginBottom: '1rem' },
 
-  // 슬라이드 캐러셀 (QR·출석·미출석) — 3열 드래그 리사이즈를 대신한다
-  slideWrap: { width: '100%' },
-  slideNav: { display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' },
-  slideTabs: { display: 'flex', flex: 1, overflowX: 'auto', gap: '0.25rem' },
-  slideTabBtn: {
-    flexShrink: 0, padding: '0.5rem 0.9rem', fontSize: '0.85rem', fontWeight: 700,
-    color: '#888', backgroundColor: 'transparent', border: 'none',
-    borderBottom: '2px solid transparent', cursor: 'pointer', whiteSpace: 'nowrap',
+  // QR·출석·미출석 3분할 — 한 화면에 동시에 보여주고 칸마다 따로 스크롤된다.
+  threeCol: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1rem', alignItems: 'start' },
+  threeColPanel: {
+    backgroundColor: '#fff', borderRadius: '10px', padding: '1rem 1.25rem',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.08)', boxSizing: 'border-box',
+    display: 'flex', flexDirection: 'column', minWidth: 0,
   },
-  slideTabBtnActive: { borderBottomWidth: '2px', borderBottomStyle: 'solid' },
-  slideArrowBtn: {
-    flexShrink: 0, width: '32px', height: '32px', borderRadius: '50%', border: '1px solid #e0e0e0',
-    backgroundColor: '#fff', color: '#555', fontSize: '1.2rem', lineHeight: 1, cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  slideViewport: { overflow: 'hidden', width: '100%', touchAction: 'pan-y' },
-  slideTrack: { display: 'flex', transition: 'transform 0.25s ease' },
-  slidePanelOuter: { boxSizing: 'border-box', padding: '0 0.25rem', minHeight: '60vh' },
+  threeColTitle: { fontSize: '0.9rem', fontWeight: 700, margin: '0 0 0.75rem', textAlign: 'center' },
+  threeColBody: { overflowY: 'auto', maxHeight: '70vh' },
 
   // 오늘의 추첨(행운번호) 배너
   luckyBanner: {
@@ -1412,18 +1359,17 @@ const styles = {
   luckyWinnerName: { fontWeight: 700, color: '#15803d' },
   luckyPending: { color: '#b45309' },
 
-  // 패널 공통
-  panel: { backgroundColor: '#fff', borderRadius: '10px', padding: '1rem 1.25rem', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', height: '100%', boxSizing: 'border-box' },
-  qrPanelTitle: { fontSize: '0.9rem', fontWeight: 700, margin: '0 0 1rem', color: '#333', textAlign: 'center' },
-  panelTitle: { fontSize: '0.95rem', fontWeight: 700, margin: '0 0 0.75rem' },
   empty: { color: '#aaa', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' },
 
   // 학생 행
-  studentRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid #f5f5f5' },
+  // flexWrap: 'wrap' — 3분할이라 칸 폭이 좁을 때(특히 모바일) 이름 옆 배지·버튼이
+  // 자리를 다 차지하면 이름 자체가 눌려 글자 단위로 줄바꿈됐다(사용자 확인,
+  // 2026-09-09). 대신 배지·버튼이 다음 줄로 내려가게 한다.
+  studentRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem', padding: '0.5rem 0', borderBottom: '1px solid #f5f5f5' },
   studentInfo: { display: 'flex', flexDirection: 'column', gap: '0.1rem' },
-  studentName: { fontSize: '0.9rem', fontWeight: 600 },
-  studentIdText: { fontSize: '0.75rem', color: '#888' },
-  logInfo: { display: 'flex', alignItems: 'center', gap: '0.4rem' },
+  studentName: { fontSize: '0.9rem', fontWeight: 600, whiteSpace: 'nowrap' },
+  studentIdText: { fontSize: '0.75rem', color: '#888', whiteSpace: 'nowrap' },
+  logInfo: { display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' },
   methodBadge: { fontSize: '0.72rem', padding: '0.15rem 0.4rem', borderRadius: '8px', fontWeight: 600 },
   lateBadge: { fontSize: '0.72rem', padding: '0.15rem 0.4rem', borderRadius: '8px', fontWeight: 600, backgroundColor: '#fff3e0', color: '#e65100' },
   timeText: { fontSize: '0.78rem', color: '#888' },
@@ -1450,7 +1396,7 @@ const styles = {
 
   // 미출석 블록
   absentBlock: { borderBottom: '1px solid #f5f5f5', paddingBottom: '0.75rem', marginBottom: '0.25rem' },
-  absentTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0 0.35rem' },
+  absentTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem', padding: '0.5rem 0 0.35rem' },
   reasonSaved: { display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.5rem', backgroundColor: '#fff8e1', borderRadius: '6px', marginTop: '0.25rem' },
   reasonBadge: { fontSize: '0.72rem', fontWeight: 700, color: '#e65100', backgroundColor: '#ffe0b2', padding: '0.15rem 0.4rem', borderRadius: '8px' },
   reasonText: { fontSize: '0.82rem', color: '#5d4037', flex: 1 },
