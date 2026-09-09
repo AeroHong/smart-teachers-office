@@ -23,6 +23,7 @@ const EventCreate         = lazy(() => import('./pages/attendance/EventCreate'))
 const EventEdit           = lazy(() => import('./pages/attendance/EventEdit'))
 const AttendanceDashboard = lazy(() => import('./pages/attendance/AttendanceDashboard'))
 const StatsDashboard      = lazy(() => import('./pages/attendance/StatsDashboard'))
+const EventsOverview      = lazy(() => import('./pages/attendance/EventsOverview'))
 const StudentCheckin      = lazy(() => import('./pages/attendance/StudentCheckin'))
 
 // 교수학습 및 평가 운영 계획 - lazy load
@@ -144,6 +145,7 @@ export default function App() {
           <Route path="/attendance/events/:eventId"       element={<ProtectedRoute><AttendanceDashboard /></ProtectedRoute>} />
           <Route path="/attendance/events/:eventId/edit"  element={<ProtectedRoute><EventEdit /></ProtectedRoute>} />
           <Route path="/attendance/stats"                 element={<ProtectedRoute><StatsDashboard /></ProtectedRoute>} />
+          <Route path="/attendance/all"                   element={<ProtectedRoute adminOnly><EventsOverview /></ProtectedRoute>} />
 
           {/* ── 스마트 공지 ── */}
           <Route path="/notices" element={<ProtectedRoute><NoticeList /></ProtectedRoute>} />

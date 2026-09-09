@@ -35,6 +35,9 @@ const NAV_SECTIONS = [
       { label: '출결 통계', path: '/attendance/stats', icon: '◈' },
       { label: '공지 관리', path: '/notices', icon: '◈' },
     ],
+    adminItems: [
+      { label: '전체 현황', path: '/attendance/all', icon: '◈' },
+    ],
   },
   {
     key: 'cover',
@@ -124,6 +127,7 @@ const PAGE_TITLES = {
   '/attendance/students': '학생 명단',
   '/attendance/events/new': '이벤트 생성',
   '/attendance/stats': '출결 통계',
+  '/attendance/all': '전체 이벤트 현황',
   '/notices': '공지 관리',
   '/cover': '보강 목록',
   '/cover/mypage': '내 현황',

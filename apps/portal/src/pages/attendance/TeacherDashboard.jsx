@@ -4,11 +4,10 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
-
-const DAYS = ['일', '월', '화', '수', '목', '금', '토']
+import { isEventActive, formatSchedules, formatEventTime } from './eventHelpers'
 
 export default function TeacherDashboard() {
-  const { schoolId, user, role } = useAuth()
+  const { schoolId, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -26,69 +25,19 @@ export default function TeacherDashboard() {
       .then(snap => setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [schoolId])
 
+  // 학교 관리자도 본인 수업이 있을 수 있어, 여기서는 역할과 무관하게 항상 본인이
+  // 만든 이벤트만 보여준다 — 전체 이벤트가 다 섞여 보이면 정작 본인 수업 찾기가
+  // 불편하다(사용자 지적, 2026-09-09). 학교 전체 이벤트 현황은 별도의 관리자 전용
+  // 화면(EventsOverview.jsx, "전체 현황")에서 확인한다.
   useEffect(() => {
     if (!schoolId || !user) return
-    const q = role === 'school_admin'
-      ? query(collection(db, 'schools', schoolId, 'events'), orderBy('createdAt', 'desc'))
-      : query(collection(db, 'schools', schoolId, 'events'), where('createdBy', '==', user.uid), orderBy('createdAt', 'desc'))
+    const q = query(collection(db, 'schools', schoolId, 'events'), where('createdBy', '==', user.uid), orderBy('createdAt', 'desc'))
     const unsub = onSnapshot(q, (snap) => {
       setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setLoading(false)
     })
     return unsub
-  }, [schoolId, user, role])
-
-  const isActive = (event) => {
-    const now = new Date()
-    if (event.isRecurring) {
-      const todayDay = now.getDay()
-      const recurringEnd = event.recurringEndDate?.toDate?.() ?? new Date(event.recurringEndDate)
-      if (now > recurringEnd) return false
-
-      if (event.schedules?.length > 0) {
-        const todaySchs = event.schedules.filter(s => s.dayOfWeek === todayDay)
-        if (todaySchs.length === 0) return false
-        // 시간 미설정 교시 있으면 당일 종일 활성
-        if (todaySchs.some(s => !s.startTime || !s.endTime)) return true
-        return todaySchs.some(s => {
-          const start = new Date(now); start.setHours(...s.startTime.split(':').map(Number), 0, 0)
-          const end = new Date(now); end.setHours(...s.endTime.split(':').map(Number), 0, 0)
-          return now >= start && now <= end
-        })
-      }
-      // 구형 fallback
-      if (!event.recurringDays?.includes(todayDay)) return false
-      const [sh, sm] = event.recurringTimeStart.split(':').map(Number)
-      const [eh, em] = event.recurringTimeEnd.split(':').map(Number)
-      const start = new Date(now); start.setHours(sh, sm, 0, 0)
-      const end = new Date(now); end.setHours(eh, em, 0, 0)
-      return now >= start && now <= end
-    }
-    const start = event.startTime?.toDate?.() ?? new Date(event.startTime)
-    const end = event.endTime?.toDate?.() ?? new Date(event.endTime)
-    return now >= start && now <= end
-  }
-
-  const formatSchedules = (event) => {
-    if (event.schedules?.length > 0) {
-      return event.schedules
-        .slice()
-        .sort((a, b) => a.dayOfWeek !== b.dayOfWeek ? a.dayOfWeek - b.dayOfWeek : a.period - b.period)
-        .map(s => {
-          const base = `${DAYS[s.dayOfWeek]} ${s.period}교시`
-          return s.startTime && s.endTime ? `${base} ${s.startTime}~${s.endTime}` : base
-        })
-        .join(' · ')
-    }
-    // 구형 fallback
-    return `${event.recurringDays?.map(d => DAYS[d]).join('·')}  ${event.recurringTimeStart}~${event.recurringTimeEnd}`
-  }
-
-  const formatTime = (ts) => {
-    if (!ts) return '-'
-    const d = ts?.toDate?.() ?? new Date(ts)
-    return d.toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  }
+  }, [schoolId, user])
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id)
 
@@ -145,9 +94,6 @@ export default function TeacherDashboard() {
       <div style={styles.header}>
         <div>
           <h2 style={styles.heading}>대시보드</h2>
-          {role === 'school_admin' && (
-            <p style={styles.adminNote}>학교 관리자 — 전체 교사 이벤트 표시 중</p>
-          )}
         </div>
         <div style={styles.headerActions}>
           {(archivedCount > 0 || showArchived) && (
@@ -189,7 +135,7 @@ export default function TeacherDashboard() {
               </div>
               <div style={styles.grid}>
                 {gEvents.map(event => {
-                  const active = !event.archived && isActive(event)
+                  const active = !event.archived && isEventActive(event)
                   const expanded = expandedId === event.id
                   const isArchived = event.archived === true
 
@@ -219,7 +165,7 @@ export default function TeacherDashboard() {
                         <p style={styles.timeText}>
                           {event.isRecurring
                             ? `🔁 ${formatSchedules(event)}`
-                            : `🕐 ${formatTime(event.startTime)} ~ ${formatTime(event.endTime)}`
+                            : `🕐 ${formatEventTime(event.startTime)} ~ ${formatEventTime(event.endTime)}`
                           }
                         </p>
                         <span style={styles.expandHint}>{expanded ? '▲ 접기' : '▼ 세부 내용'}</span>
@@ -241,8 +187,8 @@ export default function TeacherDashboard() {
                           )}
                           {!event.isRecurring && (
                             <>
-                              <DetailRow label="시작" value={formatTime(event.startTime)} />
-                              <DetailRow label="종료" value={formatTime(event.endTime)} />
+                              <DetailRow label="시작" value={formatEventTime(event.startTime)} />
+                              <DetailRow label="종료" value={formatEventTime(event.endTime)} />
                             </>
                           )}
                           {event.location && <DetailRow label="장소" value={event.location} />}
@@ -297,7 +243,6 @@ const detailStyles = {
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' },
-  adminNote: { fontSize: '0.8rem', color: '#7b1fa2', margin: '0.2rem 0 0', fontWeight: 500 },
   heading: { fontSize: '1.3rem', fontWeight: 700, margin: 0 },
   headerActions: { display: 'flex', gap: '0.5rem', alignItems: 'center' },
   newBtn: { padding: '0.5rem 1.1rem', backgroundColor: '#1a73e8', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 },
