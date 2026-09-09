@@ -459,6 +459,11 @@ export default function AttendanceDashboard() {
   // 하루 한 번만 저장해 두고 그 뒤로는 읽기만 한다. 1~3등은 이미 메달로 따로
   // 표시하므로, 행운번호는 겹치지 않게 4등부터만 뽑는다 — 4명이 안 되면(학생 3명
   // 이하) 추첨 자체를 하지 않는다.
+  //
+  // 번호는 당첨자가 정해지기 전엔 교사에게도 학생에게도 보여주지 않는다(사용자 요청,
+  // 이 화면을 교실 화면에 띄워두는 경우가 있어, 미리 보이면 학생들이 번호에 맞춰
+  // 등원 순서를 조작할 수 있다). 당첨자가 정해진 순간 번호와 당첨자를 한 번에
+  // 공개한다 — 그 전까지는 luckyBanner 자체가 렌더링되지 않는다.
   const [luckyNumber, setLuckyNumber] = useState(null)
   useEffect(() => {
     if (!schoolId || !eventId || !selectedDate || students.length < 4) { setLuckyNumber(null); return undefined }
@@ -479,13 +484,13 @@ export default function AttendanceDashboard() {
   const luckyStudentId = luckyNumber
     ? Object.keys(checkinRankMap).find(id => checkinRankMap[id] === luckyNumber)
     : null
-  const luckyBanner = luckyNumber && (
+  const luckyBanner = luckyStudentId && (
     <div style={styles.luckyBanner}>
       <span style={{ fontSize: '1.1rem' }}>🎰</span>
-      <span>오늘의 행운번호 <strong>{luckyNumber}등</strong></span>
-      {luckyStudentId
-        ? <span style={styles.luckyWinnerName}>🍀 {attendedMap[luckyStudentId]?.studentName} 당첨!</span>
-        : <span style={styles.luckyPending}>아직 도전 중…</span>}
+      <span>
+        오늘의 행운번호는 <strong>{luckyNumber}번</strong>이었습니다 — 출석순서 {luckyNumber}번째{' '}
+        <span style={styles.luckyWinnerName}>{attendedMap[luckyStudentId]?.studentName}</span> 학생 당첨! 🍀
+      </span>
     </div>
   )
 
@@ -1357,7 +1362,6 @@ const styles = {
     padding: '0.6rem 1rem', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#9a3412',
   },
   luckyWinnerName: { fontWeight: 700, color: '#15803d' },
-  luckyPending: { color: '#b45309' },
 
   empty: { color: '#aaa', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' },
 
