@@ -46,12 +46,34 @@ function handleReload() {
   else window.location.reload()
 }
 
-// 검색창이 가운데를 차지하는 만큼, 좌우 칸은 오른쪽 묶음(호출벨+이름+재실 상태 ≈ 195px)이
-// + titleBarOverlay 버튼 자리(138px)를 더해도 절대 잘리지 않을 폭을 고정으로 준다.
-// 이전엔 1fr끼리 나눠 갖게 했다가, 검색창이 넓어지면 오른쪽 묶음이 그만큼 밀려 이름·재실
-// 상태가 잘리고 두 줄로 접혔다(사용자가 스크린샷으로 확인). 왼쪽은 내용이 없지만 같은
-// 폭을 줘야 가운데 검색창이 실제로 창 정가운데에 온다.
+// 오른쪽 칸(호출벨+이름+재실 상태 ≈ 195px + titleBarOverlay 버튼 자리 138px)은 무슨
+// 일이 있어도 이 폭 밑으로 안 줄어야 한다 — 줄면 이름·재실 상태가 잘리고 두 줄로
+// 접힌다(사용자가 스크린샷으로 확인, 2026-08-26).
 const SIDE_COLUMN_WIDTH = 360
+// 검색창이 "편하게" 유지하려는 폭 — 검색 버튼 자체의 maxWidth(아래)와 같다.
+const SEARCH_TARGET_WIDTH = 560
+// 검색창이 그래도 이 밑으로는 안 줄어드는 바닥 — 아이콘+⌘K 배지+안팎 여백만 겨우
+// 남고 "검색" 글자는 이 바닥에서 이미 완전히 사라진 상태다(아래 검색 라벨 참고).
+const SEARCH_MIN_WIDTH = 100
+// 그리드 gap(아래 header의 gap:1 = 8px) × 칸 사이 2군데.
+const GRID_GAP_PX = 16
+
+// 왼쪽 칸은 내용이 없는 순수 균형용이라, 창이 넓을 땐 오른쪽과 같은 360으로 맞춰
+// 검색창을 정가운데에 두고, 창이 좁아지면 검색창이 SEARCH_TARGET_WIDTH를 유지할
+// 수 있는 한 이 칸부터 먼저 줄어든다(0까지) — 검색창은 그게 바닥난 다음에야
+// SEARCH_MIN_WIDTH까지 줄어든다(사용자 요청, 2026-09-09: "검색창 왼쪽 영역이 먼저
+// 줄어들고, 최소 폭에 도달하면 그 다음 검색창이 줄어들도록").
+//
+// 처음엔 왼쪽을 minmax(0,360), 가운데(검색)를 minmax(100,1fr)로 짜면 될 줄 알았는데
+// 실측해보니 정반대로 동작했다 — CSS Grid의 트랙 sizing은 유한한 minmax 트랙을
+// fr(무한 취급) 트랙보다 먼저 최대치까지 채우고, 남은 공간만 fr 트랙에 준다. 즉
+// "나중에 채워지는 쪽(fr)이 창이 좁아질 때 먼저 비워진다" — fr을 준 검색창이 먼저
+// 줄고 minmax를 준 왼쪽이 나중에 줄어, 원하는 것과 거꾸로였다(그래서 여기 왼쪽 칸의
+// 폭 자체를 calc/clamp로 직접 계산해 이미 "정해진 길이"로 만든다 — 그러면 협상에
+// 안 끼고, 검색창(1fr)이 항상 나머지를 그대로 가져간다).
+const LEFT_COLUMN_WIDTH = `clamp(0px, calc(100% - ${
+  SIDE_COLUMN_WIDTH + SEARCH_TARGET_WIDTH + GRID_GAP_PX
+}px), ${SIDE_COLUMN_WIDTH}px)`
 
 /** 오른쪽 묶음 전용 — 이 컴포넌트들(CallBell 포함)은 밝은 배경을 가정한 색을 쓰므로,
  *  여기서만 감싸 뒤집는다. */
@@ -77,7 +99,7 @@ export default function TopBar() {
       component="header"
       sx={{
         flexShrink: 0, display: 'grid',
-        gridTemplateColumns: `${SIDE_COLUMN_WIDTH}px 1fr ${SIDE_COLUMN_WIDTH}px`,
+        gridTemplateColumns: `${LEFT_COLUMN_WIDTH} minmax(${SEARCH_MIN_WIDTH}px, 1fr) ${SIDE_COLUMN_WIDTH}px`,
         alignItems: 'center', gap: 1, px: 1.5, py: 0.75,
         bgcolor: 'rail.bg',
         // 데스크톱 앱은 OS 기본 제목줄을 없앴다(apps/desktop/main.js의 titleBarOverlay) —
@@ -97,7 +119,7 @@ export default function TopBar() {
         onClick={openCommandPalette}
         sx={{
           display: 'flex', alignItems: 'center', gap: 0.8,
-          width: '100%', maxWidth: 560, mx: 'auto', px: 1.3, py: 0.4,
+          width: '100%', minWidth: 0, maxWidth: 560, mx: 'auto', px: 1.3, py: 0.4,
           border: '1px solid', borderColor: 'divider', borderRadius: 0.75,
           bgcolor: 'background.paper', cursor: 'pointer', color: 'text.secondary',
           '&:hover': { borderColor: 'text.disabled' },
@@ -105,11 +127,18 @@ export default function TopBar() {
           WebkitAppRegion: 'no-drag',
         }}
       >
-        <SearchIcon sx={{ fontSize: 18 }} />
-        <Typography fontSize="0.86rem" sx={{ flexGrow: 1, textAlign: 'left' }}>
+        <SearchIcon sx={{ fontSize: 18, flexShrink: 0 }} />
+        {/* 상자가 좁아지면(SEARCH_MIN_WIDTH 근처) 줄바꿈 대신 글자가 그냥 잘려
+            사라지게 한다 — minWidth:0이 없으면 flex 아이템은 내용 폭 밑으로 안
+            줄어 오히려 상자가 넘친다(사용자 지적, 2026-09-09: "줄바꿈으로 아래로
+            내려오지 않고, 그냥 사라져버리는게 좋겠다"). */}
+        <Typography
+          fontSize="0.86rem"
+          sx={{ flexGrow: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', whiteSpace: 'nowrap' }}
+        >
           검색
         </Typography>
-        <Typography fontSize="0.74rem" sx={{ color: 'text.disabled' }}>⌘K</Typography>
+        <Typography fontSize="0.74rem" sx={{ color: 'text.disabled', flexShrink: 0 }}>⌘K</Typography>
       </Box>
 
       <ThemeProvider theme={darkGroupTheme}>
