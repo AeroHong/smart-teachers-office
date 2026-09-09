@@ -266,20 +266,6 @@ export default function StudentCheckin() {
     }
     try {
       const logId = buildLogId(event, student.studentId ?? studentId)
-      try {
-        const logsSnap = await getDocs(collection(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs'))
-        const today = toLocalDateStr()
-        const validBefore = logsSnap.docs.filter(d => {
-          const data = d.data()
-          if (data.method !== 'QR' && data.method !== 'manual') return false
-          if (event.isRecurring) {
-            const ts = data.checkedAt?.toDate?.()
-            return ts ? toLocalDateStr(ts) === today : false
-          }
-          return true
-        }).length
-        setCheckinRank(validBefore + 1)
-      } catch { /* 순위 계산 실패 시 무시하고 체크인 진행 */ }
       await setDoc(doc(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs', logId), {
         studentId,
         studentName: student.name,
@@ -293,6 +279,29 @@ export default function StudentCheckin() {
       })
       setIsLate(late)
       setState(STATE.SUCCESS)
+
+      // 등수는 내 기록을 실제로 쓴 뒤 다시 읽어서, 교사 화면(checkinRankMap)과 똑같이
+      // checkedAt 오름차순으로 매긴다 — 쓰기 전에 미리 세던 예전 방식은 여러 학생이
+      // 거의 동시에 스캔하면 서로 아직 반영 안 된 같은 개수를 세어 등수가 겹치거나
+      // 교사 화면과 어긋났다(사용자 신고 — "교사 페이지와 학생 응답 후 등수가 안
+      // 맞음"). 등수 계산이 실패해도 출석 처리 자체는 이미 끝난 뒤라 무시한다.
+      try {
+        const logsSnap = await getDocs(collection(db, 'schools', schoolId, 'events', eventId, 'attendanceLogs'))
+        const today = toLocalDateStr()
+        const sorted = logsSnap.docs
+          .map(d => d.data())
+          .filter(data => {
+            if (data.method !== 'QR' && data.method !== 'manual') return false
+            if (event.isRecurring) {
+              const ts = data.checkedAt?.toDate?.()
+              return ts ? toLocalDateStr(ts) === today : false
+            }
+            return true
+          })
+          .sort((a, b) => (a.checkedAt?.toMillis?.() ?? 0) - (b.checkedAt?.toMillis?.() ?? 0))
+        const myIndex = sorted.findIndex(d => d.studentId === studentId)
+        if (myIndex !== -1) setCheckinRank(myIndex + 1)
+      } catch { /* 등수 표시만 못 할 뿐, 이미 SUCCESS 처리됨 */ }
     } catch {
       setState(STATE.ERROR)
     }
