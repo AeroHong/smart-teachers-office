@@ -44,12 +44,15 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Collapse from '@mui/material/Collapse'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CloseIcon from '@mui/icons-material/Close'
+import DownloadIcon from '@mui/icons-material/DownloadOutlined'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { db } from '@shared/lib/firebase'
@@ -60,8 +63,10 @@ import { completionStats, isRequest, newRequestPayload } from '@shared/lib/workR
 import { postVisibilityFor } from '@shared/lib/channels'
 import { deleteAttachment, fileKind, formatBytes } from '@shared/lib/requestAttachments'
 import { htmlToText, isEmptyHtml, sanitizeHtml } from '@shared/lib/richText'
+import { hydrateDateChips } from '@shared/lib/dateChips'
 import TargetPicker from './TargetPicker'
 import CanvasEditor from './CanvasEditor'
+import { RICH_TEXT_SX } from './richTextStyles'
 import { useToast } from './ToastProvider'
 import { updatePostContent } from '../lib/requestActions'
 import { postSystemNotice, shareCanvasToChannel } from '../lib/channelActions'
@@ -165,6 +170,17 @@ export default function PostComposer({
   // 완료해도 숫자가 바로 안 바뀔 수 있다 — 버튼을 눌러 실제 현황(PostDetail)으로 가면
   // 거기는 구독이라 정확하다.
   const [completedUids, setCompletedUids] = useState([])
+
+  // PDF·DOCX 다운로드용 — 글쓴이는 캔버스 탭을 눌러도 늘 이 편집기로 오지 PostDetail
+  // (보기 화면)로 가지 않으므로, 다운로드 버튼을 여기에도 둬야 글쓴이가 실제로 쓸 수
+  // 있다(2026-09-10, 사용자 신고 — "다운로드 버튼이 안 보여"). 편집 중인 contentEditable
+  // 노드를 그대로 캡처하면 커서·리사이즈 손잡이 등 편집 전용 흔적이 같이 찍히므로,
+  // PostDetail과 똑같은 방식(sanitizeHtml + dangerouslySetInnerHTML)으로 화면 밖에
+  // 안 보이게 따로 그려서 그 노드를 내보낸다.
+  const exportBodyRef = useRef(null)
+  const [downloadAnchor, setDownloadAnchor] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  useEffect(() => { hydrateDateChips(exportBodyRef.current) }, [bodyHtml])
 
   // 고치기를 시작한 시점에 이미 붙어 있던 파일. 도중에 그만둬도 이건 지우면 안 된다.
   const keptFiles = useRef(new Set())
@@ -514,6 +530,26 @@ export default function PostComposer({
     }
   }
 
+  /** PostDetail.jsx의 handleExport와 같다 — 무거운 라이브러리는 누를 때만 받아온다. */
+  const handleExport = async (format) => {
+    setDownloadAnchor(null)
+    if (exporting || !created) return
+    setExporting(true)
+    try {
+      const { exportCanvasAsDocx, exportCanvasAsPdf } = await import('../lib/canvasExport')
+      const meta = `${userName} · 대상 ${describeRule(rule)}`
+      if (format === 'pdf') {
+        await exportCanvasAsPdf({ title, meta, bodyEl: exportBodyRef.current, coverImageUrl })
+      } else {
+        await exportCanvasAsDocx({ title, meta, bodyEl: exportBodyRef.current })
+      }
+    } catch (e) {
+      toast.error('파일을 만들지 못했습니다.', e)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (loadingPost) {
     return <Typography color="text.secondary" sx={{ p: 2.5 }}>글을 불러오는 중…</Typography>
   }
@@ -546,6 +582,22 @@ export default function PostComposer({
               업무현황 {stats.doneCount}/{stats.total}
             </Button>
           )}
+          {/* 글쓴이는 캔버스 탭을 눌러도 이 편집기로만 오지 보기 화면(PostDetail)의
+              다운로드 버튼까지는 안 가므로, 여기에도 같은 기능을 둔다. */}
+          {created && (
+            <Button
+              size="small" startIcon={<DownloadIcon sx={{ fontSize: 17 }} />}
+              disabled={exporting}
+              onClick={(e) => setDownloadAnchor(e.currentTarget)}
+              sx={{ fontSize: '0.76rem' }}
+            >
+              {exporting ? '만드는 중…' : '다운로드'}
+            </Button>
+          )}
+          <Menu anchorEl={downloadAnchor} open={!!downloadAnchor} onClose={() => setDownloadAnchor(null)}>
+            <MenuItem onClick={() => handleExport('pdf')}>PDF로 저장</MenuItem>
+            <MenuItem onClick={() => handleExport('docx')}>DOCX(워드)로 저장</MenuItem>
+          </Menu>
           {needsCompletion ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
               <TextField
@@ -670,6 +722,15 @@ export default function PostComposer({
           onCoverPositionChange={repositionCover}
         />
       </Box>
+
+      {/* 다운로드용 — 편집 중인 contentEditable을 그대로 캡처하면 편집 전용 흔적(커서·
+          리사이즈 손잡이 등)이 같이 찍히므로, PostDetail과 같은 방식으로 화면 밖에 따로
+          그려서 그 노드를 내보낸다. */}
+      <Box
+        ref={exportBodyRef}
+        sx={{ display: 'none', ...RICH_TEXT_SX }}
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(bodyHtml) }}
+      />
 
       <Box sx={{
         flexShrink: 0, borderTop: '1px solid', borderColor: 'divider',

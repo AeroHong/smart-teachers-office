@@ -153,6 +153,12 @@ export async function exportCanvasAsPdf({ title, meta, bodyEl, coverImageUrl }) 
     let body = null
     if (bodyEl) {
       body = bodyEl.cloneNode(true)
+      // bodyEl 자체가 화면에 안 보이게 숨겨진 노드일 수 있다(PostComposer.jsx의 다운로드
+      // 미리보기 — MUI sx={{display:'none'}}는 클래스로 적용되는데, cloneNode가 class
+      // 속성도 그대로 복사해 사본까지 숨겨져 캡처에서 통째로 빠지는 사고가 있었다
+      // (2026-09-10, 실측 — 편집 화면 다운로드가 제목만 있고 본문이 통째로 빈 PDF).
+      // 인라인 style이 클래스보다 우선하므로 명시적으로 되돌린다.
+      body.style.display = 'block'
       body.style.fontSize = '15px'
       body.style.lineHeight = '1.75'
       body.style.fontFamily = '"Malgun Gothic",sans-serif'
