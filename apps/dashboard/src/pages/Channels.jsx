@@ -87,6 +87,7 @@ import {
   refreshChannelMembers, setChannelArchived, setChannelLeft, setPostArchived, shareCanvasToChannel,
   updateChannelAndPosts,
 } from '../lib/channelActions'
+import { deletePost } from '../lib/requestActions'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
 
@@ -226,10 +227,15 @@ export default function Channels() {
    * 어디에도 없어서, 지금 뭘 보고 있는지가 화면에서 사라진다.
    */
   const canvas = useMemo(() => {
-    // "탭 제거"(숨기기, 2026-08-27)로 뺀 것은 애초에 live에서 걸러진다 — 지금 보고 있는
-    // 탭이었다면 아래 open 처리가 그래도 다시 붙여준다(보관·접힘 글과 같은 fallback).
+    // "탭 가리기"(개인 설정, 2026-08-27 · 2026-09-10 이름 변경)로 뺀 것은 애초에 live에서
+    // 걸러진다 — 지금 보고 있는 탭이었다면 아래 open 처리가 그래도 다시 붙여준다(보관·
+    // 접힘 글과 같은 fallback). 가려진 것끼리는 따로 모아 hidden에 담아 "가려진 탭"
+    // 목록(사용자 요청, 2026-09-10 — "가리기로 들어간 탭을 다시 볼 수 있는 방법이
+    // 없다")에서 되돌릴 자리를 준다. isLivePost도 통과해야 담는다 — 보관(archived)까지
+    // 겹친 글은 "보관된 글" 쪽에서만 보이면 된다(두 목록에 같은 글이 중복되지 않는다).
     const hiddenIds = new Set(active ? (channelPrefs.hiddenTabIds?.[active.id] || []) : [])
     const live = sortCanvasTabs((active?.posts || []).filter(p => isLivePost(p) && !hiddenIds.has(p.id)))
+    const hidden = sortCanvasTabs((active?.posts || []).filter(p => isLivePost(p) && hiddenIds.has(p.id)))
 
     // 드래그로 바꾼 순서(개인 설정, 2026-08-27)를 적용한다 — 순서에 없는 새 탭은 뒤로
     // 안정 정렬(원래 최신순 상대 위치 유지).
@@ -247,7 +253,7 @@ export default function Channels() {
 
     const open = requestId ? (active?.posts || []).find(p => p.id === requestId) : null
     const tabs = open && !shown.some(p => p.id === open.id) ? [...shown, open] : shown
-    return { tabs, folded, archived, open }
+    return { tabs, folded, archived, hidden, open }
   }, [active, requestId, channelPrefs])
 
   /**
@@ -260,6 +266,7 @@ export default function Channels() {
     if (composingNew) return 'new'
     if (requestId) return canvas.tabs.some(p => p.id === requestId) ? requestId : false
     if (sideView === 'archive') return canvas.archived.length > 0 ? 'archive' : 'messages'
+    if (sideView === 'hidden') return canvas.hidden.length > 0 ? 'hidden' : 'messages'
     return 'messages'
   }, [composingNew, requestId, sideView, canvas])
 
@@ -375,6 +382,19 @@ export default function Channels() {
       .catch(e => toast.error('즐겨찾기를 바꾸지 못했습니다.', e))
   }
   const tabMenuIsFavorite = tabMenu ? isFavorite(channelPrefs, favPostRef(tabMenu.post.id)) : false
+  // "탭 제거"(완전 삭제, 2026-09-10 — 사용자 요청 "탭 가리기와 탭 제거를 구분해야 함:
+  // 가리기는 나만 안 보이는 것, 제거는 완전히 지우는 것"). PostDetail.jsx의 canDelete와
+  // 같은 기준(글쓴이·관리자)이어야 한다 — 담당자(ownerUids)에게는 편집은 열어줘도
+  // 삭제까지는 안 연다(같은 이유: 되돌릴 수 없는 동작은 더 좁혀 둔다).
+  const canDeleteTab = tabMenu ? (tabMenu.post.createdBy === user?.uid || isAdmin) : false
+  // 탭 메뉴는 누르는 즉시 닫히므로(closeTabMenu), 확인 대화상자를 띄우는 동안 지울
+  // 대상을 따로 기억해 둔다.
+  const [deletingPost, setDeletingPost] = useState(null)
+  const handleDeleteTab = () => {
+    const post = tabMenu.post
+    closeTabMenu()
+    setDeletingPost(post)
+  }
 
   const dm = isDm(active)
   // 나와의 대화 — memberUids가 나뿐인 DM. 헤더·빈 대화 문구를 "둘만"에서 "나만"으로
@@ -853,7 +873,7 @@ export default function Channels() {
                   value={tabValue}
                   onChange={(e, v) => {
                     if (suppressTabClickRef.current) { suppressTabClickRef.current = false; return }
-                    if (v === 'messages' || v === 'archive') { setSideView(v); navigate(`/channels/${active.id}`) }
+                    if (v === 'messages' || v === 'archive' || v === 'hidden') { setSideView(v); navigate(`/channels/${active.id}`) }
                     else navigate(canvasUrl(canvas.tabs.find(p => p.id === v) || { id: v }))
                   }}
                   variant="scrollable" scrollButtons={false}
@@ -899,6 +919,9 @@ export default function Channels() {
                       빈 칸일 텐데, 늘 자리를 차지하면 정작 살아 있는 캔버스가 먼저 접힌다. */}
                   {canvas.archived.length > 0 && sideView === 'archive' && !requestId && (
                     <Tab value="archive" label={`보관된 글 ${canvas.archived.length}`} />
+                  )}
+                  {canvas.hidden.length > 0 && sideView === 'hidden' && !requestId && (
+                    <Tab value="hidden" label={`가려진 탭 ${canvas.hidden.length}`} />
                   )}
                 </Tabs>
 
@@ -950,7 +973,7 @@ export default function Channels() {
                     싶은데, 그 역할을 Tabs가 대신 하던 게 위 버그의 원인이었다. */}
                 <Box sx={{ flexGrow: 1 }} />
 
-                {(canvas.folded.length > 0 || canvas.archived.length > 0) && (
+                {(canvas.folded.length > 0 || canvas.archived.length > 0 || canvas.hidden.length > 0) && (
                   <Button
                     size="small" endIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
                     onClick={e => setMoreAnchor(e.currentTarget)}
@@ -1042,6 +1065,31 @@ export default function Channels() {
                         '탭에 다시 올렸습니다.',
                         '다시 꺼내지 못했습니다.',
                       ) : undefined}
+                      busy={busy}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            ) : !dm && sideView === 'hidden' ? (
+              // "탭 가리기"로 내 탭 바에서만 숨긴 글(2026-09-10, 사용자 요청 — 되돌릴 길이
+              // 없어 혼란스러웠던 것을 여기서 되돌릴 수 있게 한다). 보관(archived)과 달리
+              // 나만의 설정이라 canManage 권한과 무관하게 누구나 자기가 가린 것을 되돌릴 수 있다.
+              <Box sx={{ height: '100%', overflowY: 'auto', px: 2, pb: 2 }}>
+                <Typography color="text.secondary" fontSize="0.78rem" sx={{ mt: 1.5, mb: 1 }}>
+                  내가 가려서 내 탭 바에만 안 보이는 글입니다. 다른 사람 화면에는 그대로 보입니다.
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6 }}>
+                  {canvas.hidden.map(p => (
+                    <PostRow
+                      key={p.id}
+                      post={p}
+                      onClick={() => navigate(canvasUrl(p))}
+                      onUnarchive={() => run(
+                        () => updateChannelPrefs(pr => toggleCanvasTabHidden(pr, active.id, p.id)),
+                        '다시 보이게 했습니다.',
+                        '되돌리지 못했습니다.',
+                      )}
+                      unarchiveLabel="다시 보이기"
                       busy={busy}
                     />
                   ))}
@@ -1145,13 +1193,21 @@ export default function Channels() {
             <Typography fontSize="0.85rem" noWrap>{p.title}</Typography>
           </MenuItem>
         ))}
-        {canvas.folded.length > 0 && canvas.archived.length > 0 && <Divider />}
+        {canvas.folded.length > 0 && (canvas.archived.length > 0 || canvas.hidden.length > 0) && <Divider />}
         {canvas.archived.length > 0 && (
           <MenuItem
             sx={{ fontSize: '0.85rem', color: 'text.secondary' }}
             onClick={() => { setMoreAnchor(null); setSideView('archive'); navigate(`/channels/${active.id}`) }}
           >
             보관된 글 {canvas.archived.length}
+          </MenuItem>
+        )}
+        {canvas.hidden.length > 0 && (
+          <MenuItem
+            sx={{ fontSize: '0.85rem', color: 'text.secondary' }}
+            onClick={() => { setMoreAnchor(null); setSideView('hidden'); navigate(`/channels/${active.id}`) }}
+          >
+            가려진 탭 {canvas.hidden.length}
           </MenuItem>
         )}
       </Menu>
@@ -1167,10 +1223,16 @@ export default function Channels() {
       >
         <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleDuplicateTab}>복제</MenuItem>
         <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleOpenTabInNewWindow}>새 창에서 열기</MenuItem>
-        <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleHideTab}>탭 제거</MenuItem>
+        <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleHideTab}>탭 가리기</MenuItem>
         <MenuItem sx={{ fontSize: '0.85rem' }} onClick={handleToggleTabFavorite}>
           {tabMenuIsFavorite ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
         </MenuItem>
+        {canDeleteTab && <Divider />}
+        {canDeleteTab && (
+          <MenuItem sx={{ fontSize: '0.85rem', color: 'error.main' }} onClick={handleDeleteTab}>
+            탭 제거(완전 삭제)
+          </MenuItem>
+        )}
       </Menu>
 
       <Menu
@@ -1342,6 +1404,39 @@ export default function Channels() {
           ).then(ok => { if (ok) navigate('/') })
         }}
       />
+
+      {/* 탭 우클릭 "탭 제거(완전 삭제)" 확인 — PostDetail.jsx의 글 삭제 확인과 같은
+          문구·무게(사용자 요청, 2026-09-10 — "탭 가리기"와 분명히 구분되는 되돌릴 수
+          없는 동작). */}
+      <Dialog open={!!deletingPost} onClose={() => setDeletingPost(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: '1rem', fontWeight: 800, color: 'error.main' }}>
+          이 글을 완전히 삭제할까요?
+        </DialogTitle>
+        <DialogContent>
+          <Typography fontSize="0.9rem"><strong>{deletingPost?.title}</strong></Typography>
+          <Typography color="text.secondary" fontSize="0.85rem" sx={{ mt: 1 }}>
+            대상 {deletingPost?.targetUids?.length || 0}명의 목록에서 사라지고, 첨부 파일과
+            완료 기록도 함께 지워집니다. 가리기와 달리 되돌릴 수 없습니다.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeletingPost(null)}>취소</Button>
+          <Button
+            variant="contained" color="error" disabled={busy}
+            onClick={() => {
+              const post = deletingPost
+              setDeletingPost(null)
+              run(
+                () => deletePost({ schoolId, requestId: post.id }),
+                '삭제했습니다.',
+                '삭제하지 못했습니다.',
+              ).then(ok => { if (ok && requestId === post.id) navigate(`/channels/${active.id}`) })
+            }}
+          >
+            완전 삭제
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <ChannelDialog
         open={!!editing}
@@ -1532,10 +1627,11 @@ function DeleteChannelDialog({ open, isDm: dm, displayName, canvasCount, busy, o
 /**
  * 채널 안의 글 한 줄 — 제목, 완료 현황, 마감.
  *
- * 보관된 글 목록에서만 '다시 꺼내기'가 붙는다. 줄 자체가 버튼이라 그 안에 버튼을 넣을 수
- * 없어서, 사이드바 줄과 같은 방식으로 옆에 나란히 둔다.
+ * 보관된 글·가려진 탭 목록에서만 되돌리기 버튼이 붙는다("다시 꺼내기"/"다시 보이기" —
+ * unarchiveLabel로 문구만 갈라 둘 다 재사용한다). 줄 자체가 버튼이라 그 안에 버튼을 넣을
+ * 수 없어서, 사이드바 줄과 같은 방식으로 옆에 나란히 둔다.
  */
-function PostRow({ post, onClick, onUnarchive, busy }) {
+function PostRow({ post, onClick, onUnarchive, unarchiveLabel = '다시 꺼내기', busy }) {
   const request = isRequest(post)
   const stats = request ? completionStats(post) : null
   const due = request ? dueState(post) : null
@@ -1581,7 +1677,7 @@ function PostRow({ post, onClick, onUnarchive, busy }) {
         onClick={onUnarchive}
         sx={{ flexShrink: 0, fontSize: '0.76rem', whiteSpace: 'nowrap' }}
       >
-        다시 꺼내기
+        {unarchiveLabel}
       </Button>
     </Box>
   )
