@@ -12,7 +12,7 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '@shared/lib/firebase'
 import { COL, schoolPath } from '@shared/lib/schema'
-import { newDmPayload, postVisibilityFor } from '@shared/lib/channels'
+import { newDmPayload, newGroupDmPayload, postVisibilityFor } from '@shared/lib/channels'
 import { dmChannelId, newMessagePayload, newSystemMessagePayload } from '@shared/lib/channelMessages'
 
 function channelRef(schoolId, channelId) {
@@ -269,6 +269,23 @@ export async function openDm({ schoolId, me, other, existingIds = [] }) {
     if (e?.code !== 'permission-denied') throw e
   }
   return id
+}
+
+/**
+ * 여러 명과의 대화를 새로 연다(그룹 DM, 2026-09-10 — "DM에서 여러 명 선택").
+ *
+ * 2인 DM(openDm)과 달리 "이미 있으면 그대로 연다"가 없다 — 결정적 문서 ID가 없어(참여자
+ * 조합마다 하나로 못 박을 수 없음, channels.js newGroupDmPayload 주석) 기존 것을 찾을
+ * 방법이 없다. 매번 새로 만든다 — 같은 사람들과 여러 그룹 대화가 생겨도 막지 않는다.
+ */
+export async function openGroupDm({ schoolId, me, others }) {
+  const ref = doc(collection(db, ...schoolPath(schoolId, COL.CHANNELS)))
+  await setDoc(ref, {
+    ...newGroupDmPayload({ me, others }),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return ref.id
 }
 
 /**

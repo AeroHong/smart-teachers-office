@@ -39,6 +39,7 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import EditIcon from '@mui/icons-material/EditOutlined'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import GroupsIcon from '@mui/icons-material/Groups'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
@@ -52,7 +53,8 @@ import { resolveTargets } from '@shared/lib/targeting'
 import { memberSubtitle } from '@shared/lib/directory'
 import {
   CANVAS_TAB_MAX, POST_POLICY, canInviteToChannel, canManageChannel, canPostTo, channelPostPolicy,
-  dmTitle, hasLeft, isAllStaffChannel, isDm, isLivePost, isPrivateChannel, memberDiff, sortCanvasTabs,
+  dmTitle, hasLeft, isAllStaffChannel, isDm, isGroupDm, isLivePost, isPrivateChannel, memberDiff,
+  sortCanvasTabs,
 } from '@shared/lib/channels'
 import { completionStats, dueState, isRequest } from '@shared/lib/workRequests'
 import {
@@ -81,7 +83,7 @@ import useSchoolMembers from '../lib/useSchoolMembers'
 import usePublicChannels from '../lib/usePublicChannels'
 import usePresenceMap from '../lib/usePresenceMap'
 import {
-  deleteChannel, duplicatePost, inviteToChannel, joinPublicChannel, openDm, postSystemNotice,
+  deleteChannel, duplicatePost, inviteToChannel, joinPublicChannel, openDm, openGroupDm, postSystemNotice,
   refreshChannelMembers, setChannelArchived, setChannelLeft, setPostArchived, shareCanvasToChannel,
   updateChannelAndPosts,
 } from '../lib/channelActions'
@@ -115,7 +117,7 @@ export default function Channels() {
   const isHome = pathname === '/'
   const { user, userName, schoolId, isAdmin } = useAuth()
   const toast = useToast()
-  const { channels, archivedChannels, leftChannels, dms, loading } = useChannels()
+  const { channels, archivedChannels, leftChannels, dms, leftDms, loading } = useChannels()
   const { members, loading: membersLoading, refetch: refetchMembers } = useSchoolMembers()
   const { channels: publicChannels, loading: publicLoading, reload: reloadPublic } = usePublicChannels(directory)
 
@@ -178,22 +180,22 @@ export default function Channels() {
   // 보관했거나 나간 채널도 주소로 열 수 있어야 한다. 목록에서 접었다고 해서 링크가
   // 죽으면, 쿨메신저로 돌던 채널 주소가 어느 날 갑자기 안 열린다.
   const active = useMemo(
-    () => [...channels, ...archivedChannels, ...leftChannels, ...dms].find(c => c.id === channelId) || null,
-    [channels, archivedChannels, leftChannels, dms, channelId],
+    () => [...channels, ...archivedChannels, ...leftChannels, ...dms, ...leftDms].find(c => c.id === channelId) || null,
+    [channels, archivedChannels, leftChannels, dms, leftDms, channelId],
   )
 
   // 홈 → 직전 채널(있으면) 또는 전체 공지로. 목록이 아직 안 왔으면(loading) 기다린다 —
   // 그 전에 돌리면 "직전 채널이 있었는지"를 알 방법이 없어 늘 전체 공지로만 떨어진다.
   useEffect(() => {
     if (!isHome || loading) return
-    const known = new Set([...channels, ...archivedChannels, ...leftChannels, ...dms].map(c => c.id))
+    const known = new Set([...channels, ...archivedChannels, ...leftChannels, ...dms, ...leftDms].map(c => c.id))
     let target = ALL_STAFF_CHANNEL_ID
     try {
       const last = localStorage.getItem(LAST_CHANNEL_KEY)
       if (last && known.has(last)) target = last
     } catch { /* 개인정보 보호 모드 등에서 localStorage가 막혀 있으면 기본값으로 */ }
     navigate(`/channels/${target}`, { replace: true })
-  }, [isHome, loading, channels, archivedChannels, leftChannels, dms, navigate])
+  }, [isHome, loading, channels, archivedChannels, leftChannels, dms, leftDms, navigate])
 
   // 채널을 열 때마다 "직전 채널"로 기억해 둔다. 디렉터리는 채널이 아니라 안 남긴다.
   useEffect(() => {
@@ -209,7 +211,9 @@ export default function Channels() {
    * 화면(PostDetail)이라 대상자의 완료 체크 흐름은 그대로다.
    */
   const canvasUrl = (post) => {
-    const editable = post?.createdBy === user?.uid
+    // 글쓴이뿐 아니라 담당자(ownerUids)로 지정된 사람도 편집기로 곧장 보낸다
+    // (2026-09-10, PostDetail.jsx의 canManagePost와 같은 판정).
+    const editable = post?.createdBy === user?.uid || (post?.ownerUids || []).includes(user?.uid)
     return `/channels/${active.id}/${post.id}${editable ? '/edit' : ''}`
   }
 
@@ -380,10 +384,13 @@ export default function Channels() {
   // 전교직원 채널은 학교 공지가 도착하는 유일한 자리라 나가기·보관을 막는다. 한 번 끊으면
   // 그 뒤로 오는 공지를 못 보는데 화면에는 아무 일도 없어 보인다(channels.js 참고).
   const allStaff = isAllStaffChannel(active)
-  // DM에는 관리랄 것이 없다. 이름도 참여자도 고칠 수 없고(firestore.rules에서도 막는다),
-  // 보관·나가기도 두지 않았다 — 둘 뿐인 대화에서 한쪽이 자리를 정리하는 동작은
-  // 상대에게 어떻게 보일지가 정해지지 않았다. 필요해지면 그때 설계한다.
+  // DM에는 채널식 "관리"(이름·조건 고치기, 보관)가 없다. 이름도 참여자도 고칠 수 없고
+  // (firestore.rules에서도 막는다), 보관도 두지 않았다 — 둘 뿐인 대화를 한쪽만 접는
+  // 것은 뜻이 애매하다. 나가기·완전 삭제는 canManage와 무관하게 아래 canLeaveOrDeleteDm로
+  // 따로 연다(2026-09-10, "DM 나가기/삭제하기" — 상대에게 어떻게 보일지는 사용자가
+  // 확정했다: 나가기=나만 숨김, 삭제=참여자 전원에게서 지움).
   const canManage = !dm && canManageChannel(active, user?.uid, isAdmin)
+  const canLeaveOrDeleteDm = dm && (active?.memberUids || []).includes(user?.uid)
   const canPost = canPostTo(active, user?.uid, isAdmin)
   const iLeft = hasLeft(active, user?.uid)
 
@@ -548,21 +555,36 @@ export default function Channels() {
   }
 
   /**
-   * 고른 사람과의 대화를 연다. 없으면 만들면서 연다.
+   * 고른 사람(들)과의 대화를 연다. 없으면 만들면서 연다.
    *
    * 문서를 만들자마자 그리로 이동한다. 사이드바 목록에 뜨기를 기다리지 않는 이유는,
    * 구독 스냅샷이 도착하는 짧은 사이에 "눌렀는데 아무 일도 안 일어난" 화면이 되기
    * 때문이다. 채널 페이지는 id로 열리므로 목록보다 먼저 도착해도 문제가 없다.
+   *
+   * 딱 한 명을 고르면 예전 그대로 2인 DM(같은 상대와 겹치지 않는 결정적 id)을 연다.
+   * 둘 이상이면 그룹 DM(2026-09-10, "DM에서 여러 명 선택")을 새로 만든다 — 그룹은
+   * 결정적 id가 없어 "이미 있으면 그대로 연다"를 할 수 없다(channelActions.js
+   * openGroupDm 주석 참고).
+   *
+   * Directory.jsx(사람 카드의 '대화' 버튼)는 여전히 사람 하나를 그대로 넘긴다 — 배열로
+   * 감싸는 부담을 호출부마다 지우지 않고 여기서 한 번에 흡수한다.
    */
-  const startDm = async (member) => {
+  const startDm = async (picked) => {
+    const pickedMembers = Array.isArray(picked) ? picked : [picked]
+    if (pickedMembers.length === 0) return
     setBusy(true)
     try {
-      const id = await openDm({
-        schoolId,
-        me: { uid: user.uid, name: userName },
-        other: { uid: member.uid, name: member.name },
-        existingIds: dms.map(c => c.id),
-      })
+      const me = { uid: user.uid, name: userName }
+      const id = pickedMembers.length === 1
+        ? await openDm({
+          schoolId, me,
+          other: { uid: pickedMembers[0].uid, name: pickedMembers[0].name },
+          existingIds: dms.map(c => c.id),
+        })
+        : await openGroupDm({
+          schoolId, me,
+          others: pickedMembers.map(m => ({ uid: m.uid, name: m.name })),
+        })
       setPickingDm(false)
       navigate(`/channels/${id}`)
     } catch (e) {
@@ -659,6 +681,7 @@ export default function Channels() {
       archivedChannels={archivedChannels}
       leftChannels={leftChannels}
       dms={dms}
+      leftDms={leftDms}
       members={members}
       myUid={user?.uid}
       loading={loading}
@@ -666,7 +689,7 @@ export default function Channels() {
       directoryActive={directory}
       onNewChannel={() => { setPreset(null); setEditing('new') }}
       onNewDm={() => setPickingDm(true)}
-      onSelfDm={() => startDm({ uid: user.uid, name: userName })}
+      onSelfDm={() => startDm([{ uid: user.uid, name: userName }])}
     />
   )
 
@@ -701,7 +724,9 @@ export default function Channels() {
             {/* 비공개 채널은 자물쇠로 갈음한다. 여기가 아니라 설명 줄에만 적으면
                 글을 쓰는 순간에는 눈에 안 들어온다 — 정작 그때 알아야 하는 사실이다. */}
             {dm
-              ? <PersonIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />
+              ? (isGroupDm(active)
+                ? <GroupsIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />
+                : <PersonIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />)
               : isPrivateChannel(active)
                 ? <LockIcon sx={{ fontSize: 20, color: 'warning.main', mt: '3px' }} />
                 : <TagIcon sx={{ fontSize: 22, color: 'text.disabled', mt: '2px' }} />}
@@ -709,11 +734,15 @@ export default function Channels() {
               <Typography variant="h6" fontWeight={800} noWrap>
                 {dm ? dmTitle(active, user?.uid) : active.name}
               </Typography>
-              {/* DM은 "둘만 본다"는 안내가 한 문장이라 제목 아래 그대로 둔다 — 채널의
+              {/* DM은 "이 대화만 본다"는 안내가 한 문장이라 제목 아래 그대로 둔다 — 채널의
                   참여자 수(짧은 통계)와 달리 오른쪽 한 줄에 욱여넣으면 잘린다. */}
               {dm && (
                 <Typography fontSize="0.76rem" color="text.secondary">
-                  {isSelfDm ? '나만 보는 공간입니다. 관리자도 읽지 않습니다.' : '둘만 보는 대화입니다. 관리자도 읽지 않습니다.'}
+                  {isSelfDm
+                    ? '나만 보는 공간입니다. 관리자도 읽지 않습니다.'
+                    : isGroupDm(active)
+                      ? '이 대화 참여자만 봅니다. 관리자도 읽지 않습니다.'
+                      : '둘만 보는 대화입니다. 관리자도 읽지 않습니다.'}
                 </Typography>
               )}
             </Box>
@@ -760,13 +789,13 @@ export default function Channels() {
                 </IconButton>
               </Tooltip>
             )}
-            {!dm && (
-              <Tooltip title="채널 관리">
-                <IconButton size="small" onClick={e => setMenuAnchor(e.currentTarget)}>
-                  <MoreVertIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Tooltip>
-            )}
+            {/* DM도 이 메뉴를 연다(2026-09-10) — 안에서는 나가기/다시 참여와 완전 삭제만
+                뜬다(canManage가 dm에서 늘 false라 채널 전용 항목은 자동으로 숨는다). */}
+            <Tooltip title={dm ? '대화 관리' : '채널 관리'}>
+              <IconButton size="small" onClick={e => setMenuAnchor(e.currentTarget)}>
+                <MoreVertIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           {active.archived && (
@@ -777,7 +806,9 @@ export default function Channels() {
 
           {iLeft && (
             <StateNote>
-              나간 채널입니다. 목록에서만 빠져 있고, 이 채널에 올라오는 업무 요청은 대상에 들어 있는 한 그대로 받습니다.
+              {dm
+                ? '나간 대화입니다. 내 목록에서만 숨겨져 있을 뿐, 상대는 이 사실을 모릅니다.'
+                : '나간 채널입니다. 목록에서만 빠져 있고, 이 채널에 올라오는 업무 요청은 대상에 들어 있는 한 그대로 받습니다.'}
             </StateNote>
           )}
 
@@ -1064,7 +1095,7 @@ export default function Channels() {
                 )}
                 postBlockedReason={
                   iLeft
-                    ? '나간 채널입니다. 다시 참여하면 대화에 쓸 수 있습니다.'
+                    ? (dm ? '나간 대화입니다. 다시 열면 쓸 수 있습니다.' : '나간 채널입니다. 다시 참여하면 대화에 쓸 수 있습니다.')
                     : '공지 전용 채널이라 만든 사람만 씁니다.'
                 }
               />
@@ -1157,20 +1188,26 @@ export default function Channels() {
             onClick={() => {
               setMenuAnchor(null)
               run(
-                () => setChannelLeft({ schoolId, channelId: active.id, uid: user.uid, left: false, actorName: userName }),
-                '다시 참여했습니다.',
-                '다시 참여하지 못했습니다.',
+                // DM은 시스템 알림을 안 남긴다(actorName 생략) — 나가기는 내 목록에서만
+                // 숨기는 개인 정리라, 상대에게 "다시 들어왔다"는 말이 뜨면 애초에 나갔던
+                // 사실까지 드러나 버린다(2026-09-10, 사용자 확정 "나가기=나만 숨김").
+                () => setChannelLeft({
+                  schoolId, channelId: active.id, uid: user.uid, left: false,
+                  actorName: dm ? '' : userName,
+                }),
+                dm ? '대화를 다시 열었습니다.' : '다시 참여했습니다.',
+                dm ? '대화를 다시 열지 못했습니다.' : '다시 참여하지 못했습니다.',
               )
             }}
           >
-            다시 참여
+            {dm ? '대화 다시 열기' : '다시 참여'}
           </MenuItem>
         ) : (
           <MenuItem
             sx={{ fontSize: '0.85rem' }}
             onClick={() => { setMenuAnchor(null); setConfirm('leave') }}
           >
-            채널 나가기
+            {dm ? '대화 나가기' : '채널 나가기'}
           </MenuItem>
         )}
         {/* 캔버스를 다른 채널로 넘긴다. 비공개 채널의 글에는 자리 자체를 만들지 않는다 —
@@ -1227,17 +1264,18 @@ export default function Channels() {
             </MenuItem>
           )
         )}
-        {/* 보관과 다른 위험 구역이라 구분선으로 갈라 둔다 — 안의 캔버스까지 함께
-            지워지는 되돌릴 수 없는 동작이다(사용자 요청, 2026-09-08). */}
-        {canManage && !allStaff && (
+        {/* 보관과 다른 위험 구역이라 구분선으로 갈라 둔다 — 안의 캔버스(또는 메시지)까지
+            함께 지워지는 되돌릴 수 없는 동작이다(사용자 요청, 2026-09-08). DM은 canManage가
+            늘 false지만 참여자 누구나 지울 수 있어(2026-09-10) 별도 조건으로 연다. */}
+        {(canManage || canLeaveOrDeleteDm) && !allStaff && (
           <Divider />
         )}
-        {canManage && !allStaff && (
+        {(canManage || canLeaveOrDeleteDm) && !allStaff && (
           <MenuItem
             sx={{ fontSize: '0.85rem', color: 'error.main' }}
             onClick={() => { setMenuAnchor(null); setDeletingChannel(true) }}
           >
-            채널 완전 삭제
+            {dm ? '대화 완전 삭제' : '채널 완전 삭제'}
           </MenuItem>
         )}
       </Menu>
@@ -1264,27 +1302,34 @@ export default function Channels() {
 
       <ConfirmDialog
         open={confirm === 'leave'}
-        title="이 채널에서 나갈까요?"
-        name={active?.name}
+        title={dm ? '이 대화에서 나갈까요?' : '이 채널에서 나갈까요?'}
+        name={dm ? dmTitle(active, user?.uid) : active?.name}
         // 채널은 글을 모아 보는 틀이지 대상 지정이 아니다. 나가면 업무도 안 온다고
-        // 오해하면, 정작 목록을 정리해야 할 사람이 무서워서 못 나간다.
-        body="내 채널 목록에서만 빠집니다. 이 채널에 올라오는 업무 요청은 대상에 들어 있는 한 그대로 받고, 홈의 '요청받은 일'에도 계속 나옵니다. '나간 채널'에서 언제든 다시 참여할 수 있습니다."
+        // 오해하면, 정작 목록을 정리해야 할 사람이 무서워서 못 나간다. DM은 상대에게
+        // 아무 표시도 안 남는다는 것을 밝힌다(2026-09-10, "나가기=나만 숨김").
+        body={dm
+          ? "내 목록에서만 숨겨집니다. 상대에게는 아무 표시도 뜨지 않고, 상대가 메시지를 보내거나 내가 다시 대화를 시작하면 그대로 돌아옵니다. '나간 대화'에서 언제든 다시 열 수 있습니다."
+          : "내 채널 목록에서만 빠집니다. 이 채널에 올라오는 업무 요청은 대상에 들어 있는 한 그대로 받고, 홈의 '요청받은 일'에도 계속 나옵니다. '나간 채널'에서 언제든 다시 참여할 수 있습니다."}
         action="나가기"
         busy={busy}
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
           setConfirm(null)
           run(
-            () => setChannelLeft({ schoolId, channelId: active.id, uid: user.uid, left: true, actorName: userName }),
-            '채널에서 나갔습니다.',
-            '채널에서 나가지 못했습니다.',
+            () => setChannelLeft({
+              schoolId, channelId: active.id, uid: user.uid, left: true,
+              actorName: dm ? '' : userName,
+            }),
+            dm ? '대화에서 나갔습니다.' : '채널에서 나갔습니다.',
+            dm ? '대화에서 나가지 못했습니다.' : '채널에서 나가지 못했습니다.',
           )
         }}
       />
 
       <DeleteChannelDialog
         open={deletingChannel}
-        channel={active}
+        isDm={dm}
+        displayName={dm ? dmTitle(active, user?.uid) : active?.name}
         canvasCount={active?.posts?.length || 0}
         busy={busy}
         onCancel={() => setDeletingChannel(false)}
@@ -1292,8 +1337,8 @@ export default function Channels() {
           setDeletingChannel(false)
           run(
             () => deleteChannel({ schoolId, channelId: active.id }),
-            '채널을 완전히 삭제했습니다.',
-            '채널을 삭제하지 못했습니다.',
+            dm ? '대화를 완전히 삭제했습니다.' : '채널을 완전히 삭제했습니다.',
+            dm ? '대화를 삭제하지 못했습니다.' : '채널을 삭제하지 못했습니다.',
           ).then(ok => { if (ok) navigate('/') })
         }}
       />
@@ -1328,7 +1373,7 @@ export default function Channels() {
         myUid={user?.uid}
         busy={busy}
         onClose={() => setPickingDm(false)}
-        onPick={startDm}
+        onStart={startDm}
       />
 
       {/* 참여자 목록(조회 전용) — 관리자만 보던 "채널 고치기"와 별개로, 참여자 수를
@@ -1438,34 +1483,40 @@ function ConfirmDialog({ open, title, name, body, action, busy, onCancel, onConf
 }
 
 /**
- * 채널 완전 삭제 확인 — 보관·나가기와 달리 되돌릴 수 없고 안의 캔버스까지 함께
- * 사라지므로, 버튼 한 번으로는 부족하다고 보고 채널 이름을 그대로 입력해야 삭제
- * 버튼이 눌리게 했다(사용자 요청, 2026-09-08 — PostDetail.jsx의 글 삭제 확인보다
+ * 채널(또는 DM) 완전 삭제 확인 — 보관·나가기와 달리 되돌릴 수 없고 안의 캔버스(또는
+ * 메시지)까지 함께 사라지므로, 버튼 한 번으로는 부족하다고 보고 이름을 그대로 입력해야
+ * 삭제 버튼이 눌리게 했다(사용자 요청, 2026-09-08 — PostDetail.jsx의 글 삭제 확인보다
  * 한 단계 더 무거운 동작이라 그만큼 확인도 무겁게 뒀다).
+ *
+ * DM은 채널과 달리 name 필드가 비어 있어(이름 없는 대화) 부모가 dmTitle로 계산한 상대
+ * 이름을 displayName으로 넘긴다. isDm이면 "참여자 전원의 화면에서 사라진다"는 것을
+ * 추가로 밝힌다 — 나가기(나만 숨김)와 헷갈리지 않게(2026-09-10, 사용자 확정).
  */
-function DeleteChannelDialog({ open, channel, canvasCount, busy, onCancel, onConfirm }) {
+function DeleteChannelDialog({ open, isDm: dm, displayName, canvasCount, busy, onCancel, onConfirm }) {
   const [typed, setTyped] = useState('')
   useEffect(() => { if (!open) setTyped('') }, [open])
-  const matches = channel?.name && typed.trim() === channel.name
+  const matches = displayName && typed.trim() === displayName
 
   return (
     <Dialog open={open} onClose={onCancel} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ fontSize: '1rem', fontWeight: 800, color: 'error.main' }}>
-        채널을 완전히 삭제할까요?
+        {dm ? '이 대화를 완전히 삭제할까요?' : '채널을 완전히 삭제할까요?'}
       </DialogTitle>
       <DialogContent>
-        <Typography fontSize="0.9rem"><strong>{channel?.name}</strong></Typography>
+        <Typography fontSize="0.9rem"><strong>{displayName}</strong></Typography>
         <Typography color="text.secondary" fontSize="0.85rem" sx={{ mt: 1 }}>
           {canvasCount > 0 && `캔버스 ${canvasCount}개를 포함해 `}
-          이 채널의 메시지와 첨부 파일이 모두 사라집니다. 보관과 달리 되돌릴 수 없습니다.
+          {dm
+            ? '이 대화의 메시지와 첨부 파일이 참여자 전원의 화면에서 모두 사라집니다. 나가기와 달리 되돌릴 수 없습니다.'
+            : '이 채널의 메시지와 첨부 파일이 모두 사라집니다. 보관과 달리 되돌릴 수 없습니다.'}
         </Typography>
         <Typography color="text.secondary" fontSize="0.8rem" sx={{ mt: 1.5 }}>
-          확인을 위해 채널 이름 <strong>{channel?.name}</strong>을(를) 아래에 입력하세요.
+          확인을 위해 {dm ? '상대 이름' : '채널 이름'} <strong>{displayName}</strong>을(를) 아래에 입력하세요.
         </Typography>
         <TextField
           autoFocus fullWidth size="small" sx={{ mt: 1 }}
           value={typed} onChange={e => setTyped(e.target.value)}
-          placeholder={channel?.name}
+          placeholder={displayName}
         />
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>

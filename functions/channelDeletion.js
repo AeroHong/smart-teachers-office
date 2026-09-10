@@ -14,9 +14,11 @@
  * 메시지 첨부를 지운 뒤, 마지막으로 채널 문서(+ 메시지·반응 하위 컬렉션)를
  * recursiveDelete한다.
  *
- * DM과 전체 공지 채널은 지울 수 없다 — DM은 firestore.rules도 이미 막고 있고, 전체
- * 공지는 ALL_STAFF_CHANNEL_ID로 여러 화면이 "일단 여기로" 기본값처럼 참조하고 있어
- * 사라지면 홈 리다이렉트 등 여러 화면이 함께 깨진다.
+ * 전체 공지 채널은 지울 수 없다 — ALL_STAFF_CHANNEL_ID로 여러 화면이 "일단 여기로"
+ * 기본값처럼 참조하고 있어 사라지면 홈 리다이렉트 등 여러 화면이 함께 깨진다.
+ *
+ * DM도 지울 수 있다(2026-09-10, 사용자 확정 — "삭제=둘 다 지움"). 지우면 참여자 전원의
+ * 화면에서 대화가 함께 사라진다는 것을 화면(DeleteChannelDialog)에서 미리 밝힌다.
  */
 const { getFirestore } = require('firebase-admin/firestore')
 const { getStorage } = require('firebase-admin/storage')
@@ -29,7 +31,8 @@ const ALL_STAFF_CHANNEL_ID = 'all-staff'
 
 /**
  * 채널을 지울 수 있는 사람인지 본다 — 만든 사람 본인, 학교 관리자, 슈퍼 관리자
- * (firestore.rules의 channels delete 조건과 같은 판정이어야 한다).
+ * (firestore.rules의 channels delete 조건과 같은 판정이어야 한다). DM은 "만든 사람"이
+ * 특별하지 않은(먼저 말을 건 사람일 뿐) 자리라 참여자 누구나 지울 수 있다.
  */
 async function requireCanDeleteChannel(db, request, schoolId, channelId) {
   if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
@@ -52,11 +55,15 @@ async function requireCanDeleteChannel(db, request, schoolId, channelId) {
   if (channelId === ALL_STAFF_CHANNEL_ID) {
     throw new HttpsError('failed-precondition', '전체 공지 채널은 지울 수 없습니다.')
   }
-  if ((channel.type || 'channel') === 'dm') {
-    throw new HttpsError('failed-precondition', 'DM은 지울 수 없습니다.')
-  }
 
   const isAdmin = ADMIN_ROLES.includes(user.role)
+  if ((channel.type || 'channel') === 'dm') {
+    if (!isAdmin && !(channel.memberUids || []).includes(request.auth.uid)) {
+      throw new HttpsError('permission-denied', '이 대화의 참여자만 지울 수 있습니다.')
+    }
+    return
+  }
+
   const isCreator = channel.createdBy === request.auth.uid
   if (!isAdmin && !isCreator) {
     throw new HttpsError('permission-denied', '만든 사람과 관리자만 지울 수 있습니다.')

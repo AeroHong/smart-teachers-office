@@ -247,6 +247,25 @@ test('남의 글은 여전히 못 고친다', async () => {
   await assertFails(updateDoc(doc(as(B), ...path('requests', 'pubPost')), { title: '바꿈' }))
 })
 
+// ── 5b. 담당자(ownerUids) 편집권(2026-09-10) ──────────────────
+//
+// 부장이 대신 만들어주고 실제로 챙기는 사람은 따로인 경우가 있어, 글쓴이(createdBy)
+// 말고 ownerUids로 지정된 사람도 편집할 수 있게 열었다.
+
+test('담당자(ownerUids)로 지정되면 글쓴이가 아니어도 고칠 수 있다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), ...path('requests', 'pubPost')), { ownerUids: [B] })
+  })
+  await assertSucceeds(updateDoc(doc(as(B), ...path('requests', 'pubPost')), { title: '담당자가 고침' }))
+})
+
+test('ownerUids에 없으면 여전히 못 고친다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), ...path('requests', 'pubPost')), { ownerUids: [] })
+  })
+  await assertFails(updateDoc(doc(as(B), ...path('requests', 'pubPost')), { title: '바꿈' }))
+})
+
 test('다른 학교 사람은 아무것도 못 읽는다', async () => {
   await assertFails(getDoc(doc(as(SUPER), ...path('channels', 'pub'))))
 })
@@ -441,15 +460,72 @@ test('[DM] 만든 사람도 참여자를 못 바꾼다 ★', async () => {
   await assertFails(updateDoc(doc(as(A), ...path('channels', `dm_${A}_${B}`)), { name: '이름' }))
 })
 
+test('[DM] 나가기/다시 참여 — 참여자는 자기 uid만 leftUids에 넣고 뺄 수 있다(2026-09-10)', async () => {
+  await assertSucceeds(updateDoc(doc(as(B), ...path('channels', `dm_${A}_${B}`)), {
+    leftUids: [B], updatedAt: new Date(),
+  }))
+  await assertSucceeds(updateDoc(doc(as(B), ...path('channels', `dm_${A}_${B}`)), {
+    leftUids: [], updatedAt: new Date(),
+  }))
+})
+
+test('[DM] 나가기는 남을 대신 내보낼 수 없고, 다른 필드와 함께 바꿀 수도 없다', async () => {
+  await assertFails(updateDoc(doc(as(B), ...path('channels', `dm_${A}_${B}`)), {
+    leftUids: [A], updatedAt: new Date(),
+  }))
+  await assertFails(updateDoc(doc(as(B), ...path('channels', `dm_${A}_${B}`)), {
+    leftUids: [B], name: '몰래 이름', updatedAt: new Date(),
+  }))
+})
+
 test('[DM] 학교 관리자는 남의 DM을 못 고친다 — 읽지도 못하는 대화다', async () => {
   await assertFails(updateDoc(doc(as(ADMIN), ...path('channels', `dm_${A}_${B}`)), {
     name: '관리자가 붙인 이름',
   }))
 })
 
-test('[DM] 아무도 지우지 못한다 — 한쪽이 지우면 상대 대화까지 사라진다', async () => {
-  await assertFails(deleteDoc(doc(as(A), ...path('channels', `dm_${A}_${B}`))))
+test('[DM] 참여자는 지울 수 있다 — 지우면 상대 화면에서도 함께 사라진다(2026-09-10, 사용자 확정)', async () => {
+  // 만든 사람(A)이 아니라 참여자일 뿐인 B가 지운다 — DM은 "만든 사람"이 특별하지 않다.
+  await assertSucceeds(deleteDoc(doc(as(B), ...path('channels', `dm_${A}_${B}`))))
+})
+
+test('[DM] 참여자가 아니면 못 지운다 — 학교 관리자도 마찬가지다', async () => {
+  await assertFails(deleteDoc(doc(as(C), ...path('channels', `dm_${A}_${B}`))))
   await assertFails(deleteDoc(doc(as(ADMIN), ...path('channels', `dm_${A}_${B}`))))
+})
+
+// ── 7b. 그룹 DM(3인 이상, 2026-09-10) ───────────────────────────
+//
+// 2인 DM과 달리 결정적 문서 ID가 없어 일반 채널처럼 자동 ID를 쓴다. type만으로
+// "일반 채널이 아니다"를 규칙에서 구분해야 한다.
+
+const groupDmDoc = (over = {}) => ({
+  name: '', description: '', type: 'dm', visibility: 'private', postPolicy: 'members',
+  memberRule: {}, memberRuleText: '', memberUids: [A, B, C], leftUids: [],
+  memberNames: { [A]: 'A', [B]: 'B', [C]: 'C' },
+  createdBy: A, createdByName: 'A', archived: false, ...over,
+})
+
+test('[그룹 DM] 3인 이상이면 자동 ID로 만들 수 있다', async () => {
+  await assertSucceeds(setDoc(doc(as(A), ...path('channels', 'group1')), groupDmDoc()))
+})
+
+test('[그룹 DM] 2인이면 자동 ID로는 못 만든다 — 그건 dm_ 결정적 ID로만 만든다', async () => {
+  await assertFails(setDoc(doc(as(A), ...path('channels', 'group2')), groupDmDoc({
+    memberUids: [A, B], memberNames: { [A]: 'A', [B]: 'B' },
+  })))
+})
+
+test('[그룹 DM] 내가 끼지 않으면 못 만든다', async () => {
+  await assertFails(setDoc(doc(as(C), ...path('channels', 'group3')), groupDmDoc({
+    createdBy: C, memberUids: [A, B, ADMIN],
+  })))
+})
+
+test('[그룹 DM] 공개로는 못 만든다', async () => {
+  await assertFails(setDoc(doc(as(A), ...path('channels', 'group4')), groupDmDoc({
+    visibility: 'public',
+  })))
 })
 
 test('[DM] 일반 채널의 보관·나가기·삭제는 그대로 된다', async () => {

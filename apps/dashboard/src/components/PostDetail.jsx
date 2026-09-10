@@ -124,11 +124,17 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
     )
   }, [schoolId, requestId])
 
-  const isOwner = request?.createdBy === user?.uid
+  const isCreator = request?.createdBy === user?.uid
+  // 담당자(ownerUids) — 부장이 대신 만들어주고 실제로 챙기는 사람은 따로인 경우가 있어,
+  // 글쓴이 한 명으로만 편집을 좁히면 정작 담당자가 자기 캔버스를 못 고친다(2026-09-10,
+  // 사용자 요청 "업무 담당자와 담당 부장이 공동작업 가능해야 함"). firestore.rules의
+  // requests update 조건과 같은 판정이어야 한다.
+  const isCoOwner = (request?.ownerUids || []).includes(user?.uid)
+  const canManagePost = isCreator || isCoOwner
   // 삭제는 글쓴이 말고 관리자도 할 수 있다 — deletePostDeep 함수(postDeletion.js)의
-  // 권한 판정과 맞춘다. 편집은 여전히 글쓴이만(다른 사람 내용을 관리자가 손대는 건
-  // 별개 문제라 요청받은 범위 밖이다).
-  const canDelete = isOwner || isAdmin
+  // 권한 판정과 맞춘다. 담당자에게는 열어주지 않는다(편집은 공동작업이어도 삭제는
+  // 되돌릴 수 없는 별개의 무게라 글쓴이·관리자로 좁혀 둔다).
+  const canDelete = isCreator || isAdmin
   const isTarget = isTargetOf(request, user?.uid)
   // 안내는 읽으면 끝이라 완료 표시도, 진행률도 없다
   const trackCompletion = isRequest(request)
@@ -197,7 +203,7 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
           <Typography variant="h6" fontWeight={800} sx={{ flexGrow: 1, minWidth: 0 }}>{request.title}</Typography>
           {due.label && <ToneChip label={due.label} tone={DUE_TONE[due.state]} />}
           {request.status === 'closed' && <Chip size="small" label="마감됨" />}
-          {isOwner && (
+          {canManagePost && (
             <Button
               size="small" startIcon={<EditIcon sx={{ fontSize: 17 }} />}
               disabled={busy}
@@ -340,13 +346,13 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
           </Box>
         )}
 
-        {/* 만든 사람 — 현황판 (안내는 대상 수만 보여주면 된다) */}
-        {isOwner && !trackCompletion && (
+        {/* 만든 사람·담당자 — 현황판 (안내는 대상 수만 보여주면 된다) */}
+        {canManagePost && !trackCompletion && (
           <Typography color="text.secondary" fontSize="0.85rem">
             대상 {request.targetUids?.length || 0}명에게 전달된 안내입니다.
           </Typography>
         )}
-        {isOwner && trackCompletion && stats && (
+        {canManagePost && trackCompletion && stats && (
           <>
             <Divider sx={{ mb: 2 }} />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>

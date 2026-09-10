@@ -9,10 +9,19 @@
  *
  * 이미 대화가 있는 상대를 걸러내지 않는다. 고르면 그 대화를 그대로 열기 때문에(openDm),
  * 사람을 찾는 방법이 "대화가 있으면 사이드바, 없으면 여기"로 갈리지 않는 편이 낫다.
+ *
+ * ── 체크박스 다중 선택(2026-09-10, "DM에서 여러 명 선택") ──────────────────────
+ *
+ * 예전엔 한 사람을 누르면 그 자리에서 바로 열렸다. 여러 명을 고를 수 있게 하려면 "누르는
+ * 즉시 연다"와 "체크만 하고 나중에 시작한다"가 한 목록 안에서 공존할 수 없어(같은 클릭이
+ * 둘 중 뭘 뜻하는지 구분이 안 된다), InviteMembersDialog와 같은 체크박스 + 확인 버튼
+ * 모양으로 통일했다. 1명만 고르는 흔한 경우도 버튼을 한 번 더 눌러야 하지만, 두 흐름을
+ * 갈라서 헷갈리게 두는 것보다는 이 편이 낫다.
  */
 import { useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
@@ -20,8 +29,9 @@ import DialogTitle from '@mui/material/DialogTitle'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
-export default function DmDialog({ open, members, loading, myUid, busy, onClose, onPick }) {
+export default function DmDialog({ open, members, loading, myUid, busy, onClose, onStart }) {
   const [keyword, setKeyword] = useState('')
+  const [picked, setPicked] = useState([])
 
   // 나 자신은 뺀다. 자기와의 대화는 메모장으로 쓸 자리가 있지만, 상대를 고르는 목록에
   // 내 이름이 섞여 있으면 잘못 누르기 쉽다.
@@ -36,7 +46,18 @@ export default function DmDialog({ open, members, loading, myUid, busy, onClose,
     ))
   }, [members, myUid, keyword])
 
-  const close = () => { setKeyword(''); onClose() }
+  const toggle = (uid) => {
+    setPicked(prev => (prev.includes(uid) ? prev.filter(u => u !== uid) : [...prev, uid]))
+  }
+
+  const close = () => { setKeyword(''); setPicked([]); onClose() }
+
+  const handleStart = async () => {
+    const chosen = (members || []).filter(m => picked.includes(m.uid))
+    if (chosen.length === 0) return
+    await onStart(chosen)
+    close()
+  }
 
   return (
     <Dialog open={open} onClose={close} maxWidth="xs" fullWidth>
@@ -58,15 +79,16 @@ export default function DmDialog({ open, members, loading, myUid, busy, onClose,
               key={m.uid}
               component="button" type="button"
               disabled={busy}
-              onClick={() => onPick(m)}
+              onClick={() => toggle(m.uid)}
               sx={{
-                display: 'flex', alignItems: 'baseline', gap: 0.8, width: '100%',
+                display: 'flex', alignItems: 'center', gap: 0.6, width: '100%',
                 border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
-                fontFamily: 'inherit', px: 1, py: 0.7, borderRadius: 0.75,
+                fontFamily: 'inherit', px: 0.5, py: 0.3, borderRadius: 0.75,
                 '&:hover': { bgcolor: 'action.hover' },
                 '&:disabled': { cursor: 'default', opacity: 0.5 },
               }}
             >
+              <Checkbox size="small" checked={picked.includes(m.uid)} tabIndex={-1} sx={{ p: 0.5 }} />
               <Typography fontSize="0.9rem" fontWeight={600}>{m.name}</Typography>
               <Typography fontSize="0.76rem" color="text.secondary" noWrap>
                 {[m.department, m.subject].filter(Boolean).join(' · ')}
@@ -77,6 +99,9 @@ export default function DmDialog({ open, members, loading, myUid, busy, onClose,
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={close}>취소</Button>
+        <Button variant="contained" disabled={picked.length === 0 || busy} onClick={handleStart}>
+          {picked.length > 1 ? `${picked.length}명과 대화 시작` : '대화 시작'}
+        </Button>
       </DialogActions>
     </Dialog>
   )

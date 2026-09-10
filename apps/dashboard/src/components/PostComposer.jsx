@@ -35,6 +35,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
+import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
@@ -144,6 +145,10 @@ export default function PostComposer({
   const [pinned, setPinned] = useState(false)
   const [dueDate, setDueDate] = useState('')
   const [rule, setRule] = useState(channel?.memberRule || EMPTY_RULE)
+  // 담당자(ownerUids) — 글쓴이 말고 함께 편집·관리할 사람들(2026-09-10, 사용자 요청
+  // "업무 담당자와 담당 부장이 공동작업 가능해야 함"). workRequests.js의 ownerOf가
+  // 비어 있으면 글쓴이만으로 보므로, 아무도 안 골라도 예전과 동작이 같다.
+  const [ownerUids, setOwnerUids] = useState([])
   const [attachments, setAttachments] = useState([])
   const [links, setLinks] = useState([])
   const [coverImageUrl, setCoverImageUrl] = useState(null)
@@ -199,6 +204,7 @@ export default function PostComposer({
       setDueDate('')
       setRule(channel?.memberRule || EMPTY_RULE)
       setTargetOpen(false)
+      setOwnerUids([])
       setAttachments([])
       setLinks([])
       setCoverImageUrl(null)
@@ -243,6 +249,7 @@ export default function PostComposer({
         setPinned(!!post.pinned)
         setDueDate(post.dueDate?.toDate ? ymd(post.dueDate.toDate()) : '')
         setRule(post.targetRule || channel?.memberRule || EMPTY_RULE)
+        setOwnerUids(post.ownerUids || [])
         // 채널 참여자 전원과 다르면 처음부터 펼친다 — 접어두면 이미 좁혀 놓은 대상을
         // 고치는 사람이 못 보고 "채널 전체 대상"으로 착각한 채 저장할 수 있다.
         const channelUids = new Set(channel?.memberUids || [])
@@ -370,6 +377,7 @@ export default function PostComposer({
         targets,
         createdBy: user.uid,
         createdByName: userName,
+        ownerUids,
       })
 
       if (!created) {
@@ -412,6 +420,7 @@ export default function PostComposer({
             targetRuleText: payload.targetRuleText,
             targetUids: payload.targetUids,
             targetNames: payload.targetNames,
+            ownerUids: payload.ownerUids,
             bodyHtml: safeHtml,
             channelId: channel.id,
             ...postVisibilityFor(channel),
@@ -466,7 +475,7 @@ export default function PostComposer({
     const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, attachments, coverImageUrl, coverImagePath, coverImagePosition, targets, loadingPost])
+  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, ownerUids, attachments, coverImageUrl, coverImagePath, coverImagePosition, targets, loadingPost])
 
   // 화면을 완전히 떠날 때(다른 채널·다른 탭으로 이동해 이 컴포넌트가 사라질 때)만 도는
   // 정리 함수. 위 디바운스가 아직 안 끝났어도 마지막 상태를 한 번 더 조용히 저장한다.
@@ -576,6 +585,27 @@ export default function PostComposer({
             </Box>
           </Collapse>
         </Box>
+
+        {/* 담당자 — 나(글쓴이) 말고 함께 편집·마감·다시 알림을 할 수 있는 사람(2026-09-10,
+            사용자 요청). 대상(누구에게 가는가)과는 다른 개념이라 따로 둔다 — 대상은
+            "받는 사람", 담당자는 "굴리는 사람"이다(workRequests.js). 안 골라도 글쓴이는
+            그대로 편집할 수 있어 늘 펼쳐 둬도 부담이 없다. */}
+        {!membersLoading && (
+          <Box sx={{ mb: 1, maxWidth: 420 }}>
+            <Autocomplete
+              multiple size="small" autoHighlight
+              options={members.filter(m => m.uid !== user.uid)}
+              getOptionLabel={m => m.name}
+              isOptionEqualToValue={(a, b) => a.uid === b.uid}
+              value={members.filter(m => ownerUids.includes(m.uid))}
+              onChange={(_, next) => setOwnerUids(next.map(m => m.uid))}
+              renderInput={params => (
+                <TextField {...params} label="담당자" placeholder="나 말고 함께 편집할 사람" />
+              )}
+              sx={{ '& .MuiInputBase-root': { fontSize: '0.85rem' } }}
+            />
+          </Box>
+        )}
 
         {/* '+파일'로 올린 것들 — 예전 AttachmentPicker의 폼(파일첨부 버튼 + 링크 붙여넣기
             입력칸)을 없애고 얇은 줄만 남겼다(PLAN_canvasEditor.md 3단계). 하이퍼링크는

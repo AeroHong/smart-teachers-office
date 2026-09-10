@@ -134,16 +134,18 @@ export default function useChannels() {
     // 즐겨찾기·섹션·마감 뱃지가 전부 빈 채로 붙은 줄이 목록에 낀다.
     const rest = all.filter(c => !isDm(c))
 
+    // 아직 한 마디도 오가지 않은 DM은 만든 사람에게만 보인다. 말을 걸려다 만 대화가
+    // 상대 목록에 먼저 뜨면, 열어봐도 아무것도 없는 줄이 남는다.
+    const liveDms = all.filter(c => isDm(c) && !c.archived && (c.lastMessageAt || c.createdBy === user?.uid))
+
     return {
       channels: sortChannels(rest.filter(c => !c.archived && !left(c))),
       archivedChannels: sortChannels(rest.filter(c => c.archived)),
       leftChannels: sortChannels(rest.filter(c => !c.archived && left(c))),
-      // 아직 한 마디도 오가지 않은 DM은 만든 사람에게만 보인다. 말을 걸려다 만 대화가
-      // 상대 목록에 먼저 뜨면, 열어봐도 아무것도 없는 줄이 남는다.
-      dms: sortDms(
-        all.filter(c => isDm(c) && !c.archived && (c.lastMessageAt || c.createdBy === user?.uid)),
-        user?.uid,
-      ),
+      dms: sortDms(liveDms.filter(c => !left(c)), user?.uid),
+      // 나간 대화(2026-09-10, "DM 나가기") — 채널의 '나간 채널'과 같은 자리다. 지우는 것과
+      // 달리 숨기는 것뿐이라, 상대가 다시 말을 걸지 않아도 여기서 언제든 다시 열 수 있다.
+      leftDms: sortDms(liveDms.filter(c => left(c)), user?.uid),
     }
   }, [raw, allStaff, posts, user])
 

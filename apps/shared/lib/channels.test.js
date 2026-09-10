@@ -10,8 +10,9 @@ import assert from 'node:assert/strict'
 import {
   CANVAS_TAB_MAX, CHANNEL_NAME_MAX, CHANNEL_TYPE, POST_POLICY, VISIBILITY,
   canManageChannel, canPostTo, channelPostPolicy, channelStats, channelType, channelVisibility,
-  dmTitle, hasLeft, isDm, isLivePost, isMember, isPrivateChannel, memberDiff, newChannelPayload,
-  newDmPayload, postVisibilityFor, sortCanvasTabs, sortChannels, sortDms, validateChannelName,
+  dmTitle, hasLeft, isDm, isGroupDm, isLivePost, isMember, isPrivateChannel, memberDiff,
+  newChannelPayload, newDmPayload, newGroupDmPayload, postVisibilityFor, sortCanvasTabs,
+  sortChannels, sortDms, validateChannelName,
 } from './channels.js'
 
 const NOW = new Date('2026-08-02T10:00:00')
@@ -366,6 +367,37 @@ test('isDm은 type으로만 판정한다 — 2인 채널이라고 DM인 것은 �
   assert.equal(isDm({ type: 'dm' }), true)
   assert.equal(isDm({ type: 'channel', memberUids: ['a', 'b'] }), false)
   assert.equal(isDm({ memberUids: ['a', 'b'] }), false, '옛 문서에는 type이 없다')
+})
+
+test('그룹 DM(3인 이상) — memberUids를 정렬하지 않고, 문서 ID도 여기서 정하지 않는다', () => {
+  const dm = newGroupDmPayload({
+    me: { uid: 'u2', name: '나' },
+    others: [{ uid: 'u1', name: '상대1' }, { uid: 'u3', name: '상대2' }],
+  })
+  assert.deepEqual(dm.memberUids, ['u2', 'u1', 'u3'], '2인 DM과 달리 정렬 보장이 없다')
+  assert.deepEqual(dm.memberNames, { u2: '나', u1: '상대1', u3: '상대2' })
+  assert.equal(dm.type, CHANNEL_TYPE.DM)
+  assert.equal(dm.visibility, VISIBILITY.PRIVATE)
+  assert.equal(dm.createdBy, 'u2')
+})
+
+test('isGroupDm — 참여자가 3명 이상인 DM만 그룹이다', () => {
+  const dm2 = newDmPayload({ me: { uid: 'u1' }, other: { uid: 'u2' } })
+  const dm3 = newGroupDmPayload({ me: { uid: 'u1' }, others: [{ uid: 'u2' }, { uid: 'u3' }] })
+  assert.equal(isGroupDm(dm2), false, '2인 DM은 그룹이 아니다')
+  assert.equal(isGroupDm(dm3), true)
+  assert.equal(isGroupDm({ type: 'channel', memberUids: ['a', 'b', 'c'] }), false, 'DM이 아니면 그룹 DM도 아니다')
+})
+
+test('그룹 DM 제목 — 상대가 여럿이면 이어붙이고, 많으면 줄인다', () => {
+  const two = newGroupDmPayload({ me: { uid: 'me' }, others: [{ uid: 'a', name: '가' }, { uid: 'b', name: '나' }] })
+  assert.equal(dmTitle(two, 'me'), '가, 나', '상대가 둘이면 그대로 이어붙인다')
+
+  const many = newGroupDmPayload({
+    me: { uid: 'me' },
+    others: [{ uid: 'a', name: '가' }, { uid: 'b', name: '나' }, { uid: 'c', name: '다' }],
+  })
+  assert.equal(dmTitle(many, 'me'), '가, 나 외 1명', '셋 이상이면 앞 둘 뒤에 외 N명')
 })
 
 test('DM 목록은 최근에 말이 오간 순이다 — 대화에는 마감이 없다', () => {

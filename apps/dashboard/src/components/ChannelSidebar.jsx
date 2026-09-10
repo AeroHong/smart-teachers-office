@@ -41,7 +41,9 @@ import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import TagIcon from '@mui/icons-material/Tag'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { canManageChannel, dmOtherUid, dmTitle, isAllStaffChannel, isPrivateChannel } from '@shared/lib/channels'
+import {
+  canManageChannel, dmOtherUid, dmTitle, isAllStaffChannel, isGroupDm, isPrivateChannel,
+} from '@shared/lib/channels'
 import { hasUnread } from '@shared/lib/channelMessages'
 import {
   DEFAULT_ID, FAVORITES_ID, SECTION_MAX, SECTION_NAME_MAX,
@@ -63,7 +65,7 @@ import { setChannelArchived } from '../lib/channelActions'
 const GROUP_ICON = { favorites: StarIcon, section: FolderIcon, default: TagIcon }
 
 export default function ChannelSidebar({
-  channels, archivedChannels, leftChannels, dms = [], members = [], myUid,
+  channels, archivedChannels, leftChannels, dms = [], leftDms = [], members = [], myUid,
   loading, activeChannelId, directoryActive, onNewChannel, onNewDm, onSelfDm,
 }) {
   const navigate = useNavigate()
@@ -89,6 +91,7 @@ export default function ChannelSidebar({
   const [deleting, setDeleting] = useState(null)       // 섹션 객체
   const [openArchived, setOpenArchived] = useState(false)
   const [openLeft, setOpenLeft] = useState(false)
+  const [openLeftDms, setOpenLeftDms] = useState(false)
   const [openLinks, setOpenLinks] = useState(false)
   // DM은 기본으로 펼쳐 둔다. 보관·나간 채널과 달리 매일 들여다보는 자리라, 접혀 있으면
   // 안읽음 표시가 있는 줄이 한 번 더 눌러야 보인다.
@@ -191,6 +194,31 @@ export default function ChannelSidebar({
       actionActive={rowMenu?.channelId === c.id}
     />
   )
+
+  /**
+   * DM 한 줄 — 채널 줄(channelRow)과 달리 개인화 메뉴(즐겨찾기·섹션 이동)가 없다.
+   * DM은 사이드바 섹션이 애초에 "다이렉트 메시지" 하나뿐이라 옮길 곳이 없다.
+   *
+   * 그룹 DM은 사진을 안 준다 — memberNames만 있는 DM 채널 문서에 그룹 참여자 여럿의
+   * 사진을 한 아바타에 합성할 방법이 없어(2026-09-10), PersonAvatar가 제목(콤마로
+   * 이어붙인 이름들)에서 이니셜만 뽑아 쓰게 둔다.
+   */
+  const dmRow = (c, opts = {}) => {
+    const group = isGroupDm(c)
+    const otherUid = dmOtherUid(c, myUid)
+    const title = dmTitle(c, myUid)
+    return (
+      <SidebarItem
+        key={c.id}
+        label={title}
+        avatar={<PersonAvatar name={title} photoURL={group ? null : photoByUid.get(otherUid)} size={22} />}
+        selected={c.id === activeChannelId}
+        strong={!opts.muted && hasUnread(c, reads)}
+        muted={opts.muted}
+        onClick={() => navigate(`/channels/${c.id}`)}
+      />
+    )
+  }
 
   /**
    * 즐겨찾기·섹션 안의 캔버스(업무 글) 줄 — 채널 줄과 같은 SidebarItem이지만 아이콘·
@@ -317,19 +345,7 @@ export default function ChannelSidebar({
         />
         {otherDms.length === 0 ? (
           <SidebarEmpty>대화가 없습니다</SidebarEmpty>
-        ) : otherDms.map(c => {
-          const otherUid = dmOtherUid(c, myUid)
-          return (
-            <SidebarItem
-              key={c.id}
-              label={dmTitle(c, myUid)}
-              avatar={<PersonAvatar name={dmTitle(c, myUid)} photoURL={photoByUid.get(otherUid)} size={22} />}
-              selected={c.id === activeChannelId}
-              strong={hasUnread(c, reads)}
-              onClick={() => navigate(`/channels/${c.id}`)}
-            />
-          )
-        })}
+        ) : otherDms.map(c => dmRow(c))}
         <SidebarItem
           label={(
             <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, color: 'text.secondary' }}>
@@ -340,6 +356,18 @@ export default function ChannelSidebar({
           onClick={onNewDm}
         />
       </SidebarSection>
+
+      {/* 나간 대화(2026-09-10, "DM 나가기") — 채널의 '나간 채널'과 같은 자리·같은 이유다.
+          눌러도 그대로 열리기만 한다(나간 채널과 같은 동작) — 다시 참여(leftUids 제거)는
+          Channels.jsx 헤더의 '⋮ · 대화 다시 열기' 메뉴에서 명시적으로 한다. */}
+      {leftDms.length > 0 && (
+        <SidebarSection
+          label="나간 대화" icon={LogoutIcon} count={leftDms.length}
+          open={openLeftDms} onToggle={() => setOpenLeftDms(v => !v)}
+        >
+          {leftDms.map(c => dmRow(c, { muted: true }))}
+        </SidebarSection>
+      )}
 
       {leftChannels.length > 0 && (
         <SidebarSection

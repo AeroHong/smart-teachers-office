@@ -203,21 +203,66 @@ export function newDmPayload({ me, other }) {
   }
 }
 
-/** DM 상대의 uid — 나 자신과의 DM(메모 용도)이면 없다. */
+/**
+ * 그룹 DM(3인 이상) 채널 문서 — newDmPayload와 같은 모양이지만 두 가지가 다르다.
+ *
+ *  1. memberUids를 정렬하지 않는다. 정렬은 2인 DM의 결정적 문서 ID(dm_A_B)를 위한
+ *     것인데, 그룹은 참여자 조합마다 문서 ID를 하나로 못 박을 수 없어(3명이면 순서·
+ *     조합이 6가지) 애초에 그 보장을 포기했다 — 같은 조합으로 여러 그룹 DM이 생겨도
+ *     막지 않는다(이번 범위 밖, channels.js isValidGroupDmCreate 주석 참고).
+ *  2. 문서 ID를 여기서 정하지 않는다(호출부가 일반 채널처럼 자동 ID로 만든다).
+ *
+ * @param {{uid: string, name?: string}} me
+ * @param {{uid: string, name?: string}[]} others 나를 뺀 나머지 참여자들(1명 이상)
+ */
+export function newGroupDmPayload({ me, others }) {
+  const all = [me, ...others]
+  return {
+    name: '',
+    description: '',
+    memberRule: { conditions: [], includeUids: all.map(m => m.uid), excludeUids: [] },
+    memberRuleText: '',
+    memberUids: all.map(m => m.uid),
+    memberNames: Object.fromEntries(all.map(m => [m.uid, m.name || ''])),
+    leftUids: [],
+    createdBy: me.uid,
+    createdByName: me.name || '',
+    archived: false,
+    type: CHANNEL_TYPE.DM,
+    visibility: VISIBILITY.PRIVATE,
+    postPolicy: POST_POLICY.MEMBERS,
+  }
+}
+
+/** DM 상대의 uid — 나 자신과의 DM(메모 용도)이면 없다. 그룹 DM이면 그중 첫 사람. */
 export function dmOtherUid(channel, myUid) {
   return (channel?.memberUids || []).find(uid => uid !== myUid) || null
+}
+
+/** DM 상대 전원의 uid(나를 뺀 나머지) — 그룹 DM의 제목·아바타를 만들 때 쓴다. */
+export function dmOtherUids(channel, myUid) {
+  return (channel?.memberUids || []).filter(uid => uid !== myUid)
+}
+
+/** 그룹 DM인가 — 참여자가 나를 포함해 3명 이상인 DM(2026-09-10, "여러 명과 대화"). */
+export function isGroupDm(channel) {
+  return isDm(channel) && (channel?.memberUids || []).length > 2
 }
 
 /**
  * DM을 목록에 뭐라고 적을 것인가 — 상대의 이름.
  *
  * 이름이 없는 채널이라 name 필드를 그대로 쓰면 빈 줄이 된다. 나 자신과의 DM(메모 용도로
- * 열어둔 경우)은 상대가 없으므로 그렇게 밝힌다.
+ * 열어둔 경우)은 상대가 없으므로 그렇게 밝힌다. 그룹 DM은 상대가 여럿이라 이름을 이어
+ * 붙이고, 너무 많으면(사이드바 한 줄 폭을 넘긴다) 앞 두 명 뒤에 "외 N명"으로 줄인다.
  */
 export function dmTitle(channel, myUid) {
-  const otherUid = dmOtherUid(channel, myUid)
-  if (!otherUid) return '나와의 대화'
-  return (channel?.memberNames || {})[otherUid] || '(이름 없음)'
+  const others = dmOtherUids(channel, myUid)
+  if (others.length === 0) return '나와의 대화'
+  const names = channel?.memberNames || {}
+  const nameOf = (uid) => names[uid] || '(이름 없음)'
+  if (others.length <= 2) return others.map(nameOf).join(', ')
+  return `${others.slice(0, 2).map(nameOf).join(', ')} 외 ${others.length - 2}명`
 }
 
 /**

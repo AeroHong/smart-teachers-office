@@ -90,6 +90,18 @@ service cloud.firestore {
              channelId == 'dm_' + d.memberUids[0] + '_' + d.memberUids[1];
     }
 
+    // 그룹 DM(3인 이상, 2026-09-10) — 2인 DM과 달리 문서 ID를 참여자로부터 결정적으로
+    // 못 만든다(참여자가 3명 이상이면 순서·조합이 늘어나 "같은 조합=같은 ID"를 규칙만으로
+    // 검증할 방법이 없다). 그래서 일반 채널처럼 자동 ID를 쓰고, 같은 조합으로 여러 개
+    // 만들어지는 것은 막지 않는다(중복 방지는 이번 범위 밖).
+    function isValidGroupDmCreate() {
+      let d = request.resource.data;
+      return d.type == 'dm' &&
+             d.visibility == 'private' &&
+             d.memberUids.size() >= 3 &&
+             request.auth.uid in d.memberUids;
+    }
+
     // 채널 하위 메시지에서 쓰는 참여 판정.
     //
     // 채널 문서 자체의 read 규칙과 달리 여기서는 get()을 써도 된다 — 메시지는 항상 채널
@@ -394,7 +406,9 @@ service cloud.firestore {
            request.resource.data.get('leftUids', []).size() == 0 &&
            (channelId.matches('^dm_.*')
              ? isValidDmCreate(channelId)
-             : request.resource.data.get('type', 'channel') != 'dm'));
+             : (request.resource.data.get('type', 'channel') == 'dm'
+                 ? isValidGroupDmCreate()
+                 : true)));
 
         // 참여자 명단·보관·갱신은 만든 사람과 관리자, 나가기는 본인.
         //
@@ -405,15 +419,19 @@ service cloud.firestore {
         // .get('leftUids', []) 로 읽는 이유: 이 필드가 생기기 전에 만들어진 채널 문서에는
         // 값이 없어서 resource.data.leftUids 로 바로 읽으면 규칙 평가가 실패한다.
         //
-        // DM은 만든 사람도 관리자도 고치지 못한다. 참여자를 한 명 더 넣으면 2인 대화가
-        // 아니게 되는데 문서 ID는 여전히 두 사람을 가리켜, ID가 뜻을 잃는다. 학교 관리자를
-        // 빼는 것도 같은 이유다 — 읽지 못하게 해놓고 고치게 두면 §10의 예외가 반쪽이 된다.
-        // 남는 것은 메시지를 보낼 때의 lastMessageAt 하나뿐이다.
+        // DM은 이름·참여자를 만든 사람도 관리자도 고치지 못한다. 참여자를 한 명 더 넣으면
+        // 2인 DM은 문서 ID(dm_A_B)가 뜻을 잃고, 그룹 DM은 애초에 참여자를 고정해 두는
+        // 편이 단순하다. 학교 관리자를 빼는 것도 같은 이유다 — 읽지 못하게 해놓고 고치게
+        // 두면 §10의 예외가 반쪽이 된다. 남는 것은 메시지를 보낼 때의 lastMessageAt과,
+        // 나가기/다시 참여가 건드리는 leftUids 하나뿐이다(2026-09-10 — 채널의 나가기와
+        // 같은 selfOnlyUidChange 판정을 DM에도 그대로 연다).
         allow update: if isSuperAdmin() ||
           (resource.data.get('type', 'channel') == 'dm'
             ? (isTeacher(schoolId) &&
                request.auth.uid in resource.data.memberUids &&
-               request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']))
+               (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']) ||
+                (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leftUids', 'updatedAt']) &&
+                 selfOnlyUidChange('leftUids'))))
             : (isSchoolAdmin(schoolId) ||
                (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid) ||
                (isTeacher(schoolId) &&
@@ -458,12 +476,15 @@ service cloud.firestore {
                 request.auth.uid in resource.data.memberUids &&
                 request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']))));
 
-        // DM은 지울 수 없다. 한쪽이 지우면 상대의 대화까지 함께 사라지는데, 상대에게는
-        // 어제 있던 대화가 오늘 없어진 것으로만 보인다.
+        // DM 완전 삭제(2026-09-10, 사용자 확정) — 지우면 메시지까지 참여자 전원의 화면에서
+        // 함께 사라진다는 것을 화면(DeleteChannelDialog)에서 미리 밝힌다. DM은 만든 사람이라는
+        // 개념이 특별하지 않다(먼저 말을 건 사람일 뿐)라 참여자 누구나 지울 수 있다 —
+        // 일반 채널의 "만든 사람·관리자만"과 다른 기준이다.
         allow delete: if isSuperAdmin() ||
-          (resource.data.get('type', 'channel') != 'dm' &&
-           (isSchoolAdmin(schoolId) ||
-            (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid)));
+          (resource.data.get('type', 'channel') == 'dm'
+            ? (isTeacher(schoolId) && request.auth.uid in resource.data.memberUids)
+            : (isSchoolAdmin(schoolId) ||
+               (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid)));
 
         // ── 채널 메시지 (2026-08-24, P2) ──
         //
@@ -600,9 +621,18 @@ service cloud.firestore {
             isSchoolAdmin(schoolId) ||
             channelAllowsPost(schoolId, request.resource.data.channelId)));
 
-        // 요청 내용 수정·마감은 만든 사람과 관리자만
+        // 요청 내용 수정·마감은 만든 사람과 관리자, 그리고 담당자(ownerUids)만.
+        //
+        // ownerUids는 "이 업무를 굴리는 사람들"이다(workRequests.js의 ownerOf 주석) — 부장이
+        // 대신 만들어주고 실제로 챙기는 사람은 따로인 경우가 있어서, 만든 사람 한 명으로만
+        // 편집을 좁히면 그 담당자가 정작 자기 캔버스를 못 고친다(2026-09-10, 사용자 요청
+        // "업무 담당자와 담당 부장이 공동작업 가능해야 함"). ownerUids가 비어 있으면(대부분의
+        // 글) 이 조건은 항상 거짓이라 예전과 동작이 같다.
         allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid) ||
+          (isTeacher(schoolId) &&
+           ('ownerUids' in resource.data) &&
+           request.auth.uid in resource.data.ownerUids) ||
           // 대상 교사의 완료 토글 — 바뀌는 필드도, 그 안에서 움직이는 uid도 제한한다
           (isTeacher(schoolId) &&
            request.auth.uid in resource.data.targetUids &&
