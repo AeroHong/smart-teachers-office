@@ -44,6 +44,7 @@ import EditIcon from '@mui/icons-material/EditOutlined'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
+import TextField from '@mui/material/TextField'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { hasCanvasRef, isSystemMessage, validateMessage } from '@shared/lib/channelMessages'
 import { channelMentionTarget, isChannelWideMention, userMentionTarget } from '@shared/lib/channelMentionChip'
@@ -73,7 +74,7 @@ const QUICK_REACTION_EMOJIS = REACTION_EMOJIS.slice(0, 2)
 
 export default function ChannelMessages({
   channelId, canPost, postBlockedReason, empty, onOpenCanvas, onOpenThread, canvases = [],
-  channels = [], members = [],
+  channels = [], members = [], dm = false,
 }) {
   const { schoolId, user } = useAuth()
   const toast = useToast()
@@ -102,6 +103,20 @@ export default function ChannelMessages({
   const [attachedFile, setAttachedFile] = useState(null)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [pickerAnchor, setPickerAnchor] = useState(null)
+  // DM은 자기 캔버스가 없어(canvases가 늘 []) '+' 메뉴의 "이 채널의 캔버스"가 항상
+  // 빈 채로 막혀 있었다 — 채널 쪽 캔버스를 붙이려면 그 글을 찾아가 '전달'을 눌러야
+  // 했다(사용자 지적, 2026-09-10 — "DM에서 채널 캔버스를 불러와서 첨부하고 싶다").
+  // 채널에는 이미 '전달'이라는 반대 방향 경로가 있어 그대로 두고(ChannelMessages.jsx
+  // 위 '+' 메뉴 주석 참고), DM에서만 이 검색 다이얼로그를 연다.
+  const [canvasPickerOpen, setCanvasPickerOpen] = useState(false)
+  const [canvasPickerKeyword, setCanvasPickerKeyword] = useState('')
+  // channels는 useChannels()가 이미 각 채널의 posts를 함께 들고 있다(사이드바 뱃지용) —
+  // 여기서 새로 읽을 것 없이 그대로 펼쳐 쓴다. 읽을 수 있는 채널·글만 애초에 이 배열에
+  // 들어 있으므로(비공개 채널 열람 규칙을 그대로 통과한 목록) 별도 권한 검사가 필요 없다.
+  const crossChannelCanvases = useMemo(
+    () => channels.flatMap(c => (c.posts || []).map(p => ({ ...p, _channelName: c.name }))),
+    [channels],
+  )
   const bottomRef = useRef(null)
   const scrollBoxRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -372,9 +387,11 @@ export default function ChannelMessages({
 
           <input ref={fileInputRef} type="file" hidden onChange={handleFileChange} />
 
-          {/* '+' 메뉴 — 파일 첨부, 그 아래 이 채널의 캔버스 목록. 다른 채널 글을 여기서
-              붙이려면 그 글 쪽에서 '전달'을 쓰는 것이 맞다 — 두 길이 같은 일을 서로
-              반대 방향에서 한다. */}
+          {/* '+' 메뉴 — 파일 첨부, 그 아래 이 채널의 캔버스 목록(채널) 또는 채널 캔버스
+              검색(DM, 아래 Dialog). 일반 채널에서 다른 채널 글을 붙이려면 그 글 쪽에서
+              '전달'을 쓰는 것이 맞다 — 두 길이 같은 일을 서로 반대 방향에서 한다. DM은
+              애초에 자기 캔버스가 없어(canvases 늘 []) 그 반대 경로가 성립하지 않으므로
+              여기서 직접 검색하게 열어 둔다(2026-09-10, 사용자 요청). */}
           <Menu
             anchorEl={pickerAnchor} open={!!pickerAnchor} onClose={() => setPickerAnchor(null)}
             anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
@@ -387,23 +404,93 @@ export default function ChannelMessages({
               <AttachFileIcon sx={{ fontSize: 17 }} />파일 첨부
             </MenuItem>
             <Divider />
-            <Typography sx={{ px: 2, py: 0.5, fontSize: '0.7rem', fontWeight: 800, color: 'text.disabled' }}>
-              이 채널의 캔버스
-            </Typography>
-            {canvases.length === 0 ? (
-              <MenuItem disabled sx={{ fontSize: '0.82rem', whiteSpace: 'normal', maxWidth: 260 }}>
-                아직 업무 글이 없습니다. '글 쓰기'로 만들면 여기에 붙일 수 있습니다.
-              </MenuItem>
-            ) : canvases.map(c => (
+            {dm ? (
               <MenuItem
-                key={c.id}
-                sx={{ fontSize: '0.85rem', maxWidth: 320 }}
-                onClick={() => { setAttached(c); setPickerAnchor(null) }}
+                sx={{ fontSize: '0.85rem', gap: 1 }}
+                onClick={() => { setPickerAnchor(null); setCanvasPickerOpen(true) }}
               >
-                <Typography fontSize="0.85rem" noWrap>{c.title}</Typography>
+                <DescriptionIcon sx={{ fontSize: 17 }} />채널 캔버스 가져오기
               </MenuItem>
-            ))}
+            ) : (
+              <>
+                <Typography sx={{ px: 2, py: 0.5, fontSize: '0.7rem', fontWeight: 800, color: 'text.disabled' }}>
+                  이 채널의 캔버스
+                </Typography>
+                {canvases.length === 0 ? (
+                  <MenuItem disabled sx={{ fontSize: '0.82rem', whiteSpace: 'normal', maxWidth: 260 }}>
+                    아직 업무 글이 없습니다. '글 쓰기'로 만들면 여기에 붙일 수 있습니다.
+                  </MenuItem>
+                ) : canvases.map(c => (
+                  <MenuItem
+                    key={c.id}
+                    sx={{ fontSize: '0.85rem', maxWidth: 320 }}
+                    onClick={() => { setAttached(c); setPickerAnchor(null) }}
+                  >
+                    <Typography fontSize="0.85rem" noWrap>{c.title}</Typography>
+                  </MenuItem>
+                ))}
+              </>
+            )}
           </Menu>
+
+          {/* DM용 채널 캔버스 검색(2026-09-10) — 위 '+' 메뉴는 목록이 길면 스크롤만
+              늘어나 찾기 어렵다. 이름으로 좁혀 고르는 것은 DmDialog.jsx와 같은 모양이다. */}
+          <Dialog
+            open={canvasPickerOpen}
+            onClose={() => { setCanvasPickerOpen(false); setCanvasPickerKeyword('') }}
+            maxWidth="xs" fullWidth
+          >
+            <DialogTitle sx={{ fontSize: '1rem', fontWeight: 800 }}>채널 캔버스 가져오기</DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus fullWidth size="small" margin="dense"
+                placeholder="채널명 · 캔버스 제목으로 찾기"
+                value={canvasPickerKeyword}
+                onChange={e => setCanvasPickerKeyword(e.target.value)}
+              />
+              <Box sx={{ mt: 1, maxHeight: 320, overflowY: 'auto' }}>
+                {(() => {
+                  const k = canvasPickerKeyword.trim().toLowerCase()
+                  const list = k
+                    ? crossChannelCanvases.filter(c => (
+                      c.title?.toLowerCase().includes(k) || c._channelName?.toLowerCase().includes(k)
+                    ))
+                    : crossChannelCanvases
+                  if (list.length === 0) {
+                    return (
+                      <Typography color="text.secondary" fontSize="0.85rem" sx={{ py: 3, textAlign: 'center' }}>
+                        {k ? '찾는 캔버스가 없습니다.' : '가져올 수 있는 채널 캔버스가 없습니다.'}
+                      </Typography>
+                    )
+                  }
+                  return list.map(c => (
+                    <Box
+                      key={c.id}
+                      component="button" type="button"
+                      onClick={() => { setAttached(c); setCanvasPickerOpen(false); setCanvasPickerKeyword('') }}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 0.8, width: '100%',
+                        border: 0, background: 'none', cursor: 'pointer', textAlign: 'left',
+                        fontFamily: 'inherit', px: 1, py: 0.7, borderRadius: 0.75,
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                    >
+                      <DescriptionIcon sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+                      <Typography fontSize="0.88rem" fontWeight={600} noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
+                        {c.title}
+                      </Typography>
+                      <Typography fontSize="0.76rem" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>
+                        #{c._channelName}
+                      </Typography>
+                    </Box>
+                  ))
+                })()}
+              </Box>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}>
+              <Button onClick={() => { setCanvasPickerOpen(false); setCanvasPickerKeyword('') }}>취소</Button>
+            </DialogActions>
+          </Dialog>
           </>
         ) : (
           <Typography fontSize="0.8rem" color="text.secondary" sx={{ px: 0.5, py: 0.6 }}>

@@ -1103,6 +1103,7 @@ export default function Channels() {
               <ChannelMessages
                 channelId={active.id}
                 canPost={canPost}
+                dm={dm}
                 onOpenCanvas={to => navigate(to)}
                 onOpenThread={setActiveThread}
                 canvases={active.posts || []}
