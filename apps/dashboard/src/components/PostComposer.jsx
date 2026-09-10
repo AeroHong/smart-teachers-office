@@ -462,7 +462,13 @@ export default function PostComposer({
   const skipNextSaveRef = useRef(true)
 
   useEffect(() => {
-    if (loadingPost) { skipNextSaveRef.current = true; return }
+    // 학교 구성원 명단(useSchoolMembers)이 아직 안 왔으면 첫 저장을 미룬다. 새 글의
+    // 첫 저장은 디바운스가 0ms라, 명단이 오기 전에(막 채널을 열자마자 빠르게 타이핑·
+    // 붙여넣기 하면 실제로 이 창이 열린다) targets가 빈 배열로 확정돼 targetUids: []가
+    // 그대로 저장되는 사고가 있었다(2026-09-10, 사용자 신고 — "나와의 대화"에서 만든
+    // 글의 대상이 계속 0명으로 남음). loadingPost와 같은 방식으로 미뤄 뒀다가, 명단이
+    // 도착해 targets가 다시 계산되는 순간 이 이펙트가 다시 돌며 그때의 옳은 값으로 저장한다.
+    if (loadingPost || membersLoading) { skipNextSaveRef.current = true; return }
     if (skipNextSaveRef.current) { skipNextSaveRef.current = false; return }
 
     setSaveState('saving')
@@ -475,7 +481,7 @@ export default function PostComposer({
     const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, ownerUids, attachments, coverImageUrl, coverImagePath, coverImagePosition, targets, loadingPost])
+  }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, ownerUids, attachments, coverImageUrl, coverImagePath, coverImagePosition, targets, loadingPost, membersLoading])
 
   // 화면을 완전히 떠날 때(다른 채널·다른 탭으로 이동해 이 컴포넌트가 사라질 때)만 도는
   // 정리 함수. 위 디바운스가 아직 안 끝났어도 마지막 상태를 한 번 더 조용히 저장한다.

@@ -189,7 +189,14 @@ export function newDmPayload({ me, other }) {
     description: '',
     // 조건으로 뽑은 참여자가 아니라 두 사람을 직접 지목한 것이다. 조건을 비워 두면
     // '참여자 갱신' 계산이 "두 명 다 빠짐"으로 읽는다.
-    memberRule: { conditions: [], includeUids: uids, excludeUids: [] },
+    //
+    // includeUids만 중복을 없앤다(memberUids는 그대로 둔다) — '나와의 대화'는
+    // me.uid === other.uid라 uids가 [uid, uid]가 된다. memberUids는 문서 ID
+    // (dm_{uid}_{uid})와 firestore.rules의 isValidDmCreate가 "정확히 2개"를
+    // 전제하므로 손댈 수 없지만, memberRule은 그런 제약이 없다 — 그대로 두면 이
+    // DM에서 캔버스를 쓸 때 대상이 "개별 지정 2명"으로 보이는데 실제로는 1명뿐이라
+    // 혼란스러웠다(2026-09-10, 사용자 신고 — "개별 지정 2명이 뭘까?").
+    memberRule: { conditions: [], includeUids: [...new Set(uids)], excludeUids: [] },
     memberRuleText: '',
     memberUids: uids,
     memberNames: { [me.uid]: me.name || '', [other.uid]: other.name || '' },

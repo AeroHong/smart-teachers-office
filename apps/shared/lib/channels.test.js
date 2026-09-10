@@ -363,6 +363,15 @@ test('나 자신과의 대화는 상대가 없다고 밝힌다', () => {
   assert.equal(dmTitle({ memberUids: ['u1'], memberNames: { u1: '나' } }, 'u1'), '나와의 대화')
 })
 
+test('나와의 대화는 memberUids가 [uid,uid]지만 memberRule.includeUids는 중복 없이 1개다', () => {
+  // memberUids는 문서 ID(dm_{uid}_{uid})와 isValidDmCreate("정확히 2개") 때문에 그대로
+  // 둬야 한다. memberRule은 그 제약이 없어 여기서 중복을 없앤다 — 안 그러면 이 DM에서
+  // 캔버스를 쓸 때 대상이 "개별 지정 2명"으로 보인다(실제로는 1명, 2026-09-10 사용자 신고).
+  const dm = newDmPayload({ me: { uid: 'u1', name: '나' }, other: { uid: 'u1', name: '나' } })
+  assert.deepEqual(dm.memberUids, ['u1', 'u1'])
+  assert.deepEqual(dm.memberRule.includeUids, ['u1'])
+})
+
 test('isDm은 type으로만 판정한다 — 2인 채널이라고 DM인 것은 아니다', () => {
   assert.equal(isDm({ type: 'dm' }), true)
   assert.equal(isDm({ type: 'channel', memberUids: ['a', 'b'] }), false)

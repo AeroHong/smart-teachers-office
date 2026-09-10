@@ -21,7 +21,7 @@
  * 잘못된 명단이 한 번 써지면 "왜 내가 빠졌지"를 스스로는 알아챌 방법이 없다(그 채널이
  * 본인 사이드바에서 통째로 사라지기 때문).
  *
- * ── 내 문서만 목록 쿼리에서 빠지는 경합 (2026-08-31) ──────────────────────
+ * ── 내 문서만 목록 쿼리에서 빠지는 경합 (2026-08-31, 2026-09-10 재조사) ──────────
  *
  * 위 사고와는 다른 경로로 같은 증상이 또 나왔다 — 새로고침할 때마다(탭을 오래 켜둔
  * 것과 무관하게) "부장회의" 채널의 참여자 갱신 배너가 떴다 사라졌다 했는데, React
@@ -30,8 +30,18 @@
  * 본인 문서에 photoURL 등을 동기화하는 쓰기를 매번 거의 같이 날리는데(구글 photoURL은
  * 로그인마다 값이 조금씩 달라져 거의 항상 갱신 대상이 된다), 그 쓰기와 이 목록
  * 쿼리(where role in [...])가 경합하면 본인 문서만 결과에서 빠지는 것으로 보인다.
- * 아래에서 목록에 내가 없으면 단건으로 한 번 더 읽어 채운다 — 단건 자기 읽기는
- * 이 경합의 영향을 받지 않는다(규칙도 이미 항상 허용).
+ *
+ * 처음엔 "목록에 내가 없으면 단건으로 한 번 더 읽어 채운다"로 고쳤었다. 그런데 실제
+ * 사고를 추적해보니(2026-09-10, "나와의 대화"에서 만든 캔버스의 대상이 계속 0명으로
+ * 남던 신고) 그 단건 읽기(getDoc, 나중엔 getDocFromServer로도 시도) 자체가 또 다른
+ * 레이스에 걸렸다 — 같은 문서에 markRead()/채널 즐겨찾기 등의 부분 쓰기가 아직
+ * 서버 확인 전(hasPendingWrites)일 때 읽으면, SDK가 "그 쓰기가 건드린 필드만 있는"
+ * 반쪽 문서를 돌려준다(role·schoolId가 통째로 undefined). getDocFromServer로 캐시를
+ * 건너뛰어도 이 겹침 자체는 피할 수 없었다.
+ *
+ * 그래서 아예 Firestore를 다시 읽지 않는다 — "나는 이 학교 직원인가"는 이미
+ * AuthContext(로그인 파이프라인에서 검증 완료, 이 레이스와 무관한 값)가 정확히 알고
+ * 있으므로, 목록에 내가 없으면 그 값으로 내 항목을 직접 만들어 끼워 넣는다.
  *
  * ── `refreshAllSchoolMembers()` — 이 훅의 모든 인스턴스를 한 번에 새로고침 ──────
  *
@@ -44,7 +54,7 @@
  * 것도 안 끊는다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore'
+import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, USERS, schoolPath, currentYearSemester } from '@shared/lib/schema'
@@ -59,7 +69,7 @@ export function refreshAllSchoolMembers() {
 }
 
 export default function useSchoolMembers() {
-  const { schoolId, user } = useAuth()
+  const { schoolId, user, userName, role, photoURL } = useAuth()
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -69,6 +79,10 @@ export default function useSchoolMembers() {
   schoolIdRef.current = schoolId
   const uidRef = useRef(user?.uid)
   uidRef.current = user?.uid
+  // 목록 쿼리가 나를 놓쳤을 때 대신 쓸 내 정보 — AuthContext는 로그인 파이프라인에서
+  // 이미 검증까지 마친 값이라 아래 레이스와 무관하다(자세한 이유는 파일 위 설명).
+  const selfRef = useRef({ email: user?.email, userName, role, photoURL })
+  selfRef.current = { email: user?.email, userName, role, photoURL }
 
   const fetchMembers = useCallback(async () => {
     const sid = schoolIdRef.current
@@ -81,13 +95,16 @@ export default function useSchoolMembers() {
     ])
     let userDocs = usersSnap.docs
     // 목록 쿼리가 로그인 직후 프로필 동기화 쓰기와 경합하면 내 문서만 빠질 때가 있다
-    // (위 파일 설명 참고). 단건 자기 읽기는 그 경합과 무관하니 빠졌을 때만 채운다.
+    // (위 파일 설명 참고). Firestore를 다시 읽지 않고 AuthContext 값으로 직접 채운다.
     const myUid = uidRef.current
-    if (myUid && !userDocs.some(d => d.id === myUid)) {
-      const meSnap = await getDoc(doc(db, USERS, myUid)).catch(() => null)
-      if (meSnap?.exists() && meSnap.data().schoolId === sid && STAFF_ROLES.includes(meSnap.data().role)) {
-        userDocs = [...userDocs, meSnap]
-      }
+    const self = selfRef.current
+    if (myUid && !userDocs.some(d => d.id === myUid) && self.role && STAFF_ROLES.includes(self.role)) {
+      // 진짜 QueryDocumentSnapshot이 아니라 흉내만 낸 최소 shape다 — 아래에서
+      // d.id/d.data()만 읽으므로 그 정도면 충분하다.
+      userDocs = [...userDocs, {
+        id: myUid,
+        data: () => ({ name: self.userName, email: self.email || '', photoURL: self.photoURL }),
+      }]
     }
     return buildTargetMembers({
       users: userDocs.map(d => ({
@@ -103,17 +120,33 @@ export default function useSchoolMembers() {
   useEffect(() => {
     if (!schoolId) return undefined
     let alive = true
-    setLoading(true)
-    fetchMembers()
-      .then((next) => { if (alive) { setMembers(next); setError(null) } })
-      .catch((e) => {
-        // 화면(ProfileCardProvider 등)엔 "정보를 찾을 수 없습니다"로만 뭉뚱그려 보이는데,
-        // 실은 권한 오류 등으로 명단 자체를 못 읽어온 것일 수 있다(2026-08-28, 사용자
-        // 지적 — "구성원 정보를 찾을 수 없다고 나옵니다"). 콘솔에 원인을 남겨 둔다.
-        console.error('[useSchoolMembers] 구성원 명단을 불러오지 못했습니다:', e)
-        if (alive) setError(e)
-      })
-      .finally(() => { if (alive) setLoading(false) })
+    let retried = false
+
+    const load = (isRetry = false) => {
+      setLoading(true)
+      fetchMembers()
+        .then((next) => { if (alive) { setMembers(next); setError(null) } })
+        .catch((e) => {
+          // 화면(ProfileCardProvider 등)엔 "정보를 찾을 수 없습니다"로만 뭉뚱그려 보이는데,
+          // 실은 권한 오류 등으로 명단 자체를 못 읽어온 것일 수 있다(2026-08-28, 사용자
+          // 지적 — "구성원 정보를 찾을 수 없다고 나옵니다"). 콘솔에 원인을 남겨 둔다.
+          console.error('[useSchoolMembers] 구성원 명단을 불러오지 못했습니다:', e)
+          if (!alive) return
+          setError(e)
+          // 첫 시도가 실패하면 3초 뒤 한 번만 자동으로 다시 시도한다. 실패한 채로 두면
+          // members가 빈 배열로 남아 그 화면(대상 지정 등)이 대상 0명으로 조용히
+          // 굳어버린다 — 아무 경고도 없이 잘못된 값이 저장되는 실패 모드다(2026-09-10,
+          // "나와의 대화"에서 만든 캔버스의 대상이 계속 0명으로 남던 사고). 재시도도
+          // 실패하면 더는 반복하지 않는다.
+          if (!isRetry && !retried) {
+            retried = true
+            setTimeout(() => { if (alive) load(true) }, 3000)
+          }
+        })
+        .finally(() => { if (alive) setLoading(false) })
+    }
+
+    load()
     return () => { alive = false }
   }, [schoolId, fetchMembers])
 
