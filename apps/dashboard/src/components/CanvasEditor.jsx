@@ -343,8 +343,8 @@ const CanvasEditor = forwardRef(function CanvasEditor({
   }
 
   // 이미지를 누르면 고르고, 표 안을 누르면 표를 고르고, 캔버스 삽입 카드를 누르면 그
-  // 글을 열고(편집 중에도 — contenteditable="false"라 글자 편집과 안 부딪힌다),
-  // 다른 곳을 누르면 다 푼다.
+  // 글을 열고(편집 중에도 — contenteditable="false"라 글자 편집과 안 부딪힌다), 일반
+  // 링크를 누르면 새 탭으로 열고(드래그 선택 중이 아닐 때만), 다른 곳을 누르면 다 푼다.
   const handleEditorClick = (e) => {
     const todoCheck = e.target.closest?.('[data-todo-check]')
     if (todoCheck) {
@@ -358,10 +358,21 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     const table = e.target.closest?.('table')
     const cardTarget = canvasRefTarget(e.target)
     const bookmarkUrl = linkBookmarkTarget(e.target)
+    // 일반 링크(<a href>, "+"의 북마크 카드나 캔버스 삽입 카드가 아닌 인라인 링크).
+    // contenteditable 안에서는 브라우저가 링크 클릭을 글자 커서 놓기로만 쓰고 실제
+    // 이동은 절대 안 시켜준다 — 북마크·캔버스 카드가 여기서 window.open/onOpenCanvasRef를
+    // 직접 부르는 것과 같은 이유로, 인라인 링크도 직접 열어줘야 한다(사용자 신고,
+    // 2026-09-10 — "링크를 등록한 사용자는 클릭이 안됨"). 드래그로 글자를 선택하는
+    // 중(오타 고치기 등)에는 열지 않는다 — 클릭 시점에 선택 구간이 남아 있으면
+    // "선택하려던 것"으로 보고 링크를 열지 않는다.
+    const linkEl = e.target.closest?.('a[href]')
+    const selectionEmpty = window.getSelection?.()?.isCollapsed ?? true
     if (cardTarget) {
       onOpenCanvasRef?.(cardTarget)
     } else if (bookmarkUrl) {
       window.open(bookmarkUrl, '_blank', 'noopener,noreferrer')
+    } else if (linkEl && selectionEmpty) {
+      window.open(linkEl.href, '_blank', 'noopener,noreferrer')
     } else if (e.target?.tagName === 'IMG') {
       pickImage(e.target)
       setPickedTable(null)

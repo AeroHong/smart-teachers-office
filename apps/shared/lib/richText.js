@@ -63,6 +63,33 @@ const ALLOWED_ATTR = [
 
 const STYLE_ATTR = /\sstyle="([^"]*)"/gi
 
+/**
+ * 본문 안 일반 링크(<a href>)는 늘 새 탭으로 연다.
+ *
+ * document.execCommand('createLink')는 target을 안 붙인 채 <a href="...">만 만든다.
+ * target 없는 링크를 누르면 지금 보던 캔버스를 떠나 그 자리에서 바로 그 주소로
+ * 넘어가버리는데, 데스크톱 앱(Electron)에서는 새 브라우저 창이 아니라 **이 앱의
+ * 창 자체가 그 주소를 그대로 띄워버린다**("브라우저가 안 열리고 앱에서 열린다",
+ * 사용자 신고 2026-09-10). 북마크 카드(linkBookmarkCard.js)·캔버스 삽입 카드
+ * (canvasRefCard.js)는 href가 아니라 data-*라 이 후크에 안 걸린다(각자 JS로 새 탭을 연다).
+ *
+ * 여기서 강제하면 예전에 저장된(옛 target 없는) 링크도 표시 때마다 다시 걸러지며
+ * 고쳐진다 — 마이그레이션 없이 전부 해결된다(sanitizeHtml은 저장 때도, 그릴 때도 돈다).
+ *
+ * addHook 자체를 조건부로 부르는 이유: DOMPurify는 window(DOM)가 있어야 완전히
+ * 동작한다. 이 파일은 node --test(단위 테스트, DOM 없음)에서도 htmlToText 등 순수
+ * 함수 때문에 임포트되는데, 그때 받는 DOMPurify는 addHook이 없는 반쪽짜리라 모듈
+ * 최상단에서 무조건 부르면 이 파일을 임포트만 해도 테스트가 통째로 죽는다.
+ */
+if (typeof DOMPurify.addHook === 'function') {
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A' && node.hasAttribute('href')) {
+      node.setAttribute('target', '_blank')
+      node.setAttribute('rel', 'noopener noreferrer')
+    }
+  })
+}
+
 /** 화면에 그리기 직전에 거른다. 저장 시점에도 한 번 거르지만 옛 문서는 그 과정을 안 거쳤다. */
 export function sanitizeHtml(html) {
   if (!html) return ''
