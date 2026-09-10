@@ -21,12 +21,15 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import LinearProgress from '@mui/material/LinearProgress'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import DownloadIcon from '@mui/icons-material/DownloadOutlined'
 import EditIcon from '@mui/icons-material/EditOutlined'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { db } from '@shared/lib/firebase'
@@ -70,6 +73,8 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [downloadAnchor, setDownloadAnchor] = useState(null)
+  const [exporting, setExporting] = useState(false)
   const bodyRef = useRef(null)
 
   useEffect(() => {
@@ -162,6 +167,30 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
     }
   }
 
+  /**
+   * PDF는 화면 그대로 캡처, DOCX는 실제 워드 문단으로 — 둘 다 canvasExport.js가 만든다.
+   * jsPDF·html2canvas·docx는 무거운데(번들 500KB 훌쩍 넘김) 다운로드를 누르는 사람만
+   * 필요하므로, 다른 화면들처럼(exceljs) 동적 import로 그 순간에만 받아온다.
+   */
+  const handleExport = async (format) => {
+    setDownloadAnchor(null)
+    if (exporting || !request) return
+    setExporting(true)
+    try {
+      const { exportCanvasAsDocx, exportCanvasAsPdf } = await import('../lib/canvasExport')
+      const meta = `${request.createdByName} · 대상 ${request.targetRuleText || '전체 교직원'}`
+      if (format === 'pdf') {
+        await exportCanvasAsPdf({ title: request.title, meta, bodyEl: bodyRef.current, coverImageUrl: request.coverImageUrl })
+      } else {
+        await exportCanvasAsDocx({ title: request.title, meta, bodyEl: bodyRef.current })
+      }
+    } catch (e) {
+      toast.error('파일을 만들지 못했습니다.', e)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (!loaded) {
     return <Box sx={{ p: 2.5 }}><ListSkeleton rows={4} /></Box>
   }
@@ -203,6 +232,17 @@ export default function PostDetail({ requestId, onDeleted, onOpenBlockComments }
           <Typography variant="h6" fontWeight={800} sx={{ flexGrow: 1, minWidth: 0 }}>{request.title}</Typography>
           {due.label && <ToneChip label={due.label} tone={DUE_TONE[due.state]} />}
           {request.status === 'closed' && <Chip size="small" label="마감됨" />}
+          <Button
+            size="small" startIcon={<DownloadIcon sx={{ fontSize: 17 }} />}
+            disabled={exporting}
+            onClick={(e) => setDownloadAnchor(e.currentTarget)}
+          >
+            {exporting ? '만드는 중…' : '다운로드'}
+          </Button>
+          <Menu anchorEl={downloadAnchor} open={!!downloadAnchor} onClose={() => setDownloadAnchor(null)}>
+            <MenuItem onClick={() => handleExport('pdf')}>PDF로 저장</MenuItem>
+            <MenuItem onClick={() => handleExport('docx')}>DOCX(워드)로 저장</MenuItem>
+          </Menu>
           {canManagePost && (
             <Button
               size="small" startIcon={<EditIcon sx={{ fontSize: 17 }} />}
