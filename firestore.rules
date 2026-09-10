@@ -115,6 +115,40 @@ service cloud.firestore {
         request.auth.uid in channelData(schoolId, channelId).get('memberUids', []);
     }
 
+    // ── DM 캔버스(업무 글, 2026-09-10) ──
+    //
+    // DM 메시지는 관리자도 못 읽는다는 것이 이미 못 박힌 약속이다(§10). DM 안에 캔버스를
+    // 허용하면서 그 약속이 캔버스에서만 새면(관리자가 여전히 requests를 통째로 읽으면)
+    // "둘만 봅니다"라는 화면 문구가 거짓이 된다. 그래서 그 캔버스가 DM 채널 소속이면
+    // 아래 helper로 판정해 관리자 우회(isSchoolAdmin)를 그 글에서만 꺼둔다 — 슈퍼
+    // 관리자의 쓰기·삭제 권한은 다른 DM 관련 규칙과 같은 기준으로 그대로 둔다(내용을
+    // 읽지는 못해도 필요하면 지울 수는 있다). 일반 채널의 캔버스는 지금과 완전히 같다.
+    function isDmChannel(schoolId, channelId) {
+      return channelId != null && channelData(schoolId, channelId).get('type', 'channel') == 'dm';
+    }
+
+    function isDmMember(schoolId, channelId) {
+      return channelId != null &&
+        request.auth.uid in channelData(schoolId, channelId).get('memberUids', []);
+    }
+
+    // 댓글·블록반응·완료 같은 하위 컬렉션은 자신이 아니라 부모 글(requests/{requestId})의
+    // channelId를 봐야 한다 — 한 번 더 읽어야 하지만(비용 발생, DM 캔버스는 흔치 않은
+    // 경로라 감수한다), 그래야 부모 글의 열람 범위와 하위 컬렉션의 열람 범위가 어긋나지
+    // 않는다(어긋나면 본문은 못 읽는데 댓글만 읽히는 식의 새는 구멍이 생긴다).
+    function requestChannelId(schoolId, requestId) {
+      return get(/databases/$(database)/documents/schools/$(schoolId)/requests/$(requestId))
+        .data.get('channelId', null);
+    }
+
+    function isDmScopedRequest(schoolId, requestId) {
+      return isDmChannel(schoolId, requestChannelId(schoolId, requestId));
+    }
+
+    function isDmMemberOfRequest(schoolId, requestId) {
+      return isDmMember(schoolId, requestChannelId(schoolId, requestId));
+    }
+
     function selfOnlyUidChange(field) {
       let before = resource.data.get(field, []).toSet();
       let after = request.resource.data.get(field, []).toSet();
@@ -603,7 +637,13 @@ service cloud.firestore {
         //   createdBy == uid        ← RequestList의 '내가 보낸 글'·CommandPalette
         //
         // 뒤의 둘은 의미로도 옳다. 나에게 온 글과 내가 쓴 글을 못 읽으면 그건 기능이 아니다.
-        allow read: if isSchoolAdmin(schoolId) ||
+        //
+        // DM 채널 소속 글(2026-09-10)은 관리자 우회(isSchoolAdmin)를 꺼둔다 — visibility/
+        // visibleUids는 postVisibilityFor()가 DM도 비공개 채널과 똑같이 다뤄 이미 DM
+        // 참여자로만 정확히 채워 두므로(위 isTeacher 조건), 남는 것은 이 관리자 우회
+        // 하나뿐이다. 그 갈래를 그 글에서만 꺼서 "관리자도 못 봅니다"를 캔버스까지 지킨다.
+        allow read: if
+          (isSchoolAdmin(schoolId) && !isDmChannel(schoolId, resource.data.get('channelId', null))) ||
           (isTeacher(schoolId) && (
             resource.data.visibility == 'school' ||
             request.auth.uid in resource.data.visibleUids ||
@@ -613,13 +653,20 @@ service cloud.firestore {
 
         // 공지 전용 채널의 쓰기 제한은 화면(canPostTo)과 여기 둘 다에 둔다. 화면에만 두면
         // SDK로 바로 쓸 수 있어 "만든 사람만 씁니다"라는 말이 사실이 아니게 된다.
+        //
+        // DM 채널에 만드는 글은 channelAllowsPost를 안 쓴다 — 그 함수는 postPolicy가
+        // 기본 'members'면 참여자 여부를 안 보고 무조건 참을 반환해서(공개 채널에서는
+        // 문제 없지만) DM에서는 아무나 남의 대화에 캔버스를 끼워 넣을 수 있게 된다.
+        // 대신 실제 참여자인지를 직접 본다 — 관리자 우회(isSchoolAdmin)도 여기서는 안 연다.
         allow create: if isSuperAdmin() ||
           (isTeacher(schoolId) &&
            request.resource.data.createdBy == request.auth.uid &&
            request.resource.data.completedUids.size() == 0 &&
-           (request.resource.data.get('channelId', null) == null ||
-            isSchoolAdmin(schoolId) ||
-            channelAllowsPost(schoolId, request.resource.data.channelId)));
+           (isDmChannel(schoolId, request.resource.data.get('channelId', null))
+             ? isDmMember(schoolId, request.resource.data.channelId)
+             : (request.resource.data.get('channelId', null) == null ||
+                isSchoolAdmin(schoolId) ||
+                channelAllowsPost(schoolId, request.resource.data.channelId))));
 
         // 요청 내용 수정·마감은 만든 사람과 관리자, 그리고 담당자(ownerUids)만.
         //
@@ -628,7 +675,11 @@ service cloud.firestore {
         // 편집을 좁히면 그 담당자가 정작 자기 캔버스를 못 고친다(2026-09-10, 사용자 요청
         // "업무 담당자와 담당 부장이 공동작업 가능해야 함"). ownerUids가 비어 있으면(대부분의
         // 글) 이 조건은 항상 거짓이라 예전과 동작이 같다.
-        allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+        // 관리자 우회(isSchoolAdmin)는 DM 채널 소속 글에서 꺼둔다(위 read와 같은 이유) —
+        // 슈퍼 관리자는 그대로 둔다(내용을 못 읽어도 필요하면 고칠 수는 있게, 다른 DM
+        // 규칙들과 같은 기준).
+        allow update: if isSuperAdmin() ||
+          (isSchoolAdmin(schoolId) && !isDmChannel(schoolId, resource.data.get('channelId', null))) ||
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid) ||
           (isTeacher(schoolId) &&
            ('ownerUids' in resource.data) &&
@@ -640,7 +691,8 @@ service cloud.firestore {
              .hasOnly(['completedUids', 'updatedAt']) &&
            selfOnlyUidChange('completedUids'));
 
-        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+        allow delete: if isSuperAdmin() ||
+          (isSchoolAdmin(schoolId) && !isDmChannel(schoolId, resource.data.get('channelId', null))) ||
           (isTeacher(schoolId) && resource.data.createdBy == request.auth.uid);
 
         // 댓글 — 업무 글에 되묻는 말과 그 답.
@@ -657,7 +709,14 @@ service cloud.firestore {
         // 화면에서 닿을 수 없는 문서라 새어나가지는 않지만, 완전히 걷어내려면 관리자가
         // 지우거나 재귀 삭제를 함수로 옮겨야 한다.
         match /comments/{commentId} {
-          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          // DM 채널 소속 글의 댓글은 참여자만 읽는다(슈퍼 관리자도 제외 — DM 메시지
+          // 읽기와 같은 기준, 위 requests read 주석 참고). 그 외에는 예전 그대로
+          // "학교 소속 교사면 누구나"다 — 비공개 채널 글이라도 댓글 자체는 넓게 열려
+          // 있던 기존 설계를 그대로 둔다(이 변경의 범위는 DM 프라이버시뿐이다).
+          allow read: if
+            (isSuperAdmin() && !isDmScopedRequest(schoolId, requestId)) ||
+            (isTeacher(schoolId) &&
+             (!isDmScopedRequest(schoolId, requestId) || isDmMemberOfRequest(schoolId, requestId)));
 
           allow create: if isSuperAdmin() ||
             (isTeacher(schoolId) &&
@@ -667,7 +726,8 @@ service cloud.firestore {
 
           allow update: if false;
 
-          allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          allow delete: if isSuperAdmin() ||
+            (isSchoolAdmin(schoolId) && !isDmScopedRequest(schoolId, requestId)) ||
             (isTeacher(schoolId) && resource.data.authorUid == request.auth.uid);
         }
 
@@ -683,7 +743,11 @@ service cloud.firestore {
         // 필드가 빈 배열로 남을 뿐). 블록·글이 지워져도 댓글처럼 문서는 정리되지 않고
         // 남는다 — 화면에서 닿을 수 없어 새어나가지는 않는다.
         match /blockReactions/{blockId} {
-          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          // 댓글과 같은 이유·같은 기준(DM 소속 글은 참여자만, 슈퍼 관리자도 제외).
+          allow read: if
+            (isSuperAdmin() && !isDmScopedRequest(schoolId, requestId)) ||
+            (isTeacher(schoolId) &&
+             (!isDmScopedRequest(schoolId, requestId) || isDmMemberOfRequest(schoolId, requestId)));
 
           // 첫 반응 — 문서가 아직 없다. 정해진 이모지 필드 딱 하나에 내 uid 하나만 담긴
           // 문서여야 한다(다른 사람 uid를 끼워 넣거나 여러 필드를 한 번에 만들 수 없다).
@@ -720,8 +784,13 @@ service cloud.firestore {
         // 읽기를 소속 교사 전체에 여는 이유는 현황 화면이 누가 언제 했는지를 보여주기 때문.
         // 어차피 요청 문서의 completedUids로 완료 여부는 드러나므로 새로 노출되는 정보가 아니다.
         match /completions/{completionUid} {
-          allow read: if isSuperAdmin() || isTeacher(schoolId);
-          allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          // 댓글·블록반응과 같은 이유·같은 기준(DM 소속 글은 참여자만, 슈퍼 관리자도 제외).
+          allow read: if
+            (isSuperAdmin() && !isDmScopedRequest(schoolId, requestId)) ||
+            (isTeacher(schoolId) &&
+             (!isDmScopedRequest(schoolId, requestId) || isDmMemberOfRequest(schoolId, requestId)));
+          allow write: if isSuperAdmin() ||
+            (isSchoolAdmin(schoolId) && !isDmScopedRequest(schoolId, requestId)) ||
             // 본인이 체크
             (isTeacher(schoolId) && completionUid == request.auth.uid) ||
             // 담당자가 확인 후 대신 체크 (완료 버튼을 안 누르는 사람이 반드시 있다)

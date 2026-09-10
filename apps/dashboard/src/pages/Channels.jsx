@@ -404,15 +404,22 @@ export default function Channels() {
   // 전교직원 채널은 학교 공지가 도착하는 유일한 자리라 나가기·보관을 막는다. 한 번 끊으면
   // 그 뒤로 오는 공지를 못 보는데 화면에는 아무 일도 없어 보인다(channels.js 참고).
   const allStaff = isAllStaffChannel(active)
-  // DM에는 채널식 "관리"(이름·조건 고치기, 보관)가 없다. 이름도 참여자도 고칠 수 없고
-  // (firestore.rules에서도 막는다), 보관도 두지 않았다 — 둘 뿐인 대화를 한쪽만 접는
-  // 것은 뜻이 애매하다. 나가기·완전 삭제는 canManage와 무관하게 아래 canLeaveOrDeleteDm로
-  // 따로 연다(2026-09-10, "DM 나가기/삭제하기" — 상대에게 어떻게 보일지는 사용자가
-  // 확정했다: 나가기=나만 숨김, 삭제=참여자 전원에게서 지움).
+  // DM에는 채널식 "관리"(이름·조건 고치기, 보관·나가기·삭제를 대신 결정할 "채널 주인")가
+  // 없다. 이름도 참여자도 고칠 수 없고(firestore.rules에서도 막는다) — 나가기·완전
+  // 삭제는 canManage와 무관하게 아래 canLeaveOrDeleteDm로 따로 연다(2026-09-10, "DM
+  // 나가기/삭제하기" — 상대에게 어떻게 보일지는 사용자가 확정했다: 나가기=나만 숨김,
+  // 삭제=참여자 전원에게서 지움).
   const canManage = !dm && canManageChannel(active, user?.uid, isAdmin)
   const canLeaveOrDeleteDm = dm && (active?.memberUids || []).includes(user?.uid)
   const canPost = canPostTo(active, user?.uid, isAdmin)
   const iLeft = hasLeft(active, user?.uid)
+  // 캔버스를 탭에서 치우거나(archived) 되돌릴 수 있는가. 일반 채널은 지금까지와 똑같이
+  // canManage(채널 만든 사람·관리자)뿐이다. DM은 그 개념이 없으니(위 설명) 그 글의
+  // 글쓴이·담당자(ownerUids)·관리자로 대신한다(2026-09-10, DM에도 캔버스를 열면서
+  // 함께 필요해진 판정 — PostDetail.jsx의 canManagePost와 같은 기준).
+  const canArchivePost = (post) => canManage || (dm && !!post && (
+    post.createdBy === user?.uid || (post.ownerUids || []).includes(user?.uid) || isAdmin
+  ))
 
   // 채널을 열 때 읽은 것으로 표시한다. 나갈 때 하면 창을 그냥 닫는 경우에 기록이 안 남아
   // 다음에 들어와도 안읽음 점이 그대로 있다.
@@ -786,8 +793,11 @@ export default function Channels() {
               </Typography>
             )}
             {/* "대상 좁히기" — PostComposer.jsx 안에 있던 토글 버튼을 참여자 수 옆으로
-                옮겼다(같은 요청). 글을 쓰거나 고칠 때만 뜻이 있어 그 상태일 때만 보인다. */}
-            {!dm && (composingNew || editingPostId) && (
+                옮겼다(같은 요청). 글을 쓰거나 고칠 때만 뜻이 있어 그 상태일 때만 보인다.
+                DM도 캔버스를 쓸 수 있게 되면서(2026-09-10) 그룹 DM에서 일부에게만
+                좁혀 보낼 수 있도록 함께 연다 — 2인 DM은 좁힐 대상이 본인뿐이라 눌러도
+                의미가 없지만, 굳이 숨길 이유도 없다. */}
+            {(composingNew || editingPostId) && (
               <Button
                 size="small" onClick={() => setTargetOpen(v => !v)}
                 sx={{ flexShrink: 0, fontSize: '0.76rem' }}
@@ -863,11 +873,15 @@ export default function Channels() {
             {/* 대화와 업무 글을 탭으로 가른다. 한 화면에 쌓으면 대화가 길어질수록 업무 글이
                 아래로 밀려 안 보이는데, 정작 마감이 걸린 것은 그쪽이다.
 
-                DM에는 업무 글을 두지 않는다. 업무 글은 requests 최상위 컬렉션이라 학교
-                관리자가 읽을 수 있는데, DM 메시지는 관리자 열람에서 빼기로 못 박았다
-                (데이터모델 §10). DM 안에 업무 글을 허용하면 "둘만 본다"가 한쪽으로 샌다.
-                한 사람에게만 시키는 일은 업무 글의 대상을 그 사람으로 지정하면 된다. */}
-            {!dm && (
+                DM에도 업무 글을 둔다(2026-09-10, 사용자 요청 — "나와의 대화 및 DM에서도
+                캔버스를 만들 수 있으면 좋겠음"). 예전엔 관리자가 requests를 통째로 읽을
+                수 있어 "둘만 본다"는 DM의 약속이 캔버스에서만 샐 위험 때문에 막아 뒀는데
+                (데이터모델 §10), 그 약속은 새는 자리(firestore.rules의 requests read·
+                update·delete와 comments·blockReactions·completions 하위 컬렉션)를
+                DM 채널 소속 글에서만 관리자 우회를 꺼서 지키도록 고쳤다 — DM의 기존
+                visibility/visibleUids 계산(channels.js의 postVisibilityFor, DM도 비공개
+                채널과 동일하게 처리)은 손대지 않고 그대로 쓴다. */}
+            {(
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.75 }}>
                 <Tabs
                   value={tabValue}
@@ -985,10 +999,10 @@ export default function Channels() {
               </Box>
             )}
 
-            {/* 탭 줄과 아래 목록을 가르는 연한 구분선(사용자 요청, 2026-08-26) —
-                DM에는 탭이 없어 !dm 블록 밖, 헤더 전체(제목 포함) 아래에 하나만 둔다.
-                예전엔 mt:1.5로 탭 줄과 사이가 떠 있었는데, 탭 바로 아래 선처럼 겹치게
-                붙였다(2026-08-28, 사용자 요청 — "탭 하단 라인 겹치게 이동"). */}
+            {/* 탭 줄과 아래 목록을 가르는 연한 구분선(사용자 요청, 2026-08-26) — 헤더
+                전체(제목 포함) 아래에 하나만 둔다. 예전엔 mt:1.5로 탭 줄과 사이가 떠
+                있었는데, 탭 바로 아래 선처럼 겹치게 붙였다(2026-08-28, 사용자 요청 —
+                "탭 하단 라인 겹치게 이동"). */}
             <Divider sx={{ mt: 0 }} />
           </Box>
 
@@ -1049,7 +1063,7 @@ export default function Channels() {
                   />
                 )}
               </Box>
-            ) : !dm && sideView === 'archive' ? (
+            ) : sideView === 'archive' ? (
               <Box sx={{ height: '100%', overflowY: 'auto', px: 2, pb: 2 }}>
                 <Typography color="text.secondary" fontSize="0.78rem" sx={{ mt: 1.5, mb: 1 }}>
                   끝난 글입니다. 지워진 것이 아니라 채널 머리의 탭에서만 접혔습니다.
@@ -1060,7 +1074,7 @@ export default function Channels() {
                       key={p.id}
                       post={p}
                       onClick={() => navigate(canvasUrl(p))}
-                      onUnarchive={canManage ? () => run(
+                      onUnarchive={canArchivePost(p) ? () => run(
                         () => setPostArchived({ schoolId, requestId: p.id, archived: false }),
                         '탭에 다시 올렸습니다.',
                         '다시 꺼내지 못했습니다.',
@@ -1070,7 +1084,7 @@ export default function Channels() {
                   ))}
                 </Box>
               </Box>
-            ) : !dm && sideView === 'hidden' ? (
+            ) : sideView === 'hidden' ? (
               // "탭 가리기"로 내 탭 바에서만 숨긴 글(2026-09-10, 사용자 요청 — 되돌릴 길이
               // 없어 혼란스러웠던 것을 여기서 되돌릴 수 있게 한다). 보관(archived)과 달리
               // 나만의 설정이라 canManage 권한과 무관하게 누구나 자기가 가린 것을 되돌릴 수 있다.
@@ -1287,7 +1301,7 @@ export default function Channels() {
 
         {/* 자동 판정이 아직 안 끝났다고 보는 글을 사람이 먼저 치운다. 되돌리기의 짝이다 —
             한쪽만 있으면 마감일 없는 안내처럼 끝난 신호가 없는 글이 탭에서 안 빠진다. */}
-        {canManage && canvas.open && isLivePost(canvas.open) && (
+        {canArchivePost(canvas.open) && canvas.open && isLivePost(canvas.open) && (
           <MenuItem
             sx={{ fontSize: '0.85rem' }}
             onClick={() => {

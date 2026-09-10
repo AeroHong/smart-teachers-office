@@ -100,6 +100,12 @@ beforeEach(async () => {
     await setDoc(doc(db, ...path('requests', 'privPost')), post({
       channelId: 'priv', visibility: 'members', visibleUids: [A],
     }))
+    // DM 캔버스(2026-09-10) — postVisibilityFor()가 DM도 비공개 채널과 똑같이 다뤄
+    // visibility/visibleUids를 참여자(A, B)로 채운다. 관리자(ADMIN)는 이 둘 다에
+    // 안 들어 있으니, isSchoolAdmin 우회가 꺼졌는지가 실제 시험 대상이다.
+    await setDoc(doc(db, ...path('requests', 'dmPost')), post({
+      channelId: `dm_${A}_${B}`, visibility: 'members', visibleUids: [A, B],
+    }))
   })
 })
 
@@ -148,12 +154,13 @@ test('[쿼리] 학교 공개 글 — where(visibility == school)', async () => {
 })
 
 test('[쿼리] 내가 볼 수 있는 비공개 글 — where(visibleUids array-contains me)', async () => {
+  // privPost(비공개 채널)와 dmPost(DM 캔버스, 2026-09-10 추가) 둘 다 A가
+  // visibleUids에 들어 있다 — DM도 비공개 채널과 같은 방식으로 계산되기 때문이다.
   const snap = await assertSucceeds(getDocs(query(
     collection(as(A), ...path('requests')),
     where('visibleUids', 'array-contains', A),
   )))
-  assert.equal(snap.docs.length, 1)
-  assert.equal(snap.docs[0].id, 'privPost')
+  assert.deepEqual(snap.docs.map(d => d.id).sort(), ['dmPost', 'privPost'])
 })
 
 test('[쿼리] 조건 없는 글 조회는 교사에게 거부된다 — 예전 useChannels가 쓰던 방식', async () => {
@@ -268,6 +275,74 @@ test('ownerUids에 없으면 여전히 못 고친다', async () => {
 
 test('다른 학교 사람은 아무것도 못 읽는다', async () => {
   await assertFails(getDoc(doc(as(SUPER), ...path('channels', 'pub'))))
+})
+
+// ── 5c. DM 캔버스 프라이버시(2026-09-10) ────────────────────────
+//
+// DM 메시지는 관리자도 못 읽는다는 것이 이미 못 박힌 약속이다. DM 안에 캔버스를
+// 열면서 그 약속이 캔버스에서만 새면 안 된다 — 아래는 정확히 그 새는 자리
+// (requests 문서 자체와 comments/blockReactions/completions 하위 컬렉션)를 막았는지 시험한다.
+
+test('[DM 캔버스] 참여자는 읽는다', async () => {
+  await assertSucceeds(getDoc(doc(as(A), ...path('requests', 'dmPost'))))
+  await assertSucceeds(getDoc(doc(as(B), ...path('requests', 'dmPost'))))
+})
+
+test('[DM 캔버스] 학교 관리자는 못 읽는다 ★ — DM 메시지와 같은 약속', async () => {
+  await assertFails(getDoc(doc(as(ADMIN), ...path('requests', 'dmPost'))))
+})
+
+test('[DM 캔버스] 참여자가 아닌 교사도 못 읽는다', async () => {
+  await assertFails(getDoc(doc(as(C), ...path('requests', 'dmPost'))))
+})
+
+test('[DM 캔버스] 참여자만 만들 수 있다 — channelAllowsPost의 postPolicy 지름길을 안 쓴다', async () => {
+  const payload = {
+    kind: 'notice', title: 't', channelId: `dm_${A}_${B}`, completedUids: [],
+    createdBy: C, createdByName: 'C', visibility: 'members', visibleUids: [A, B, C],
+  }
+  await assertFails(setDoc(doc(as(C), ...path('requests', 'byC')), payload))
+})
+
+test('[DM 캔버스] 참여자는 만들 수 있다', async () => {
+  await assertSucceeds(setDoc(doc(as(A), ...path('requests', 'byA')), {
+    kind: 'notice', title: 't', channelId: `dm_${A}_${B}`, completedUids: [],
+    createdBy: A, createdByName: 'A', visibility: 'members', visibleUids: [A, B],
+  }))
+})
+
+test('[DM 캔버스] 학교 관리자는 못 고치고 못 지운다 — 글쓴이가 아닌 한', async () => {
+  await assertFails(updateDoc(doc(as(ADMIN), ...path('requests', 'dmPost')), { title: '관리자가 고침' }))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...path('requests', 'dmPost'))))
+})
+
+test('[DM 캔버스] 글쓴이는 그대로 고치고 지울 수 있다', async () => {
+  await assertSucceeds(updateDoc(doc(as(A), ...path('requests', 'dmPost')), { title: '글쓴이가 고침' }))
+})
+
+test('[DM 캔버스] 일반 채널 글은 관리자 열람이 그대로다 — 이번 변경의 부작용이 없어야 한다', async () => {
+  await assertSucceeds(getDoc(doc(as(ADMIN), ...path('requests', 'pubPost'))))
+  await assertSucceeds(getDoc(doc(as(ADMIN), ...path('requests', 'privPost'))))
+})
+
+test('[DM 캔버스] 댓글도 참여자만 읽는다 — 관리자도 제외', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('requests', 'dmPost', 'comments', 'c1')), {
+      authorUid: A, body: '안녕', createdAt: new Date(),
+    })
+  })
+  await assertSucceeds(getDoc(doc(as(B), ...path('requests', 'dmPost', 'comments', 'c1'))))
+  await assertFails(getDoc(doc(as(ADMIN), ...path('requests', 'dmPost', 'comments', 'c1'))))
+  await assertFails(getDoc(doc(as(C), ...path('requests', 'dmPost', 'comments', 'c1'))))
+})
+
+test('[DM 캔버스 아님] 일반 글의 댓글은 예전 그대로 학교 소속 교사 누구나 읽는다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('requests', 'pubPost', 'comments', 'c1')), {
+      authorUid: A, body: '안녕', createdAt: new Date(),
+    })
+  })
+  await assertSucceeds(getDoc(doc(as(B), ...path('requests', 'pubPost', 'comments', 'c1'))))
 })
 
 // ── 6. 채널 메시지 (P2) ───────────────────────────────────────

@@ -387,11 +387,12 @@ export default function ChannelMessages({
 
           <input ref={fileInputRef} type="file" hidden onChange={handleFileChange} />
 
-          {/* '+' 메뉴 — 파일 첨부, 그 아래 이 채널의 캔버스 목록(채널) 또는 채널 캔버스
-              검색(DM, 아래 Dialog). 일반 채널에서 다른 채널 글을 붙이려면 그 글 쪽에서
-              '전달'을 쓰는 것이 맞다 — 두 길이 같은 일을 서로 반대 방향에서 한다. DM은
-              애초에 자기 캔버스가 없어(canvases 늘 []) 그 반대 경로가 성립하지 않으므로
-              여기서 직접 검색하게 열어 둔다(2026-09-10, 사용자 요청). */}
+          {/* '+' 메뉴 — 파일 첨부, 그 아래 이 채널(또는 대화)의 캔버스 목록. DM도 이제
+              캔버스를 가질 수 있어(2026-09-10, "나와의 대화 및 DM에서도 캔버스를 만들
+              수 있으면 좋겠음") 이 목록이 더는 늘 비어 있지 않다. 일반 채널에서 다른
+              채널 글을 붙이려면 그 글 쪽에서 '전달'을 쓰는 것이 맞다 — 두 길이 같은
+              일을 서로 반대 방향에서 한다. DM에는 그 반대 경로(전달)가 없으므로 아래
+              "다른 채널 캔버스 가져오기"(검색 Dialog)를 추가로 연다. */}
           <Menu
             anchorEl={pickerAnchor} open={!!pickerAnchor} onClose={() => setPickerAnchor(null)}
             anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
@@ -404,31 +405,33 @@ export default function ChannelMessages({
               <AttachFileIcon sx={{ fontSize: 17 }} />파일 첨부
             </MenuItem>
             <Divider />
-            {dm ? (
-              <MenuItem
-                sx={{ fontSize: '0.85rem', gap: 1 }}
-                onClick={() => { setPickerAnchor(null); setCanvasPickerOpen(true) }}
-              >
-                <DescriptionIcon sx={{ fontSize: 17 }} />채널 캔버스 가져오기
+            <Typography sx={{ px: 2, py: 0.5, fontSize: '0.7rem', fontWeight: 800, color: 'text.disabled' }}>
+              {dm ? '이 대화의 캔버스' : '이 채널의 캔버스'}
+            </Typography>
+            {canvases.length === 0 ? (
+              <MenuItem disabled sx={{ fontSize: '0.82rem', whiteSpace: 'normal', maxWidth: 260 }}>
+                아직 업무 글이 없습니다. '글 쓰기'로 만들면 여기에 붙일 수 있습니다.
               </MenuItem>
-            ) : (
+            ) : canvases.map(c => (
+              <MenuItem
+                key={c.id}
+                sx={{ fontSize: '0.85rem', maxWidth: 320 }}
+                onClick={() => { setAttached(c); setPickerAnchor(null) }}
+              >
+                <Typography fontSize="0.85rem" noWrap>{c.title}</Typography>
+              </MenuItem>
+            ))}
+            {/* DM은 자기 캔버스가 위에 있어도 다른 채널 것을 가져올 수 있어야 한다(2026-09-10) —
+                일반 채널은 그 반대 방향(전달)이 있어 그대로 둔다(아래 Dialog 주석 참고). */}
+            {dm && (
               <>
-                <Typography sx={{ px: 2, py: 0.5, fontSize: '0.7rem', fontWeight: 800, color: 'text.disabled' }}>
-                  이 채널의 캔버스
-                </Typography>
-                {canvases.length === 0 ? (
-                  <MenuItem disabled sx={{ fontSize: '0.82rem', whiteSpace: 'normal', maxWidth: 260 }}>
-                    아직 업무 글이 없습니다. '글 쓰기'로 만들면 여기에 붙일 수 있습니다.
-                  </MenuItem>
-                ) : canvases.map(c => (
-                  <MenuItem
-                    key={c.id}
-                    sx={{ fontSize: '0.85rem', maxWidth: 320 }}
-                    onClick={() => { setAttached(c); setPickerAnchor(null) }}
-                  >
-                    <Typography fontSize="0.85rem" noWrap>{c.title}</Typography>
-                  </MenuItem>
-                ))}
+                <Divider />
+                <MenuItem
+                  sx={{ fontSize: '0.85rem', gap: 1 }}
+                  onClick={() => { setPickerAnchor(null); setCanvasPickerOpen(true) }}
+                >
+                  <DescriptionIcon sx={{ fontSize: 17 }} />다른 채널 캔버스 가져오기
+                </MenuItem>
               </>
             )}
           </Menu>

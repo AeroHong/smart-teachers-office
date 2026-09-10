@@ -25,6 +25,11 @@ const ADMIN_ROLES = ['admin', 'school_admin']
 /**
  * 글을 지울 수 있는 사람인지 본다 — 글쓴이 본인, 학교 관리자, 슈퍼 관리자.
  * firestore.rules의 requests delete 조건과 같은 판정이어야 한다.
+ *
+ * DM 채널 소속 글(2026-09-10)은 학교 관리자 우회를 꺼둔다 — DM 메시지는 관리자도
+ * 못 읽는다는 약속이 있는데, 그 안의 캔버스만 관리자가 지울 수 있으면(지우려면
+ * 무엇을 지우는지 먼저 볼 수 있어야 자연스러우므로) 사실상 그 약속이 캔버스에서
+ * 샌다. firestore.rules의 requests delete와 같은 기준.
  */
 async function requireCanDelete(db, request, schoolId, requestId) {
   if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
@@ -43,9 +48,19 @@ async function requireCanDelete(db, request, schoolId, requestId) {
     throw new HttpsError('not-found', '이미 삭제된 글입니다.')
   }
 
+  const post = postSnap.data()
+  const isAuthor = post.createdBy === request.auth.uid
+  if (isAuthor) return
+
+  let isDm = false
+  if (post.channelId) {
+    const channelSnap = await db.collection('schools').doc(schoolId)
+      .collection('channels').doc(post.channelId).get()
+    isDm = (channelSnap.data()?.type || 'channel') === 'dm'
+  }
+
   const isAdmin = ADMIN_ROLES.includes(user.role)
-  const isAuthor = postSnap.data().createdBy === request.auth.uid
-  if (!isAdmin && !isAuthor) {
+  if (!isAdmin || isDm) {
     throw new HttpsError('permission-denied', '글쓴이와 관리자만 지울 수 있습니다.')
   }
 }
