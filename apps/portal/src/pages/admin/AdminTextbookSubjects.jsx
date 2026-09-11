@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -25,6 +26,7 @@ import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import AddIcon from '@mui/icons-material/Add'
 import UploadIcon from '@mui/icons-material/Upload'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -53,6 +55,7 @@ function emptyForm() {
 }
 
 export default function AdminTextbookSubjects() {
+  const navigate = useNavigate()
   const { user, schoolId } = useAuth()
 
   const [adoptions, setAdoptions] = useState([])
@@ -183,6 +186,7 @@ export default function AdminTextbookSubjects() {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
         <Typography variant="h5" fontWeight={700}>검·인정도서 선정 — 선정 건 관리</Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" startIcon={<MenuBookIcon />} onClick={() => navigate('/admin/textbook-catalog')}>공식 목록에서 가져오기</Button>
           <Button variant="outlined" startIcon={<UploadIcon />} onClick={() => setBulkOpen(true)}>일괄 등록</Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>새 선정 건</Button>
         </Box>

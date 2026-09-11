@@ -1044,7 +1044,10 @@ service cloud.firestore {
       // matchedTeacherUids는 그 이름들을 실제 계정과 매칭해 만든 uid 평면 배열이라 배열
       // 필드 규칙(array-contains 상당)으로 판정할 수 있다 — 제출은 한 명이 해도 공동
       // 지도교사 전원이 본인 담당 과목의 계획을 볼 수 있어야 한다는 요구에 따른 것.
-      // 쓰기 권한(update/delete)은 여전히 소유자(uploaderUid)에게만 둔다.
+      // update는 소유자(uploaderUid)에 더해 업무 담당자도 허용한다 — 전체 현황에서 오류를
+      // 발견해도 고칠 권한이 없으면 의미가 없어 2026-09-11 긴급 요청으로 열었다(반영비율·
+      // 수행평가 요약·성적산출방법 수정, 원본 파일 재업로드/재파싱 포함). delete는 여전히
+      // 소유자·관리자만 — 제출물 자체를 지우는 것까지 담당자에게 열어달라는 요청은 아니었다.
       match /evaluationPlans/{planId} {
         allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
           isEvaluationPlanManager(schoolId) ||
@@ -1061,6 +1064,7 @@ service cloud.firestore {
 
         // 소유자(uploaderUid) 변경은 금지 — 데이터 수정, draft→confirmed 전환은 자유롭게 허용.
         allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          isEvaluationPlanManager(schoolId) ||
           (isTeacher(schoolId) &&
            resource.data.uploaderUid == request.auth.uid &&
            request.resource.data.uploaderUid == resource.data.uploaderUid);
@@ -1121,6 +1125,13 @@ service cloud.firestore {
           (isSignedIn() && request.auth.uid == uid);
         allow write: if isSuperAdmin() ||
           (isPrincipal(schoolId) && request.auth.uid == uid);
+      }
+
+      // 시도교육청 공식 인정도서 목록 가져오기(관리자 전용 도구) — 선정 건 등록 화면에서
+      // 과목별 후보(출판사·가격)를 자동으로 채우는 데만 쓰는 참고자료라 위원·교사 전체에게
+      // 공개할 이유가 없다. 단일 문서(id: 'current')를 통째로 덮어쓰는 구조.
+      match /textbookCatalog/{docId} {
+        allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
       // ── 생기부 세특 점검 도구 ──────────────────────────────────

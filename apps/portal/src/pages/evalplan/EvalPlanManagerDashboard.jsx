@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, query, where, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import FormControl from '@mui/material/FormControl'
@@ -27,6 +27,7 @@ import { currentSchoolYear, entryYearFor } from '@shared/lib/schema'
 import { loadSubjects } from '@shared/lib/subjectData'
 import { useTableSort } from '@shared/hooks/useTableSort'
 import { useCurrentTerm } from '@shared/hooks/useCurrentTerm'
+import { useIsEvalPlanManager } from '@shared/hooks/useEvalPlanManager'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './EvalPlanSection'
 import { STATUS_LABELS, GRADE_OPTIONS, gradeMethodEntries } from './evalPlanUtils'
@@ -174,8 +175,9 @@ export default function EvalPlanManagerDashboard() {
   const navigate = useNavigate()
   const { user, schoolId, isAdmin } = useAuth()
 
-  const [allowed, setAllowed] = useState(isAdmin)
-  const [checkingAccess, setCheckingAccess] = useState(!isAdmin)
+  const { isManager, loaded: managerLoaded } = useIsEvalPlanManager(schoolId, user?.uid)
+  const allowed = isAdmin || isManager
+  const checkingAccess = !isAdmin && !managerLoaded
 
   // 관리자 페이지 > 홈에서 지정한 학년도-학기 기준을 초기 필터값으로 쓴다 — 이후 사용자가
   // 직접 바꾸면 그 선택을 유지하고, 기준값이 나중에 바뀌어도 되돌리지 않는다.
@@ -202,15 +204,6 @@ export default function EvalPlanManagerDashboard() {
 
   const planSort = useTableSort()
   const coverageSort = useTableSort()
-
-  useEffect(() => {
-    if (isAdmin) { setAllowed(true); setCheckingAccess(false); return }
-    if (!schoolId || !user) return
-    getDoc(doc(db, 'schools', schoolId, 'evaluationPlanManagers', user.uid))
-      .then((snap) => setAllowed(snap.exists()))
-      .catch(() => setAllowed(false))
-      .finally(() => setCheckingAccess(false))
-  }, [schoolId, user, isAdmin])
 
   useEffect(() => {
     if (!allowed || !schoolId) return

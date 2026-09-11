@@ -133,6 +133,7 @@ export const COL = {
   TEXTBOOK_ADOPTIONS: 'textbookAdoptions',  // auto-ID + cycleYear 필드. 하위에 scores/{uid} 서브컬렉션
   TEXTBOOK_DEPT_HEADS: 'textbookDeptHeads',            // ID: sanitizeSubjectGroup(교과군) — 교과군당 1명
   TEXTBOOK_PRINCIPAL_SIGNATURE: 'textbookPrincipalSignature', // ID: uid — asaPrincipalSignature와 동일 모양
+  TEXTBOOK_CATALOG: 'textbookCatalog', // ID: 'current' 단일 문서 — 시도교육청 공식 인정도서 목록 가져오기(관리자 전용, 연 1회 갱신)
 
   // 생기부 세특 점검 도구
   SETUK_CHECKS: 'setukChecks',   // auto-ID(업로드 배치 1개). 하위에 records/{id}, items/{id} 서브컬렉션
