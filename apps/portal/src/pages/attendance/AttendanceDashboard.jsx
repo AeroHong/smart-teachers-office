@@ -464,20 +464,30 @@ export default function AttendanceDashboard() {
   // 이 화면을 교실 화면에 띄워두는 경우가 있어, 미리 보이면 학생들이 번호에 맞춰
   // 등원 순서를 조작할 수 있다). 당첨자가 정해진 순간 번호와 당첨자를 한 번에
   // 공개한다 — 그 전까지는 luckyBanner 자체가 렌더링되지 않는다.
+  //
+  // 뽑을 번호의 상한은 원래 학생 그룹 인원수(students.length)를 썼는데, "그룹
+  // 선택 안 함(개방형)"으로 만든 이벤트는 students가 항상 빈 배열이라 실제
+  // 출석 인원과 무관하게 추첨이 아예 작동하지 않았다(사용자 지적, 2026-09-11 —
+  // 같은 날 1교시엔 잘 뜨는데 그룹 미연결인 4교시엔 안 뜬다). 등수 계산 자체는
+  // attendanceLogs만으로 이뤄져 그룹과 무관하므로, 그룹이 없을 땐 일반적인
+  // 학급 규모를 상한으로 대신 써서 이벤트마다(그룹 연결 여부와 무관하게) 매번
+  // 추첨이 돌게 한다.
+  const OPEN_EVENT_LUCKY_POOL = 30
+  const luckyPoolSize = students.length > 0 ? students.length : OPEN_EVENT_LUCKY_POOL
   const [luckyNumber, setLuckyNumber] = useState(null)
   useEffect(() => {
-    if (!schoolId || !eventId || !selectedDate || students.length < 4) { setLuckyNumber(null); return undefined }
+    if (!schoolId || !eventId || !selectedDate || luckyPoolSize < 4) { setLuckyNumber(null); return undefined }
     let alive = true
     const ref = doc(db, 'schools', schoolId, 'events', eventId, 'luckyDraws', selectedDate)
     getDoc(ref).then(async (snap) => {
       if (!alive) return
       if (snap.exists()) { setLuckyNumber(snap.data().number); return }
-      const number = Math.floor(Math.random() * (students.length - 3)) + 4
+      const number = Math.floor(Math.random() * (luckyPoolSize - 3)) + 4
       await setDoc(ref, { number, createdAt: serverTimestamp() }).catch(() => {})
       if (alive) setLuckyNumber(number)
     }).catch(() => {})
     return () => { alive = false }
-  }, [schoolId, eventId, selectedDate, students.length])
+  }, [schoolId, eventId, selectedDate, luckyPoolSize])
 
   // 뽑힌 번호와 같은 등수로 이미 체크인한 학생 — 아직 아무도 그 등수에 도달하지
   // 않았으면 undefined(추첨 배너가 "진행 중"으로 표시한다).
