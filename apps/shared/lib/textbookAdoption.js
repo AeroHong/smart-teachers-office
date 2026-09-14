@@ -7,16 +7,47 @@ import { COL, schoolPath, sanitizeSubjectGroup } from './schema'
 
 // 검·인정도서 선정.
 //
-// 참고했던 타교 배포 엑셀(검·인정도서 선정기준 평가.xlsm)의 배점 기준을 그대로 기본값으로 쓴다.
-// 관리자가 선정 건마다 항목을 추가·삭제·배점 수정할 수 있어 이 값은 "초기값"일 뿐이다.
+// 관리자가 선정 건마다 항목을 추가·삭제·배점·평가기준 문구를 수정할 수 있어 이 값은
+// "초기값"일 뿐이다. name·criteria·maxScore 모두 사용자가 첨부한 학교 실사용 예시
+// "[서식1] 검인정도서 선정 기준평가표(예시).xlsx"(통합과학1/2·과학탐구실험1/2 시트,
+// 내용 동일)를 그대로 옮긴 것이다(2026-09-16). criteria는 xlsx 셀의 "· " bullet
+// 줄바꿈을 그대로 유지해 여러 줄로 보여준다.
 export const DEFAULT_RUBRIC = [
-  { name: '교육과정', maxScore: 10 },
-  { name: '학습내용 선정', maxScore: 20 },
-  { name: '학습내용 조직', maxScore: 20 },
-  { name: '교수·학습활동', maxScore: 20 },
-  { name: '학습평가', maxScore: 10 },
-  { name: '표현·표기 및 외형체제', maxScore: 10 },
-  { name: '재정적 부분', maxScore: 10 },
+  { name: '교육과정의 부합성', maxScore: 15, criteria: '· 교육과정의 성격 및 목표에 부합하는가?' },
+  { name: '내용 수준의 적정성/정확성', maxScore: 15, criteria: '· 수준에 맞는 내용과 활동을 다루는가?\n· 개념 및 이론이 정확하고 검증되었는가?' },
+  { name: '내용의 중립성/학습 동기 유발', maxScore: 15, criteria: '· 개방적이고 균형적인 관점과 사고를 할 수 있도록 하는가?\n· 학습자의 흥미와 호기심을 유발하는가?' },
+  { name: '학습 내용 조직의 효과성/계열성', maxScore: 15, criteria: '· 학습 요소가 유용하게 구성되었는가?\n· 학년 간, 학교급 간의 연계 및 계열성을 고려하는가?' },
+  { name: '교수학습 활동 자료의 충실성/유용성', maxScore: 15, criteria: '· 교과서 부록 자료는 충분하고 유용한가?\n· 학습자 참여를 증진시키는 다양한 학습 활동을 제시하는가?' },
+  { name: '적절한 학습 평가 안내 및 제공', maxScore: 15, criteria: '· 학습 단계에 맞는 평가 방법(진단, 형성, 총괄 등) 및 유형(선택, 서답, 수행평가)을 안내하는가?\n· 단순한 지식 측정이 아닌 다양한 사고력을 측정하는가?' },
+  { name: '가독성, 디자인 및 가격의 적정성', maxScore: 10, criteria: '· 표현과 표기가 정확하고 가독성이 좋은가?\n· 동일 교과목 도서의 가격을 비교했는가?' },
+]
+
+// 서식1 하단 "<종합의견 및 추천의견>"에 참고할 예시 문구 — 2027학년도 선정 매뉴얼 21p
+// 【참고】심의 의견 예시를 그대로 옮겼다. 위원이 채점 화면에서 클릭하면 의견란에 덧붙일
+// 수 있게 하는 용도라, 학교 사정에 맞게 문구를 고치는 기능은 두지 않았다(매뉴얼 원문
+// 그대로 참고만 하고, 실제 의견은 위원이 자유 텍스트로 작성).
+export const OPINION_EXAMPLES = [
+  '교육과정의 성격에 맞고 교과목표를 충실히 달성할 수 있도록 구성',
+  '도표와 통계자료 등이 신빙성 있는 최신의 자료로 구성',
+  '문제해결 중심의 교수-학습이 가능하도록 구성',
+  '창의력과 응용력이 신장될 수 있도록 구성',
+  '내용과 용어가 학생의 발달수준에 적합함',
+  '자기주도적 학습이 가능하도록 내용이 조직됨',
+  '단위기준에 맞는 적정 분량의 내용을 가짐',
+  '기본개념과 핵심적인 내용이 적절히 선정됨',
+  '교과목표에 충실하게 내용이 구성',
+  '학습목표가 잘 조직되어 있음',
+  '단원, 차례, 목차 등이 잘 정리됨',
+  '문장이 간결·명료함',
+  '교수, 학습 체계가 위계적으로 조직됨',
+  '내용이 특정분야에 치우치지 않고 조화로움',
+  '교과용도서를 활용하기에 편리함',
+  '학생 수준별 학습에 적합',
+  '사진, 삽화가 우수함',
+  '인쇄, 편집체계가 교과목 특성에 잘 맞음',
+  '문장이 간결하고 내용이 이해하기 쉬움',
+  '가격 경쟁력이 우수함',
+  '전체적으로 우수함',
 ]
 
 export const STATUS_LABELS = { collecting: '채점중', closed: '마감' }
@@ -161,6 +192,50 @@ export async function updateAdoptionSetup(schoolId, adoptionId, data) {
 
 export async function deleteAdoption(schoolId, adoptionId) {
   await deleteDoc(adoptionDoc(schoolId, adoptionId))
+}
+
+/**
+ * 위원 명단을 바꾼다("과목 대표교사가 직접 위원을 고른다" 기능, 2026-09-14 정책).
+ * 채점 시작 전(아무도 제출 안 함)엔 자유롭게 바꾸고, 이미 제출한 위원을 빼는 경우엔 그
+ * 사람 점수를 폐기하기로 했다 — computeAggregate가 committeeUids가 아니라 scores
+ * 서브컬렉션 문서를 그대로 합산하므로, uid만 committeeUids에서 빼고 점수 문서를 남겨두면
+ * 나중에 마감할 때 그 점수가 계속 집계에 들어가 버린다. 그래서 명단에서 빠지는 사람의
+ * 점수 문서를 함께 지운다(제출 여부와 무관하게 — 초안만 있던 경우도 정리).
+ */
+export async function updateCommittee(schoolId, adoptionId, nextCommitteeUids, removedUids) {
+  await Promise.all((removedUids || []).map((uid) => deleteDoc(scoreDoc(schoolId, adoptionId, uid))))
+  await setDoc(adoptionDoc(schoolId, adoptionId), { committeeUids: nextCommitteeUids, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+/**
+ * 평가영역·평가기준·배점(rubric)만 바꾼다("과목 대표교사가 직접 배점 기준을 고친다" 기능,
+ * 2026-09-16). 위원 교체와 달리 이미 제출된 점수는 항목명 기준으로 저장돼 있어 rubric이
+ * 바뀌면 깔끔하게 되살릴 방법이 없다 — 그래서 "폐기하고 진행" 예외 없이, 아무도 채점을
+ * 제출하지 않았을 때만 과목 대표교사·교과부장이 고칠 수 있게 화면(TextbookDetail.jsx)에서
+ * 막는다(관리자는 기존처럼 언제든 AdminTextbookSubjects에서 수정 가능 — 여기 규칙은
+ * 그대로 둔다).
+ */
+export async function updateRubric(schoolId, adoptionId, rubric) {
+  await setDoc(adoptionDoc(schoolId, adoptionId), { rubric, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+/**
+ * 여러 선정 건에 같은 교과군을 한 번에 지정한다("선정 건 관리" 화면의 일괄 작업용).
+ * updateAdoptionSetup은 다른 필드까지 함께 다시 써야 해서, 교과군 하나만 바꿀 땐 그
+ * 필드만 merge로 건드리는 이 함수가 더 안전하다(다른 필드를 실수로 덮어쓸 일이 없음).
+ * 한 건이 실패해도 나머지는 계속 진행하고, 실패한 건의 id만 모아 반환한다.
+ */
+export async function bulkSetSubjectGroup(schoolId, adoptionIds, subjectGroup) {
+  const sanitized = subjectGroup ? sanitizeSubjectGroup(subjectGroup) : ''
+  const failed = []
+  await Promise.all(adoptionIds.map(async (id) => {
+    try {
+      await setDoc(adoptionDoc(schoolId, id), { subjectGroup: sanitized, updatedAt: serverTimestamp() }, { merge: true })
+    } catch (e) {
+      failed.push({ id, error: e.message })
+    }
+  }))
+  return { updated: adoptionIds.length - failed.length, failed }
 }
 
 export function subscribeMyScore(schoolId, adoptionId, uid, cb, onError) {

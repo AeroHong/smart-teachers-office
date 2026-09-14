@@ -1106,7 +1106,13 @@ service cloud.firestore {
              get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data.get('status', 'collecting') == 'collecting') ||
             (isTeacher(schoolId) && isTextbookScoreProxyFor(schoolId, adoptionId, uid) &&
              get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data.get('status', 'collecting') == 'collecting');
-          allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+          // 과목 대표교사·교과부장도 지울 수 있게 열어둔다 — 위원 교체 시 빠지는 사람의
+          // 점수를 폐기하는 정책(2026-09-14)이 이 삭제 권한에 의존한다.
+          allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            (isTeacher(schoolId) && isTextbookSubjectHead(schoolId, adoptionId)) ||
+            (isTeacher(schoolId) &&
+             get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data.get('subjectGroup', '') != '' &&
+             isTextbookDeptHead(schoolId, get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data.get('subjectGroup', '')));
         }
       }
 

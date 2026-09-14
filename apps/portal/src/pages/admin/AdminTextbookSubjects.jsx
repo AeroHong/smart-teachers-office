@@ -9,6 +9,7 @@ import TableHead from '@mui/material/TableHead'
 import TableBody from '@mui/material/TableBody'
 import TableRow from '@mui/material/TableRow'
 import TableCell from '@mui/material/TableCell'
+import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import Paper from '@mui/material/Paper'
 import Dialog from '@mui/material/Dialog'
@@ -28,12 +29,15 @@ import AddIcon from '@mui/icons-material/Add'
 import UploadIcon from '@mui/icons-material/Upload'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { useTableSort } from '@shared/hooks/useTableSort'
 import { USERS, currentSchoolYear, sanitizeSubjectGroup } from '@shared/lib/schema'
 import { loadSubjects, SUBJECT_GROUPS } from '@shared/lib/subjectData'
 import {
-  loadAdoptionsWithProgress, createAdoption, updateAdoptionSetup, deleteAdoption,
+  loadAdoptionsWithProgress, createAdoption, updateAdoptionSetup, deleteAdoption, bulkSetSubjectGroup,
   DEFAULT_RUBRIC, rubricMax, newCandidateId, newExternalMemberId, STATUS_LABELS,
 } from '@shared/lib/textbookAdoption'
 import { RowActions, EditAction, DeleteAction } from './adminUi'
@@ -70,7 +74,43 @@ export default function AdminTextbookSubjects() {
   const [form, setForm] = useState(emptyForm())
   const [saving, setSaving] = useState(false)
 
+  // 여러 선정 건을 골라 같은 교과군으로 한 번에 묶는 일괄 작업(관리자가 새로 만든 선정
+  // 건마다 교과군을 하나하나 고르지 않아도 되게 한다).
+  const [selected, setSelected] = useState(new Set())
+  const [bulkGroup, setBulkGroup] = useState('')
+  const [bulkApplying, setBulkApplying] = useState(false)
+
+  // 교과군별로 모아보는 필터(생기부 세특 점검의 "과목별 보기"·학년 필터와 같은 방식)와
+  // 헤더 클릭 정렬(전체 현황 화면의 useTableSort와 동일한 패턴).
+  const [groupFilter, setGroupFilter] = useState('all')
+  const tableSort = useTableSort()
+
   const staffByUid = useMemo(() => Object.fromEntries(staff.map((s) => [s.uid, s])), [staff])
+
+  const groupCounts = useMemo(() => {
+    const counts = {}
+    adoptions.forEach((a) => { if (a.subjectGroup) counts[a.subjectGroup] = (counts[a.subjectGroup] || 0) + 1 })
+    return counts
+  }, [adoptions])
+  const unassignedCount = useMemo(() => adoptions.filter((a) => !a.subjectGroup).length, [adoptions])
+
+  const filteredAdoptions = useMemo(() => {
+    if (groupFilter === 'all') return adoptions
+    if (groupFilter === 'unassigned') return adoptions.filter((a) => !a.subjectGroup)
+    return adoptions.filter((a) => a.subjectGroup === groupFilter)
+  }, [adoptions, groupFilter])
+
+  const sortGetters = {
+    subjectName: (a) => a.subjectName || '',
+    subjectGroup: (a) => (a.subjectGroup ? a.subjectGroup.replace(/_/g, '/') : ''),
+    cycleYear: (a) => a.cycleYear || 0,
+    candidateCount: (a) => a.candidates?.length || 0,
+    committeeCount: (a) => (a.committeeUids?.length || 0) + (a.externalMembers?.length || 0),
+    subjectHead: (a) => staffByUid[a.subjectHeadUid]?.name || '',
+    submitted: (a) => a.submittedCount ?? -1,
+    status: (a) => a.status || '',
+  }
+  const sortedAdoptions = tableSort.sortData(filteredAdoptions, sortGetters)
 
   const fetchAdoptions = async () => {
     setLoading(true)
@@ -129,6 +169,37 @@ export default function AdminTextbookSubjects() {
     }
   }
 
+  const toggleSelectOne = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  // "전체 선택"은 필터로 좁혀진(화면에 보이는) 행만 대상으로 한다.
+  const allSelected = sortedAdoptions.length > 0 && sortedAdoptions.every((a) => selected.has(a.id))
+  const someSelected = sortedAdoptions.some((a) => selected.has(a.id))
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(sortedAdoptions.map((a) => a.id)))
+  }
+
+  const handleBulkApplyGroup = async () => {
+    if (!bulkGroup || !selected.size) return
+    setBulkApplying(true)
+    setError('')
+    try {
+      const res = await bulkSetSubjectGroup(schoolId, [...selected], bulkGroup)
+      if (res.failed.length) setError(`${res.failed.length}건 지정 실패`)
+      setSelected(new Set())
+      setBulkGroup('')
+      fetchAdoptions()
+    } catch (e) {
+      setError(`일괄 지정 실패: ${e.message}`)
+    } finally {
+      setBulkApplying(false)
+    }
+  }
+
   const updateCandidate = (id, field, value) => {
     setForm((f) => ({ ...f, candidates: f.candidates.map((c) => (c.id === id ? { ...c, [field]: value } : c)) }))
   }
@@ -144,8 +215,25 @@ export default function AdminTextbookSubjects() {
   const updateRubric = (idx, field, value) => {
     setForm((f) => ({ ...f, rubric: f.rubric.map((r, i) => (i === idx ? { ...r, [field]: value } : r)) }))
   }
-  const addRubric = () => setForm((f) => ({ ...f, rubric: [...f.rubric, { name: '', maxScore: 0 }] }))
+  const addRubric = () => setForm((f) => ({ ...f, rubric: [...f.rubric, { name: '', maxScore: 0, criteria: '' }] }))
   const removeRubric = (idx) => setForm((f) => ({ ...f, rubric: f.rubric.filter((_, i) => i !== idx) }))
+
+  // 기존에 만든 선정 건은 평가기준 필드가 생기기 전에 저장된 rubric이라 이 칸이 비어 있다.
+  // 이름이 DEFAULT_RUBRIC 항목과 일치하면 그 문구를, 항목 수가 같으면 순서로 대응하는
+  // 문구를 채워 넣는다 — 이미 채워진 칸은 건드리지 않는다.
+  const fillDefaultCriteria = () => {
+    setForm((f) => ({
+      ...f,
+      rubric: f.rubric.map((r, i) => {
+        if (r.criteria) return r
+        const byName = DEFAULT_RUBRIC.find((d) => d.name === r.name)
+        const byPosition = f.rubric.length === DEFAULT_RUBRIC.length ? DEFAULT_RUBRIC[i] : null
+        const criteria = byName?.criteria || byPosition?.criteria || ''
+        return criteria ? { ...r, criteria } : r
+      }),
+    }))
+  }
+  const hasEmptyCriteria = form.rubric.some((r) => !r.criteria)
 
   const rubricSum = rubricMax(form.rubric)
 
@@ -162,7 +250,7 @@ export default function AdminTextbookSubjects() {
         subjectGroup: form.subjectGroup,
         cycleYear: Number(form.cycleYear),
         candidates: form.candidates.map((c) => ({ id: c.id, publisher: c.publisher.trim(), author: c.author.trim(), price: (c.price || '').trim() })),
-        rubric: form.rubric.map((r) => ({ name: r.name.trim(), maxScore: Number(r.maxScore) })),
+        rubric: form.rubric.map((r) => ({ name: r.name.trim(), maxScore: Number(r.maxScore), criteria: (r.criteria || '').trim() })),
         committeeUids: form.committee.map((s) => s.uid),
         externalMembers: form.externalMembers.filter((m) => m.name.trim()).map((m) => ({ id: m.id, name: m.name.trim(), affiliation: (m.affiliation || '').trim() })),
         subjectHeadUid: form.subjectHeadUid,
@@ -202,52 +290,93 @@ export default function AdminTextbookSubjects() {
       ) : adoptions.length === 0 ? (
         <Alert severity="info">등록된 선정 건이 없습니다.</Alert>
       ) : (
-        <Paper variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
-                <TableCell>과목</TableCell>
-                <TableCell>교과군</TableCell>
-                <TableCell align="center">선정연도</TableCell>
-                <TableCell align="center">후보</TableCell>
-                <TableCell align="center">위원</TableCell>
-                <TableCell align="center">과목 대표교사</TableCell>
-                <TableCell align="center">제출현황</TableCell>
-                <TableCell align="center">상태</TableCell>
-                <TableCell align="center">관리</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {adoptions.map((a) => (
-                <TableRow key={a.id} hover>
-                  <TableCell sx={{ fontWeight: 600 }}>{a.subjectName}</TableCell>
-                  <TableCell>{a.subjectGroup ? a.subjectGroup.replace(/_/g, '/') : '-'}</TableCell>
-                  <TableCell align="center">{a.cycleYear}</TableCell>
-                  <TableCell align="center">{a.candidates?.length || 0}</TableCell>
-                  <TableCell align="center">
-                    {(a.committeeUids?.length || 0) + (a.externalMembers?.length || 0)}
-                    {a.externalMembers?.length > 0 && <Typography component="span" variant="caption" color="text.secondary"> (외부 {a.externalMembers.length})</Typography>}
+        <>
+          <FormControl size="small" sx={{ minWidth: 220, mb: 1.5 }}>
+            <InputLabel>교과군으로 모아보기</InputLabel>
+            <Select label="교과군으로 모아보기" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+              <MenuItem value="all">전체 ({adoptions.length})</MenuItem>
+              {SUBJECT_GROUPS.map((g) => {
+                const key = sanitizeSubjectGroup(g)
+                return <MenuItem key={g} value={key}>{g} ({groupCounts[key] || 0})</MenuItem>
+              })}
+              <MenuItem value="unassigned">미지정 ({unassignedCount})</MenuItem>
+            </Select>
+          </FormControl>
+
+          {selected.size > 0 && (
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
+              p: 1.5, mb: 1.5, borderRadius: 1, bgcolor: '#f0fdfa', border: '1px solid #99f6e4',
+            }}>
+              <Typography variant="body2" fontWeight={700}>{selected.size}개 선택됨</Typography>
+              <FormControl size="small" sx={{ minWidth: 220 }}>
+                <InputLabel>교과군으로 일괄 지정</InputLabel>
+                <Select label="교과군으로 일괄 지정" value={bulkGroup} onChange={(e) => setBulkGroup(e.target.value)}>
+                  {SUBJECT_GROUPS.map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
+                </Select>
+              </FormControl>
+              <Button variant="contained" size="small" disabled={!bulkGroup || bulkApplying} onClick={handleBulkApplyGroup}>
+                {bulkApplying ? '적용 중...' : '적용'}
+              </Button>
+              <Button size="small" onClick={() => setSelected(new Set())}>선택 해제</Button>
+            </Box>
+          )}
+          <Paper variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
+                  <TableCell padding="checkbox">
+                    <Checkbox size="small" indeterminate={someSelected && !allSelected} checked={allSelected} onChange={toggleSelectAll} />
                   </TableCell>
-                  <TableCell align="center">{staffByUid[a.subjectHeadUid]?.name || '-'}</TableCell>
-                  <TableCell align="center">{a.submittedCount ?? '-'} / {(a.committeeUids?.length || 0) + (a.externalMembers?.length || 0)}</TableCell>
-                  <TableCell align="center">
-                    <Chip
-                      size="small"
-                      label={STATUS_LABELS[a.status] || a.status}
-                      sx={a.status === 'closed' ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700 } : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
-                    />
-                  </TableCell>
-                  <TableCell align="center">
-                    <RowActions>
-                      <EditAction onClick={() => openEdit(a)} />
-                      <DeleteAction onClick={() => handleDelete(a)} />
-                    </RowActions>
-                  </TableCell>
+                  <TableCell sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('subjectName')}>과목{tableSort.Ind('subjectName')}</TableCell>
+                  <TableCell sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('subjectGroup')}>교과군{tableSort.Ind('subjectGroup')}</TableCell>
+                  <TableCell align="center" sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('cycleYear')}>선정연도{tableSort.Ind('cycleYear')}</TableCell>
+                  <TableCell align="center" sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('candidateCount')}>후보{tableSort.Ind('candidateCount')}</TableCell>
+                  <TableCell align="center" sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('committeeCount')}>위원{tableSort.Ind('committeeCount')}</TableCell>
+                  <TableCell align="center" sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('subjectHead')}>과목 대표교사{tableSort.Ind('subjectHead')}</TableCell>
+                  <TableCell align="center" sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('submitted')}>제출현황{tableSort.Ind('submitted')}</TableCell>
+                  <TableCell align="center" sx={{ cursor: 'pointer' }} onClick={() => tableSort.toggle('status')}>상태{tableSort.Ind('status')}</TableCell>
+                  <TableCell align="center">관리</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
+              </TableHead>
+              <TableBody>
+                {sortedAdoptions.length === 0 && (
+                  <TableRow><TableCell colSpan={10} align="center" sx={{ color: 'text.secondary', py: 3 }}>이 교과군에 해당하는 선정 건이 없습니다.</TableCell></TableRow>
+                )}
+                {sortedAdoptions.map((a) => (
+                  <TableRow key={a.id} hover selected={selected.has(a.id)}>
+                    <TableCell padding="checkbox">
+                      <Checkbox size="small" checked={selected.has(a.id)} onChange={() => toggleSelectOne(a.id)} />
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{a.subjectName}</TableCell>
+                    <TableCell>{a.subjectGroup ? a.subjectGroup.replace(/_/g, '/') : '-'}</TableCell>
+                    <TableCell align="center">{a.cycleYear}</TableCell>
+                    <TableCell align="center">{a.candidates?.length || 0}</TableCell>
+                    <TableCell align="center">
+                      {(a.committeeUids?.length || 0) + (a.externalMembers?.length || 0)}
+                      {a.externalMembers?.length > 0 && <Typography component="span" variant="caption" color="text.secondary"> (외부 {a.externalMembers.length})</Typography>}
+                    </TableCell>
+                    <TableCell align="center">{staffByUid[a.subjectHeadUid]?.name || '-'}</TableCell>
+                    <TableCell align="center">{a.submittedCount ?? '-'} / {(a.committeeUids?.length || 0) + (a.externalMembers?.length || 0)}</TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        size="small"
+                        label={STATUS_LABELS[a.status] || a.status}
+                        sx={a.status === 'closed' ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700 } : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <RowActions>
+                        <EditAction onClick={() => openEdit(a)} />
+                        <DeleteAction onClick={() => handleDelete(a)} />
+                      </RowActions>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Paper>
+        </>
       )}
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
@@ -308,21 +437,27 @@ export default function AdminTextbookSubjects() {
             <Button size="small" startIcon={<AddIcon />} onClick={addCandidate} sx={{ alignSelf: 'flex-start' }}>후보 추가</Button>
           </Box>
 
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-            배점 기준 {' '}
-            <Typography component="span" variant="caption" color={rubricSum === 100 ? 'text.secondary' : 'warning.main'}>
-              (합계 {rubricSum}점{rubricSum !== 100 ? ' — 보통 100점 만점으로 맞춥니다' : ''})
-            </Typography>
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>평가 영역 · 평가 기준 · 배점</Typography>
+            {hasEmptyCriteria && (
+              <Button size="small" onClick={fillDefaultCriteria}>기본 문구로 채우기</Button>
+            )}
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5 }}>
             {form.rubric.map((r, idx) => (
-              <Box key={idx} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Box key={idx} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
                 <TextField
                   size="small" label="평가영역" sx={{ flex: 1 }} value={r.name}
                   onChange={(e) => updateRubric(idx, 'name', e.target.value)}
                 />
                 <TextField
-                  size="small" type="number" label="배점" sx={{ width: 100 }} value={r.maxScore}
+                  size="small" label="평가기준" sx={{ flex: 2 }} value={r.criteria || ''}
+                  multiline minRows={1} maxRows={4}
+                  placeholder={'예: · 학습 분량이 단원별로 균형 있게 구성되어 있는가?'}
+                  onChange={(e) => updateRubric(idx, 'criteria', e.target.value)}
+                />
+                <TextField
+                  size="small" type="number" label="배점" sx={{ width: 90 }} value={r.maxScore}
                   onChange={(e) => updateRubric(idx, 'maxScore', e.target.value)}
                 />
                 <IconButton size="small" onClick={() => removeRubric(idx)} disabled={form.rubric.length <= 1}>
@@ -331,6 +466,26 @@ export default function AdminTextbookSubjects() {
               </Box>
             ))}
             <Button size="small" startIcon={<AddIcon />} onClick={addRubric} sx={{ alignSelf: 'flex-start' }}>항목 추가</Button>
+          </Box>
+
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: 1, mb: 3, p: 1.25, borderRadius: '10px',
+            bgcolor: rubricSum === 100 ? '#f0fdf4' : '#fef2f2',
+            border: '1px solid', borderColor: rubricSum === 100 ? '#bbf7d0' : '#fecaca',
+          }}>
+            {rubricSum === 100 ? (
+              <>
+                <CheckCircleIcon sx={{ fontSize: 18, color: '#16a34a' }} />
+                <Typography sx={{ fontSize: '0.82rem', color: '#166534', fontWeight: 700 }}>배점 합계 100점</Typography>
+              </>
+            ) : (
+              <>
+                <WarningAmberIcon sx={{ fontSize: 18, color: '#dc2626' }} />
+                <Typography sx={{ fontSize: '0.82rem', color: '#991b1b', fontWeight: 700 }}>
+                  배점 합계 {rubricSum}점 — 100점이 되어야 합니다
+                </Typography>
+              </>
+            )}
           </Box>
 
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>평가위원</Typography>
@@ -373,13 +528,14 @@ export default function AdminTextbookSubjects() {
               관장하는 "교과부장"(서식2 확인자·서식3 작성자)과는 다른 역할이며, 교과부장은
               관리자 홈 &gt; 교과부장 지정에서 별도로 지정한다. */}
           <Autocomplete
+            multiple
             size="small"
             autoHighlight
             options={staff}
             getOptionLabel={(o) => o.name || o.email || ''}
             isOptionEqualToValue={(a, b) => a.uid === b.uid}
-            value={staffByUid[form.subjectHeadUid] || null}
-            onChange={(_, value) => setForm((f) => ({ ...f, subjectHeadUid: value?.uid || '' }))}
+            value={staffByUid[form.subjectHeadUid] ? [staffByUid[form.subjectHeadUid]] : []}
+            onChange={(_, value) => setForm((f) => ({ ...f, subjectHeadUid: value.length ? value[value.length - 1].uid : '' }))}
             renderInput={(params) => <TextField {...params} label="과목 대표교사 (채점 마감·집계 권한, 위원이 아니어도 지정 가능)" />}
           />
         </DialogContent>

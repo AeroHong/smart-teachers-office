@@ -25,6 +25,15 @@ function findHeaderRow(rows) {
   return -1
 }
 
+// 과목명 그룹핑 키 — 원본 데이터가 시도마다 따로 다시 입력한 값이라 같은 과목인데도
+// 띄어쓰기가 시트마다 다르게 들어간 경우가 있다(실제 사례, 2026-09-16: "윤리문제 탐구"가
+// 맞는 표기인데 한 시트엔 "윤리 문제 탐구"로 들어가 있어 서로 다른 과목으로 갈라짐 —
+// 후보가 반씩 나뉘어 등록되는 사고로 이어졌다). 공백을 전부 지운 값으로 묶어 같은 과목으로
+// 합친다.
+function subjectKey(name) {
+  return name.replace(/\s+/g, '')
+}
+
 /**
  * 엑셀 파일을 읽어 { 과목명: [{publisher, author, price}] } 형태로 만든다.
  *
@@ -38,7 +47,10 @@ export async function parseTextbookCatalogXlsx(file) {
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
 
-  const bySubject = new Map() // 과목명 -> Map(candidateKey -> candidate)
+  const bySubject = new Map() // subjectKey -> Map(candidateKey -> candidate)
+  // 같은 subjectKey로 묶인 표기 중 대표로 쓸 이름 — 공백이 가장 적은 쪽을 고른다(잘못
+  // 끼워넣은 공백이 없을 가능성이 높은 쪽).
+  const canonicalName = new Map() // subjectKey -> { name, spaces }
   const sheetReports = []
 
   wb.SheetNames.forEach((sheetName) => {
@@ -64,36 +76,49 @@ export async function parseTextbookCatalogXlsx(file) {
     }
 
     let used = 0
-    const sheetSubjectNames = new Set()
+    const sheetKeys = new Set()
     rows.slice(headerIdx + 1).forEach((r) => {
       const school = String(r[cSchool] ?? '')
       if (!school.includes('고등')) return
-      const subjectName = String(r[cSubject] ?? '').trim()
+      const rawName = String(r[cSubject] ?? '').trim()
       const publisher = String(r[cPublisher] ?? '').trim()
-      if (!subjectName || !publisher) return
+      if (!rawName || !publisher) return
 
       const author = cAuthor >= 0 ? String(r[cAuthor] ?? '').trim() : ''
       const price = cPrice >= 0 ? String(r[cPrice] ?? '').trim() : ''
 
-      if (!bySubject.has(subjectName)) bySubject.set(subjectName, new Map())
-      const candidates = bySubject.get(subjectName)
-      const key = `${publisher}|${author}|${price}`
-      if (!candidates.has(key)) candidates.set(key, { publisher, author, price })
-      sheetSubjectNames.add(subjectName)
+      const key = subjectKey(rawName)
+      const spaces = (rawName.match(/\s/g) || []).length
+      if (!canonicalName.has(key) || spaces < canonicalName.get(key).spaces) {
+        canonicalName.set(key, { name: rawName, spaces })
+      }
+
+      if (!bySubject.has(key)) bySubject.set(key, new Map())
+      const candidates = bySubject.get(key)
+      const cKey = `${publisher}|${author}|${price}`
+      if (!candidates.has(cKey)) candidates.set(cKey, { publisher, author, price })
+      sheetKeys.add(key)
       used += 1
     })
-    sheetReports.push({
-      sheetName, used: true, rows: used,
-      subjectNames: [...sheetSubjectNames].sort((a, b) => a.localeCompare(b, 'ko')),
-    })
+    // subjectNames는 아래에서 canonicalName이 전체 시트를 다 훑은 뒤에야 확정되므로,
+    // 일단 키만 담아두고 마지막에 이름으로 바꾼다.
+    sheetReports.push({ sheetName, used: true, rows: used, _keys: sheetKeys })
   })
 
   const subjects = {}
   let candidateCount = 0
-  ;[...bySubject.entries()].forEach(([name, candidates]) => {
+  ;[...bySubject.entries()].forEach(([key, candidates]) => {
+    const name = canonicalName.get(key)?.name || key
     const list = [...candidates.values()].sort((a, b) => a.publisher.localeCompare(b.publisher, 'ko'))
     subjects[name] = list
     candidateCount += list.length
+  })
+
+  sheetReports.forEach((r) => {
+    r.subjectNames = [...(r._keys || [])]
+      .map((k) => canonicalName.get(k)?.name || k)
+      .sort((a, b) => a.localeCompare(b, 'ko'))
+    delete r._keys
   })
 
   return {
