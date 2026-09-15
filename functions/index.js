@@ -61,6 +61,12 @@ exports.syncEvaluationPlanToStaff = evaluationPlanSync.syncEvaluationPlanToStaff
 const requestCalendarSync = require('./requestCalendarSync')
 exports.syncRequestToCalendar = requestCalendarSync.syncRequestToCalendar
 
+// 이메일 발송(교사 → 학생) — emailJobs 문서가 'queued'로 (즉시든 예약 승격이든) 바뀌면
+// Gmail API로 실제 발송, 매분 예약 발송 예정 시각 도래 여부 확인
+const emailSend = require('./emailSend')
+exports.onEmailJobWrite = emailSend.onEmailJobWrite
+exports.promoteScheduledEmailJobs = emailSend.promoteScheduledEmailJobs
+
 /**
  * superAdmin Custom Claims 초기 부여 (1회 실행용)
  *

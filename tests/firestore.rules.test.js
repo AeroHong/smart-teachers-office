@@ -106,6 +106,12 @@ beforeEach(async () => {
     await setDoc(doc(db, ...path('requests', 'dmPost')), post({
       channelId: `dm_${A}_${B}`, visibility: 'members', visibleUids: [A, B],
     }))
+
+    // emailJobs 규칙의 create 조건이 schools/{schoolId}.workspaceSync.enabled를 get()으로
+    // 확인하므로, 그 문서를 직접 심어둔다. OTHER_SCHOOL은 의도적으로 이 문서를 만들지
+    // 않는다 — Workspace 연동을 아예 설정한 적 없는 학교(문서 자체가 없음)에서도 발송이
+    // 막히는지를 확인하기 위해서다.
+    await setDoc(doc(db, 'schools', SCHOOL), { name: '테스트고', workspaceSync: { enabled: true } })
   })
 })
 
@@ -721,5 +727,152 @@ test('[초대] 예전에 나갔던 사람을 다시 데려오면 나감 표시�
 test('[초대] 초대를 핑계로 다른 필드를 못 바꾼다', async () => {
   await assertFails(updateDoc(doc(as(B), ...path('channels', 'open')), {
     memberUids: [A, B, C], name: '가로챈 이름', updatedAt: new Date(),
+  }))
+})
+
+// ── 9. 이메일 발송(emailJobs) — 발신자 위조 방지, Workspace 미연동 학교 차단,
+//      "본인 + 관리자만 열람"은 personalNotices와 달리 학교 관리자가 전체를 본다 ──
+
+const A_EMAIL = 'a@test.example'
+const B_EMAIL = 'b@test.example'
+
+const emailJob = (over) => ({
+  senderUid: A, senderEmail: A_EMAIL, senderName: 'A',
+  schoolId: SCHOOL, schoolName: '테스트고',
+  subject: '제목', bodyHtml: '<p>내용</p>', bodyText: '내용',
+  recipients: [{
+    workspaceUserId: 'w1', studentId: '10101', email: 'stu1@test.example', name: '학생1',
+    grade: 1, class: 1, number: 1,
+    status: 'pending', sentAt: null, gmailMessageId: null, error: null,
+  }],
+  counts: { total: 1, sent: 0, failed: 0 },
+  status: 'queued', failReason: null, targetFilter: { mode: 'manual' },
+  createdAt: new Date(), startedAt: null, completedAt: null,
+  ...over,
+})
+
+test('[이메일] 본인 계정·정상 데이터로 발송 요청을 만들 수 있다', async () => {
+  await assertSucceeds(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'job1')), emailJob()))
+})
+
+test('[이메일] senderUid를 남으로 위조할 수 없다', async () => {
+  await assertFails(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'job2')), emailJob({ senderUid: B })))
+})
+
+test('[이메일] senderEmail을 실제 로그인 이메일과 다르게 위조할 수 없다 ★', async () => {
+  // 발송 트리거가 senderEmail을 그대로 Gmail impersonate 대상으로 쓰므로, 이 값이
+  // 실제 로그인 계정과 다르면 남의 이름으로 발송하는 셈이 된다.
+  await assertFails(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'job3')), emailJob({ senderEmail: B_EMAIL })))
+})
+
+test('[이메일] 이미 발송된 것처럼 status·counts를 조작해 만들 수 없다', async () => {
+  await assertFails(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'job4')),
+    emailJob({ status: 'done', counts: { total: 1, sent: 1, failed: 0 } })))
+})
+
+test('[이메일] 수신자가 없는 발송은 만들 수 없다', async () => {
+  await assertFails(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'job5')),
+    emailJob({ recipients: [], counts: { total: 0, sent: 0, failed: 0 } })))
+})
+
+test('[이메일] Workspace 연동 자체가 없는 학교는 발송 요청이 막힌다 ★', async () => {
+  const otherPath = (...segs) => ['schools', OTHER_SCHOOL, ...segs]
+  await assertFails(setDoc(
+    doc(as(SUPER, { email: 'super@test.example' }), ...otherPath('emailJobs', 'job1')),
+    emailJob({ schoolId: OTHER_SCHOOL, senderUid: SUPER, senderEmail: 'super@test.example' }),
+  ))
+})
+
+test('[이메일] 본인은 자기가 보낸 발송 내역을 읽는다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'jobR1')), emailJob())
+  })
+  await assertSucceeds(getDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'jobR1'))))
+})
+
+test('[이메일] 같은 학교 다른 교사는 남이 보낸 발송 내역을 못 읽는다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'jobR2')), emailJob())
+  })
+  await assertFails(getDoc(doc(as(B, { email: B_EMAIL }), ...path('emailJobs', 'jobR2'))))
+})
+
+test('[이메일] 학교 관리자는 전체 발송 내역을 읽는다 — personalNotices와 의도적으로 다른 부분', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'jobR3')), emailJob())
+  })
+  await assertSucceeds(getDoc(doc(as(ADMIN), ...path('emailJobs', 'jobR3'))))
+})
+
+test('[이메일] 진행률·상태는 클라이언트가 못 고친다 — 서버(트리거)만 쓴다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'jobU1')), emailJob())
+  })
+  await assertFails(updateDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'jobU1')), {
+    status: 'done', counts: { total: 1, sent: 1, failed: 0 },
+  }))
+})
+
+// ── 예약 발송 ──────────────────────────────────────────────────────────
+
+const future = () => new Date(Date.now() + 60 * 60 * 1000) // 1시간 뒤
+const past = () => new Date(Date.now() - 60 * 60 * 1000)   // 1시간 전
+
+test('[이메일 예약] 미래 시각으로 예약 발송을 만들 수 있다', async () => {
+  await assertSucceeds(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'sched1')),
+    emailJob({ status: 'scheduled', scheduledAt: future() })))
+})
+
+test('[이메일 예약] 과거·현재 시각으로는 예약을 만들 수 없다 ★', async () => {
+  await assertFails(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'sched2')),
+    emailJob({ status: 'scheduled', scheduledAt: past() })))
+})
+
+test('[이메일 예약] 발신자 본인은 아직 발송 전인 예약을 취소할 수 있다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'sched3')),
+      emailJob({ status: 'scheduled', scheduledAt: future() }))
+  })
+  await assertSucceeds(updateDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'sched3')), {
+    status: 'cancelled', cancelledAt: new Date(),
+  }))
+})
+
+test('[이메일 예약] 학교 관리자도 남의 예약을 취소할 수 있다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'sched4')),
+      emailJob({ status: 'scheduled', scheduledAt: future() }))
+  })
+  await assertSucceeds(updateDoc(doc(as(ADMIN), ...path('emailJobs', 'sched4')), {
+    status: 'cancelled', cancelledAt: new Date(),
+  }))
+})
+
+test('[이메일 예약] 다른 교사는 남의 예약을 취소할 수 없다 ★', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'sched5')),
+      emailJob({ status: 'scheduled', scheduledAt: future() }))
+  })
+  await assertFails(updateDoc(doc(as(B, { email: B_EMAIL }), ...path('emailJobs', 'sched5')), {
+    status: 'cancelled', cancelledAt: new Date(),
+  }))
+})
+
+test('[이메일 예약] 이미 발송 중이거나 끝난 건은 "취소"로 되돌릴 수 없다 ★', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'sched6')), emailJob({ status: 'sending' }))
+  })
+  await assertFails(updateDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'sched6')), {
+    status: 'cancelled', cancelledAt: new Date(),
+  }))
+})
+
+test('[이메일 예약] 취소를 핑계로 다른 필드는 못 바꾼다 ★', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('emailJobs', 'sched7')),
+      emailJob({ status: 'scheduled', scheduledAt: future() }))
+  })
+  await assertFails(updateDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'sched7')), {
+    status: 'cancelled', cancelledAt: new Date(), subject: '가로챈 제목',
   }))
 })

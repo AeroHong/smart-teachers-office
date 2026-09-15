@@ -383,6 +383,50 @@ service cloud.firestore {
           (isTeacher(schoolId) && resource.data.senderUid == request.auth.uid);
       }
 
+      // 이메일 발송(교사 → 학생) 내역 — personalNotices와 달리 학교 관리자는 전체를
+      // 열람할 수 있다(발송 남용·민원 확인 목적). 실제 발송(진행률·상태 갱신)은
+      // 클라이언트가 아니라 Firestore 트리거(functions/emailSend.js, Admin SDK로 규칙을
+      // 우회)만 한다 — 클라이언트에게는 "예약 취소" 한 가지 좁은 update만 열어준다.
+      match /emailJobs/{jobId} {
+        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) && resource.data.senderUid == request.auth.uid);
+
+        // 생성은 클라이언트가 직접 한다. 이미 발송된 것처럼(status·counts 조작) 문서를
+        // 만들 수 없게 생성 시점 상태를 강제하고, 발신자 위조와 Workspace 미연동 학교의
+        // 우회 발송을 여기서 막는다 — 실제 발송(Gmail API 도메인 위임)은 senderEmail을
+        // impersonate 대상으로 그대로 쓰므로, 이 값이 로그인 계정과 다르면 남의 이름으로
+        // 발송하는 셈이 된다.
+        //
+        // status는 'queued'(즉시 발송) 또는 'scheduled'(예약 발송) 둘 중 하나만 생성 시점에
+        // 허용한다. 예약은 scheduledAt이 미래 시각이어야 한다 — 과거·현재 시각을 넣어
+        // "예약"이라는 이름으로 즉시발송 검증(생성 시점 확인 다이얼로그 등)을 우회하지
+        // 못하게 막는다.
+        allow create: if isTeacher(schoolId) &&
+          request.resource.data.senderUid == request.auth.uid &&
+          request.resource.data.senderEmail == request.auth.token.email &&
+          request.resource.data.schoolId == schoolId &&
+          request.resource.data.status in ['queued', 'scheduled'] &&
+          (request.resource.data.status == 'queued' ||
+           request.resource.data.scheduledAt > request.time) &&
+          request.resource.data.recipients.size() > 0 &&
+          request.resource.data.recipients.size() == request.resource.data.counts.total &&
+          request.resource.data.counts.sent == 0 &&
+          request.resource.data.counts.failed == 0 &&
+          get(/databases/$(database)/documents/schools/$(schoolId)).data.get('workspaceSync', {}).get('enabled', false) == true;
+
+        // 예약 취소 — 아직 발송이 시작되지 않은(status:'scheduled') 건에 한해 발신자 본인
+        // 또는 학교 관리자가 취소할 수 있다. status·cancelledAt 외 필드는 손댈 수 없다.
+        // 그 외 모든 상태 전환(sending/done/failed 등)은 여전히 서버(트리거)만 한다.
+        allow update: if isSuperAdmin() ||
+          ((isSchoolAdmin(schoolId) ||
+            (isTeacher(schoolId) && resource.data.senderUid == request.auth.uid)) &&
+           resource.data.status == 'scheduled' &&
+           request.resource.data.status == 'cancelled' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt']));
+
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
       // 업무 요청 — 사람마다 완료 여부가 생기는 일 (원안 제출, 성적 마감 등)
       //
       // 만들기는 소속 교사 누구나 할 수 있다. 지금도 쿨메신저로 누구나 전체 발송이 되고,

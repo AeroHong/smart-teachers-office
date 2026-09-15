@@ -112,6 +112,7 @@ const NAV_SECTIONS = [
       { label: '성취평가제 점검 도구', path: '/tools/asa-support', icon: '◈' },
       { label: '내신등급 계산기', path: '/tools/grade-rank', icon: '◈' },
       { label: '최소성취수준 보장지도', path: '/tools/min-achievement', icon: '◈' },
+      { label: '이메일 발송', path: '/emails', icon: '◈' },
     ],
   },
 ]
@@ -129,6 +130,8 @@ const PAGE_TITLES = {
   '/attendance/stats': '출결 통계',
   '/attendance/all': '전체 이벤트 현황',
   '/notices': '공지 관리',
+  '/emails': '발송 내역',
+  '/emails/new': '새 메일 작성',
   '/cover': '보강 목록',
   '/cover/mypage': '내 현황',
   '/cover/status': '현황판',
@@ -163,6 +166,7 @@ function getPageTitle(pathname) {
   if (pathname.match(/\/textbook\/[^/]+\/evaluate/)) return '채점'
   if (pathname.match(/\/textbook\/[^/]+/)) return '선정 건 상세'
   if (pathname.match(/\/setuk\/[^/]+/)) return '점검 결과'
+  if (pathname.match(/\/emails\/[^/]+/)) return '발송 상세'
   return ''
 }
 
@@ -174,7 +178,7 @@ function getSectionLabel(pathname) {
   if (pathname.startsWith('/textbook')) return '검·인정도서 선정'
   if (pathname.startsWith('/training')) return '연수 서명부'
   if (pathname.startsWith('/tools/asa-checklist')) return '성취평가제 체크리스트'
-  if (pathname.startsWith('/tools') || pathname.startsWith('/setuk')) return '도구모음'
+  if (pathname.startsWith('/tools') || pathname.startsWith('/setuk') || pathname.startsWith('/emails')) return '도구모음'
   return '포털'
 }
 
@@ -189,6 +193,7 @@ function getActiveSectionKey(pathname) {
   if (pathname.startsWith('/training')) return 'training'
   if (pathname.startsWith('/tools/asa-checklist')) return 'asa-checklist'
   if (pathname.startsWith('/tools')) return 'tools'
+  if (pathname.startsWith('/emails')) return 'tools'
   return 'portal'
 }
 

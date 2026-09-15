@@ -91,6 +91,14 @@ service firebase.storage {
                    && request.resource.size < 5 * 1024 * 1024;
     }
 
+    // 이메일 발송 본문 이미지. 폴더 = emailJobs 문서 ID — 작성 중엔 아직 문서가 없으므로
+    // notices의 batchId와 같은 방식으로, 클라이언트가 미리 잡아둔 ID를 그대로 쓴다.
+    match /schools/{schoolId}/emails/{jobId}/{fileName} {
+      allow read: if isSuperAdmin() || isMemberOf(schoolId);
+      allow write: if (isSuperAdmin() || isStaffOf(schoolId))
+                   && request.resource.size < 20 * 1024 * 1024;
+    }
+
     // 그 밖의 학교 파일 — 관리자만 쓰기.
     match /schools/{schoolId}/{allPaths=**} {
       allow read: if isSuperAdmin() || isMemberOf(schoolId);
