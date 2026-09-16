@@ -58,6 +58,7 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '@shared/lib/firebase'
 import { dateChipHtml, hydrateDateChips } from '@shared/lib/dateChips'
 import { makeBlockId } from '@shared/lib/blockReactions'
+import { sanitizeHtml } from '@shared/lib/richText'
 import { useToast } from './ToastProvider'
 import { RICH_TEXT_SX } from './richTextStyles'
 import useBlockReactions from './useBlockReactions'
@@ -306,10 +307,26 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     }))
   }, [])
 
-  // 부모가 값을 바꿨을 때만 DOM에 밀어 넣는다. 타이핑 중에 덮어쓰면 커서가 맨 앞으로 튄다.
+  // "우리가 방금 emit()으로 내보낸 값"을 따로 기억해 둔다. value prop과 el.innerHTML을
+  // 직접 비교하면 안 된다 — emit()이 onChange를 부른 "뒤에" syncHeadings/hydrateDateChips가
+  // 같은 렌더 안에서 DOM을 한 번 더 건드리기 때문에(제목 id 재부여, 날짜 칩 갱신), 부모가
+  // 그대로 돌려준 값과 "그 사이 우리 손으로 더 바꿔둔" 실제 DOM이 항상 살짝 어긋난다.
+  // el.innerHTML로 비교하면 이 자연스러운 어긋남을 "부모가 값을 바꿨다"로 착각해 멀쩡한
+  // 편집 중에도 전체를 다시 그려버린다 — 한글 조합 중 커서가 맨 앞으로 튀거나, 소제목·
+  // 인용 서식을 막 적용한 자리에서 커서가 엉뚱한 곳으로 튀는 사고가 전부 이 경로였다
+  // (사용자 신고, 2026-09-16). lastEmittedRef는 "이 값은 이미 우리가 만들어서 반영해 둔
+  // 것"이라는 기준점이라, syncHeadings 등이 그 뒤에 DOM을 더 건드려도 흔들리지 않는다.
+  const lastEmittedRef = useRef(null)
+
+  // 부모가(우리가 emit한 것과 다른) 값을 바꿨을 때만 DOM에 밀어 넣는다 — 예: 다른 탭·
+  // 다른 글로 넘어가 완전히 다른 문서를 불러온 경우. 타이핑 중에 덮어쓰면 커서가 맨
+  // 앞으로 튄다.
   useEffect(() => {
     const el = editorRef.current
-    if (el && value !== el.innerHTML) el.innerHTML = value || ''
+    if (el && value !== lastEmittedRef.current) {
+      el.innerHTML = value || ''
+      lastEmittedRef.current = value
+    }
     syncHeadings()
     hydrateDateChips(el)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -317,16 +334,27 @@ const CanvasEditor = forwardRef(function CanvasEditor({
 
   const emit = useCallback(() => {
     ensureBlockIds(editorRef.current)
-    onChange(editorRef.current?.innerHTML || '')
+    const html = editorRef.current?.innerHTML || ''
+    lastEmittedRef.current = html
+    onChange(html)
     syncHeadings()
     // 날짜 칩의 "D-2" 문구는 저장하지 않고 매번 다시 계산한다(dateChips.js) — 오늘 기준으로
     // 값이 안 틀어지려면 여기서 매 변경마다 다시 그려야 한다.
     hydrateDateChips(editorRef.current)
   }, [onChange, syncHeadings])
 
+  // 한글(등 조합형 문자) 입력 중에는 자모가 완성되기 전에도 input 이벤트가 계속 온다.
+  // 그때마다 emit()으로 React 상태를 왕복시키면(부모 재렌더 → 이 컴포넌트 재렌더) 위
+  // value 이펙트가 다시 돌 여지가 생겨 조합 중인 글자가 흔들릴 수 있다 — 조합이 끝날
+  // 때까지는 화면(브라우저 자체 IME 처리)에만 맡기고, 조합이 끝난 뒤 한 번만 emit한다.
+  const isComposingRef = useRef(false)
+
   // 글을 고치면 이미지가 밀리므로 손잡이도 따라가야 한다 (measure가 위치를 다시 잰다).
   // 우클릭 메뉴는 글을 치기 시작하면 닫는다 — '/'와 달리 쳐서 좁힐 수 있는 메뉴가 아니다.
-  const handleInput = () => { emit(); syncSlash(); measure(); setMenuRect(null) }
+  const handleInput = () => {
+    if (isComposingRef.current) return
+    emit(); syncSlash(); measure(); setMenuRect(null)
+  }
 
   const clipRect = useCallback(() => editorRef.current?.getBoundingClientRect() || null, [])
 
@@ -1619,8 +1647,25 @@ const CanvasEditor = forwardRef(function CanvasEditor({
       return
     }
     e.preventDefault()
-    const text = e.clipboardData?.getData('text/plain') || ''
-    document.execCommand('insertText', false, text)
+    // 다른 캔버스·워드·한글·웹페이지에서 서식(굵게·색·목록 등)이 있는 글을 복사해
+    // 붙여넣으면 그 서식을 살린다 — text/html을 아예 안 읽고 text/plain으로만 받아
+    // 서식이 항상 사라지던 문제(사용자 신고, 2026-09-16). sanitizeHtml은 저장 시점과
+    // 같은 허용 태그·속성만 남기므로, 붙여넣은 내용도 결국 저장 가능한 형태로만 들어온다.
+    const html = e.clipboardData?.getData('text/html') || ''
+    if (html) {
+      document.execCommand('insertHTML', false, sanitizeHtml(html))
+    } else {
+      // text/html이 없는 순수 텍스트 붙여넣기만 이 경로를 탄다. 여러 줄을 통째로
+      // insertText에 넘기면 브라우저마다 줄바꿈 처리가 달라(일부는 아예 안 나눠) 줄이
+      // 붙어버릴 수 있다 — 한 줄씩 insertParagraph(Enter와 같은 명령)로 나눠 넣어
+      // 실제 블록 경계를 만든다.
+      const text = e.clipboardData?.getData('text/plain') || ''
+      const lines = text.split(/\r\n|\r|\n/)
+      lines.forEach((line, i) => {
+        if (i > 0) document.execCommand('insertParagraph')
+        if (line) document.execCommand('insertText', false, line)
+      })
+    }
     emit()
   }
 
@@ -1869,7 +1914,8 @@ const CanvasEditor = forwardRef(function CanvasEditor({
         onKeyUp={syncSlash}
         onClick={handleEditorClick}
         onContextMenu={handleContextMenu}
-        onCompositionEnd={syncSlash}
+        onCompositionStart={() => { isComposingRef.current = true }}
+        onCompositionEnd={() => { isComposingRef.current = false; handleInput() }}
         onPaste={handlePaste}
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}

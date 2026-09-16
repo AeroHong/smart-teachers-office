@@ -249,6 +249,15 @@ export default function PostComposer({
       justCreatedRef.current = false
       return () => { flushRef.current({ silent: true }).catch(() => {}) }
     }
+    // 탭을 바로 옆의 이미 저장된 다른 탭으로 옮기는 경우(둘 다 editingId가 실제 id) —
+    // 여기서 즉시 loadingPost를 true로 켜야 한다. 안 그러면 이 getDoc이 끝나기 전까지
+    // title·bodyHtml이 옛 탭(A) 값 그대로 남아있는 채로 requestId만 새 탭(B)을 가리키는
+    // 순간이 생기고, 그 사이에 A를 편집하며 걸어둔 자동저장 디바운스 타이머(최대 700ms)가
+    // 뒤늦게 fire하면 flushRef.current()가 "A의 옛 내용"을 "B의 문서"에 그대로 덮어써
+    // 버린다(사용자 신고, 2026-09-16 — "기존 캔버스 탭이 최근 캔버스로 덮어써지며 사라짐").
+    // loadingPost는 아래 자동저장 이펙트의 의존성이라, true로 바뀌는 순간 그 이펙트가
+    // 다시 돌면서 cleanup으로 A의 남은 타이머를 확실히 지운다.
+    setLoadingPost(true)
     let alive = true
     getDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), editingId))
       .then(snap => {
