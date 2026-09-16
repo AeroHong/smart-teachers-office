@@ -9,14 +9,25 @@ import Alert from '@mui/material/Alert'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { subscribeMyAdoptions, subscribeMySubjectHeadAdoptions, subscribeMyDeptHeadGroups, STATUS_LABELS } from '@shared/lib/textbookAdoption'
+import {
+  subscribeMyAdoptions, subscribeMySubjectHeadAdoptions, subscribeMyDeptHeadGroups,
+  subscribeUnassignedSubjectHeadAdoptions, claimSubjectHead, releaseSubjectHead, STATUS_LABELS,
+} from '@shared/lib/textbookAdoption'
+import { SUBJECT_GROUPS } from '@shared/lib/subjectData'
+import { sanitizeSubjectGroup } from '@shared/lib/schema'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './TextbookSection'
 
 const infoChipSx = { bgcolor: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: '0.74rem' }
 const roleChipSx = { bgcolor: ACCENT_BG, color: ACCENT, fontWeight: 700, fontSize: '0.74rem' }
 
-function AdoptionCard({ adoption, onClick }) {
+const groupLabel = (key) => SUBJECT_GROUPS.find((g) => sanitizeSubjectGroup(g) === key) || '미분류'
+const groupOrder = (key) => {
+  const idx = SUBJECT_GROUPS.findIndex((g) => sanitizeSubjectGroup(g) === key)
+  return idx === -1 ? SUBJECT_GROUPS.length : idx
+}
+
+function AdoptionCard({ adoption, onClick, onRelease }) {
   return (
     <Box
       onClick={onClick}
@@ -38,7 +49,15 @@ function AdoptionCard({ adoption, onClick }) {
           <Chip size="small" sx={infoChipSx} label={`후보 ${adoption.candidates?.length || 0}개`} />
         </Box>
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        {adoption.isHead && onRelease && (
+          <Button
+            size="small" onClick={(e) => { e.stopPropagation(); onRelease(adoption) }}
+            sx={{ textTransform: 'none', fontSize: '0.72rem', color: '#94a3b8', minWidth: 0, px: 0.75 }}
+          >
+            담당 해제
+          </Button>
+        )}
         <Chip
           size="small"
           label={STATUS_LABELS[adoption.status] || adoption.status}
@@ -48,6 +67,31 @@ function AdoptionCard({ adoption, onClick }) {
         />
         <ChevronRightIcon sx={{ color: '#cbd5e1' }} />
       </Box>
+    </Box>
+  )
+}
+
+function UnassignedRow({ adoption, onClaim, claiming }) {
+  return (
+    <Box
+      sx={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap',
+        p: 1.5, borderRadius: '12px', border: '1px dashed #e2e8f0', bgcolor: '#f8fafc',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, flexWrap: 'wrap' }}>
+        <Typography sx={{ fontSize: '0.92rem', fontWeight: 700, color: '#1e293b' }}>
+          {adoption.subjectName || '(과목명 없음)'}
+        </Typography>
+        <Chip size="small" sx={infoChipSx} label={groupLabel(adoption.subjectGroup)} />
+        <Chip size="small" sx={infoChipSx} label={`${adoption.cycleYear}학년도 선정`} />
+      </Box>
+      <Button
+        size="small" variant="contained" disabled={claiming} onClick={() => onClaim(adoption)}
+        sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
+      >
+        {claiming ? '처리 중...' : '내가 맡을게요'}
+      </Button>
     </Box>
   )
 }
@@ -97,6 +141,44 @@ export default function TextbookHome() {
     return unsub
   }, [schoolId, user])
 
+  // 대표교사가 비어 있는 과목을 둘러보고 자원(self-claim)할 수 있게 별도로 구독한다.
+  const [unassigned, setUnassigned] = useState([])
+  const [claimingId, setClaimingId] = useState(null)
+  useEffect(() => {
+    if (!schoolId) return
+    const unsub = subscribeUnassignedSubjectHeadAdoptions(schoolId, setUnassigned, () => {})
+    return unsub
+  }, [schoolId])
+
+  const unassignedSorted = useMemo(() => (
+    unassigned
+      .filter((a) => a.status !== 'closed')
+      .sort((a, b) => (
+        groupOrder(a.subjectGroup) - groupOrder(b.subjectGroup)
+      ) || (a.subjectName || '').localeCompare(b.subjectName || '', 'ko'))
+  ), [unassigned])
+
+  const handleClaim = async (adoption) => {
+    if (!window.confirm(`'${adoption.subjectName}' 과목의 대표교사를 맡으시겠습니까?\n채점 마감·집계, 서식 작성 등을 담당하게 됩니다.`)) return
+    setClaimingId(adoption.id)
+    try {
+      await claimSubjectHead(schoolId, adoption.id, user.uid)
+    } catch (e) {
+      alert('이미 다른 선생님이 맡으셨거나 처리 중 오류가 발생했습니다.\n' + e.message)
+    } finally {
+      setClaimingId(null)
+    }
+  }
+
+  const handleRelease = async (adoption) => {
+    if (!window.confirm(`'${adoption.subjectName}' 과목 대표교사 담당을 취소하시겠습니까?`)) return
+    try {
+      await releaseSubjectHead(schoolId, adoption.id)
+    } catch (e) {
+      alert('처리 중 오류가 발생했습니다.\n' + e.message)
+    }
+  }
+
   const loading = !committeeLoaded || !headLoaded
 
   const adoptions = useMemo(() => {
@@ -106,7 +188,11 @@ export default function TextbookHome() {
       const existing = byId.get(a.id)
       byId.set(a.id, existing ? { ...existing, isHead: true } : { ...a, isHead: true })
     })
-    return [...byId.values()].sort((a, b) => (b.cycleYear - a.cycleYear) || a.subjectName.localeCompare(b.subjectName, 'ko'))
+    // 이미 대표교사로 지정(자원 포함)된 과목을 위원으로만 참여하는 과목보다 위로 올린다 —
+    // 대표교사 역할이 채점 마감·집계 등 더 챙길 게 많아 눈에 먼저 띄어야 한다.
+    return [...byId.values()].sort((a, b) => (
+      (b.isHead ? 1 : 0) - (a.isHead ? 1 : 0)
+    ) || (b.cycleYear - a.cycleYear) || a.subjectName.localeCompare(b.subjectName, 'ko'))
   }, [committeeAdoptions, headAdoptions])
 
   return (
@@ -148,26 +234,55 @@ export default function TextbookHome() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      {loading ? (
-        <Box display="flex" justifyContent="center" py={6}>
-          <CircularProgress size={28} sx={{ color: ACCENT }} />
-        </Box>
-      ) : adoptions.length === 0 ? (
-        <Box sx={{
-          textAlign: 'center', py: 6, borderRadius: '14px', border: '1px dashed #e2e8f0', bgcolor: '#f8fafc',
-        }}>
-          <Typography sx={{ fontSize: '2rem', mb: 1 }}>📭</Typography>
-          <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
-            평가위원 또는 과목 대표교사로 지정된 선정 건이 없습니다. 관리자에게 문의하세요.
-          </Typography>
-        </Box>
-      ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-          {adoptions.map((a) => (
-            <AdoptionCard key={a.id} adoption={a} onClick={() => navigate(`/textbook/${a.id}`)} />
-          ))}
-        </Box>
-      )}
+      {(() => {
+        const unassignedSection = unassignedSorted.length > 0 && (
+          <Box key="unassigned" sx={{ mb: 3 }}>
+            <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a', mb: 0.25 }}>
+              담당자 미지정 과목 ({unassignedSorted.length})
+            </Typography>
+            <Typography sx={{ fontSize: '0.8rem', color: '#64748b', mb: 1.25 }}>
+              아직 과목 대표교사가 지정되지 않은 과목입니다. 본인이 담당할 과목이 있으면 직접 맡아주세요.
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {unassignedSorted.map((a) => (
+                <UnassignedRow key={a.id} adoption={a} onClaim={handleClaim} claiming={claimingId === a.id} />
+              ))}
+            </Box>
+          </Box>
+        )
+
+        const mySection = (
+          <Box key="mine" sx={{ mb: 3 }}>
+            <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a', mb: 1.25 }}>
+              내 선정 건
+            </Typography>
+            {loading ? (
+              <Box display="flex" justifyContent="center" py={6}>
+                <CircularProgress size={28} sx={{ color: ACCENT }} />
+              </Box>
+            ) : adoptions.length === 0 ? (
+              <Box sx={{
+                textAlign: 'center', py: 6, borderRadius: '14px', border: '1px dashed #e2e8f0', bgcolor: '#f8fafc',
+              }}>
+                <Typography sx={{ fontSize: '2rem', mb: 1 }}>📭</Typography>
+                <Typography sx={{ fontSize: '0.9rem', color: '#64748b' }}>
+                  평가위원 또는 과목 대표교사로 지정된 선정 건이 없습니다. 위에서 담당할 과목을 맡거나, 관리자에게 문의하세요.
+                </Typography>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                {adoptions.map((a) => (
+                  <AdoptionCard key={a.id} adoption={a} onClick={() => navigate(`/textbook/${a.id}`)} onRelease={handleRelease} />
+                ))}
+              </Box>
+            )}
+          </Box>
+        )
+
+        // 이미 담당하는 선정 건이 있으면 그 목록을 위로 올리고, 없으면 자원할 수 있는
+        // 미지정 목록을 먼저 보여준다(빈 상태 안내 문구의 "위에서 맡으세요"가 맞도록).
+        return adoptions.length > 0 ? [mySection, unassignedSection] : [unassignedSection, mySection]
+      })()}
     </Layout>
   )
 }

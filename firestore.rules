@@ -1124,14 +1124,20 @@ service cloud.firestore {
       // 있게 열어둔다 — 이 셋이 각자 다른 필드(aggregate/summarySignoff/recommendation)를
       // 쓰는 주체이기 때문. 필드별 강제는 화면 UI로만 하고 rules에서는 안 함(기존 트레이드오프
       // 유지). subjectGroup이 비어 있는(마이그레이션 전) 문서에서 get()이 깨지지 않도록 항상
-      // 빈 문자열이 아닌지 먼저 확인한다.
+      // 빈 문자열이 아닌지 먼저 확인한다. 대표교사가 아직 비어 있는 건은 아무 교사나 자기 uid로
+      // 채워 넣어 자원(self-claim)할 수 있게 열어두되, 그 필드(+updatedAt)만 바뀌는 경우로
+      // 제한한다(2026-09-16, 43개 과목을 관리자가 일일이 지정하는 부담을 줄이기 위함).
       match /textbookAdoptions/{adoptionId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow create, delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
         allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId) ||
           (isTeacher(schoolId) && request.auth.uid == resource.data.get('subjectHeadUid', '')) ||
           (isTeacher(schoolId) && resource.data.get('subjectGroup', '') != '' &&
-           isTextbookDeptHead(schoolId, resource.data.get('subjectGroup', '')));
+           isTextbookDeptHead(schoolId, resource.data.get('subjectGroup', ''))) ||
+          (isTeacher(schoolId) &&
+           resource.data.get('subjectHeadUid', '') == '' &&
+           request.resource.data.get('subjectHeadUid', '') == request.auth.uid &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subjectHeadUid', 'updatedAt']));
 
         // 위원별 점수 — 원본 엑셀의 "위원별 점수 열 익명 처리"를 그대로 유지한다: 본인 +
         // 관리자 + 그 건의 과목 대표교사·교과부장(집계 계산에 필요)만 읽을 수 있고, 다른

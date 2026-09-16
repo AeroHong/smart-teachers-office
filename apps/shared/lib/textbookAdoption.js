@@ -220,6 +220,31 @@ export async function updateRubric(schoolId, adoptionId, rubric) {
 }
 
 /**
+ * 아직 대표교사가 비어 있는 선정 건 목록(실시간) — "자원하기" 화면에서 쓴다.
+ * 관리자가 43개 과목을 한 건씩 지정하는 부담을 줄이기 위해, 교사가 스스로 담당 과목을
+ * 골라 맡을 수 있게 하는 self-claim 기능(2026-09-16)의 목록 조회부.
+ */
+export function subscribeUnassignedSubjectHeadAdoptions(schoolId, cb, onError) {
+  const q = query(adoptionsCol(schoolId), where('subjectHeadUid', '==', ''))
+  return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), onError)
+}
+
+/**
+ * 대표교사가 비어 있는 선정 건을 아무 교사나 자원해서 맡는다(self-claim). firestore.rules가
+ * subjectHeadUid==''인 문서에 한해 request.auth.uid로만 채워 넣도록 강제하므로, 동시에 두
+ * 사람이 자원하면 늦게 시도한 쪽은 permission-denied로 실패한다(먼저 쓴 사람이 가져가는
+ * 낙관적 동시성 — 보강 신청과 동일한 방식).
+ */
+export async function claimSubjectHead(schoolId, adoptionId, uid) {
+  await setDoc(adoptionDoc(schoolId, adoptionId), { subjectHeadUid: uid, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+/** 자원을 취소하고 다시 미지정 상태로 되돌린다. */
+export async function releaseSubjectHead(schoolId, adoptionId) {
+  await setDoc(adoptionDoc(schoolId, adoptionId), { subjectHeadUid: '', updatedAt: serverTimestamp() }, { merge: true })
+}
+
+/**
  * 여러 선정 건에 같은 교과군을 한 번에 지정한다("선정 건 관리" 화면의 일괄 작업용).
  * updateAdoptionSetup은 다른 필드까지 함께 다시 써야 해서, 교과군 하나만 바꿀 땐 그
  * 필드만 merge로 건드리는 이 함수가 더 안전하다(다른 필드를 실수로 덮어쓸 일이 없음).
@@ -318,8 +343,21 @@ export async function closeAndAggregate(schoolId, adoptionId, candidates, existi
   }, { merge: true })
 }
 
-export async function reopenAdoption(schoolId, adoptionId) {
-  await setDoc(adoptionDoc(schoolId, adoptionId), { status: 'collecting', updatedAt: serverTimestamp() }, { merge: true })
+/**
+ * 채점을 다시 연다. 이미 교감이 서식3을 확인(서명)한 뒤 재채점→재마감하면 순위·추천 후보가
+ * 바뀔 수 있는데, 기존엔 confirmedAt 등 확인 정보가 그대로 남아 실제로는 재확인이 필요한
+ * 새 내용인데도 화면엔 계속 "확인완료"로 보이는 문제가 있었다(2026-09-16). 그래서 재오픈
+ * 시점에 확인 정보를 지워 교감이 다시 확인하게 만든다(opinions 등 나머지 내용은 유지).
+ */
+export async function reopenAdoption(schoolId, adoptionId, recommendation) {
+  const patch = { status: 'collecting', updatedAt: serverTimestamp() }
+  if (recommendation?.confirmedAt) {
+    patch.recommendation = {
+      ...recommendation,
+      confirmedByUid: null, confirmedByName: null, confirmedAt: null, confirmedSignature: null,
+    }
+  }
+  await setDoc(adoptionDoc(schoolId, adoptionId), patch, { merge: true })
 }
 
 export async function saveRecommendation(schoolId, adoptionId, recommendation) {

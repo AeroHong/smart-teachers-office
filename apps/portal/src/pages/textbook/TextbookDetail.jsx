@@ -198,9 +198,14 @@ export default function TextbookDetail() {
   }
 
   const handleReopen = async () => {
+    const wasConfirmed = !!adoption.recommendation?.confirmedAt
+    const msg = wasConfirmed
+      ? '이미 교감이 확인한 추천의견서(서식3)가 있습니다.\n다시 채점을 열면 순위·추천 후보가 바뀔 수 있어 교감 확인이 초기화되고 재확인이 필요합니다.\n계속할까요?'
+      : '채점을 다시 열까요? 위원들이 점수를 다시 수정·제출할 수 있게 됩니다.'
+    if (!window.confirm(msg)) return
     try {
-      await reopenAdoption(schoolId, adoptionId)
-      setSnack('채점을 다시 열었습니다.')
+      await reopenAdoption(schoolId, adoptionId, adoption.recommendation)
+      setSnack(wasConfirmed ? '채점을 다시 열었고, 교감 확인은 초기화했습니다.' : '채점을 다시 열었습니다.')
     } catch (e) {
       setError(`재오픈 실패: ${e.message}`)
     }
