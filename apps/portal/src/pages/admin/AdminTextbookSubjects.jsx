@@ -37,13 +37,71 @@ import { useTableSort } from '@shared/hooks/useTableSort'
 import { USERS, currentSchoolYear, sanitizeSubjectGroup } from '@shared/lib/schema'
 import { loadSubjects, SUBJECT_GROUPS } from '@shared/lib/subjectData'
 import {
-  loadAdoptionsWithProgress, createAdoption, updateAdoptionSetup, deleteAdoption, bulkSetSubjectGroup,
+  loadAdoptionsWithProgress, createAdoption, updateAdoptionSetup, deleteAdoption,
+  bulkSetSubjectGroup, bulkSetRubric,
   DEFAULT_RUBRIC, rubricMax, newCandidateId, newExternalMemberId, STATUS_LABELS,
 } from '@shared/lib/textbookAdoption'
 import { RowActions, EditAction, DeleteAction } from './adminUi'
 import AdminTextbookBulkImport from './AdminTextbookBulkImport'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+
+// 평가영역·평가기준·배점 편집기 — 선정 건 등록/수정 다이얼로그와 "배점기준 일괄 적용"
+// 다이얼로그가 똑같이 쓴다(둘 다 같은 모양의 rubric 배열을 편집하는 UI라서 하나로 뺐다).
+function RubricEditor({ rubric, onChange }) {
+  const updateRow = (idx, field, value) => onChange(rubric.map((r, i) => (i === idx ? { ...r, [field]: value } : r)))
+  const addRow = () => onChange([...rubric, { name: '', maxScore: 0, criteria: '' }])
+  const removeRow = (idx) => onChange(rubric.filter((_, i) => i !== idx))
+  const sum = rubricMax(rubric)
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5 }}>
+        {rubric.map((r, idx) => (
+          <Box key={idx} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+            <TextField
+              size="small" label="평가영역" sx={{ flex: 1 }} value={r.name}
+              onChange={(e) => updateRow(idx, 'name', e.target.value)}
+            />
+            <TextField
+              size="small" label="평가기준" sx={{ flex: 2 }} value={r.criteria || ''}
+              multiline minRows={1} maxRows={4}
+              placeholder={'예: · 학습 분량이 단원별로 균형 있게 구성되어 있는가?'}
+              onChange={(e) => updateRow(idx, 'criteria', e.target.value)}
+            />
+            <TextField
+              size="small" type="number" label="배점" sx={{ width: 90 }} value={r.maxScore}
+              onChange={(e) => updateRow(idx, 'maxScore', e.target.value)}
+            />
+            <IconButton size="small" onClick={() => removeRow(idx)} disabled={rubric.length <= 1}>
+              <DeleteOutlineIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        ))}
+        <Button size="small" startIcon={<AddIcon />} onClick={addRow} sx={{ alignSelf: 'flex-start' }}>항목 추가</Button>
+      </Box>
+      <Box sx={{
+        display: 'flex', alignItems: 'center', gap: 1, p: 1.25, borderRadius: '10px',
+        bgcolor: sum === 100 ? '#f0fdf4' : '#fef2f2',
+        border: '1px solid', borderColor: sum === 100 ? '#bbf7d0' : '#fecaca',
+      }}>
+        {sum === 100 ? (
+          <>
+            <CheckCircleIcon sx={{ fontSize: 18, color: '#16a34a' }} />
+            <Typography sx={{ fontSize: '0.82rem', color: '#166534', fontWeight: 700 }}>배점 합계 100점</Typography>
+          </>
+        ) : (
+          <>
+            <WarningAmberIcon sx={{ fontSize: 18, color: '#dc2626' }} />
+            <Typography sx={{ fontSize: '0.82rem', color: '#991b1b', fontWeight: 700 }}>
+              배점 합계 {sum}점 — 100점이 되어야 합니다
+            </Typography>
+          </>
+        )}
+      </Box>
+    </Box>
+  )
+}
 
 function emptyForm() {
   return {
@@ -79,6 +137,12 @@ export default function AdminTextbookSubjects() {
   const [selected, setSelected] = useState(new Set())
   const [bulkGroup, setBulkGroup] = useState('')
   const [bulkApplying, setBulkApplying] = useState(false)
+
+  // 여러 선정 건에 같은 배점기준(평가영역·평가기준·배점)을 한 번에 적용하는 일괄 작업 —
+  // 43개 과목처럼 대상이 많을 때 하나씩 열어서 고치는 부담을 줄인다.
+  const [bulkRubricOpen, setBulkRubricOpen] = useState(false)
+  const [bulkRubric, setBulkRubric] = useState([])
+  const [bulkRubricApplying, setBulkRubricApplying] = useState(false)
 
   // 교과군별로 모아보는 필터(생기부 세특 점검의 "과목별 보기"·학년 필터와 같은 방식)와
   // 헤더 클릭 정렬(전체 현황 화면의 useTableSort와 동일한 패턴).
@@ -200,6 +264,29 @@ export default function AdminTextbookSubjects() {
     }
   }
 
+  const openBulkRubric = () => {
+    setBulkRubric(DEFAULT_RUBRIC.map((r) => ({ ...r })))
+    setBulkRubricOpen(true)
+  }
+  const canApplyBulkRubric = bulkRubric.length > 0 && bulkRubric.every((r) => r.name.trim() && Number(r.maxScore) > 0)
+  const handleBulkApplyRubric = async () => {
+    if (!selected.size) return
+    setBulkRubricApplying(true)
+    setError('')
+    try {
+      const rubric = bulkRubric.map((r) => ({ name: r.name.trim(), maxScore: Number(r.maxScore) || 0, criteria: (r.criteria || '').trim() }))
+      const res = await bulkSetRubric(schoolId, [...selected], rubric)
+      if (res.failed.length) setError(`${res.failed.length}건 적용 실패`)
+      setBulkRubricOpen(false)
+      setSelected(new Set())
+      fetchAdoptions()
+    } catch (e) {
+      setError(`배점기준 일괄 적용 실패: ${e.message}`)
+    } finally {
+      setBulkRubricApplying(false)
+    }
+  }
+
   const updateCandidate = (id, field, value) => {
     setForm((f) => ({ ...f, candidates: f.candidates.map((c) => (c.id === id ? { ...c, [field]: value } : c)) }))
   }
@@ -211,12 +298,6 @@ export default function AdminTextbookSubjects() {
   }
   const addExternalMember = () => setForm((f) => ({ ...f, externalMembers: [...f.externalMembers, { id: newExternalMemberId(), name: '', affiliation: '' }] }))
   const removeExternalMember = (id) => setForm((f) => ({ ...f, externalMembers: f.externalMembers.filter((m) => m.id !== id) }))
-
-  const updateRubric = (idx, field, value) => {
-    setForm((f) => ({ ...f, rubric: f.rubric.map((r, i) => (i === idx ? { ...r, [field]: value } : r)) }))
-  }
-  const addRubric = () => setForm((f) => ({ ...f, rubric: [...f.rubric, { name: '', maxScore: 0, criteria: '' }] }))
-  const removeRubric = (idx) => setForm((f) => ({ ...f, rubric: f.rubric.filter((_, i) => i !== idx) }))
 
   // 기존에 만든 선정 건은 평가기준 필드가 생기기 전에 저장된 rubric이라 이 칸이 비어 있다.
   // 이름이 DEFAULT_RUBRIC 항목과 일치하면 그 문구를, 항목 수가 같으면 순서로 대응하는
@@ -234,8 +315,6 @@ export default function AdminTextbookSubjects() {
     }))
   }
   const hasEmptyCriteria = form.rubric.some((r) => !r.criteria)
-
-  const rubricSum = rubricMax(form.rubric)
 
   const canSave = form.subjectName.trim() &&
     form.candidates.every((c) => c.publisher.trim()) &&
@@ -318,6 +397,7 @@ export default function AdminTextbookSubjects() {
               <Button variant="contained" size="small" disabled={!bulkGroup || bulkApplying} onClick={handleBulkApplyGroup}>
                 {bulkApplying ? '적용 중...' : '적용'}
               </Button>
+              <Button variant="outlined" size="small" onClick={openBulkRubric}>배점기준 일괄 적용</Button>
               <Button size="small" onClick={() => setSelected(new Set())}>선택 해제</Button>
             </Box>
           )}
@@ -443,49 +523,8 @@ export default function AdminTextbookSubjects() {
               <Button size="small" onClick={fillDefaultCriteria}>기본 문구로 채우기</Button>
             )}
           </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5 }}>
-            {form.rubric.map((r, idx) => (
-              <Box key={idx} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                <TextField
-                  size="small" label="평가영역" sx={{ flex: 1 }} value={r.name}
-                  onChange={(e) => updateRubric(idx, 'name', e.target.value)}
-                />
-                <TextField
-                  size="small" label="평가기준" sx={{ flex: 2 }} value={r.criteria || ''}
-                  multiline minRows={1} maxRows={4}
-                  placeholder={'예: · 학습 분량이 단원별로 균형 있게 구성되어 있는가?'}
-                  onChange={(e) => updateRubric(idx, 'criteria', e.target.value)}
-                />
-                <TextField
-                  size="small" type="number" label="배점" sx={{ width: 90 }} value={r.maxScore}
-                  onChange={(e) => updateRubric(idx, 'maxScore', e.target.value)}
-                />
-                <IconButton size="small" onClick={() => removeRubric(idx)} disabled={form.rubric.length <= 1}>
-                  <DeleteOutlineIcon fontSize="small" />
-                </IconButton>
-              </Box>
-            ))}
-            <Button size="small" startIcon={<AddIcon />} onClick={addRubric} sx={{ alignSelf: 'flex-start' }}>항목 추가</Button>
-          </Box>
-
-          <Box sx={{
-            display: 'flex', alignItems: 'center', gap: 1, mb: 3, p: 1.25, borderRadius: '10px',
-            bgcolor: rubricSum === 100 ? '#f0fdf4' : '#fef2f2',
-            border: '1px solid', borderColor: rubricSum === 100 ? '#bbf7d0' : '#fecaca',
-          }}>
-            {rubricSum === 100 ? (
-              <>
-                <CheckCircleIcon sx={{ fontSize: 18, color: '#16a34a' }} />
-                <Typography sx={{ fontSize: '0.82rem', color: '#166534', fontWeight: 700 }}>배점 합계 100점</Typography>
-              </>
-            ) : (
-              <>
-                <WarningAmberIcon sx={{ fontSize: 18, color: '#dc2626' }} />
-                <Typography sx={{ fontSize: '0.82rem', color: '#991b1b', fontWeight: 700 }}>
-                  배점 합계 {rubricSum}점 — 100점이 되어야 합니다
-                </Typography>
-              </>
-            )}
+          <Box sx={{ mb: 3 }}>
+            <RubricEditor rubric={form.rubric} onChange={(rubric) => setForm((f) => ({ ...f, rubric }))} />
           </Box>
 
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>평가위원</Typography>
@@ -543,6 +582,23 @@ export default function AdminTextbookSubjects() {
           <Button onClick={() => setDialogOpen(false)} disabled={saving}>취소</Button>
           <Button variant="contained" disabled={!canSave || saving} onClick={handleSave}>
             {saving ? '저장 중...' : '저장'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={bulkRubricOpen} onClose={() => setBulkRubricOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>배점기준 일괄 적용 ({selected.size}개 선정 건)</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            선택한 {selected.size}개 선정 건의 평가영역·평가기준·배점을 아래 내용으로 완전히 덮어씁니다.
+            이미 채점을 제출한 위원이 있으면 기존 점수의 항목과 안 맞을 수 있으니 주의하세요.
+          </Alert>
+          <RubricEditor rubric={bulkRubric} onChange={setBulkRubric} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkRubricOpen(false)} disabled={bulkRubricApplying}>취소</Button>
+          <Button variant="contained" disabled={!canApplyBulkRubric || bulkRubricApplying} onClick={handleBulkApplyRubric}>
+            {bulkRubricApplying ? '적용 중...' : `${selected.size}개에 적용`}
           </Button>
         </DialogActions>
       </Dialog>

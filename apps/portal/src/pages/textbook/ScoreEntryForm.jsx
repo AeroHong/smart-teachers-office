@@ -33,7 +33,7 @@ function toEditState(byCandidate, candidates) {
  * 이후 편집 중에는 다시 덮어쓰지 않는다.
  */
 export default function ScoreEntryForm({
-  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint,
+  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint, isSubmitted,
 }) {
   const [mode, setMode] = useState('quick')
   const [edits, setEdits] = useState({})
@@ -188,12 +188,22 @@ export default function ScoreEntryForm({
             <Button variant="outlined" disabled={saving} onClick={() => handleSave(false)} sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700 }}>
               임시저장
             </Button>
-            <Button
-              variant="contained" disabled={saving} onClick={() => handleSave(true)}
-              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
-            >
-              제출 확정
-            </Button>
+            {isSubmitted ? (
+              <Button
+                variant="outlined" color="warning" disabled={saving}
+                onClick={() => { if (window.confirm('제출을 취소할까요? 취소하면 다시 제출하기 전까지 미제출 상태로 표시됩니다.')) handleSave(false) }}
+                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700 }}
+              >
+                제출 취소
+              </Button>
+            ) : (
+              <Button
+                variant="contained" disabled={saving} onClick={() => handleSave(true)}
+                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
+              >
+                제출 확정
+              </Button>
+            )}
           </>
         )}
       </Box>

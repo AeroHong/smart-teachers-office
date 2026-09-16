@@ -263,6 +263,24 @@ export async function bulkSetSubjectGroup(schoolId, adoptionIds, subjectGroup) {
   return { updated: adoptionIds.length - failed.length, failed }
 }
 
+/**
+ * 여러 선정 건에 같은 배점기준(평가영역·평가기준·배점)을 한 번에 적용한다("선정 건 관리"
+ * 화면의 일괄 작업용, 2026-09-16 — 과목이 많을 때 하나씩 열어서 고치는 부담을 줄인다).
+ * 관리자 전용 화면에서만 노출되므로 updateRubric처럼 제출 여부를 확인하지 않고 그대로
+ * 덮어쓴다(관리자는 원래 언제든 rubric을 바꿀 수 있다 — updateRubric 주석 참고).
+ */
+export async function bulkSetRubric(schoolId, adoptionIds, rubric) {
+  const failed = []
+  await Promise.all(adoptionIds.map(async (id) => {
+    try {
+      await setDoc(adoptionDoc(schoolId, id), { rubric, updatedAt: serverTimestamp() }, { merge: true })
+    } catch (e) {
+      failed.push({ id, error: e.message })
+    }
+  }))
+  return { updated: adoptionIds.length - failed.length, failed }
+}
+
 export function subscribeMyScore(schoolId, adoptionId, uid, cb, onError) {
   return onSnapshot(
     scoreDoc(schoolId, adoptionId, uid),

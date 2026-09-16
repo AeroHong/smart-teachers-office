@@ -742,6 +742,7 @@ export default function TextbookDetail() {
               initialByCandidate={proxyScore?.byCandidate}
               initialOpinion={proxyScore?.opinion}
               canEdit={adoption.status === 'collecting'}
+              isSubmitted={!!proxyScore?.submittedAt}
               saving={proxySaving}
               onSave={handleSaveExternalScore}
               onPrint={proxyScore ? handlePrintExternalScore : undefined}
