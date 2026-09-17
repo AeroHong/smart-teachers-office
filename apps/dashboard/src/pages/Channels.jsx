@@ -1352,7 +1352,10 @@ export default function Channels() {
             sx={{ fontSize: '0.85rem', color: 'error.main' }}
             onClick={() => { setMenuAnchor(null); setDeletingChannel(true) }}
           >
+            {/* 캔버스 수를 label에 박아 둔다 — 누른 뒤 대화상자에서야 범위를 아는 것보다,
+                메뉴에서 이미 "여러 개가 함께 지워진다"가 보여야 잘못 누르지 않는다. */}
             {dm ? '대화 완전 삭제' : '채널 완전 삭제'}
+            {(active?.posts?.length || 0) > 0 && ` (캔버스 ${active.posts.length}개 포함)`}
           </MenuItem>
         )}
       </Menu>
@@ -1614,14 +1617,26 @@ function DeleteChannelDialog({ open, isDm: dm, displayName, canvasCount, busy, o
       </DialogTitle>
       <DialogContent>
         <Typography fontSize="0.9rem"><strong>{displayName}</strong></Typography>
+        {/* 지워지는 범위를 흐린 보조 문구가 아니라 본문으로 올린다 — 캔버스 하나를 지우려다
+            대화 전체를 지운 사고가 있었다(2026-09-17). "무엇이 사라지는가"가 이 화면에서
+            가장 먼저 읽혀야 한다. */}
+        <Typography color="error.main" fontSize="0.9rem" fontWeight={700} sx={{ mt: 1 }}>
+          {canvasCount > 0
+            ? `이 안의 캔버스 ${canvasCount}개와 모든 메시지가 함께 지워집니다.`
+            : '이 안의 모든 메시지가 함께 지워집니다.'}
+        </Typography>
+        {canvasCount > 0 && (
+          <Typography color="text.secondary" fontSize="0.85rem" sx={{ mt: 0.5 }}>
+            캔버스 하나만 지우려던 것이라면 취소하고, 그 캔버스 탭을 우클릭해 &lsquo;탭 제거&rsquo;를 쓰세요.
+          </Typography>
+        )}
         <Typography color="text.secondary" fontSize="0.85rem" sx={{ mt: 1 }}>
-          {canvasCount > 0 && `캔버스 ${canvasCount}개를 포함해 `}
           {dm
-            ? '이 대화의 메시지와 첨부 파일이 참여자 전원의 화면에서 모두 사라집니다. 나가기와 달리 되돌릴 수 없습니다.'
-            : '이 채널의 메시지와 첨부 파일이 모두 사라집니다. 보관과 달리 되돌릴 수 없습니다.'}
+            ? '첨부 파일까지 참여자 전원의 화면에서 사라집니다. 나가기와 달리 되돌릴 수 없습니다.'
+            : '첨부 파일까지 모두 사라집니다. 보관과 달리 되돌릴 수 없습니다.'}
         </Typography>
         <Typography color="text.secondary" fontSize="0.8rem" sx={{ mt: 1.5 }}>
-          확인을 위해 {dm ? '상대 이름' : '채널 이름'} <strong>{displayName}</strong>을(를) 아래에 입력하세요.
+          확인을 위해 {dm ? '이 대화의 이름' : '채널 이름'} <strong>{displayName}</strong>을(를) 아래에 입력하세요.
         </Typography>
         <TextField
           autoFocus fullWidth size="small" sx={{ mt: 1 }}
