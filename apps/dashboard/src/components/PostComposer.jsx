@@ -200,6 +200,27 @@ export default function PostComposer({
   // 이번 방문에서 실제로 내용이 바뀌었는가. 자동저장마다 알리면 타이핑할 때마다 알림이
   // 쌓이므로, 이 화면을 떠날 때(flushRef의 silent 호출) 한 번만 모아 알린다.
   const editedThisSessionRef = useRef(false)
+  /**
+   * 새로 만드는 캔버스의 발행 상태 — 'none' | 'pending' | 'done'.
+   *
+   * 새 글의 첫 저장은 디바운스가 0ms다(쓴 것을 잃지 않으려고). 그런데 그 순간 문서가
+   * status:'open' + targetUids 전원으로 만들어지는 바람에, **제목 첫 글자를 치자마자**
+   * 대상자 전원에게 배달됐다 — 61명 채널에서 "ㄱ"이라는 제목으로 Windows 팝업이 가고,
+   * 채널에도 "새 캔버스를 만들었습니다: ㄱ"가 남았다(2026-09-17).
+   *
+   * 저장과 발행을 떼어 놓는다. 문서는 예전처럼 바로 만들되 status를 'draft'로 두고,
+   * 작성을 마치고 화면을 떠날 때 'open'으로 올리면서 알림을 한 번 낸다.
+   *
+   * status를 쓰는 이유(targetUids를 비우지 않는 이유): 배달 여부를 판정하는 두 쿼리
+   * (useDesktopNotifications의 '새 업무 요청', useMyRequests)가 모두 status=='open'을
+   * 함께 보므로 draft면 양쪽 다 걸리지 않는다. 반면 targetUids를 비우는 방식은 중간에
+   * 실패하면 대상이 0명으로 굳는다 — 그 사고를 이미 한 번 겪었다(c871382, 09-10).
+   * status는 실패해도 대상 명단이 온전히 남아, 다시 열어 고치면 그때 발행된다.
+   *
+   * 'done'으로 잠그는 것은 언마운트 때 두 정리 함수가 겹쳐 들어와도 같은 알림이 두 번
+   * 나가지 않게 하기 위해서다.
+   */
+  const publishRef = useRef('none')
 
   /**
    * 고칠 글을 한 번만 읽어온다. onSnapshot으로 구독하지 않는 이유: 쓰는 도중에 서버 값이
@@ -234,6 +255,7 @@ export default function PostComposer({
       setSaveState('idle')
       wasAlreadyCreatedRef.current = false
       editedThisSessionRef.current = false
+      publishRef.current = 'none'
       // 여기서 flushRef.current({silent:true})를 부르면 안 된다 — 한때 그렇게 했다가
       // 실제 데이터가 깨지는 사고로 이어졌다(2026-09-09). 이 정리 함수가 실행되는
       // 시점엔 이미 다음 렌더(새 editingId)가 먼저 커밋된 뒤라 flushRef.current가
@@ -291,6 +313,9 @@ export default function PostComposer({
         keptCoverPathRef.current = post.coverImagePath || null
         wasAlreadyCreatedRef.current = true
         editedThisSessionRef.current = false
+        // 지난번에 발행 못 하고 draft로 남은 글이면 이번에 나갈 때 발행한다(위 publishRef
+        // 설명의 안전망). 이미 발행된 글은 'none' 그대로 둔다.
+        publishRef.current = post.status === 'draft' ? 'pending' : 'none'
         setLoadingPost(false)
       })
       .catch(e => {
@@ -384,6 +409,17 @@ export default function PostComposer({
     const shouldNotifyEdit = silent && editedThisSessionRef.current
     if (shouldNotifyEdit) editedThisSessionRef.current = false
 
+    /**
+     * 아직 배달되지 않은 글인가(위 publishRef 설명). 두 경우가 있다.
+     *  - 이번에 새로 만드는 중        → publishRef 'none' + 기존 글이 아님
+     *  - 지난번에 발행 못 하고 남은 draft → 읽어올 때 'pending'으로 표시해 둔다
+     * 두 번째가 안전망이다. 작성 중 창을 그냥 닫으면 정리 함수가 안 돌아 draft로 남는데,
+     * 그 글을 다시 열어 고치면 나갈 때 발행된다 — 영영 묻히지 않는다.
+     */
+    const unpublished = publishRef.current === 'pending'
+      || (publishRef.current === 'none' && !wasAlreadyCreatedRef.current)
+    const publishing = silent && unpublished
+
     try {
       const safeHtml = sanitizeHtml(bodyHtml)
       const payload = newRequestPayload({
@@ -408,21 +444,18 @@ export default function PostComposer({
       if (!created) {
         await setDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId), {
           ...payload,
+          // 작성 중에는 'draft' — 아직 아무에게도 배달하지 않는다. 타이핑하다 바로 나간
+          // 경우(첫 저장이 곧 언마운트)는 그 자리에서 발행한다.
+          status: publishing ? 'open' : 'draft',
           bodyHtml: safeHtml,
           channelId: channel.id,
           ...postVisibilityFor(channel),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         })
-        // 이 채널에 "새 캔버스를 만들었다"고 작게 남긴다(사용자 요청, 2026-09-07) —
-        // silent(언마운트 중 첫 저장)여도 문서 자체는 만들어졌으니 알림도 그대로 낸다.
-        postSystemNotice({
-          schoolId, channelId: channel.id, actorUid: user.uid,
-          text: payload.title
-            ? `${userName}님이 새 캔버스를 만들었습니다: ${payload.title}`
-            : `${userName}님이 새 캔버스를 만들었습니다.`,
-          refRequestId: requestId, refTitle: payload.title,
-        }).catch(() => {})
+        // 알림은 여기서 내지 않는다 — 이 시점은 제목 첫 글자를 친 순간일 수 있다.
+        // 예약만 해두고 발행 시점에 완성된 제목으로 낸다(위 publishRef 설명).
+        if (publishRef.current === 'none') publishRef.current = 'pending'
         if (!silent) { justCreatedRef.current = true; setCreated(true); onSaved(requestId) }
       } else {
         // 고칠 때 넘기지 않는 것 — completedUids(이미 한 사람의 기록), status(마감 여부),
@@ -446,6 +479,9 @@ export default function PostComposer({
             targetUids: payload.targetUids,
             targetNames: payload.targetNames,
             ownerUids: payload.ownerUids,
+            // 발행하는 순간에만 status를 올린다. 그 외에는 여기서 status를 넘기지
+            // 않으므로 이미 마감된 글의 상태를 되살리는 일도 없다.
+            ...(publishing ? { status: 'open' } : {}),
             bodyHtml: safeHtml,
             channelId: channel.id,
             ...postVisibilityFor(channel),
@@ -459,8 +495,9 @@ export default function PostComposer({
           deleteAttachment({ path: keptCoverPathRef.current }).catch(() => {})
         }
         // 원래 있던 글을 고치는 중일 때만 표시한다 — 방금 만든 글을 계속 쓰는 것은
-        // 위에서 이미 "만들었다"고 알렸으니 또 "수정했다"고 겹쳐 알리지 않는다.
-        if (wasAlreadyCreatedRef.current) editedThisSessionRef.current = true
+        // 나갈 때 "만들었다"고 알릴 것이라 또 "수정했다"고 겹쳐 알리지 않는다.
+        // 아직 발행 안 된 draft도 마찬가지다(그쪽은 '만들었습니다'로 나간다).
+        if (wasAlreadyCreatedRef.current && !unpublished) editedThisSessionRef.current = true
       }
       if (!silent) setSaveState('saved')
     } catch (e) {
@@ -468,6 +505,20 @@ export default function PostComposer({
         setSaveState('error')
         toast.error('저장하지 못했습니다.', e)
       }
+    }
+
+    // 발행 — 새 캔버스는 다 쓰고 화면을 떠날 때 한 번만 알린다. 만들어진 직후가 아니라
+    // 이 시점이라 제목도 완성돼 있다(위 publishRef 설명). 'done'으로 먼저 잠가, 언마운트
+    // 때 두 정리 함수가 겹쳐 들어와도 같은 알림이 두 번 나가지 않게 한다.
+    if (publishing && publishRef.current === 'pending') {
+      publishRef.current = 'done'
+      postSystemNotice({
+        schoolId, channelId: channel.id, actorUid: user.uid,
+        text: title.trim()
+          ? `${userName}님이 새 캔버스를 만들었습니다: ${title}`
+          : `${userName}님이 새 캔버스를 만들었습니다.`,
+        refRequestId: requestId, refTitle: title,
+      }).catch(() => {})
     }
 
     // 이 글을 떠나는 순간(silent)에만, 이번 방문에서 실제로 뭔가 바뀌었을 때만 한 번
