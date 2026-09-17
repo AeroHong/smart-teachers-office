@@ -55,7 +55,10 @@ export default function Activity() {
   )
 
   // 목록을 본 시점을 기록한다. 화면의 굵은 표시는 그대로 둬서 무엇이 새로 왔는지 계속 보인다.
-  useEffect(() => { if (pendingCount > 0) seen.markSeen() }, [pendingCount, seen])
+  // 의존성에 seen 객체 전체가 아니라 markSeen 함수만 둔다 — 객체를 통째로 넣으면 렌더마다
+  // 참조가 바뀌어 이 effect가 계속 돌고, 그 쓰기가 다시 리렌더를 불러 무한 루프가 된다.
+  const { markSeen } = seen
+  useEffect(() => { if (pendingCount > 0) markSeen() }, [pendingCount, markSeen])
 
   const openNotif = (item) => {
     // 공지·멘션·채널 신설·댓글은 채널 단위 읽음이라, 열어본 채널을 지금 읽은 것으로
