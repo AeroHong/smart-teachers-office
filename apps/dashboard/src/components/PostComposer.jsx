@@ -60,7 +60,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { completionStats, isRequest, newRequestPayload } from '@shared/lib/workRequests'
-import { postVisibilityFor } from '@shared/lib/channels'
+import { isDm, postVisibilityFor } from '@shared/lib/channels'
 import { deleteAttachment, fileKind, formatBytes } from '@shared/lib/requestAttachments'
 import { htmlToText, isEmptyHtml, sanitizeHtml } from '@shared/lib/richText'
 import { hydrateDateChips } from '@shared/lib/dateChips'
@@ -144,9 +144,20 @@ export default function PostComposer({
   )
   const requestId = editingId || draftId
 
+  /**
+   * DM(1:1·여러 명·나와의 대화)인가.
+   *
+   * DM에 넣는 캔버스는 "업무 배정"이 아니라 그 대화에서 같이 보는 문서다. 그런데 이
+   * 편집기는 채널용으로만 만들어져 있어서 DM에서도 요청/안내 선택·마감일·완료 현황·
+   * 대상 경고가 그대로 떴다 — 혼자 쓰는 '나와의 대화'에서도 기본이 "업무 요청"이라
+   * 내 메모에 완료 확인이 붙었다(사용자 지적, 2026-09-17). DM에서는 그 갈래를 통째로
+   * 접고 늘 '안내'로 둔다.
+   */
+  const dm = isDm(channel)
+
   const [title, setTitle] = useState('')
   const [bodyHtml, setBodyHtml] = useState('')
-  const [needsCompletion, setNeedsCompletion] = useState(true)
+  const [needsCompletion, setNeedsCompletion] = useState(!dm)
   const [pinned, setPinned] = useState(false)
   const [dueDate, setDueDate] = useState('')
   const [rule, setRule] = useState(channel?.memberRule || EMPTY_RULE)
@@ -236,7 +247,7 @@ export default function PostComposer({
       // 내용이 그대로 보임, 수정하면 저장도 안됨"). 첫 마운트 때의 초기값으로 되돌린다.
       setTitle('')
       setBodyHtml('')
-      setNeedsCompletion(true)
+      setNeedsCompletion(!dm)
       setPinned(false)
       setDueDate('')
       setRule(channel?.memberRule || EMPTY_RULE)
@@ -397,9 +408,14 @@ export default function PostComposer({
    */
   const flushRef = useRef(async () => {})
   flushRef.current = async ({ silent = false } = {}) => {
-    if (loadingPost) return
+    // 저장할 것이 없어 그냥 돌아가는 길에는 'saving'을 걷어낸다. 저장 표시는 이 함수를
+    // 부르기 전에 이펙트가 미리 켜두는데, 여기서 아무 일도 안 하고 나가면 그 표시가
+    // 영영 남는다 — 새 캔버스를 열어두고 아무것도 안 썼을 때 "저장 중…"이 계속 돌아가
+    // 보였다(사용자 지적, 2026-09-17).
+    const stopSaving = () => { if (!silent) setSaveState('idle') }
+    if (loadingPost) { stopSaving(); return }
     const isEmpty = !title.trim() && isEmptyHtml(bodyHtml) && attachments.length === 0
-    if (!created && isEmpty) return
+    if (!created && isEmpty) { stopSaving(); return }
 
     // 이 화면을 떠날 때(silent) 두 정리 함수(글을 바꿔 타는 이펙트·완전히 사라질 때의
     // 이펙트)가 거의 동시에 flushRef.current를 부를 수 있다 — 둘 다 언마운트 한 번에
@@ -438,7 +454,12 @@ export default function PostComposer({
         targets,
         createdBy: user.uid,
         createdByName: userName,
-        ownerUids,
+        // DM에 넣은 캔버스는 그 대화에 있는 사람이 모두 함께 고칠 수 있다(사용자 확정,
+        // 2026-09-17 — "DM 구성원은 함께 작성할 수 있거나 말거나 둘 중 하나"). 예전에는
+        // '함께 편집할 사람'에 손으로 넣은 사람만 고칠 수 있어, 같은 대화 안에서도 되기도
+        // 하고 안 되기도 했다. ownerUids에 참여자를 담아 두면 firestore.rules의 기존
+        // update 조건(ownerUids 포함 여부)이 그대로 열어주므로 규칙을 건드릴 필요가 없다.
+        ownerUids: dm ? [...new Set([...(channel?.memberUids || []), user.uid])] : ownerUids,
       })
 
       if (!created) {
@@ -620,14 +641,17 @@ export default function PostComposer({
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Box sx={{ flexShrink: 0, px: 2, pt: 1.5 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1 }}>
-          <SegChoice
-            value={needsCompletion ? 'request' : 'notice'}
-            onChange={v => setNeedsCompletion(v === 'request')}
-            options={[
-              { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
-              { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
-            ]}
-          />
+          {/* DM에서는 요청/안내 갈래를 아예 안 보여준다(위 dm 설명) — 늘 '안내'다. */}
+          {!dm && (
+            <SegChoice
+              value={needsCompletion ? 'request' : 'notice'}
+              onChange={v => setNeedsCompletion(v === 'request')}
+              options={[
+                { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
+                { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
+              ]}
+            />
+          )}
           {/* 이제 채널 탭을 눌러 돌아오면 글쓴이는 무조건 이 편집기로 온다(제출현황으로
               자동으로 안 튕긴다 — 사용자 확정, 2026-08-26). 그 대신 제출현황(완료 관리)을
               보고 싶을 때 누르는 문이 이 버튼이다 — 보기 화면(PostDetail)으로 보낸다.
@@ -690,7 +714,9 @@ export default function PostComposer({
               땐 아무것도 안 보여준다 — "이 채널 참여자 N명이 대상입니다"는 채널 헤더에
               이미 참여자 수가 보이니 중복이라 뺐다(2026-08-28, 사용자 지적). "대상 좁히기"
               토글도 같은 이유로 헤더(제목 줄 오른쪽)로 옮겨갔다 — 여기 남은 건 Collapse뿐. */}
-          {targets.length === 0 && (
+          {/* DM에서는 '대상'이라는 개념 자체가 없다 — 그 대화에 있는 사람이 곧 독자다.
+              경고를 띄우면 고칠 방법도 없는 것을 고치라고 말하는 셈이 된다. */}
+          {!dm && targets.length === 0 && (
             <Typography fontSize="0.8rem" color="warning.main" fontWeight={700}>
               ⚠ 대상이 없습니다 — 아직 아무에게도 가지 않습니다
             </Typography>
@@ -707,8 +733,11 @@ export default function PostComposer({
         {/* 담당자 — 나(글쓴이) 말고 함께 편집·마감·다시 알림을 할 수 있는 사람(2026-09-10,
             사용자 요청). 대상(누구에게 가는가)과는 다른 개념이라 따로 둔다 — 대상은
             "받는 사람", 담당자는 "굴리는 사람"이다(workRequests.js). 안 골라도 글쓴이는
-            그대로 편집할 수 있어 늘 펼쳐 둬도 부담이 없다. */}
-        {!membersLoading && (
+            그대로 편집할 수 있어 늘 펼쳐 둬도 부담이 없다.
+
+            DM에서는 안 보여준다 — 그 대화의 참여자가 자동으로 담당자가 되므로(위 payload의
+            ownerUids) 고를 것이 없고, 빈 칸만 남으면 "골라야 하나" 싶어진다. */}
+        {!dm && !membersLoading && (
           <Box sx={{ mb: 1, maxWidth: 420 }}>
             <Autocomplete
               multiple size="small" autoHighlight
