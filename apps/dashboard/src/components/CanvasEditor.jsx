@@ -46,6 +46,7 @@ import TitleIcon from '@mui/icons-material/Title'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import NotesIcon from '@mui/icons-material/Notes'
 import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import Popover from '@mui/material/Popover'
 import CircularProgress from '@mui/material/CircularProgress'
 import SlashMenu from './SlashMenu'
@@ -882,6 +883,41 @@ const CanvasEditor = forwardRef(function CanvasEditor({
     closeBlockMenu()
     setHoveredBlock(null)
     emit()
+  }
+
+  /**
+   * 북마크 카드 새로고침 — 링크는 그대로인데 원본 문서의 제목·설명이 바뀐 경우를
+   * 위한 것(사용자 요청, 2026-09-17 — "구글 문서 제목이 바뀌어도 캔버스 안 북마크에는
+   * 반영이 안 됨"). linkBookmarkCard.js 주석대로 카드는 만든 시점의 스냅샷을 본문에
+   * 그대로 박아 두는 방식이라 저절로는 안 바뀐다 — 매번 자동으로 다시 가져오면(볼 때마다
+   * 헤드리스 브라우저로 스크린샷까지 새로 찍는 비용) 느리고 캔버스 하나 여는 데 여러
+   * 링크가 있으면 배보다 배꼽이 커지므로, 필요할 때 사용자가 직접 눌러서만 갱신한다.
+   */
+  const refreshBookmarkPreview = async () => {
+    const target = blockMenu?.el
+    const bookmarkEl = target?.matches?.('[data-bookmark-url]')
+      ? target
+      : target?.querySelector?.('[data-bookmark-url]')
+    const url = bookmarkEl?.getAttribute('data-bookmark-url')
+    closeBlockMenu()
+    if (!url) return
+    try {
+      const call = httpsCallable(functions, 'fetchLinkPreview')
+      const { data: meta } = await call({ url, schoolId })
+      const html = linkBookmarkCardHtml(meta)
+      const template = document.createElement('template')
+      template.innerHTML = html
+      const created = template.content.firstElementChild
+      if (!created) return
+      if (bookmarkEl.hasAttribute('data-block-id')) {
+        created.setAttribute('data-block-id', bookmarkEl.getAttribute('data-block-id'))
+      }
+      bookmarkEl.replaceWith(created)
+      emit()
+      toast.success('북마크 미리보기를 새로 가져왔습니다.')
+    } catch (e) {
+      toast.error('미리보기를 새로고침하지 못했습니다.', e)
+    }
   }
 
   /** 콜아웃 배경색 — data-callout-color만 바꾼다(richTextStyles.js가 실제 색을 정한다). */
@@ -2107,6 +2143,11 @@ const CanvasEditor = forwardRef(function CanvasEditor({
             onClick={e => setConvertSubmenuAnchor(e.currentTarget)}
           >
             <TitleIcon sx={{ fontSize: 17 }} />다른 블록으로 변환
+          </MenuItem>
+        )}
+        {(blockMenu?.el?.matches?.('[data-bookmark-url]') || blockMenu?.el?.querySelector?.('[data-bookmark-url]')) && (
+          <MenuItem sx={{ fontSize: '0.85rem', gap: 1 }} onClick={refreshBookmarkPreview}>
+            <RefreshIcon sx={{ fontSize: 17 }} />미리보기 새로고침
           </MenuItem>
         )}
         {blockMenu?.el?.tagName === 'ASIDE' && [

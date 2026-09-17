@@ -61,7 +61,14 @@ async function captureLinkPreview(url, schoolId) {
       else req.continue()
     })
     await page.setViewport({ width: 1000, height: 640 })
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 15000 })
+    // 'networkidle2'(연결 2개 이하로 500ms 유지)로 기다리면 구글 문서·Slack처럼 실시간
+    // 협업용 웹소켓/폴링을 계속 띄워 두는 페이지에서는 그 연결이 절대 안 끊겨 거의 매번
+    // 타임아웃 근처까지 기다리게 된다(사용자 신고, 2026-09-17 — "북마크 새로고침이
+    // 시간이 많이 걸리네"). 제목·설명은 대개 초기 HTML 파싱 직후 바로 자리를 잡으므로
+    // DOM만 준비되면 충분하다 — 뒤이어 오는 배경 통신까지 기다리지 않는다. 클라이언트
+    // 스크립트가 늦게 제목을 바꿔 다는 사이트를 위해 스크린샷 찍기 전 짧게만 더 쉰다.
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
+    await new Promise(resolve => setTimeout(resolve, 700))
 
     const dom = await page.evaluate(() => {
       const content = (sel) => document.querySelector(sel)?.getAttribute('content') || ''
