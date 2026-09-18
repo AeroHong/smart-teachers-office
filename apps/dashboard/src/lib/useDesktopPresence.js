@@ -12,6 +12,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 
 // TTL(4시간)보다 훨씬 짧게 잡아, 상태 변화 없이 오래 켜둬도 "확인 안 됨"으로 빠지지 않게 한다.
+// 단 이 하트비트는 '재실'을 유지하는 동안에만 보낸다 — 아래 heartbeatDue 참고.
 const HEARTBEAT_MS = 10 * 60 * 1000
 
 function isDesktop() {
@@ -48,8 +49,15 @@ export default function useDesktopPresence() {
       if (!readyRef.current) return
       if (currentStatusRef.current === 'busy') return
 
+      // 하트비트는 '재실'일 때만 보낸다. TTL은 애초에 "퇴근했는데 재실로 남는 것"을 막으려는
+      // 장치라, 이미 '자리 비움'이면 만료돼 '확인 안 됨'이 되어도 보이는 뜻이 달라지지 않는다.
+      // 반면 야간에 전원이 이 하트비트를 계속 돌리면 대가가 크다 — presence 컬렉션은
+      // usePresenceMap.js와 키오스크 CallInput.jsx가 통째로 구독하고 있어서, 쓰기 한 건이
+      // 열려 있는 모든 화면에 읽기 한 건씩으로 배달된다(클라이언트 N대면 N²). 아무도 쓰지
+      // 않는 밤에 하루 18만 읽기가 찍힌 원인이 이것이었다.
       const changed = status !== currentStatusRef.current
-      const heartbeatDue = Date.now() - lastWriteAtRef.current >= HEARTBEAT_MS
+      const heartbeatDue = status === 'available'
+        && Date.now() - lastWriteAtRef.current >= HEARTBEAT_MS
       if (!changed && !heartbeatDue) return
 
       lastWriteAtRef.current = Date.now()

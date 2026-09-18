@@ -270,8 +270,14 @@ exports.submitCallRequest = onCall({ region: REGION }, async (request) => {
 })
 
 // ── 6. 5분 미확인 호출 자동 만료 ───────────────────────────────────────────────
+//
+// 학교 일과 시간에만 돈다. 예전에는 'every 1 minutes'로 24시간 돌았는데, 이 함수는 매 실행마다
+// schools 컬렉션 전체를 읽고 학교마다 쿼리를 한 번 더 던진다 — 결과가 0건이어도 쿼리당 1건이
+// 과금되므로, 학생 호출이 있을 리 없는 새벽에도 읽기가 계속 쌓였다. 20시 이후 남은 pending은
+// 다음 날 7시 첫 실행이 정리하므로 기능상 손실은 없다(만료 판정은 createdAt 기준이라 밤사이
+// 지난 시간도 그대로 반영된다).
 exports.expireCallRequests = onSchedule(
-  { schedule: 'every 1 minutes', region: REGION },
+  { schedule: '*/1 7-20 * * *', timeZone: 'Asia/Seoul', region: REGION },
   async () => {
     const db = getFirestore()
     const cutoff = Timestamp.fromMillis(Date.now() - CALL_EXPIRE_MS)

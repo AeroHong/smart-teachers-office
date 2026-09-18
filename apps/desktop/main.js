@@ -99,9 +99,11 @@ let updateNotification = null
 // 재실 자동 감지 — OS 유휴시간·화면 잠금을 판정해 렌더러(웹 대시보드)에 IPC로 알려준다.
 // Firestore 쓰기는 메인이 아니라 렌더러가 한다(useDesktopPresence.js) — 메인 프로세스는
 // 로그인 세션이 없어 직접 쓸 수 없다(알림 파이프라인의 notify 핸들러와 같은 이유).
-// 임계값 5분은 자동은 '재실'↔'자리 비움'만 오가게 하는 설계(수업 중은 사람이 직접 고른다)에서
-// 너무 짧으면 자리에 앉아 화면만 보는 중에도 깜빡여 신뢰를 잃는다.
-const PRESENCE_IDLE_THRESHOLD_SEC = 5 * 60
+// 자동은 '재실'↔'자리 비움'만 오가게 하는 설계(수업 중은 사람이 직접 고른다)에서 임계값이
+// 너무 짧으면 자리에 앉아 화면만 보는 중에도 깜빡여 신뢰를 잃는다. 5분으로 뒀다가 10분으로
+// 늘렸다 — 서류를 잠깐 보는 정도로도 '자리 비움'이 됐고, 그 깜빡임 한 번이 presence 문서
+// 쓰기가 되어 컬렉션 전체를 구독 중인 모든 화면에 읽기로 퍼졌다(useDesktopPresence.js 참고).
+const PRESENCE_IDLE_THRESHOLD_SEC = 10 * 60
 const PRESENCE_POLL_INTERVAL_MS = 60 * 1000
 let lastPresenceStatus = null
 

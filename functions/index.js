@@ -133,7 +133,6 @@ exports.autoManageLiveSessions = onSchedule(
 
     for (const eventDoc of activeSnap.docs) {
       const ev = eventDoc.data()
-      if (ev.archived) continue
 
       // /schools/{schoolId}/events/{eventId} → 상위 학교 문서 ID
       const schoolId = eventDoc.ref.parent.parent.id
@@ -143,6 +142,11 @@ exports.autoManageLiveSessions = onSchedule(
 
       // 전날(또는 그 이전) 세션이 남아있으면 즉시 강제 초기화
       // (Cloud Function 오류 등으로 processSessionClose가 실행되지 못한 경우)
+      //
+      // 보관된(archived) 이벤트도 여기서는 거른다. 예전에는 archived를 루프 맨 앞에서
+      // 걸러냈는데, 그러면 세션을 연 채로 보관된 이벤트는 liveOpenedAt이 영원히 남아
+      // 위 collectionGroup 쿼리에 매분 계속 잡혔다 — 한번 생기면 하루 960건씩 영구히
+      // 읽히는 누수였다. 정리를 먼저 하고, 보관 여부는 그 뒤에 본다.
       const openedAt = ev.liveOpenedAt?.toDate?.() ?? new Date(ev.liveOpenedAt)
       const openedDateStr = kstDateStr(openedAt)
       if (openedDateStr < todayStr) {
@@ -150,6 +154,9 @@ exports.autoManageLiveSessions = onSchedule(
         await processSessionClose(db, schoolId, eventDoc.id, ev)
         continue
       }
+
+      // 오늘 열린 세션이라면 보관된 이벤트는 자동 처리 대상이 아니다.
+      if (ev.archived) continue
 
       // 1/3 지점 자동 처리 (미처리 + 시간 경과)
       if (!ev.lateWindowProcessed && liveLateCutoff && now >= liveLateCutoff) {
