@@ -9,6 +9,7 @@ import DesktopNotifications from './components/DesktopNotifications'
 import MentionNotifications from './components/MentionNotifications'
 import DesktopPresence from './components/DesktopPresence'
 import DesktopClientReport from './components/DesktopClientReport'
+import DesktopUpdateGate from './components/DesktopUpdateGate'
 import Login from './pages/Login'
 import RequestList from './pages/RequestList'
 import Channels from './pages/Channels'
@@ -42,6 +43,9 @@ export default function App() {
         {/* 설치 현황 보고 — 구버전(0.1.7 미만) 사용자를 찾아내기 위한 것이라
             자동 업데이트가 없던 0.1.5도 잡히도록 version만 보고 판정한다 */}
         <DesktopClientReport />
+        {/* 강제 업데이트 관문 — schools/{schoolId}.minDesktopVersion 미달이면 화면 전체를
+            가린다(닫기 없음). Routes보다 먼저 마운트해 어느 페이지든 위에 뜨게 한다. */}
+        <DesktopUpdateGate />
         <ErrorBoundary label="화면">
         <Routes>
           <Route path="/login" element={<Login />} />

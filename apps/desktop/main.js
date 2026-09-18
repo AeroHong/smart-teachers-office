@@ -95,6 +95,10 @@ app.isQuitting = false
 // 토스트는 떠 있는데 클릭이 씹힌다 — notify IPC 핸들러(liveNotifications)에서 이미
 // 확인된 문제라 여기도 같은 방식으로 붙잡아 둔다.
 let updateNotification = null
+// 다운로드가 끝나 설치 대기 중인 업데이트. renderer가 관문 화면을 그리기 전에 이미
+// 백그라운드 다운로드(4시간 주기)가 끝나 있을 수 있어, 이벤트만으로는 놓친다 —
+// get-pending-update IPC로 마운트 시점에도 물어볼 수 있게 값을 들고 있는다.
+let pendingUpdateInfo = null
 
 // 재실 자동 감지 — OS 유휴시간·화면 잠금을 판정해 렌더러(웹 대시보드)에 IPC로 알려준다.
 // Firestore 쓰기는 메인이 아니라 렌더러가 한다(useDesktopPresence.js) — 메인 프로세스는
@@ -159,6 +163,11 @@ function setupAutoUpdater() {
   autoUpdater.on('update-available', (info) => log(`[updater] 새 버전 발견: v${info.version}`))
   autoUpdater.on('update-downloaded', (info) => {
     log(`[updater] 다운로드 완료: v${info.version}`)
+    // 강제 업데이트 관문(DesktopUpdateGate.jsx)이 "설치 준비 완료" 버튼을 보여줄지
+    // 판단하는 데 쓴다. 알림 지원 여부와 무관하게 항상 기록·전달한다.
+    pendingUpdateInfo = { version: info.version }
+    mainWindow?.webContents.send('update-downloaded', pendingUpdateInfo)
+
     if (!Notification.isSupported()) return
     // 트레이 상주 앱이라 완전 종료(autoInstallOnAppQuit이 실행될 시점)가 드물다 —
     // 알림을 눌러 바로 재시작·적용하는 경로를 함께 준다.
@@ -457,6 +466,27 @@ if (!gotLock) {
         currentVersion: app.getVersion(),
         latestVersion: result?.updateInfo?.version || null,
       }
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) }
+    }
+  })
+
+  // 강제 업데이트 관문(DesktopUpdateGate.jsx)이 마운트 시점에 묻는다 — 백그라운드
+  // 자동 다운로드(4시간 주기)가 화면이 뜨기 전에 이미 끝나 있을 수 있어, 이벤트만
+  // 기다리면 그 경우를 놓친다.
+  ipcMain.handle('get-pending-update', () => pendingUpdateInfo)
+
+  // 최소 버전 미달로 막힌 화면의 "지금 재시작하고 설치" 버튼. 다운로드가 끝난
+  // 업데이트가 없으면(관리자가 최소 버전을 아직 안 나온 버전으로 잘못 설정한 경우 등)
+  // 아무것도 하지 않고 실패를 알린다 — quitAndInstall을 헛불러 앱만 종료되고 아무
+  // 설치도 안 되는 상황을 피한다.
+  ipcMain.handle('quit-and-install', () => {
+    if (!pendingUpdateInfo) return { ok: false, error: '설치할 업데이트가 아직 없습니다.' }
+    try {
+      const { autoUpdater } = require('electron-updater')
+      app.isQuitting = true
+      autoUpdater.quitAndInstall()
+      return { ok: true }
     } catch (err) {
       return { ok: false, error: err?.message || String(err) }
     }

@@ -52,3 +52,25 @@ export function isStale(doc, now = Date.now()) {
   if (!ms) return true
   return now - ms > STALE_MS
 }
+
+/**
+ * window.smartOfficeDesktop이 노출하는 버전. 일반 브라우저(Electron 밖)에서는 null —
+ * useDesktopClientReport.js·useDesktopUpdateGate.js가 함께 쓴다.
+ */
+export function currentDesktopVersion() {
+  if (typeof window === 'undefined') return null
+  const v = window.smartOfficeDesktop?.version
+  return typeof v === 'string' && v ? v : null
+}
+
+/**
+ * 지금 버전이 최소 버전보다 낮은가 (강제 업데이트 관문, useDesktopUpdateGate.js).
+ *
+ * 최소 버전이 안 정해졌거나(관리자가 설정 안 함) 지금 버전을 모르면(일반 브라우저,
+ * preload가 버전을 못 읽은 아주 옛 빌드) 막지 않는다 — 판단이 애매한 쪽은 항상 열어
+ * 둔다. 반대로 잘못 판단해 막으면 그 사람은 앱을 아예 못 쓰게 되어 되돌릴 방법이 없다.
+ */
+export function isBelowMinVersion(version, minVersion) {
+  if (!minVersion || !version || version === 'unknown') return false
+  return compareVersions(version, minVersion) < 0
+}

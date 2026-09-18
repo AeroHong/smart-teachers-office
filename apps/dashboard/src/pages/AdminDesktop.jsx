@@ -9,13 +9,14 @@
  * 나열하면 정작 알아야 할 안 깐 사람이 화면에 없다.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { collection, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Paper from '@mui/material/Paper'
+import TextField from '@mui/material/TextField'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
@@ -61,6 +62,13 @@ export default function AdminDesktop() {
   // 구분한다(전체·개별을 같은 상태로 두면 하나가 도는 동안 나머지 버튼도 다 잠긴다).
   const [pushingKey, setPushingKey] = useState(null)
 
+  // 강제 업데이트 관문(DesktopUpdateGate.jsx) — 이 값보다 낮은 버전은 화면을 아예 못
+  // 쓴다. savedMinVersion은 지금 Firestore에 저장된 값(입력칸의 기준점), minVersionInput은
+  // 입력 중인 값. 되돌릴 수 없는 잠금이라 기본은 항상 "제한 없음"이다.
+  const [savedMinVersion, setSavedMinVersion] = useState(null)
+  const [minVersionInput, setMinVersionInput] = useState('')
+  const [savingMinVersion, setSavingMinVersion] = useState(false)
+
   // 배포 직후 10분(웹)·4시간(데스크톱 설치 파일) 자동 확인을 못 기다릴 때 쓴다 —
   // useAppUpdate.js가 schools/{schoolId}.forceUpdateCheckAt 변화를 보고 즉시 재확인한다.
   // targetUid를 주면 그 사람 세션만 반응한다(개별 푸시, 사용자 요청 2026-09-07 —
@@ -87,6 +95,56 @@ export default function AdminDesktop() {
       setPushingKey(null)
     }
   }
+
+  // X.Y.Z 형식만 받는다 — compareVersions는 형식이 어긋나도 조용히 0취급해 잘못
+  // 입력해도 저장이 되어버리므로, 여기서 먼저 막는다.
+  const isValidVersion = (v) => /^\d+\.\d+\.\d+$/.test(v.trim())
+
+  const handleSaveMinVersion = async () => {
+    const v = minVersionInput.trim()
+    if (!isValidVersion(v)) {
+      toast.error('버전은 0.2.2처럼 숫자.숫자.숫자 형식으로 입력해 주세요.')
+      return
+    }
+    setSavingMinVersion(true)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId), { minDesktopVersion: v })
+      setSavedMinVersion(v)
+      toast.success(`${v} 미만 데스크톱 앱의 사용을 막았습니다.`)
+    } catch (e) {
+      toast.error('최소 버전을 저장하지 못했습니다.', e)
+    } finally {
+      setSavingMinVersion(false)
+    }
+  }
+
+  const handleClearMinVersion = async () => {
+    setSavingMinVersion(true)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId), { minDesktopVersion: null })
+      setSavedMinVersion(null)
+      setMinVersionInput('')
+      toast.success('강제 업데이트 제한을 해제했습니다.')
+    } catch (e) {
+      toast.error('제한 해제에 실패했습니다.', e)
+    } finally {
+      setSavingMinVersion(false)
+    }
+  }
+
+  // 지금 저장된 최소 버전을 입력칸에 미리 채워 둔다 — 관리자가 안 건드리면 지금
+  // 값을 그대로 다시 저장하게 되어 "덮어쓸까 새로 정할까"를 고민할 필요가 없다.
+  useEffect(() => {
+    if (!schoolId) return undefined
+    let alive = true
+    getDoc(doc(db, 'schools', schoolId)).then((snap) => {
+      if (!alive) return
+      const v = snap.data()?.minDesktopVersion || null
+      setSavedMinVersion(v)
+      setMinVersionInput(v || '')
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [schoolId])
 
   // 설치 현황은 실시간으로 볼 이유가 없다(보고 주기가 6시간이다). 화면을 열 때 한 번 읽는다.
   useEffect(() => {
@@ -146,6 +204,13 @@ export default function AdminDesktop() {
   const missing = rows.filter(r => !r.client).length
   const busy = loading || membersLoading
 
+  // 지금 입력 중인 값을 저장하면 당장 몇 명이 화면을 못 쓰게 되는지 — 누르기 전에
+  // 규모를 보여준다. 형식이 안 맞으면(입력 중) 굳이 계산하지 않는다.
+  const minVersionValid = /^\d+\.\d+\.\d+$/.test(minVersionInput.trim())
+  const wouldBlockCount = minVersionValid
+    ? clients.filter(c => compareVersions(c.version, minVersionInput.trim()) < 0).length
+    : 0
+
   return (
     <WorkspaceLayout>
       <Box sx={{ p: 3, maxWidth: 1000 }}>
@@ -173,6 +238,56 @@ export default function AdminDesktop() {
             설치 현황을 불러오지 못했습니다. 관리자 권한으로 로그인했는지 확인해 주세요.
           </Typography>
         )}
+
+        {/* 강제 업데이트 관문 — schools/{schoolId}.minDesktopVersion. 위 "업데이트 확인
+            강제"와 달리 닫을 수 없다(DesktopUpdateGate.jsx). 정말 방치하면 안 되는
+            결함이 나왔을 때만 쓰라고 문구로 못박아 둔다. */}
+        <Paper variant="outlined" sx={{ p: 2.5, mt: 2.5, borderColor: savedMinVersion ? 'error.main' : undefined }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>강제 업데이트</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+            이 버전보다 낮은 데스크톱 앱은 화면 전체가 막히고 업데이트 화면만 보게 됩니다.
+            닫을 수 없으니, 방치하면 안 되는 결함을 고쳐 배포했을 때만 사용하세요.
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
+            <TextField
+              size="small"
+              label="최소 버전"
+              placeholder="예: 0.2.2"
+              value={minVersionInput}
+              onChange={(e) => setMinVersionInput(e.target.value)}
+              disabled={savingMinVersion}
+              sx={{ width: 160 }}
+            />
+            <Button
+              variant="contained"
+              color="error"
+              size="small"
+              disabled={savingMinVersion || !minVersionValid || minVersionInput.trim() === (savedMinVersion || '')}
+              onClick={handleSaveMinVersion}
+            >
+              적용
+            </Button>
+            {savedMinVersion && (
+              <Button variant="outlined" size="small" disabled={savingMinVersion} onClick={handleClearMinVersion}>
+                제한 해제
+              </Button>
+            )}
+            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+              {savedMinVersion
+                ? `지금: ${savedMinVersion} 미만 차단 중`
+                : '지금: 제한 없음'}
+            </Typography>
+          </Box>
+
+          {minVersionValid && minVersionInput.trim() !== (savedMinVersion || '') && (
+            <Typography variant="caption" color={wouldBlockCount ? 'error.main' : 'text.secondary'} display="block" sx={{ mt: 1 }}>
+              {wouldBlockCount > 0
+                ? `적용하면 지금 보고된 ${wouldBlockCount}명이 즉시 막힙니다.`
+                : '적용해도 지금 보고된 사람 중 막히는 사람은 없습니다.'}
+            </Typography>
+          )}
+        </Paper>
 
         {busy ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress size={28} /></Box>
