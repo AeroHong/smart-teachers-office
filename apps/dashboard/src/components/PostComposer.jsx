@@ -74,6 +74,20 @@ import { CLOUD_DANCER } from '../lib/pantone'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
 
+/**
+ * 사람이 고칠 수 있는 저장 내용의 지문. 떠날 때 "마지막 저장 이후 바뀐 게 있나"를 보는
+ * 데만 쓴다 — 같으면 쓰지 않는다(PostComposer의 flushRef). 편집기에서 고칠 수 있는
+ * 필드가 늘면 여기도 같이 늘려야 한다: 빠뜨리면 그 필드만 바꾸고 떠날 때 저장이 안 된다.
+ * 첨부는 경로만 본다(같은 파일이면 이름·크기가 같다).
+ */
+function contentSig(c) {
+  return JSON.stringify([
+    c.title, c.bodyHtml, c.needsCompletion, c.pinned, c.dueDate, c.rule, c.ownerUids,
+    (c.attachments || []).map(a => a.path), c.links,
+    c.coverImageUrl, c.coverImagePath, c.coverImagePosition,
+  ])
+}
+
 function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -174,6 +188,18 @@ export default function PostComposer({
   // 실제 Firestore 문서가 이미 만들어졌는가. 고치기는 처음부터 true, 새 글은 첫 자동저장이
   // 만든 순간 true가 된다 — 그 전까지는 완전히 로컬 상태다.
   const [created, setCreated] = useState(!!editingId)
+  /**
+   * 지금 편집기 state(제목·본문·첨부…)가 어느 문서의 내용인가.
+   *
+   * 저장은 늘 requestId에 쓰는데, requestId는 editingId가 바뀌는 렌더에서 곧바로 바뀌고
+   * 내용 state는 getDoc이 끝나야 바뀐다. 그 사이 저장이 돌면 떠나온 글의 내용이 새 글에
+   * 써진다 — 캔버스 탭 복제 사고의 공통 뿌리다(Channels.jsx의 composerKey 설명). 지금은
+   * key로 글마다 인스턴스를 새로 만들어 그 틈 자체가 없지만, 이 값을 내용과 **같은 배치로**
+   * 바꿔 두고 flushRef.current가 "requestId === 이 값"일 때만 쓰게 해서, 앞으로 어떤
+   * 경로로 저장이 불리든 남의 문서에 쓰는 일은 구조적으로 막는다. 고칠 글은 불러오기 전엔
+   * 주인이 없다(null) — 빈 state를 그 글에 쓰면 안 되기 때문이다.
+   */
+  const [contentOwnerId, setContentOwnerId] = useState(editingId ? null : draftId)
   const [saveState, setSaveState] = useState('idle')   // idle | saving | saved | error
   // '업무현황 N/M' 버튼 표시용. 자동저장이 title·bodyHtml 등을 실시간으로 반영하는 것과
   // 달리 이 값은 여기서 손대지 않는다(완료 체크는 PostDetail 쪽 일) — 고칠 글을 읽어올
@@ -232,6 +258,9 @@ export default function PostComposer({
    * 나가지 않게 하기 위해서다.
    */
   const publishRef = useRef('none')
+  // 마지막으로 저장했거나 불러온 내용의 지문(contentSig). 떠날 때 이것과 같으면 쓰지
+  // 않는다(아래 flushRef). 새 글은 아직 저장한 적이 없어 null.
+  const lastSavedSigRef = useRef(null)
 
   /**
    * 고칠 글을 한 번만 읽어온다. onSnapshot으로 구독하지 않는 이유: 쓰는 도중에 서버 값이
@@ -263,6 +292,7 @@ export default function PostComposer({
       keptCoverPathRef.current = null
       setLoadingPost(false)
       setCreated(false)
+      setContentOwnerId(draftId)
       setSaveState('idle')
       wasAlreadyCreatedRef.current = false
       editedThisSessionRef.current = false
@@ -276,11 +306,19 @@ export default function PostComposer({
       return undefined
     }
     if (justCreatedRef.current) {
-      // 여기는 안전하다 — 방금 막 만든 글의 editingId가 그 글 자신의 requestId와
-      // 같아서(justCreatedRef가 막 세팅된 그 글), flushRef.current가 가리키는
-      // 대상이 바뀌지 않는다.
+      // 방금 만든 글이 /new → /{id}/edit로 바뀐 것뿐이다 — 다시 읽지 않는다(위 설명).
+      //
+      // 예전엔 여기서 정리 함수로 flushRef.current({ silent: true })를 걸어 두었다
+      // ("여기는 안전하다"). 안전하지 않았다: 그 정리 함수는 다음에 editingId가 바뀔 때,
+      // 즉 사용자가 옆 탭을 누른 렌더에서 실행되는데 그때 flushRef.current는 이미 옆 탭의
+      // requestId로 다시 대입돼 있고 제목·본문은 방금 만든 글의 것이다. 그래서 캔버스를
+      // 두 개 연달아 만들고 먼저 만든 탭을 누르면 그 탭이 최신 캔버스로 복제됐고, 방금 만든
+      // 글의 발행(draft→open)까지 옆 탭으로 가서 정작 그 글은 대상자에게 배달되지 않았다
+      // (2026-09-18 브라우저로 재현 확인). 떠날 때 저장·발행은 아래 언마운트 이펙트가
+      // 맡는다 — 이제 탭을 옮기면 이 인스턴스가 통째로 사라지므로(Channels.jsx의
+      // composerKey) 그 정리 함수가 자기 글의 마지막 상태로 돈다.
       justCreatedRef.current = false
-      return () => { flushRef.current({ silent: true }).catch(() => {}) }
+      return undefined
     }
     // 탭을 바로 옆의 이미 저장된 다른 탭으로 옮기는 경우(둘 다 editingId가 실제 id) —
     // 여기서 즉시 loadingPost를 true로 켜야 한다. 안 그러면 이 getDoc이 끝나기 전까지
@@ -301,24 +339,47 @@ export default function PostComposer({
           return
         }
         const post = snap.data()
-        setTitle(post.title || '')
-        setBodyHtml(post.bodyHtml || '')
-        setNeedsCompletion(isRequest(post))
-        setPinned(!!post.pinned)
-        setDueDate(post.dueDate?.toDate ? ymd(post.dueDate.toDate()) : '')
-        setRule(post.targetRule || channel?.memberRule || EMPTY_RULE)
-        setOwnerUids(post.ownerUids || [])
+        // 불러온 글은 이미 있는 문서다. 예전엔 여기서 created를 안 켜서, "새 글" 화면에서
+        // 기존 탭으로 넘어와 고치면 created가 false로 남아 그 글을 setDoc으로 통째로 새로
+        // 썼다(status가 draft로·완료 기록이 빈 배열로 돌아감). contentOwnerId는 아래
+        // setTitle 등과 같은 배치로 바뀌어야 한다(위 설명).
+        // state에 넣는 값과 "불러온 내용의 지문"을 한 객체에서 만든다 — 따로 쓰면 둘이
+        // 조금만 어긋나도 떠날 때마다 헛저장이 나간다(아래 flushRef의 지문 비교).
+        const loaded = {
+          title: post.title || '',
+          bodyHtml: post.bodyHtml || '',
+          needsCompletion: isRequest(post),
+          pinned: !!post.pinned,
+          dueDate: post.dueDate?.toDate ? ymd(post.dueDate.toDate()) : '',
+          rule: post.targetRule || channel?.memberRule || EMPTY_RULE,
+          ownerUids: post.ownerUids || [],
+          attachments: post.attachments || [],
+          links: post.links || [],
+          coverImageUrl: post.coverImageUrl || null,
+          coverImagePath: post.coverImagePath || null,
+          coverImagePosition: post.coverImagePosition ?? 50,
+        }
+        lastSavedSigRef.current = contentSig(loaded)
+        setCreated(true)
+        setContentOwnerId(editingId)
+        setTitle(loaded.title)
+        setBodyHtml(loaded.bodyHtml)
+        setNeedsCompletion(loaded.needsCompletion)
+        setPinned(loaded.pinned)
+        setDueDate(loaded.dueDate)
+        setRule(loaded.rule)
+        setOwnerUids(loaded.ownerUids)
         // 채널 참여자 전원과 다르면 처음부터 펼친다 — 접어두면 이미 좁혀 놓은 대상을
         // 고치는 사람이 못 보고 "채널 전체 대상"으로 착각한 채 저장할 수 있다.
         const channelUids = new Set(channel?.memberUids || [])
         const savedUids = post.targetUids || []
         const narrowed = savedUids.length !== channelUids.size || savedUids.some(uid => !channelUids.has(uid))
         setTargetOpen(narrowed)
-        setAttachments(post.attachments || [])
-        setLinks(post.links || [])
-        setCoverImageUrl(post.coverImageUrl || null)
-        setCoverImagePath(post.coverImagePath || null)
-        setCoverImagePosition(post.coverImagePosition ?? 50)
+        setAttachments(loaded.attachments)
+        setLinks(loaded.links)
+        setCoverImageUrl(loaded.coverImageUrl)
+        setCoverImagePath(loaded.coverImagePath)
+        setCoverImagePosition(loaded.coverImagePosition)
         setCompletedUids(post.completedUids || [])
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
         keptCoverPathRef.current = post.coverImagePath || null
@@ -415,26 +476,20 @@ export default function PostComposer({
    * @param {boolean} silent 언마운트 중 부를 때 true. 화면이 이미 사라지는 중이라
    *   상태 갱신(setCreated 등)도, onSaved(→navigate)도 하지 않는다 — 안 그러면 사용자가
    *   막 눌러서 옮겨간 다른 채널에서 이 글로 도로 튕겨간다.
-   * @param {string} [forId] 이 저장을 예약한 시점의 requestId(아래 디바운스 타이머 전용).
-   *   지금 requestId와 다르면 아무것도 쓰지 않고 돌아간다 — 탭 전환 덮어쓰기 버그가
-   *   2026-09-08, 2026-09-16에 이어 세 번째로 재발해(2026-09-18, 사용자 신고) 이번엔
-   *   타이밍에 기대지 않는 방식으로 고친다. 예전 방어(loadingPost를 effect가 즉시
-   *   true로 켜서 이 함수 진입 자체를 막음)는 "탭이 바뀐 뒤 그 effect가 실제로 도는
-   *   순간"까지의 좁은 틈을 못 막는다 — 그 틈에 이미 걸려 있던 디바운스 타이머(최대
-   *   700ms 전에 예약된)가 fire하면, flushRef.current는 이미 새 탭(B)의 requestId로
-   *   재대입돼 있지만 title/bodyHtml은 아직 옛 탭(A) 값 그대로라 A의 내용이 B의
-   *   문서에 그대로 써졌다. requestId는 렌더마다 값이 바뀌므로, "타이머를 건 시점의
-   *   requestId"와 "지금 이 함수가 보는 requestId"를 직접 대조하면 그 틈의 길이와
-   *   무관하게 항상 막힌다.
    */
   const flushRef = useRef(async () => {})
-  flushRef.current = async ({ silent = false, forId } = {}) => {
-    if (forId && forId !== requestId) return
+  flushRef.current = async ({ silent = false } = {}) => {
     // 저장할 것이 없어 그냥 돌아가는 길에는 'saving'을 걷어낸다. 저장 표시는 이 함수를
     // 부르기 전에 이펙트가 미리 켜두는데, 여기서 아무 일도 안 하고 나가면 그 표시가
     // 영영 남는다 — 새 캔버스를 열어두고 아무것도 안 썼을 때 "저장 중…"이 계속 돌아가
     // 보였다(사용자 지적, 2026-09-17).
     const stopSaving = () => { if (!silent) setSaveState('idle') }
+    // 지금 들고 있는 내용이 이 문서(requestId)의 것이 아니면 절대 쓰지 않는다(위
+    // contentOwnerId 설명). 두 값은 같은 렌더의 state라 어긋날 수 없고, 어긋났다면 그건
+    // 떠나온 글의 내용이 새 글 ID로 가려는 순간이다. 2026-09-18 오전에 넣었던 forId(타이머를
+    // 건 시점의 ID와 대조)는 디바운스 타이머 경로만 막아서, 실제로 매번 터지던 정리 함수
+    // 경로(justCreatedRef 분기)를 못 막았다 — 이 검사는 부른 쪽이 누구든 똑같이 막는다.
+    if (contentOwnerId !== requestId) { stopSaving(); return }
     if (loadingPost) { stopSaving(); return }
     const isEmpty = !title.trim() && isEmptyHtml(bodyHtml) && attachments.length === 0
     if (!created && isEmpty) { stopSaving(); return }
@@ -446,6 +501,16 @@ export default function PostComposer({
     // 이미 꺼진 플래그를 보고 조용히 넘어간다 — 안 그러면 같은 편집을 두 번 알린다.
     const shouldNotifyEdit = silent && editedThisSessionRef.current
     if (shouldNotifyEdit) editedThisSessionRef.current = false
+    // 이 글을 떠나는 순간(silent)에만, 이번 방문에서 실제로 뭔가 바뀌었을 때만 한 번
+    // 알린다 — 자동저장마다 알리면 타이핑할 때마다 알림이 쌓인다(사용자 요청,
+    // 2026-09-07 — "기존 캔버스가 수정된다거나").
+    const notifyEdited = () => {
+      postSystemNotice({
+        schoolId, channelId: channel.id, actorUid: user.uid,
+        text: title ? `${userName}님이 캔버스를 수정했습니다: ${title}` : `${userName}님이 캔버스를 수정했습니다.`,
+        refRequestId: requestId, refTitle: title,
+      }).catch(() => {})
+    }
 
     /**
      * 아직 배달되지 않은 글인가(위 publishRef 설명). 두 경우가 있다.
@@ -457,6 +522,21 @@ export default function PostComposer({
     const unpublished = publishRef.current === 'pending'
       || (publishRef.current === 'none' && !wasAlreadyCreatedRef.current)
     const publishing = silent && unpublished
+
+    // 마지막으로 저장한(또는 불러온) 뒤 바뀐 게 없으면 쓰지 않는다. 글마다 편집기를 새로
+    // 띄우게 되면서(Channels.jsx의 composerKey) 탭을 떠날 때마다 이 함수가 도는데, 탭만
+    // 훑어봐도 쓰기가 나가면 그 쓰기가 requests를 구독하는 모든 화면에 읽기로 퍼진다
+    // (2026-09-18 프레즌스 N² 사고와 같은 구조). 아직 발행 안 된 글(draft)은 status를
+    // 올려야 하므로 그대로 쓴다.
+    const sig = contentSig({
+      title, bodyHtml, needsCompletion, pinned, dueDate, rule, ownerUids,
+      attachments, links, coverImageUrl, coverImagePath, coverImagePosition,
+    })
+    if (created && !publishing && sig === lastSavedSigRef.current) {
+      stopSaving()
+      if (shouldNotifyEdit) notifyEdited()
+      return
+    }
 
     try {
       const safeHtml = sanitizeHtml(bodyHtml)
@@ -542,6 +622,7 @@ export default function PostComposer({
         // 아직 발행 안 된 draft도 마찬가지다(그쪽은 '만들었습니다'로 나간다).
         if (wasAlreadyCreatedRef.current && !unpublished) editedThisSessionRef.current = true
       }
+      lastSavedSigRef.current = sig
       if (!silent) setSaveState('saved')
     } catch (e) {
       if (!silent) {
@@ -564,16 +645,7 @@ export default function PostComposer({
       }).catch(() => {})
     }
 
-    // 이 글을 떠나는 순간(silent)에만, 이번 방문에서 실제로 뭔가 바뀌었을 때만 한 번
-    // 알린다 — 자동저장마다 알리면 타이핑할 때마다 알림이 쌓인다(사용자 요청,
-    // 2026-09-07 — "기존 캔버스가 수정된다거나").
-    if (shouldNotifyEdit) {
-      postSystemNotice({
-        schoolId, channelId: channel.id, actorUid: user.uid,
-        text: title ? `${userName}님이 캔버스를 수정했습니다: ${title}` : `${userName}님이 캔버스를 수정했습니다.`,
-        refRequestId: requestId, refTitle: title,
-      }).catch(() => {})
-    }
+    if (shouldNotifyEdit) notifyEdited()
   }
 
   // 처음 한 번(마운트, 또는 고치기 로딩 완료 직후)은 저장을 건너뛴다 — 안 그러면 아무것도
@@ -598,10 +670,7 @@ export default function PostComposer({
     // 한 번 더 쓰는 헛수고가 생긴다. flushRef.current()는 매 렌더 최신 created를
     // 참조하므로 다음 실제 변경부터는 어차피 옳은 값으로 판단한다.
     //
-    // forId: requestId(위 flushRef.current 설명 참고) — 지금 이 순간의 requestId를
-    // 타이머에 못박아 둔다. clearTimeout이 못 잡아도(cleanup이 실행되기 전에 fire해도)
-    // 이 값과 fire 시점의 requestId가 다르면 flushRef.current 안에서 다시 한번 막힌다.
-    const timer = setTimeout(() => { flushRef.current({ forId: requestId }) }, created ? 700 : 0)
+    const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, ownerUids, attachments, coverImageUrl, coverImagePath, coverImagePosition, targets, loadingPost, membersLoading])

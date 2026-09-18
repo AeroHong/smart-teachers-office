@@ -102,7 +102,8 @@ const LAST_CHANNEL_KEY = 'lastChannelId'
 export default function Channels() {
   const { channelId, requestId } = useParams()
   const navigate = useNavigate()
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
   // 'directory'는 채널 id가 아니라 정적 경로다(App.jsx). 채널과 같은 사이드바를 쓰는
   // 화면이라 페이지를 따로 만들지 않고 오른쪽 칸만 갈아 끼운다 — 페이지를 나누면 새 채널·
   // 새 대화 대화상자와 그 상태를 두 벌 들고 있어야 한다.
@@ -111,6 +112,26 @@ export default function Channels() {
   // 채널이 사라지지 않아야 쓰는 동안에도 옆 탭에 오간 말이 그대로 보인다.
   const composingNew = pathname === `/channels/${channelId}/new`
   const editingPostId = pathname.endsWith('/edit') ? requestId : null
+  /**
+   * 편집기(PostComposer) 인스턴스 키 — 글 하나에 편집기 하나.
+   *
+   * 예전엔 key 없이 한 인스턴스가 탭을 옮길 때마다 editingId만 바꿔 끼웠다. 그러면 새
+   * 렌더에서 "지금 글 ID"는 이미 옆 탭인데 제목·본문 state는 아직 떠나온 글의 것인 순간이
+   * 생기고, 그 순간 저장이 한 번이라도 돌면 떠나온 글의 내용이 옆 탭 문서에 써진다.
+   * 캔버스 두 개를 연달아 만들고 먼저 만든 탭을 누르면 그 탭이 최신 캔버스로 복제되는
+   * 사고가 이것이었다(2026-09-08·09-16·09-18 세 번 "고쳤다"고 기록됐다가 네 번째 신고,
+   * 2026-09-18 — 매번 타이밍 하나만 막았고 구조는 그대로였다. 09-16에는 실제 업무
+   * 캔버스 하나가 사라졌다).
+   *
+   * 이제 탭을 옮기면 옛 편집기가 통째로 사라진다. 언마운트 때의 저장은 그 인스턴스의
+   * 마지막 렌더(자기 글 ID + 자기 내용)로만 돌므로 다른 글에 쓸 길이 아예 없다.
+   *
+   * 단 새 글이 첫 저장으로 /new → /{id}/edit가 되는 순간은 같은 인스턴스를 유지해야 한다
+   * — 쓰던 글자와 커서가 날아가면 안 된다. onSaved가 이동하면서 지금 키를
+   * location.state로 넘겨 이어 붙인다.
+   */
+  const composerKey = location.state?.composerKey
+    || (editingPostId ? `edit:${editingPostId}` : `new:${location.key}`)
   // 홈(레일의 '홈' 버튼)이 곧장 이 자리다 — channelId 없이 여기로 오면 아래 이펙트가
   // 직전 채널(또는 없으면 전체 공지)로 곧바로 돌린다. "3단이 비는 모습"을 없애려는 것이라
   // (사용자 요청, 2026-08-26), 리다이렉트가 끝나기 전 짧은 순간에도 빈 화면 문구 대신
@@ -1019,14 +1040,16 @@ export default function Channels() {
               <Box sx={{ display: 'flex', height: '100%', minHeight: 0 }}>
                 <Box sx={{ flexGrow: 1, minWidth: 0, height: '100%' }}>
                   <PostComposer
+                    key={composerKey}
                     channel={active}
                     editingId={editingPostId}
                     members={members}
                     membersLoading={membersLoading}
                     // 자동저장이 새 글을 처음 만든 순간 1회 — 주소를 /new에서 /edit로 조용히
                     // 바꾼다. 보기 주소(/edit 없는)로 보내면 PostComposer 대신 PostDetail이
-                    // 그려져, 한창 쓰는 중인 화면이 읽기 화면으로 튕겨버린다.
-                    onSaved={id => navigate(`/channels/${active.id}/${id}/edit`, { replace: true })}
+                    // 그려져, 한창 쓰는 중인 화면이 읽기 화면으로 튕겨버린다. 지금 키를 넘겨
+                    // 같은 편집기 인스턴스를 유지한다(위 composerKey 설명).
+                    onSaved={id => navigate(`/channels/${active.id}/${id}/edit`, { replace: true, state: { composerKey } })}
                     onCancel={() => navigate(editingPostId ? `/channels/${active.id}/${editingPostId}` : `/channels/${active.id}`)}
                     onOpenCanvasRef={to => navigate(to)}
                     onOpenBlockComments={setBlockComments}
