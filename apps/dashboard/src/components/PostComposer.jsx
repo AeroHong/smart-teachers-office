@@ -49,6 +49,8 @@ import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
+import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined'
+import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CloseIcon from '@mui/icons-material/Close'
@@ -60,7 +62,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { completionStats, isRequest, newRequestPayload } from '@shared/lib/workRequests'
-import { isDm, postVisibilityFor } from '@shared/lib/channels'
+import { isDm, isSelfDm, postVisibilityFor } from '@shared/lib/channels'
 import { deleteAttachment, fileKind, formatBytes } from '@shared/lib/requestAttachments'
 import { htmlToText, isEmptyHtml, sanitizeHtml } from '@shared/lib/richText'
 import { hydrateDateChips } from '@shared/lib/dateChips'
@@ -68,7 +70,7 @@ import TargetPicker from './TargetPicker'
 import CanvasEditor from './CanvasEditor'
 import { RICH_TEXT_SX } from './richTextStyles'
 import { useToast } from './ToastProvider'
-import { updatePostContent } from '../lib/requestActions'
+import { setSelfTaskDone, updatePostContent } from '../lib/requestActions'
 import { postSystemNotice, shareCanvasToChannel } from '../lib/channelActions'
 import { CLOUD_DANCER } from '../lib/pantone'
 
@@ -168,6 +170,14 @@ export default function PostComposer({
    * 접고 늘 '안내'로 둔다.
    */
   const dm = isDm(channel)
+  /**
+   * '나와의 대화'인가 — 개인 할 일 목록으로 쓰는 곳(2026-09-18, 사용자 확정 설계).
+   * 여기서는 '요청/안내' 대신 '할 일/메모'를 고르고, 할 일이면 마감기한과 완료 체크를
+   * 이 편집기 머리에서 바로 한다. 업무현황(PostDetail)으로 보내지 않는다 — 대상이 나
+   * 하나뿐인 할 일에 완료 현황 화면은 복잡하기만 하다("복잡해 보이는 업무현황 페이지로
+   * 넘어가지 말고"). 완료 체크는 곧 끝(마감)이다(requestActions.js setSelfTaskDone).
+   */
+  const selfDm = isSelfDm(channel)
 
   const [title, setTitle] = useState('')
   const [bodyHtml, setBodyHtml] = useState('')
@@ -207,6 +217,13 @@ export default function PostComposer({
   // 완료해도 숫자가 바로 안 바뀔 수 있다 — 버튼을 눌러 실제 현황(PostDetail)으로 가면
   // 거기는 구독이라 정확하다.
   const [completedUids, setCompletedUids] = useState([])
+  // 글의 status('draft'|'open'|'closed'). '나와의 대화' 할 일의 완료 체크 표시에만 쓴다 —
+  // 자동저장은 status를 안 건드린다(발행 순간만 예외, flushRef).
+  const [postStatus, setPostStatus] = useState(null)
+  // 사람이 탭 메뉴로 직접 보관한 글인가 — 완료 체크가 그런 글을 탭으로 끌어내지 않게 한다
+  // (requestActions.js setSelfTaskDone의 keepInTabs).
+  const [manuallyArchived, setManuallyArchived] = useState(false)
+  const [togglingDone, setTogglingDone] = useState(false)
 
   // PDF·DOCX 다운로드용 — 글쓴이는 캔버스 탭을 눌러도 늘 이 편집기로 오지 PostDetail
   // (보기 화면)로 가지 않으므로, 다운로드 버튼을 여기에도 둬야 글쓴이가 실제로 쓸 수
@@ -288,6 +305,7 @@ export default function PostComposer({
       setCoverImagePath(null)
       setCoverImagePosition(50)
       setCompletedUids([])
+      setPostStatus(null)
       keptFiles.current = new Set()
       keptCoverPathRef.current = null
       setLoadingPost(false)
@@ -381,6 +399,8 @@ export default function PostComposer({
         setCoverImagePath(loaded.coverImagePath)
         setCoverImagePosition(loaded.coverImagePosition)
         setCompletedUids(post.completedUids || [])
+        setPostStatus(post.status || null)
+        setManuallyArchived(post.archived === true)
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
         keptCoverPathRef.current = post.coverImagePath || null
         wasAlreadyCreatedRef.current = true
@@ -681,6 +701,31 @@ export default function PostComposer({
     return () => { flushRef.current({ silent: true }) }
   }, [])
 
+  // '나와의 대화' 할 일의 완료 체크 — 체크 = 끝(마감), 풀면 다시 열린다(setSelfTaskDone).
+  // 완료만 찍혔거나 마감만 된 옛 글도 끝난 것으로 본다.
+  const taskDone = completedUids.includes(user?.uid) || postStatus === 'closed'
+  const toggleTaskDone = async () => {
+    if (!created || togglingDone) return
+    const done = !taskDone
+    setTogglingDone(true)
+    try {
+      await setSelfTaskDone({
+        schoolId, requestId, actor: { uid: user.uid, name: userName }, done, keepInTabs: !manuallyArchived,
+      })
+      setCompletedUids(prev => (done ? [...new Set([...prev, user.uid])] : prev.filter(uid => uid !== user.uid)))
+      setPostStatus(done ? 'closed' : 'open')
+      // 아직 발행 전(draft)인 새 할 일이면, 떠날 때의 발행(status: 'open')이 방금 마감한 것을
+      // 도로 열어 버린다(flushRef의 publishing). 발행은 끝난 것으로 친다 — 나와의 대화라
+      // "새 캔버스를 만들었습니다" 알림이 안 나가도 잃는 게 없다.
+      publishRef.current = 'done'
+      toast.success(done ? '완료했습니다. 업무 진행 중에서 내려갑니다.' : '완료를 취소했습니다.')
+    } catch (e) {
+      toast.error('완료 표시를 바꾸지 못했습니다.', e)
+    } finally {
+      setTogglingDone(false)
+    }
+  }
+
   const [notifying, setNotifying] = useState(false)
 
   /**
@@ -740,21 +785,29 @@ export default function PostComposer({
               넣어두고 마감을 확인하는 데 쓰는 선생님이 있었다). 2026-09-17에는 이 갈래
               자체를 DM에서 통째로 숨겼었는데, 그러면서 딱 이 용도가 같이 막혔다. 기본값만
               '안내'로 두고(위 useState(!dm) — 캐주얼한 메모에 완료 확인이 기본으로 붙는
-              것은 그때 지적대로 여전히 원치 않는다), 켜고 끄는 선택 자체는 돌려준다. */}
+              것은 그때 지적대로 여전히 원치 않는다), 켜고 끄는 선택 자체는 돌려준다.
+              '나와의 대화'는 받는 사람이 없으니 '할 일/메모'라고 부른다(위 selfDm 설명) —
+              저장되는 값은 같다(kind 'request'/'notice'). */}
           <SegChoice
             value={needsCompletion ? 'request' : 'notice'}
             onChange={v => setNeedsCompletion(v === 'request')}
-            options={[
-              { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
-              { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
-            ]}
+            options={selfDm
+              ? [
+                  { value: 'request', label: '할 일', Icon: TaskAltIcon },
+                  { value: 'notice', label: '메모', Icon: StickyNote2OutlinedIcon },
+                ]
+              : [
+                  { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
+                  { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
+                ]}
           />
           {/* 이제 채널 탭을 눌러 돌아오면 글쓴이는 무조건 이 편집기로 온다(제출현황으로
               자동으로 안 튕긴다 — 사용자 확정, 2026-08-26). 그 대신 제출현황(완료 관리)을
               보고 싶을 때 누르는 문이 이 버튼이다 — 보기 화면(PostDetail)으로 보낸다.
               완료 수는 실시간이 아니다(고칠 글을 한 번만 읽어오므로) — 정확한 값은
-              눌러서 들어간 화면이 보여준다. */}
-          {needsCompletion && created && (
+              눌러서 들어간 화면이 보여준다. '나와의 대화'에서는 안 보인다 — 완료는 아래
+              체크박스로 이 자리에서 한다. */}
+          {needsCompletion && created && !selfDm && (
             <Button
               size="small" variant="outlined"
               onClick={() => onOpenCanvasRef?.(`/channels/${channel.id}/${requestId}`)}
@@ -794,7 +847,21 @@ export default function PostComposer({
                   sx={{ fontSize: '0.72rem', height: 22 }}
                 />
               ))}
-              {due && <Typography fontSize="0.74rem" color="text.secondary">{due}</Typography>}
+              {due && !(selfDm && taskDone) && <Typography fontSize="0.74rem" color="text.secondary">{due}</Typography>}
+              {/* '나와의 대화' 할 일의 완료 — 체크 = 끝(마감). 첫 저장 전에는 문서가 없어
+                  잠가 둔다(제목 한 글자만 쳐도 곧바로 저장된다). */}
+              {selfDm && (
+                <FormControlLabel
+                  sx={{ ml: 0.5, mr: 0 }}
+                  disabled={!created || togglingDone}
+                  control={<Checkbox size="small" checked={taskDone} onChange={toggleTaskDone} />}
+                  label={(
+                    <Typography fontSize="0.8rem" fontWeight={700} color={taskDone ? 'success.main' : 'text.primary'}>
+                      {taskDone ? '완료됨' : '완료'}
+                    </Typography>
+                  )}
+                />
+              )}
             </Box>
           ) : (
             <FormControlLabel
