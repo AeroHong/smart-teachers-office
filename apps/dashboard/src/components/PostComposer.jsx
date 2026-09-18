@@ -346,7 +346,17 @@ export default function PostComposer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, schoolId])
 
-  const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
+  // DM은 조건(rule) 기반 대상 지정을 안 쓴다 — TargetPicker가 숨겨져 있어 rule은 항상
+  // EMPTY_RULE로 남는데, resolveTargets(EMPTY_RULE, members)는 "조건 없음 = 전체
+  // 교직원"으로 푼다(targeting.js). 그 members는 채널이 아니라 학교 전체 명단이라,
+  // DM에서 그대로 썼다면 요청을 복구하는 순간 대화 상대와 무관한 전교직원이 대상·완료
+  // 추적 명단에 들어갈 뻔했다. DM의 대상은 언제나 그 대화 참여자다 — 고를 것이 없다.
+  const targets = useMemo(
+    () => (dm
+      ? members.filter(m => (channel?.memberUids || []).includes(m.uid))
+      : resolveTargets(rule, members).members),
+    [dm, channel, rule, members],
+  )
   const stats = useMemo(
     () => completionStats({ targetUids: targets.map(t => t.uid), completedUids }),
     [targets, completedUids],
@@ -405,9 +415,21 @@ export default function PostComposer({
    * @param {boolean} silent 언마운트 중 부를 때 true. 화면이 이미 사라지는 중이라
    *   상태 갱신(setCreated 등)도, onSaved(→navigate)도 하지 않는다 — 안 그러면 사용자가
    *   막 눌러서 옮겨간 다른 채널에서 이 글로 도로 튕겨간다.
+   * @param {string} [forId] 이 저장을 예약한 시점의 requestId(아래 디바운스 타이머 전용).
+   *   지금 requestId와 다르면 아무것도 쓰지 않고 돌아간다 — 탭 전환 덮어쓰기 버그가
+   *   2026-09-08, 2026-09-16에 이어 세 번째로 재발해(2026-09-18, 사용자 신고) 이번엔
+   *   타이밍에 기대지 않는 방식으로 고친다. 예전 방어(loadingPost를 effect가 즉시
+   *   true로 켜서 이 함수 진입 자체를 막음)는 "탭이 바뀐 뒤 그 effect가 실제로 도는
+   *   순간"까지의 좁은 틈을 못 막는다 — 그 틈에 이미 걸려 있던 디바운스 타이머(최대
+   *   700ms 전에 예약된)가 fire하면, flushRef.current는 이미 새 탭(B)의 requestId로
+   *   재대입돼 있지만 title/bodyHtml은 아직 옛 탭(A) 값 그대로라 A의 내용이 B의
+   *   문서에 그대로 써졌다. requestId는 렌더마다 값이 바뀌므로, "타이머를 건 시점의
+   *   requestId"와 "지금 이 함수가 보는 requestId"를 직접 대조하면 그 틈의 길이와
+   *   무관하게 항상 막힌다.
    */
   const flushRef = useRef(async () => {})
-  flushRef.current = async ({ silent = false } = {}) => {
+  flushRef.current = async ({ silent = false, forId } = {}) => {
+    if (forId && forId !== requestId) return
     // 저장할 것이 없어 그냥 돌아가는 길에는 'saving'을 걷어낸다. 저장 표시는 이 함수를
     // 부르기 전에 이펙트가 미리 켜두는데, 여기서 아무 일도 안 하고 나가면 그 표시가
     // 영영 남는다 — 새 캔버스를 열어두고 아무것도 안 썼을 때 "저장 중…"이 계속 돌아가
@@ -575,7 +597,11 @@ export default function PostComposer({
     // 이 이펙트가 그것 때문에 다시 돌면, 방금 막 저장한 것과 똑같은 내용을 700ms 뒤에
     // 한 번 더 쓰는 헛수고가 생긴다. flushRef.current()는 매 렌더 최신 created를
     // 참조하므로 다음 실제 변경부터는 어차피 옳은 값으로 판단한다.
-    const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
+    //
+    // forId: requestId(위 flushRef.current 설명 참고) — 지금 이 순간의 requestId를
+    // 타이머에 못박아 둔다. clearTimeout이 못 잡아도(cleanup이 실행되기 전에 fire해도)
+    // 이 값과 fire 시점의 requestId가 다르면 flushRef.current 안에서 다시 한번 막힌다.
+    const timer = setTimeout(() => { flushRef.current({ forId: requestId }) }, created ? 700 : 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, bodyHtml, needsCompletion, pinned, dueDate, rule, ownerUids, attachments, coverImageUrl, coverImagePath, coverImagePosition, targets, loadingPost, membersLoading])
@@ -641,17 +667,19 @@ export default function PostComposer({
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Box sx={{ flexShrink: 0, px: 2, pt: 1.5 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1 }}>
-          {/* DM에서는 요청/안내 갈래를 아예 안 보여준다(위 dm 설명) — 늘 '안내'다. */}
-          {!dm && (
-            <SegChoice
-              value={needsCompletion ? 'request' : 'notice'}
-              onChange={v => setNeedsCompletion(v === 'request')}
-              options={[
-                { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
-                { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
-              ]}
-            />
-          )}
+          {/* DM에서도 고를 수 있다(2026-09-18 복구 — 개인 업무 목록을 '나와의 대화'에
+              넣어두고 마감을 확인하는 데 쓰는 선생님이 있었다). 2026-09-17에는 이 갈래
+              자체를 DM에서 통째로 숨겼었는데, 그러면서 딱 이 용도가 같이 막혔다. 기본값만
+              '안내'로 두고(위 useState(!dm) — 캐주얼한 메모에 완료 확인이 기본으로 붙는
+              것은 그때 지적대로 여전히 원치 않는다), 켜고 끄는 선택 자체는 돌려준다. */}
+          <SegChoice
+            value={needsCompletion ? 'request' : 'notice'}
+            onChange={v => setNeedsCompletion(v === 'request')}
+            options={[
+              { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
+              { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
+            ]}
+          />
           {/* 이제 채널 탭을 눌러 돌아오면 글쓴이는 무조건 이 편집기로 온다(제출현황으로
               자동으로 안 튕긴다 — 사용자 확정, 2026-08-26). 그 대신 제출현황(완료 관리)을
               보고 싶을 때 누르는 문이 이 버튼이다 — 보기 화면(PostDetail)으로 보낸다.

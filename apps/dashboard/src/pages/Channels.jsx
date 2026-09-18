@@ -794,10 +794,11 @@ export default function Channels() {
             )}
             {/* "대상 좁히기" — PostComposer.jsx 안에 있던 토글 버튼을 참여자 수 옆으로
                 옮겼다(같은 요청). 글을 쓰거나 고칠 때만 뜻이 있어 그 상태일 때만 보인다.
-                DM도 캔버스를 쓸 수 있게 되면서(2026-09-10) 그룹 DM에서 일부에게만
-                좁혀 보낼 수 있도록 함께 연다 — 2인 DM은 좁힐 대상이 본인뿐이라 눌러도
-                의미가 없지만, 굳이 숨길 이유도 없다. */}
-            {(composingNew || editingPostId) && (
+                DM에서는 뺐다(2026-09-18, 요청/안내 기능 복구) — PostComposer.jsx가 DM의
+                대상을 조건(rule)이 아니라 대화 참여자로 바로 정하므로, 이 버튼으로 열리는
+                조건 지정 화면은 DM에서 아무 효과가 없다. 이전 주석은 여기서 그룹 DM 일부만
+                좁히는 것까지 구상했지만 구현되지 않았다. */}
+            {(composingNew || editingPostId) && !dm && (
               <Button
                 size="small" onClick={() => setTargetOpen(v => !v)}
                 sx={{ flexShrink: 0, fontSize: '0.76rem' }}
