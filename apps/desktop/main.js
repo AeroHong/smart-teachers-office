@@ -181,6 +181,11 @@ function setupAutoUpdater() {
       }),
     })
     updateNotification = n
+    // 표시 여부를 남긴다 — 0.2.3을 밀어 넣은 날 다운로드는 끝났는데 사람은 못 봤고
+    // (자리를 비운 사이 알림 센터로 들어간 것으로 보인다), 로그만으로는 토스트가 떴는지
+    // 조차 알 수 없었다(2026-09-21). notify IPC 핸들러가 이미 쓰는 방식과 같다.
+    n.on('show', () => log('[updater] 알림 → show (Windows가 표시함)'))
+    n.on('failed', (_e, err) => log('[updater] 알림 → failed:', err))
     n.on('click', () => {
       log('[updater] 알림 클릭 → 재시작 후 설치')
       app.isQuitting = true

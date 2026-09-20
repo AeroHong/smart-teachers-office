@@ -97,11 +97,45 @@ export default function useAppUpdate() {
     }, () => {})
   }, [schoolId, user?.uid])
 
+  /**
+   * 설치 파일 업데이트가 내려받아져 설치를 기다리는가 (데스크톱 앱 전용, 2026-09-21).
+   *
+   * 여기까지는 알릴 방법이 윈도우 토스트 하나뿐이었다. 실제로 0.2.3을 밀어 넣은 날
+   * 다운로드는 끝났는데(로그 확인) 사람은 알아채지 못했다 — 마침 자리를 비운 참이라
+   * 토스트가 알림 센터로 들어가 버렸다(사용자 지적 — "업데이트 알림이 앱 알림창에
+   * 나오면 좋겠는데, 안나오네?"). 화면 안에 띠로 띄우면 자리에 돌아왔을 때 보인다.
+   *
+   * 메인 프로세스가 값을 들고 있다가 물으면 답한다(get-pending-update) — 이 화면이
+   * 뜨기 전에 다운로드가 끝났을 수 있어 이벤트만 기다리면 놓친다. 0.2.2 이하의 앱에는
+   * 이 통로가 없어 항상 null이다(그 버전은 토스트로만 알린다).
+   */
+  const [desktopUpdate, setDesktopUpdate] = useState(null)   // { version } | null
+  useEffect(() => {
+    const desktop = typeof window !== 'undefined' ? window.smartOfficeDesktop : null
+    if (!desktop?.getPendingUpdate) return undefined
+    let alive = true
+    desktop.getPendingUpdate().then((info) => { if (alive && info) setDesktopUpdate(info) }).catch(() => {})
+    const off = desktop.onUpdateDownloaded?.((info) => setDesktopUpdate(info))
+    return () => { alive = false; off?.() }
+  }, [])
+
   const reload = useCallback(() => { window.location.reload() }, [])
+  // 설치는 앱을 다시 시작해야 한다. 실패하면(설치본이 아닌 경우 등) 조용히 넘어가지 않고
+  // 띠에 남겨 사용자가 수동 설치로 갈 수 있게 한다(UpdateBanner).
+  const installDesktopUpdate = useCallback(
+    () => window.smartOfficeDesktop?.quitAndInstall?.() ?? Promise.resolve({ ok: false }),
+    [],
+  )
 
   // 이 배포에 대해서만 닫는다. 다음 배포가 올라오면 서명이 달라져 다시 뜬다 —
   // 한 번 닫았다고 영영 조용해지면 "종일 옛 코드로 돈다"는 문제가 그대로 남는다.
   const dismiss = useCallback(() => { setDismissed(latest) }, [latest])
 
-  return { outdated: !!latest && latest !== dismissed, reload, dismiss }
+  return {
+    outdated: !!latest && latest !== dismissed,
+    reload,
+    dismiss,
+    desktopUpdate,
+    installDesktopUpdate,
+  }
 }
