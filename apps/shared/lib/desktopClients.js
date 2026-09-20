@@ -40,6 +40,38 @@ export function compareVersions(a, b) {
   return 0
 }
 
+/**
+ * 지금 배포된 최신 버전이 적힌 파일. electron-updater가 업데이트를 판단할 때 읽는 바로
+ * 그 파일이라(apps/desktop/package.json의 build.publish.url), 여기를 보면 "무엇이 최신인가"에
+ * 대한 답이 릴리즈와 절대 어긋나지 않는다. 코드에 최신 버전을 적어 두는 방식은 릴리즈 때
+ * 같이 고치는 것을 잊으면 조용히 틀린 값을 보여준다(appVersion.js가 해시로 판정하는 것과
+ * 같은 이유). firebase.json이 이 파일에만 교차 출처 읽기를 열어 둔다.
+ */
+export const LATEST_YML_URL = 'https://smart-school-updates.web.app/latest.yml'
+
+/** latest.yml에서 버전만 뽑는다. 형식이 다르면 null — 모르면 모른다고 답한다. */
+export function parseLatestVersion(yml) {
+  const m = /^version:\s*['"]?([0-9]+\.[0-9]+\.[0-9]+)['"]?\s*$/m.exec(String(yml || ''))
+  return m ? m[1] : null
+}
+
+/**
+ * 설치 현황 화면에 적을 상태.
+ *
+ *   'manual'  — 자동 업데이트가 없던 버전. 사람이 설치 파일을 직접 안내해야 한다
+ *   'old'     — 자동 업데이트는 받지만 아직 최신이 아니다(앱이 켜지면 스스로 올라간다)
+ *   'latest'  — 최신
+ *   'unknown' — 최신 버전을 못 읽었다. 이때 '최신'이라고 단정하지 않는다
+ *
+ * 예전에는 0.1.7 이상이면 전부 '최신'이라고 적었다 — 0.2.3을 배포한 뒤에도 0.2.2가
+ * '최신'으로 보여 누가 업데이트를 받았는지 알 수 없었다(사용자 지적, 2026-09-21).
+ */
+export function versionState(version, latestVersion) {
+  if (needsManualReinstall(version)) return 'manual'
+  if (!latestVersion) return 'unknown'
+  return compareVersions(version, latestVersion) < 0 ? 'old' : 'latest'
+}
+
 /** 자동 업데이트를 못 받는 버전인가 (= 수동 재설치 안내 대상) */
 export function needsManualReinstall(version) {
   if (!version || version === 'unknown') return true

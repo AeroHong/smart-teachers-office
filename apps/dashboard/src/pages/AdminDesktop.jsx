@@ -30,10 +30,13 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import {
+  LATEST_YML_URL,
   MIN_AUTO_UPDATE_VERSION,
   compareVersions,
   isStale,
   needsManualReinstall,
+  parseLatestVersion,
+  versionState,
 } from '@shared/lib/desktopClients'
 import WorkspaceLayout from '../components/WorkspaceLayout'
 import { useToast } from '../components/ToastProvider'
@@ -61,6 +64,9 @@ export default function AdminDesktop() {
   // '*' = 전체 방송, 그 외에는 지금 요청 중인 uid — 버튼 하나만 로딩 상태가 되게
   // 구분한다(전체·개별을 같은 상태로 두면 하나가 도는 동안 나머지 버튼도 다 잠긴다).
   const [pushingKey, setPushingKey] = useState(null)
+
+  // 지금 배포된 최신 버전(latest.yml). 못 읽으면 null로 두고 '최신'이라고 단정하지 않는다.
+  const [latestVersion, setLatestVersion] = useState(null)
 
   // 강제 업데이트 관문(DesktopUpdateGate.jsx) — 이 값보다 낮은 버전은 화면을 아예 못
   // 쓴다. savedMinVersion은 지금 Firestore에 저장된 값(입력칸의 기준점), minVersionInput은
@@ -132,6 +138,17 @@ export default function AdminDesktop() {
     }
   }
 
+  // 업데이트 서버가 내건 최신 버전을 읽어 온다 — 화면에 적는 '최신'의 기준이다.
+  // 코드에 버전을 적어 두면 릴리즈 때 같이 고치는 것을 잊는 순간 조용히 틀린 값이 된다.
+  useEffect(() => {
+    let alive = true
+    fetch(LATEST_YML_URL, { cache: 'no-store' })
+      .then(res => (res.ok ? res.text() : ''))
+      .then(text => { if (alive) setLatestVersion(parseLatestVersion(text)) })
+      .catch(() => {})   // 못 읽으면 '확인 필요'로 보여준다(아래 STATE_CHIP)
+    return () => { alive = false }
+  }, [])
+
   // 지금 저장된 최소 버전을 입력칸에 미리 채워 둔다 — 관리자가 안 건드리면 지금
   // 값을 그대로 다시 저장하게 되어 "덮어쓸까 새로 정할까"를 고민할 필요가 없다.
   useEffect(() => {
@@ -175,14 +192,18 @@ export default function AdminDesktop() {
           client,
           stale: client ? isStale(client, now) : false,
           outdated: client ? needsManualReinstall(client.version) : false,
+          state: client ? versionState(client.version, latestVersion) : null,
         }
       })
-      // 손을 써야 하는 사람이 위로: 구버전 → 미설치 → 조용함 → 최신, 그 안에서는 이름순
+      // 손을 써야 하는 사람이 위로: 수동 재설치 → 구버전 → 미설치 → 조용함 → 최신,
+      // 그 안에서는 이름순. 구버전을 미설치보다 위에 두는 이유는 "지금 종을 눌러 재촉하면
+      // 되는 사람"이기 때문이다 — 미설치 49명은 따로 설치를 안내해야 하는 별개의 일인데,
+      // 그 줄에 묻히면 정작 한 번 누르면 끝날 사람들이 화면 밖으로 밀려난다.
       .sort((a, b) => {
-        const rank = r => (r.outdated ? 0 : !r.client ? 1 : r.stale ? 2 : 3)
+        const rank = r => (r.outdated ? 0 : r.state === 'old' ? 1 : !r.client ? 2 : r.stale ? 3 : 4)
         return rank(a) - rank(b) || a.name.localeCompare(b.name, 'ko')
       })
-  }, [members, clients])
+  }, [members, clients, latestVersion])
 
   // 구성원에 없는 uid로 보고된 문서(퇴직·전출 등)도 놓치지 않고 센다.
   const orphanCount = useMemo(() => {
@@ -201,6 +222,7 @@ export default function AdminDesktop() {
 
   const installed = rows.filter(r => r.client).length
   const outdated = rows.filter(r => r.outdated).length
+  const oldVersion = rows.filter(r => r.state === 'old').length
   const missing = rows.filter(r => !r.client).length
   const busy = loading || membersLoading
 
@@ -301,6 +323,12 @@ export default function AdminDesktop() {
                 tone={outdated ? 'bad' : 'good'}
                 note={`${MIN_AUTO_UPDATE_VERSION} 미만`}
               />
+              <SummaryCard
+                label="구버전"
+                value={latestVersion ? oldVersion : '—'}
+                tone={oldVersion ? 'warn' : 'good'}
+                note={latestVersion ? `최신 ${latestVersion}` : '최신 버전 확인 실패'}
+              />
               <SummaryCard label="미설치" value={missing} tone={missing ? 'warn' : 'good'} />
               {orphanCount > 0 && (
                 <SummaryCard label="명단 밖 보고" value={orphanCount} note="퇴직·전출 추정" />
@@ -320,9 +348,9 @@ export default function AdminDesktop() {
                   <Chip
                     key={version}
                     size="small"
-                    label={`${version} · ${count}명`}
-                    color={needsManualReinstall(version) ? 'error' : 'default'}
-                    variant={needsManualReinstall(version) ? 'filled' : 'outlined'}
+                    label={`${version} · ${count}명${version === latestVersion ? ' (최신)' : ''}`}
+                    color={{ manual: 'error', old: 'warning', latest: 'success', unknown: 'default' }[versionState(version, latestVersion)]}
+                    variant={versionState(version, latestVersion) === 'manual' ? 'filled' : 'outlined'}
                   />
                 ))}
               </Box>
@@ -352,8 +380,16 @@ export default function AdminDesktop() {
                           <Chip size="small" label="미설치" variant="outlined" />
                         ) : row.outdated ? (
                           <Chip size="small" label="수동 재설치 필요" color="error" />
+                        ) : row.state === 'old' ? (
+                          // 자동 업데이트를 받는 버전이라 앱을 켜 두면 스스로 올라간다 —
+                          // 재촉하려면 오른쪽 종 버튼으로 확인을 밀어 넣는다.
+                          <Chip size="small" label={`구버전 · ${latestVersion} 대기`} color="warning" />
                         ) : row.stale ? (
                           <Chip size="small" label="한동안 실행 안 함" color="warning" variant="outlined" />
+                        ) : row.state === 'unknown' ? (
+                          // 최신 버전을 못 읽었다(업데이트 서버 접속 실패 등) — 최신이라고
+                          // 단정하지 않는다. 예전에는 0.1.7 이상이면 무조건 '최신'이었다.
+                          <Chip size="small" label="설치됨" variant="outlined" />
                         ) : (
                           <Chip size="small" label="최신" color="success" variant="outlined" />
                         )}

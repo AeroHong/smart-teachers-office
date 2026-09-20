@@ -8,7 +8,10 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MIN_AUTO_UPDATE_VERSION, STALE_MS, compareVersions, isStale, needsManualReinstall } from './desktopClients.js'
+import {
+  MIN_AUTO_UPDATE_VERSION, STALE_MS, compareVersions, isStale, needsManualReinstall,
+  parseLatestVersion, versionState,
+} from './desktopClients.js'
 
 test('버전 비교는 자리별 숫자로 한다', () => {
   assert.ok(compareVersions('0.1.7', '0.1.6') > 0)
@@ -63,4 +66,30 @@ test('보고 기록이 없으면 조용한 것으로 본다', () => {
   assert.equal(isStale(null), true)
   assert.equal(isStale({}), true)
   assert.equal(isStale({ lastSeenAt: 0 }), true)
+})
+
+test('latest.yml에서 최신 버전을 읽는다', () => {
+  const yml = `version: 0.2.3
+files:
+  - url: 스마트교무실 Setup 0.2.3.exe
+    size: 100440616
+path: 스마트교무실 Setup 0.2.3.exe
+`
+  assert.equal(parseLatestVersion(yml), '0.2.3')
+  assert.equal(parseLatestVersion(`version: '1.0.10'`), '1.0.10', '따옴표가 붙어도 읽는다')
+  assert.equal(parseLatestVersion(`files:
+  - url: x.exe`), null, '버전 줄이 없으면 null')
+  assert.equal(parseLatestVersion(''), null)
+  assert.equal(parseLatestVersion(null), null)
+})
+
+test('설치 현황 상태 — 최신 버전과 견줘 판정한다', () => {
+  // 0.2.3을 배포한 뒤에도 0.2.2가 '최신'으로 보이던 것이 이 함수를 만든 이유다
+  assert.equal(versionState('0.2.2', '0.2.3'), 'old')
+  assert.equal(versionState('0.2.3', '0.2.3'), 'latest')
+  assert.equal(versionState('0.2.4', '0.2.3'), 'latest', '서버보다 앞선 버전(테스트 빌드)도 최신으로 본다')
+  assert.equal(versionState('0.1.5', '0.2.3'), 'manual', '자동 업데이트가 없던 버전이 먼저다')
+  assert.equal(versionState('0.2.2', null), 'unknown', '최신을 모르면 최신이라고 하지 않는다')
+  assert.equal(versionState('0.1.5', null), 'manual', '최신을 몰라도 수동 재설치 판정은 그대로')
+  assert.equal(versionState('0.2.10', '0.2.9'), 'latest', '자릿수가 늘어나도 숫자로 비교한다')
 })
