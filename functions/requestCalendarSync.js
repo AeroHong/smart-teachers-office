@@ -60,7 +60,12 @@ exports.syncRequestToCalendar = onDocumentWritten(
       requestId,
       channelId: after.channelId || '',
       channelName,
-      visibleToUids: after.targetUids || [],
+      // 공개 범위 — 이 요청의 대상자만 본다. 예전에는 visibleToUids에 담고 규칙에서
+      // "visibleToUids가 없으면 누구나"로 걸렀는데, 그 조건이 목록 조회에서는 늘 참이라
+      // 대상이 아닌 교직원에게도 제목이 내려갔다(2026-09-21 에뮬레이터 실측). 이제는
+      // 모든 문서가 audience를 갖고, 화면도 그 필드로 좁혀 질의한다.
+      audience: 'limited',
+      audienceUids: after.targetUids || [],
       closed: after.status === 'closed',
       updatedAt: FieldValue.serverTimestamp(),
     })

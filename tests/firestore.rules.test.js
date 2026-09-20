@@ -112,6 +112,15 @@ beforeEach(async () => {
     // 않는다 — Workspace 연동을 아예 설정한 적 없는 학교(문서 자체가 없음)에서도 발송이
     // 막히는지를 확인하기 위해서다.
     await setDoc(doc(db, 'schools', SCHOOL), { name: '테스트고', workspaceSync: { enabled: true } })
+
+    // 학사일정 — 전체 공개분과 '대상자만' 항목(업무 마감 자동 반영, requestCalendarSync.js)
+    await setDoc(doc(db, ...path('academicCalendar', 'open')), {
+      title: '개학식', type: '학사', date: new Date('2026-09-01'), source: 'manual', audience: 'all',
+    })
+    await setDoc(doc(db, ...path('academicCalendar', 'req_secret')), {
+      title: '비공개 채널 업무 마감', type: '업무', date: new Date('2026-09-02'),
+      source: 'request', channelId: 'priv', audience: 'limited', audienceUids: [A],
+    })
   })
 })
 
@@ -875,4 +884,42 @@ test('[이메일 예약] 취소를 핑계로 다른 필드는 못 바꾼다 ★'
   await assertFails(updateDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'sched7')), {
     status: 'cancelled', cancelledAt: new Date(), subject: '가로챈 제목',
   }))
+})
+
+// ── 학사일정 — 대상자만 보는 항목이 목록 조회로 새지 않는가 ──────
+//
+// 예전 규칙은 "visibleToUids가 없으면 누구나"였다. 단건 조회는 막았지만 목록 조회에서는
+// 그 조건이 늘 참이라 전 교직원에게 제목이 내려갔다(2026-09-21 실측). 규칙이 질의를
+// 걸러주지 않는다는 것을 잊고 "필드가 없으면 허용"을 다시 쓰지 않도록 여기에 박아 둔다.
+
+const calendar = (db) => collection(db, ...path('academicCalendar'))
+
+test('학사일정: 대상이 아닌 교사는 그 항목을 단건으로도, 목록으로도 못 가져온다', async () => {
+  await assertFails(getDoc(doc(as(B), ...path('academicCalendar', 'req_secret'))))
+  // 컬렉션 통째로 요청하는 질의는 거부돼야 한다 — 예전에는 이게 통과하며 전부 내려갔다
+  await assertFails(getDocs(query(calendar(as(B)))))
+})
+
+test('학사일정: audience로 좁혀 질의하면 볼 수 있는 것만 내려온다', async () => {
+  const shared = await assertSucceeds(getDocs(query(calendar(as(B)), where('audience', '==', 'all'))))
+  assert.deepEqual(shared.docs.map(d => d.id), ['open'])
+
+  const mineB = await assertSucceeds(getDocs(query(calendar(as(B)), where('audienceUids', 'array-contains', B))))
+  assert.equal(mineB.size, 0, 'B는 대상이 아니다')
+
+  const mineA = await assertSucceeds(getDocs(query(calendar(as(A)), where('audienceUids', 'array-contains', A))))
+  assert.deepEqual(mineA.docs.map(d => d.id), ['req_secret'], '대상인 A는 자기 것을 본다')
+})
+
+test('학사일정: 학교 관리자도 대상이 아니면 못 본다 (쓰기 권한은 그대로)', async () => {
+  await assertFails(getDoc(doc(as(ADMIN), ...path('academicCalendar', 'req_secret'))))
+  await assertFails(getDocs(query(calendar(as(ADMIN)))))
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...path('academicCalendar', 'new')), {
+    title: '체육대회', type: '학사', date: new Date('2026-10-01'), source: 'manual', audience: 'all',
+  }))
+})
+
+test('학사일정: 슈퍼 관리자는 전체를 본다 (운영 점검용)', async () => {
+  const all = await assertSucceeds(getDocs(query(calendar(asSuper()))))
+  assert.equal(all.size, 2)
 })

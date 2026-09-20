@@ -337,10 +337,25 @@ service cloud.firestore {
       // 단, 채널 업무 글 마감일이 자동 반영된 문서(requestCalendarSync.js, visibleToUids
       // 있음)는 그 업무 글 대상자와 관리자만 읽을 수 있다 — 학교 전체 공개 일정(구글
       // 동기화·관리자 수동 등록)은 이 필드 자체가 없어 그대로 전체 공개다.
+      // 학사일정 — 공개 범위는 audience 필드 하나로 정한다.
+      //
+      //   audience: 'all'      → 교직원 전체(공휴일·구글 캘린더·관리자가 쓴 일정)
+      //   audience: 'limited'  → audienceUids에 있는 사람만(업무 마감 자동 반영)
+      //
+      // 예전 조건("visibleToUids가 없으면 누구나")은 **목록 조회에서 늘 참**이었다 —
+      // 질의가 그 필드를 안 건드리면 "없다"로 평가돼 보호가 통째로 사라졌고, 대상이
+      // 아닌 교직원에게도 업무 마감 항목의 제목이 내려갔다(2026-09-21 에뮬레이터 실측).
+      // 규칙은 질의를 걸러 주지 않으므로, "필드가 없으면 허용" 꼴을 쓰면 안 된다.
+      // 모든 문서가 audience를 갖고, 화면은 audience로 좁혀 질의한다
+      // (useAcademicCalendar.js / AdminAcademicCalendar.jsx).
+      //
+      // 관리자 우회를 뺀 것도 같은 이유다 — 비공개 채널 업무의 마감 제목까지 관리자
+      // 학사일정에 뜨고 있었다. 관리자도 자기가 대상인 것만 본다(슈퍼 관리자는 예외).
       match /academicCalendar/{eventId} {
-        allow read: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+        allow read: if isSuperAdmin() ||
           (isTeacher(schoolId) &&
-           (!('visibleToUids' in resource.data) || request.auth.uid in resource.data.visibleToUids));
+           (resource.data.audience == 'all' ||
+            request.auth.uid in resource.data.audienceUids));
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
 
