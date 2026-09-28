@@ -13,7 +13,7 @@
  * 따로 추적하지 않으므로 "이 글만 안 읽음"은 표현하지 못한다. 요청은 완료 체크가
  * 그 역할을 하므로 지금 단계에서는 이 정도로 충분하다.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -40,9 +40,21 @@ export default function useSeenPosts(key) {
     return () => { alive = false }
   }, [user, field])
 
-  /** 지금까지를 본 것으로 표시. 화면을 떠날 때가 아니라 열었을 때 부른다. */
+  /**
+   * 지금까지를 본 것으로 표시. 화면을 떠날 때가 아니라 열었을 때 부른다.
+   *
+   * 화면을 한 번 여는 동안 한 번만 쓴다. 이 쓰기는 users/{uid}로 가는데 그 문서를
+   * useChannelPrefs가 구독하고 있어서, 쓸 때마다 스냅샷이 돌아와 화면이 다시 그려진다.
+   * 호출부가 그 리렌더마다 markSeen을 또 부르면 쓰기→스냅샷→리렌더→쓰기가 끝없이
+   * 돈다 — 실제로 그렇게 돌아 하루 읽기 2,755만·쓰기 136만이 나갔다(2026-09-17).
+   * 기록의 의미상으로도 "목록을 열었다" 한 번이면 충분하므로 여기서 잠근다.
+   */
+  const wroteRef = useRef(false)
+  useEffect(() => { wroteRef.current = false }, [user, field])
+
   const markSeen = useCallback(() => {
-    if (!user) return
+    if (!user || wroteRef.current) return
+    wroteRef.current = true
     // 화면에 남아 있는 '새 글' 표시가 즉시 사라지면 무엇이 새로 왔는지 못 본다.
     // 서버 값만 올리고 화면의 기준 시각(seenAt)은 그대로 둔다.
     updateDoc(doc(db, USERS, user.uid), { [field]: new Date() }).catch(() => {})
@@ -54,5 +66,7 @@ export default function useSeenPosts(key) {
     return created > seenAt
   }, [loaded, seenAt])
 
-  return { isNew, markSeen, loaded }
+  // 객체를 매 렌더 새로 만들면, 이걸 통째로 의존성 배열에 넣은 호출부의 useEffect가
+  // 렌더마다 다시 돈다(Activity.jsx가 그랬다). 참조를 고정해 그 경로를 막는다.
+  return useMemo(() => ({ isNew, markSeen, loaded }), [isNew, markSeen, loaded])
 }

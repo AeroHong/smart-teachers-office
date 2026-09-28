@@ -57,6 +57,11 @@ const TrainingPresets = lazy(() => import('./pages/training/TrainingPresets'))
 const NoticeList    = lazy(() => import('./pages/notices/NoticeList'))
 const StudentPortal = lazy(() => import('./pages/student/StudentPortal'))
 
+// 이메일 발송 - lazy load
+const EmailCompose    = lazy(() => import('./pages/emails/EmailCompose'))
+const EmailHistory    = lazy(() => import('./pages/emails/EmailHistory'))
+const EmailJobDetail  = lazy(() => import('./pages/emails/EmailJobDetail'))
+
 // 슈퍼 어드민 - lazy load
 const SuperAdmin            = lazy(() => import('./pages/SuperAdmin'))
 const SuperAdminGuests      = lazy(() => import('./pages/SuperAdminGuests'))
@@ -75,6 +80,7 @@ const AdminDashboardModules = lazy(() => import('./pages/admin/AdminDashboardMod
 const AdminEvalPlanManagers = lazy(() => import('./pages/admin/AdminEvalPlanManagers'))
 const AdminTextbookSubjects = lazy(() => import('./pages/admin/AdminTextbookSubjects'))
 const AdminTextbookDeptHeads = lazy(() => import('./pages/admin/AdminTextbookDeptHeads'))
+const AdminTextbookCatalog = lazy(() => import('./pages/admin/AdminTextbookCatalog'))
 
 // 도구모음 - lazy load
 const ToolsHome          = lazy(() => import('./pages/tools/ToolsHome'))
@@ -150,6 +156,11 @@ export default function App() {
           {/* ── 스마트 공지 ── */}
           <Route path="/notices" element={<ProtectedRoute><NoticeList /></ProtectedRoute>} />
 
+          {/* ── 이메일 발송 (교사 승인 필요, 학교의 Workspace 연동 여부는 컴포넌트 내부에서 판정) ── */}
+          <Route path="/emails"         element={<ProtectedRoute><EmailHistory /></ProtectedRoute>} />
+          <Route path="/emails/new"     element={<ProtectedRoute><EmailCompose /></ProtectedRoute>} />
+          <Route path="/emails/:jobId"  element={<ProtectedRoute><EmailJobDetail /></ProtectedRoute>} />
+
           {/* ── 학생 포털 ── */}
           <Route path="/student" element={<ProtectedRoute anyUser studentAllowed><StudentPortal /></ProtectedRoute>} />
 
@@ -166,6 +177,7 @@ export default function App() {
             <Route path="evaluation-plan-managers" element={<AdminEvalPlanManagers />} />
             <Route path="textbook-subjects" element={<AdminTextbookSubjects />} />
             <Route path="textbook-dept-heads" element={<AdminTextbookDeptHeads />} />
+            <Route path="textbook-catalog" element={<AdminTextbookCatalog />} />
 
             {/* 기존 도구 페이지들 */}
             <Route path="asa-cutoffs" element={<AsaSupportCutoffs />} />

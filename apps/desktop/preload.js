@@ -52,6 +52,16 @@ contextBridge.exposeInMainWorld('smartOfficeDesktop', {
   setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', enabled),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 
+  // 강제 업데이트 관문(DesktopUpdateGate.jsx, 2026-09-18)이 쓴다. 최소 버전 미달일 때
+  // 화면을 막고, 다운로드가 끝나면 "지금 재시작하고 설치" 버튼으로 이어간다.
+  getPendingUpdate: () => ipcRenderer.invoke('get-pending-update'),
+  quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
+  onUpdateDownloaded: (handler) => {
+    const listener = (_event, info) => handler(info)
+    ipcRenderer.on('update-downloaded', listener)
+    return () => ipcRenderer.removeListener('update-downloaded', listener)
+  },
+
   // 상단바 "새로고침" 버튼(2026-08-29) — 트레이 복원 시 자동으로 하는 것과 같은
   // 강제 새로고침(reloadIgnoringCache)을 사용자가 직접 누를 수 있게 한다.
   reloadApp: () => ipcRenderer.send('reload-app'),

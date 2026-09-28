@@ -20,10 +20,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone'
+import Box from '@mui/material/Box'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { dueState, isDoneBy } from '@shared/lib/workRequests'
+import { dmChannelId } from '@shared/lib/channelMessages'
 import WorkspaceLayout, { DetailPlaceholder } from '../components/WorkspaceLayout'
 import { MiniChip, SidebarEmpty, SidebarItem, SidebarSection } from '../components/sidebarUi'
 import PostDetail from '../components/PostDetail'
@@ -33,6 +35,26 @@ import useSeenPosts from '../lib/useSeenPosts'
 import useNotificationFeed from '../lib/useNotificationFeed'
 
 const DUE_TONE = { overdue: 'danger', today: 'danger', soon: 'warning', normal: 'neutral', closed: 'neutral', none: 'neutral' }
+
+/**
+ * '나와의 대화'에 넣은 개인 할 일 표시(2026-09-18, 사용자 요청 — "캔버스 제목 앞에 DM
+ * 아이콘 또는 my 아이콘"). 업무 요청과 한 목록에 섞여 있어도 내 할 일인지 바로 보이게 한다.
+ */
+function MyBadge({ selected }) {
+  return (
+    <Box
+      component="span"
+      sx={{
+        flexShrink: 0, px: 0.5, borderRadius: 0.5, lineHeight: '16px',
+        fontSize: '0.62rem', fontWeight: 800, letterSpacing: 0.3,
+        color: selected ? 'primary.main' : 'primary.contrastText',
+        bgcolor: selected ? 'primary.contrastText' : 'primary.main',
+      }}
+    >
+      MY
+    </Box>
+  )
+}
 
 export default function Activity() {
   const { requestId } = useParams()
@@ -49,13 +71,19 @@ export default function Activity() {
   // 있을 이유가 없다.
   useEffect(() => { if (requestId) setSelectedNotif(null) }, [requestId])
 
+  // 나와의 대화 문서 ID는 dm_{uid}_{uid}로 정해져 있어 채널 목록을 읽지 않고도 가릴 수 있다.
+  const selfDmId = user ? dmChannelId(user.uid, user.uid) : null
+
   const pendingCount = useMemo(
     () => requests.filter(r => !isDoneBy(r, user?.uid)).length,
     [requests, user],
   )
 
   // 목록을 본 시점을 기록한다. 화면의 굵은 표시는 그대로 둬서 무엇이 새로 왔는지 계속 보인다.
-  useEffect(() => { if (pendingCount > 0) seen.markSeen() }, [pendingCount, seen])
+  // 의존성에 seen 객체 전체가 아니라 markSeen 함수만 둔다 — 객체를 통째로 넣으면 렌더마다
+  // 참조가 바뀌어 이 effect가 계속 돌고, 그 쓰기가 다시 리렌더를 불러 무한 루프가 된다.
+  const { markSeen } = seen
+  useEffect(() => { if (pendingCount > 0) markSeen() }, [pendingCount, markSeen])
 
   const openNotif = (item) => {
     // 공지·멘션·채널 신설·댓글은 채널 단위 읽음이라, 열어본 채널을 지금 읽은 것으로
@@ -92,6 +120,9 @@ export default function Activity() {
           const done = isDoneBy(r, user?.uid)
           const due = dueState(r)
           const selected = !selectedNotif && requestId === r.id
+          // 나와의 대화 할 일은 업무현황(PostDetail) 대신 그 대화의 편집기로 연다 — 마감기한
+          // 바꾸기와 완료 체크가 거기 있다(PostComposer.jsx의 selfDm 설명).
+          const mine = r.channelId === selfDmId
           return (
             <SidebarItem
               key={r.id}
@@ -99,7 +130,8 @@ export default function Activity() {
               selected={selected}
               muted={done}
               strong={!done && seen.isNew(r)}
-              onClick={() => navigate(`/activity/${r.id}`)}
+              avatar={mine ? <MyBadge selected={selected} /> : null}
+              onClick={() => navigate(mine ? `/channels/${r.channelId}/${r.id}/edit` : `/activity/${r.id}`)}
               chip={
                 !done && (r.remindedAt
                   ? <MiniChip label="다시 알림" tone="warning" selected={selected} />

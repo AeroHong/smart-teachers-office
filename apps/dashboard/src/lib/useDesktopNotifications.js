@@ -173,6 +173,10 @@ export default function useDesktopNotifications() {
         snap.docChanges().forEach((change) => {
           if (change.type !== 'added') return
           const r = change.doc.data()
+          // 내가 만든 요청은 알리지 않는다 — '나와의 대화'에 넣은 할 일은 대상이 나 자신이라
+          // 만들자마자 "새 업무 요청"이 나에게 떴다(2026-09-18). 채널에서 나까지 대상에
+          // 든 요청도 방금 내가 쓴 것이라 알릴 이유가 없다. 마감 알림(아래 5)은 그대로 간다.
+          if (r.createdBy === user.uid) return
           notifyOnce(`request:${change.doc.id}`, '새 업무 요청', r.title || '', postRoute(r, change.doc.id))
         })
       },

@@ -97,13 +97,19 @@ app.isQuitting = false
 // 토스트는 떠 있는데 클릭이 씹힌다 — notify IPC 핸들러(liveNotifications)에서 이미
 // 확인된 문제라 여기도 같은 방식으로 붙잡아 둔다.
 let updateNotification = null
+// 다운로드가 끝나 설치 대기 중인 업데이트. renderer가 관문 화면을 그리기 전에 이미
+// 백그라운드 다운로드(4시간 주기)가 끝나 있을 수 있어, 이벤트만으로는 놓친다 —
+// get-pending-update IPC로 마운트 시점에도 물어볼 수 있게 값을 들고 있는다.
+let pendingUpdateInfo = null
 
 // 재실 자동 감지 — OS 유휴시간·화면 잠금을 판정해 렌더러(웹 대시보드)에 IPC로 알려준다.
 // Firestore 쓰기는 메인이 아니라 렌더러가 한다(useDesktopPresence.js) — 메인 프로세스는
 // 로그인 세션이 없어 직접 쓸 수 없다(알림 파이프라인의 notify 핸들러와 같은 이유).
-// 임계값 5분은 자동은 '재실'↔'자리 비움'만 오가게 하는 설계(수업 중은 사람이 직접 고른다)에서
-// 너무 짧으면 자리에 앉아 화면만 보는 중에도 깜빡여 신뢰를 잃는다.
-const PRESENCE_IDLE_THRESHOLD_SEC = 5 * 60
+// 자동은 '재실'↔'자리 비움'만 오가게 하는 설계(수업 중은 사람이 직접 고른다)에서 임계값이
+// 너무 짧으면 자리에 앉아 화면만 보는 중에도 깜빡여 신뢰를 잃는다. 5분으로 뒀다가 10분으로
+// 늘렸다 — 서류를 잠깐 보는 정도로도 '자리 비움'이 됐고, 그 깜빡임 한 번이 presence 문서
+// 쓰기가 되어 컬렉션 전체를 구독 중인 모든 화면에 읽기로 퍼졌다(useDesktopPresence.js 참고).
+const PRESENCE_IDLE_THRESHOLD_SEC = 10 * 60
 const PRESENCE_POLL_INTERVAL_MS = 60 * 1000
 let lastPresenceStatus = null
 
@@ -159,6 +165,11 @@ function setupAutoUpdater() {
   autoUpdater.on('update-available', (info) => log(`[updater] 새 버전 발견: v${info.version}`))
   autoUpdater.on('update-downloaded', (info) => {
     log(`[updater] 다운로드 완료: v${info.version}`)
+    // 강제 업데이트 관문(DesktopUpdateGate.jsx)이 "설치 준비 완료" 버튼을 보여줄지
+    // 판단하는 데 쓴다. 알림 지원 여부와 무관하게 항상 기록·전달한다.
+    pendingUpdateInfo = { version: info.version }
+    mainWindow?.webContents.send('update-downloaded', pendingUpdateInfo)
+
     if (!Notification.isSupported()) return
     // 트레이 상주 앱이라 완전 종료(autoInstallOnAppQuit이 실행될 시점)가 드물다 —
     // 알림을 눌러 바로 재시작·적용하는 경로를 함께 준다.
@@ -172,6 +183,11 @@ function setupAutoUpdater() {
       }),
     })
     updateNotification = n
+    // 표시 여부를 남긴다 — 0.2.3을 밀어 넣은 날 다운로드는 끝났는데 사람은 못 봤고
+    // (자리를 비운 사이 알림 센터로 들어간 것으로 보인다), 로그만으로는 토스트가 떴는지
+    // 조차 알 수 없었다(2026-09-21). notify IPC 핸들러가 이미 쓰는 방식과 같다.
+    n.on('show', () => log('[updater] 알림 → show (Windows가 표시함)'))
+    n.on('failed', (_e, err) => log('[updater] 알림 → failed:', err))
     n.on('click', () => {
       log('[updater] 알림 클릭 → 재시작 후 설치')
       app.isQuitting = true
@@ -457,6 +473,27 @@ if (!gotLock) {
         currentVersion: app.getVersion(),
         latestVersion: result?.updateInfo?.version || null,
       }
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) }
+    }
+  })
+
+  // 강제 업데이트 관문(DesktopUpdateGate.jsx)이 마운트 시점에 묻는다 — 백그라운드
+  // 자동 다운로드(4시간 주기)가 화면이 뜨기 전에 이미 끝나 있을 수 있어, 이벤트만
+  // 기다리면 그 경우를 놓친다.
+  ipcMain.handle('get-pending-update', () => pendingUpdateInfo)
+
+  // 최소 버전 미달로 막힌 화면의 "지금 재시작하고 설치" 버튼. 다운로드가 끝난
+  // 업데이트가 없으면(관리자가 최소 버전을 아직 안 나온 버전으로 잘못 설정한 경우 등)
+  // 아무것도 하지 않고 실패를 알린다 — quitAndInstall을 헛불러 앱만 종료되고 아무
+  // 설치도 안 되는 상황을 피한다.
+  ipcMain.handle('quit-and-install', () => {
+    if (!pendingUpdateInfo) return { ok: false, error: '설치할 업데이트가 아직 없습니다.' }
+    try {
+      const { autoUpdater } = require('electron-updater')
+      app.isQuitting = true
+      autoUpdater.quitAndInstall()
+      return { ok: true }
     } catch (err) {
       return { ok: false, error: err?.message || String(err) }
     }

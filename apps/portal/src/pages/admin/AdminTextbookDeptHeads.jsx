@@ -10,10 +10,8 @@ import TableRow from '@mui/material/TableRow'
 import TableCell from '@mui/material/TableCell'
 import Autocomplete from '@mui/material/Autocomplete'
 import TextField from '@mui/material/TextField'
-import IconButton from '@mui/material/IconButton'
 import Alert from '@mui/material/Alert'
 import CircularProgress from '@mui/material/CircularProgress'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { USERS } from '@shared/lib/schema'
@@ -21,6 +19,40 @@ import { SUBJECT_GROUPS } from '@shared/lib/subjectData'
 import { subscribeDeptHeads, saveDeptHead, removeDeptHead } from '@shared/lib/textbookAdoption'
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+
+// PostComposer.jsx의 "담당자" Autocomplete와 같은 스타일(칩+개별 삭제+필드 클리어 버튼).
+// value를 Firestore 구독 결과(byGroup)에서 곧바로 계산해 쓰면, 선택 직후 Firestore
+// 왕복이 끝나기 전까지 컨트롤 값이 "선택 안 됨"으로 잠깐 되돌아가 버려 클릭·Enter 선택이
+// 안 먹는 것처럼 보인다(PostComposer는 ownerUids가 로컬 state라 이 문제가 없다). 그래서
+// 선택은 로컬 state에 즉시 반영(낙관적 갱신)하고, Firestore가 확정한 값으로는 그 값이
+// 실제로 바뀌었을 때만(다른 사람이 바꿨거나 최초 로드) 동기화한다.
+function DeptHeadCell({ group, current, staff, onPick }) {
+  const currentStaff = current ? { uid: current.uid, name: current.name, email: current.email } : null
+  const [localValue, setLocalValue] = useState(currentStaff)
+
+  useEffect(() => { setLocalValue(currentStaff) }, [current?.uid])
+
+  const handleChange = (_, value) => {
+    const picked = value.length ? value[value.length - 1] : null
+    setLocalValue(picked)
+    onPick(group, picked)
+  }
+
+  return (
+    <Autocomplete
+      multiple
+      size="small"
+      autoHighlight
+      options={staff}
+      getOptionLabel={(o) => o.name || o.email || ''}
+      isOptionEqualToValue={(a, b) => a.uid === b.uid}
+      value={localValue ? [localValue] : []}
+      onChange={handleChange}
+      renderInput={(params) => <TextField {...params} placeholder="교사 검색" />}
+      sx={{ width: 260 }}
+    />
+  )
+}
 
 export default function AdminTextbookDeptHeads() {
   const { user, userName, schoolId } = useAuth()
@@ -82,45 +114,23 @@ export default function AdminTextbookDeptHeads() {
       {loading ? (
         <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
       ) : (
-        <Paper variant="outlined">
+        <Paper variant="outlined" sx={{ maxWidth: 560 }}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ '& th': { fontWeight: 700, bgcolor: '#f9fafb' } }}>
-                <TableCell>교과군</TableCell>
+                <TableCell width={140}>교과군</TableCell>
                 <TableCell>교과부장</TableCell>
-                <TableCell align="center" width={56}>관리</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {SUBJECT_GROUPS.map((group) => {
-                const current = byGroup[group]
-                const currentStaff = current ? { uid: current.uid, name: current.name, email: current.email } : null
-                return (
-                  <TableRow key={group} hover>
-                    <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{group}</TableCell>
-                    <TableCell>
-                      <Autocomplete
-                        size="small"
-                        autoHighlight
-                        options={staff}
-                        getOptionLabel={(o) => o.name || o.email || ''}
-                        isOptionEqualToValue={(a, b) => a.uid === b.uid}
-                        value={currentStaff}
-                        onChange={(_, value) => handlePick(group, value)}
-                        renderInput={(params) => <TextField {...params} placeholder="교사 검색" />}
-                        sx={{ minWidth: 240 }}
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      {current && (
-                        <IconButton size="small" onClick={() => handlePick(group, null)}>
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
+              {SUBJECT_GROUPS.map((group) => (
+                <TableRow key={group} hover>
+                  <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{group}</TableCell>
+                  <TableCell>
+                    <DeptHeadCell group={group} current={byGroup[group]} staff={staff} onPick={handlePick} />
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </Paper>

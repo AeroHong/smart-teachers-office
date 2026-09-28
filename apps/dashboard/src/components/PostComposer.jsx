@@ -49,6 +49,8 @@ import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined'
+import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined'
+import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CloseIcon from '@mui/icons-material/Close'
@@ -60,7 +62,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { describeRule, resolveTargets } from '@shared/lib/targeting'
 import { completionStats, isRequest, newRequestPayload } from '@shared/lib/workRequests'
-import { postVisibilityFor } from '@shared/lib/channels'
+import { isDm, isSelfDm, postVisibilityFor } from '@shared/lib/channels'
 import { deleteAttachment, fileKind, formatBytes } from '@shared/lib/requestAttachments'
 import { htmlToText, isEmptyHtml, sanitizeHtml } from '@shared/lib/richText'
 import { hydrateDateChips } from '@shared/lib/dateChips'
@@ -68,11 +70,25 @@ import TargetPicker from './TargetPicker'
 import CanvasEditor from './CanvasEditor'
 import { RICH_TEXT_SX } from './richTextStyles'
 import { useToast } from './ToastProvider'
-import { updatePostContent } from '../lib/requestActions'
+import { setSelfTaskDone, updatePostContent } from '../lib/requestActions'
 import { postSystemNotice, shareCanvasToChannel } from '../lib/channelActions'
 import { CLOUD_DANCER } from '../lib/pantone'
 
 const EMPTY_RULE = { conditions: [], includeUids: [], excludeUids: [] }
+
+/**
+ * 사람이 고칠 수 있는 저장 내용의 지문. 떠날 때 "마지막 저장 이후 바뀐 게 있나"를 보는
+ * 데만 쓴다 — 같으면 쓰지 않는다(PostComposer의 flushRef). 편집기에서 고칠 수 있는
+ * 필드가 늘면 여기도 같이 늘려야 한다: 빠뜨리면 그 필드만 바꾸고 떠날 때 저장이 안 된다.
+ * 첨부는 경로만 본다(같은 파일이면 이름·크기가 같다).
+ */
+function contentSig(c) {
+  return JSON.stringify([
+    c.title, c.bodyHtml, c.needsCompletion, c.pinned, c.dueDate, c.rule, c.ownerUids,
+    (c.attachments || []).map(a => a.path), c.links,
+    c.coverImageUrl, c.coverImagePath, c.coverImagePosition,
+  ])
+}
 
 function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -144,9 +160,28 @@ export default function PostComposer({
   )
   const requestId = editingId || draftId
 
+  /**
+   * DM(1:1·여러 명·나와의 대화)인가.
+   *
+   * DM에 넣는 캔버스는 "업무 배정"이 아니라 그 대화에서 같이 보는 문서다. 그런데 이
+   * 편집기는 채널용으로만 만들어져 있어서 DM에서도 요청/안내 선택·마감일·완료 현황·
+   * 대상 경고가 그대로 떴다 — 혼자 쓰는 '나와의 대화'에서도 기본이 "업무 요청"이라
+   * 내 메모에 완료 확인이 붙었다(사용자 지적, 2026-09-17). DM에서는 그 갈래를 통째로
+   * 접고 늘 '안내'로 둔다.
+   */
+  const dm = isDm(channel)
+  /**
+   * '나와의 대화'인가 — 개인 할 일 목록으로 쓰는 곳(2026-09-18, 사용자 확정 설계).
+   * 여기서는 '요청/안내' 대신 '할 일/메모'를 고르고, 할 일이면 마감기한과 완료 체크를
+   * 이 편집기 머리에서 바로 한다. 업무현황(PostDetail)으로 보내지 않는다 — 대상이 나
+   * 하나뿐인 할 일에 완료 현황 화면은 복잡하기만 하다("복잡해 보이는 업무현황 페이지로
+   * 넘어가지 말고"). 완료 체크는 곧 끝(마감)이다(requestActions.js setSelfTaskDone).
+   */
+  const selfDm = isSelfDm(channel)
+
   const [title, setTitle] = useState('')
   const [bodyHtml, setBodyHtml] = useState('')
-  const [needsCompletion, setNeedsCompletion] = useState(true)
+  const [needsCompletion, setNeedsCompletion] = useState(!dm)
   const [pinned, setPinned] = useState(false)
   const [dueDate, setDueDate] = useState('')
   const [rule, setRule] = useState(channel?.memberRule || EMPTY_RULE)
@@ -163,6 +198,18 @@ export default function PostComposer({
   // 실제 Firestore 문서가 이미 만들어졌는가. 고치기는 처음부터 true, 새 글은 첫 자동저장이
   // 만든 순간 true가 된다 — 그 전까지는 완전히 로컬 상태다.
   const [created, setCreated] = useState(!!editingId)
+  /**
+   * 지금 편집기 state(제목·본문·첨부…)가 어느 문서의 내용인가.
+   *
+   * 저장은 늘 requestId에 쓰는데, requestId는 editingId가 바뀌는 렌더에서 곧바로 바뀌고
+   * 내용 state는 getDoc이 끝나야 바뀐다. 그 사이 저장이 돌면 떠나온 글의 내용이 새 글에
+   * 써진다 — 캔버스 탭 복제 사고의 공통 뿌리다(Channels.jsx의 composerKey 설명). 지금은
+   * key로 글마다 인스턴스를 새로 만들어 그 틈 자체가 없지만, 이 값을 내용과 **같은 배치로**
+   * 바꿔 두고 flushRef.current가 "requestId === 이 값"일 때만 쓰게 해서, 앞으로 어떤
+   * 경로로 저장이 불리든 남의 문서에 쓰는 일은 구조적으로 막는다. 고칠 글은 불러오기 전엔
+   * 주인이 없다(null) — 빈 state를 그 글에 쓰면 안 되기 때문이다.
+   */
+  const [contentOwnerId, setContentOwnerId] = useState(editingId ? null : draftId)
   const [saveState, setSaveState] = useState('idle')   // idle | saving | saved | error
   // '업무현황 N/M' 버튼 표시용. 자동저장이 title·bodyHtml 등을 실시간으로 반영하는 것과
   // 달리 이 값은 여기서 손대지 않는다(완료 체크는 PostDetail 쪽 일) — 고칠 글을 읽어올
@@ -170,6 +217,13 @@ export default function PostComposer({
   // 완료해도 숫자가 바로 안 바뀔 수 있다 — 버튼을 눌러 실제 현황(PostDetail)으로 가면
   // 거기는 구독이라 정확하다.
   const [completedUids, setCompletedUids] = useState([])
+  // 글의 status('draft'|'open'|'closed'). '나와의 대화' 할 일의 완료 체크 표시에만 쓴다 —
+  // 자동저장은 status를 안 건드린다(발행 순간만 예외, flushRef).
+  const [postStatus, setPostStatus] = useState(null)
+  // 사람이 탭 메뉴로 직접 보관한 글인가 — 완료 체크가 그런 글을 탭으로 끌어내지 않게 한다
+  // (requestActions.js setSelfTaskDone의 keepInTabs).
+  const [manuallyArchived, setManuallyArchived] = useState(false)
+  const [togglingDone, setTogglingDone] = useState(false)
 
   // PDF·DOCX 다운로드용 — 글쓴이는 캔버스 탭을 눌러도 늘 이 편집기로 오지 PostDetail
   // (보기 화면)로 가지 않으므로, 다운로드 버튼을 여기에도 둬야 글쓴이가 실제로 쓸 수
@@ -200,6 +254,30 @@ export default function PostComposer({
   // 이번 방문에서 실제로 내용이 바뀌었는가. 자동저장마다 알리면 타이핑할 때마다 알림이
   // 쌓이므로, 이 화면을 떠날 때(flushRef의 silent 호출) 한 번만 모아 알린다.
   const editedThisSessionRef = useRef(false)
+  /**
+   * 새로 만드는 캔버스의 발행 상태 — 'none' | 'pending' | 'done'.
+   *
+   * 새 글의 첫 저장은 디바운스가 0ms다(쓴 것을 잃지 않으려고). 그런데 그 순간 문서가
+   * status:'open' + targetUids 전원으로 만들어지는 바람에, **제목 첫 글자를 치자마자**
+   * 대상자 전원에게 배달됐다 — 61명 채널에서 "ㄱ"이라는 제목으로 Windows 팝업이 가고,
+   * 채널에도 "새 캔버스를 만들었습니다: ㄱ"가 남았다(2026-09-17).
+   *
+   * 저장과 발행을 떼어 놓는다. 문서는 예전처럼 바로 만들되 status를 'draft'로 두고,
+   * 작성을 마치고 화면을 떠날 때 'open'으로 올리면서 알림을 한 번 낸다.
+   *
+   * status를 쓰는 이유(targetUids를 비우지 않는 이유): 배달 여부를 판정하는 두 쿼리
+   * (useDesktopNotifications의 '새 업무 요청', useMyRequests)가 모두 status=='open'을
+   * 함께 보므로 draft면 양쪽 다 걸리지 않는다. 반면 targetUids를 비우는 방식은 중간에
+   * 실패하면 대상이 0명으로 굳는다 — 그 사고를 이미 한 번 겪었다(c871382, 09-10).
+   * status는 실패해도 대상 명단이 온전히 남아, 다시 열어 고치면 그때 발행된다.
+   *
+   * 'done'으로 잠그는 것은 언마운트 때 두 정리 함수가 겹쳐 들어와도 같은 알림이 두 번
+   * 나가지 않게 하기 위해서다.
+   */
+  const publishRef = useRef('none')
+  // 마지막으로 저장했거나 불러온 내용의 지문(contentSig). 떠날 때 이것과 같으면 쓰지
+  // 않는다(아래 flushRef). 새 글은 아직 저장한 적이 없어 null.
+  const lastSavedSigRef = useRef(null)
 
   /**
    * 고칠 글을 한 번만 읽어온다. onSnapshot으로 구독하지 않는 이유: 쓰는 도중에 서버 값이
@@ -215,7 +293,7 @@ export default function PostComposer({
       // 내용이 그대로 보임, 수정하면 저장도 안됨"). 첫 마운트 때의 초기값으로 되돌린다.
       setTitle('')
       setBodyHtml('')
-      setNeedsCompletion(true)
+      setNeedsCompletion(!dm)
       setPinned(false)
       setDueDate('')
       setRule(channel?.memberRule || EMPTY_RULE)
@@ -227,13 +305,16 @@ export default function PostComposer({
       setCoverImagePath(null)
       setCoverImagePosition(50)
       setCompletedUids([])
+      setPostStatus(null)
       keptFiles.current = new Set()
       keptCoverPathRef.current = null
       setLoadingPost(false)
       setCreated(false)
+      setContentOwnerId(draftId)
       setSaveState('idle')
       wasAlreadyCreatedRef.current = false
       editedThisSessionRef.current = false
+      publishRef.current = 'none'
       // 여기서 flushRef.current({silent:true})를 부르면 안 된다 — 한때 그렇게 했다가
       // 실제 데이터가 깨지는 사고로 이어졌다(2026-09-09). 이 정리 함수가 실행되는
       // 시점엔 이미 다음 렌더(새 editingId)가 먼저 커밋된 뒤라 flushRef.current가
@@ -243,12 +324,29 @@ export default function PostComposer({
       return undefined
     }
     if (justCreatedRef.current) {
-      // 여기는 안전하다 — 방금 막 만든 글의 editingId가 그 글 자신의 requestId와
-      // 같아서(justCreatedRef가 막 세팅된 그 글), flushRef.current가 가리키는
-      // 대상이 바뀌지 않는다.
+      // 방금 만든 글이 /new → /{id}/edit로 바뀐 것뿐이다 — 다시 읽지 않는다(위 설명).
+      //
+      // 예전엔 여기서 정리 함수로 flushRef.current({ silent: true })를 걸어 두었다
+      // ("여기는 안전하다"). 안전하지 않았다: 그 정리 함수는 다음에 editingId가 바뀔 때,
+      // 즉 사용자가 옆 탭을 누른 렌더에서 실행되는데 그때 flushRef.current는 이미 옆 탭의
+      // requestId로 다시 대입돼 있고 제목·본문은 방금 만든 글의 것이다. 그래서 캔버스를
+      // 두 개 연달아 만들고 먼저 만든 탭을 누르면 그 탭이 최신 캔버스로 복제됐고, 방금 만든
+      // 글의 발행(draft→open)까지 옆 탭으로 가서 정작 그 글은 대상자에게 배달되지 않았다
+      // (2026-09-18 브라우저로 재현 확인). 떠날 때 저장·발행은 아래 언마운트 이펙트가
+      // 맡는다 — 이제 탭을 옮기면 이 인스턴스가 통째로 사라지므로(Channels.jsx의
+      // composerKey) 그 정리 함수가 자기 글의 마지막 상태로 돈다.
       justCreatedRef.current = false
-      return () => { flushRef.current({ silent: true }).catch(() => {}) }
+      return undefined
     }
+    // 탭을 바로 옆의 이미 저장된 다른 탭으로 옮기는 경우(둘 다 editingId가 실제 id) —
+    // 여기서 즉시 loadingPost를 true로 켜야 한다. 안 그러면 이 getDoc이 끝나기 전까지
+    // title·bodyHtml이 옛 탭(A) 값 그대로 남아있는 채로 requestId만 새 탭(B)을 가리키는
+    // 순간이 생기고, 그 사이에 A를 편집하며 걸어둔 자동저장 디바운스 타이머(최대 700ms)가
+    // 뒤늦게 fire하면 flushRef.current()가 "A의 옛 내용"을 "B의 문서"에 그대로 덮어써
+    // 버린다(사용자 신고, 2026-09-16 — "기존 캔버스 탭이 최근 캔버스로 덮어써지며 사라짐").
+    // loadingPost는 아래 자동저장 이펙트의 의존성이라, true로 바뀌는 순간 그 이펙트가
+    // 다시 돌면서 cleanup으로 A의 남은 타이머를 확실히 지운다.
+    setLoadingPost(true)
     let alive = true
     getDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), editingId))
       .then(snap => {
@@ -259,29 +357,57 @@ export default function PostComposer({
           return
         }
         const post = snap.data()
-        setTitle(post.title || '')
-        setBodyHtml(post.bodyHtml || '')
-        setNeedsCompletion(isRequest(post))
-        setPinned(!!post.pinned)
-        setDueDate(post.dueDate?.toDate ? ymd(post.dueDate.toDate()) : '')
-        setRule(post.targetRule || channel?.memberRule || EMPTY_RULE)
-        setOwnerUids(post.ownerUids || [])
+        // 불러온 글은 이미 있는 문서다. 예전엔 여기서 created를 안 켜서, "새 글" 화면에서
+        // 기존 탭으로 넘어와 고치면 created가 false로 남아 그 글을 setDoc으로 통째로 새로
+        // 썼다(status가 draft로·완료 기록이 빈 배열로 돌아감). contentOwnerId는 아래
+        // setTitle 등과 같은 배치로 바뀌어야 한다(위 설명).
+        // state에 넣는 값과 "불러온 내용의 지문"을 한 객체에서 만든다 — 따로 쓰면 둘이
+        // 조금만 어긋나도 떠날 때마다 헛저장이 나간다(아래 flushRef의 지문 비교).
+        const loaded = {
+          title: post.title || '',
+          bodyHtml: post.bodyHtml || '',
+          needsCompletion: isRequest(post),
+          pinned: !!post.pinned,
+          dueDate: post.dueDate?.toDate ? ymd(post.dueDate.toDate()) : '',
+          rule: post.targetRule || channel?.memberRule || EMPTY_RULE,
+          ownerUids: post.ownerUids || [],
+          attachments: post.attachments || [],
+          links: post.links || [],
+          coverImageUrl: post.coverImageUrl || null,
+          coverImagePath: post.coverImagePath || null,
+          coverImagePosition: post.coverImagePosition ?? 50,
+        }
+        lastSavedSigRef.current = contentSig(loaded)
+        setCreated(true)
+        setContentOwnerId(editingId)
+        setTitle(loaded.title)
+        setBodyHtml(loaded.bodyHtml)
+        setNeedsCompletion(loaded.needsCompletion)
+        setPinned(loaded.pinned)
+        setDueDate(loaded.dueDate)
+        setRule(loaded.rule)
+        setOwnerUids(loaded.ownerUids)
         // 채널 참여자 전원과 다르면 처음부터 펼친다 — 접어두면 이미 좁혀 놓은 대상을
         // 고치는 사람이 못 보고 "채널 전체 대상"으로 착각한 채 저장할 수 있다.
         const channelUids = new Set(channel?.memberUids || [])
         const savedUids = post.targetUids || []
         const narrowed = savedUids.length !== channelUids.size || savedUids.some(uid => !channelUids.has(uid))
         setTargetOpen(narrowed)
-        setAttachments(post.attachments || [])
-        setLinks(post.links || [])
-        setCoverImageUrl(post.coverImageUrl || null)
-        setCoverImagePath(post.coverImagePath || null)
-        setCoverImagePosition(post.coverImagePosition ?? 50)
+        setAttachments(loaded.attachments)
+        setLinks(loaded.links)
+        setCoverImageUrl(loaded.coverImageUrl)
+        setCoverImagePath(loaded.coverImagePath)
+        setCoverImagePosition(loaded.coverImagePosition)
         setCompletedUids(post.completedUids || [])
+        setPostStatus(post.status || null)
+        setManuallyArchived(post.archived === true)
         keptFiles.current = new Set((post.attachments || []).map(a => a.path))
         keptCoverPathRef.current = post.coverImagePath || null
         wasAlreadyCreatedRef.current = true
         editedThisSessionRef.current = false
+        // 지난번에 발행 못 하고 draft로 남은 글이면 이번에 나갈 때 발행한다(위 publishRef
+        // 설명의 안전망). 이미 발행된 글은 'none' 그대로 둔다.
+        publishRef.current = post.status === 'draft' ? 'pending' : 'none'
         setLoadingPost(false)
       })
       .catch(e => {
@@ -301,7 +427,17 @@ export default function PostComposer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, schoolId])
 
-  const targets = useMemo(() => resolveTargets(rule, members).members, [rule, members])
+  // DM은 조건(rule) 기반 대상 지정을 안 쓴다 — TargetPicker가 숨겨져 있어 rule은 항상
+  // EMPTY_RULE로 남는데, resolveTargets(EMPTY_RULE, members)는 "조건 없음 = 전체
+  // 교직원"으로 푼다(targeting.js). 그 members는 채널이 아니라 학교 전체 명단이라,
+  // DM에서 그대로 썼다면 요청을 복구하는 순간 대화 상대와 무관한 전교직원이 대상·완료
+  // 추적 명단에 들어갈 뻔했다. DM의 대상은 언제나 그 대화 참여자다 — 고를 것이 없다.
+  const targets = useMemo(
+    () => (dm
+      ? members.filter(m => (channel?.memberUids || []).includes(m.uid))
+      : resolveTargets(rule, members).members),
+    [dm, channel, rule, members],
+  )
   const stats = useMemo(
     () => completionStats({ targetUids: targets.map(t => t.uid), completedUids }),
     [targets, completedUids],
@@ -363,9 +499,20 @@ export default function PostComposer({
    */
   const flushRef = useRef(async () => {})
   flushRef.current = async ({ silent = false } = {}) => {
-    if (loadingPost) return
+    // 저장할 것이 없어 그냥 돌아가는 길에는 'saving'을 걷어낸다. 저장 표시는 이 함수를
+    // 부르기 전에 이펙트가 미리 켜두는데, 여기서 아무 일도 안 하고 나가면 그 표시가
+    // 영영 남는다 — 새 캔버스를 열어두고 아무것도 안 썼을 때 "저장 중…"이 계속 돌아가
+    // 보였다(사용자 지적, 2026-09-17).
+    const stopSaving = () => { if (!silent) setSaveState('idle') }
+    // 지금 들고 있는 내용이 이 문서(requestId)의 것이 아니면 절대 쓰지 않는다(위
+    // contentOwnerId 설명). 두 값은 같은 렌더의 state라 어긋날 수 없고, 어긋났다면 그건
+    // 떠나온 글의 내용이 새 글 ID로 가려는 순간이다. 2026-09-18 오전에 넣었던 forId(타이머를
+    // 건 시점의 ID와 대조)는 디바운스 타이머 경로만 막아서, 실제로 매번 터지던 정리 함수
+    // 경로(justCreatedRef 분기)를 못 막았다 — 이 검사는 부른 쪽이 누구든 똑같이 막는다.
+    if (contentOwnerId !== requestId) { stopSaving(); return }
+    if (loadingPost) { stopSaving(); return }
     const isEmpty = !title.trim() && isEmptyHtml(bodyHtml) && attachments.length === 0
-    if (!created && isEmpty) return
+    if (!created && isEmpty) { stopSaving(); return }
 
     // 이 화면을 떠날 때(silent) 두 정리 함수(글을 바꿔 타는 이펙트·완전히 사라질 때의
     // 이펙트)가 거의 동시에 flushRef.current를 부를 수 있다 — 둘 다 언마운트 한 번에
@@ -374,6 +521,42 @@ export default function PostComposer({
     // 이미 꺼진 플래그를 보고 조용히 넘어간다 — 안 그러면 같은 편집을 두 번 알린다.
     const shouldNotifyEdit = silent && editedThisSessionRef.current
     if (shouldNotifyEdit) editedThisSessionRef.current = false
+    // 이 글을 떠나는 순간(silent)에만, 이번 방문에서 실제로 뭔가 바뀌었을 때만 한 번
+    // 알린다 — 자동저장마다 알리면 타이핑할 때마다 알림이 쌓인다(사용자 요청,
+    // 2026-09-07 — "기존 캔버스가 수정된다거나").
+    const notifyEdited = () => {
+      postSystemNotice({
+        schoolId, channelId: channel.id, actorUid: user.uid,
+        text: title ? `${userName}님이 캔버스를 수정했습니다: ${title}` : `${userName}님이 캔버스를 수정했습니다.`,
+        refRequestId: requestId, refTitle: title,
+      }).catch(() => {})
+    }
+
+    /**
+     * 아직 배달되지 않은 글인가(위 publishRef 설명). 두 경우가 있다.
+     *  - 이번에 새로 만드는 중        → publishRef 'none' + 기존 글이 아님
+     *  - 지난번에 발행 못 하고 남은 draft → 읽어올 때 'pending'으로 표시해 둔다
+     * 두 번째가 안전망이다. 작성 중 창을 그냥 닫으면 정리 함수가 안 돌아 draft로 남는데,
+     * 그 글을 다시 열어 고치면 나갈 때 발행된다 — 영영 묻히지 않는다.
+     */
+    const unpublished = publishRef.current === 'pending'
+      || (publishRef.current === 'none' && !wasAlreadyCreatedRef.current)
+    const publishing = silent && unpublished
+
+    // 마지막으로 저장한(또는 불러온) 뒤 바뀐 게 없으면 쓰지 않는다. 글마다 편집기를 새로
+    // 띄우게 되면서(Channels.jsx의 composerKey) 탭을 떠날 때마다 이 함수가 도는데, 탭만
+    // 훑어봐도 쓰기가 나가면 그 쓰기가 requests를 구독하는 모든 화면에 읽기로 퍼진다
+    // (2026-09-18 프레즌스 N² 사고와 같은 구조). 아직 발행 안 된 글(draft)은 status를
+    // 올려야 하므로 그대로 쓴다.
+    const sig = contentSig({
+      title, bodyHtml, needsCompletion, pinned, dueDate, rule, ownerUids,
+      attachments, links, coverImageUrl, coverImagePath, coverImagePosition,
+    })
+    if (created && !publishing && sig === lastSavedSigRef.current) {
+      stopSaving()
+      if (shouldNotifyEdit) notifyEdited()
+      return
+    }
 
     try {
       const safeHtml = sanitizeHtml(bodyHtml)
@@ -393,27 +576,29 @@ export default function PostComposer({
         targets,
         createdBy: user.uid,
         createdByName: userName,
-        ownerUids,
+        // DM에 넣은 캔버스는 그 대화에 있는 사람이 모두 함께 고칠 수 있다(사용자 확정,
+        // 2026-09-17 — "DM 구성원은 함께 작성할 수 있거나 말거나 둘 중 하나"). 예전에는
+        // '함께 편집할 사람'에 손으로 넣은 사람만 고칠 수 있어, 같은 대화 안에서도 되기도
+        // 하고 안 되기도 했다. ownerUids에 참여자를 담아 두면 firestore.rules의 기존
+        // update 조건(ownerUids 포함 여부)이 그대로 열어주므로 규칙을 건드릴 필요가 없다.
+        ownerUids: dm ? [...new Set([...(channel?.memberUids || []), user.uid])] : ownerUids,
       })
 
       if (!created) {
         await setDoc(doc(db, ...schoolPath(schoolId, COL.REQUESTS), requestId), {
           ...payload,
+          // 작성 중에는 'draft' — 아직 아무에게도 배달하지 않는다. 타이핑하다 바로 나간
+          // 경우(첫 저장이 곧 언마운트)는 그 자리에서 발행한다.
+          status: publishing ? 'open' : 'draft',
           bodyHtml: safeHtml,
           channelId: channel.id,
           ...postVisibilityFor(channel),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         })
-        // 이 채널에 "새 캔버스를 만들었다"고 작게 남긴다(사용자 요청, 2026-09-07) —
-        // silent(언마운트 중 첫 저장)여도 문서 자체는 만들어졌으니 알림도 그대로 낸다.
-        postSystemNotice({
-          schoolId, channelId: channel.id, actorUid: user.uid,
-          text: payload.title
-            ? `${userName}님이 새 캔버스를 만들었습니다: ${payload.title}`
-            : `${userName}님이 새 캔버스를 만들었습니다.`,
-          refRequestId: requestId, refTitle: payload.title,
-        }).catch(() => {})
+        // 알림은 여기서 내지 않는다 — 이 시점은 제목 첫 글자를 친 순간일 수 있다.
+        // 예약만 해두고 발행 시점에 완성된 제목으로 낸다(위 publishRef 설명).
+        if (publishRef.current === 'none') publishRef.current = 'pending'
         if (!silent) { justCreatedRef.current = true; setCreated(true); onSaved(requestId) }
       } else {
         // 고칠 때 넘기지 않는 것 — completedUids(이미 한 사람의 기록), status(마감 여부),
@@ -437,6 +622,9 @@ export default function PostComposer({
             targetUids: payload.targetUids,
             targetNames: payload.targetNames,
             ownerUids: payload.ownerUids,
+            // 발행하는 순간에만 status를 올린다. 그 외에는 여기서 status를 넘기지
+            // 않으므로 이미 마감된 글의 상태를 되살리는 일도 없다.
+            ...(publishing ? { status: 'open' } : {}),
             bodyHtml: safeHtml,
             channelId: channel.id,
             ...postVisibilityFor(channel),
@@ -450,9 +638,11 @@ export default function PostComposer({
           deleteAttachment({ path: keptCoverPathRef.current }).catch(() => {})
         }
         // 원래 있던 글을 고치는 중일 때만 표시한다 — 방금 만든 글을 계속 쓰는 것은
-        // 위에서 이미 "만들었다"고 알렸으니 또 "수정했다"고 겹쳐 알리지 않는다.
-        if (wasAlreadyCreatedRef.current) editedThisSessionRef.current = true
+        // 나갈 때 "만들었다"고 알릴 것이라 또 "수정했다"고 겹쳐 알리지 않는다.
+        // 아직 발행 안 된 draft도 마찬가지다(그쪽은 '만들었습니다'로 나간다).
+        if (wasAlreadyCreatedRef.current && !unpublished) editedThisSessionRef.current = true
       }
+      lastSavedSigRef.current = sig
       if (!silent) setSaveState('saved')
     } catch (e) {
       if (!silent) {
@@ -461,16 +651,21 @@ export default function PostComposer({
       }
     }
 
-    // 이 글을 떠나는 순간(silent)에만, 이번 방문에서 실제로 뭔가 바뀌었을 때만 한 번
-    // 알린다 — 자동저장마다 알리면 타이핑할 때마다 알림이 쌓인다(사용자 요청,
-    // 2026-09-07 — "기존 캔버스가 수정된다거나").
-    if (shouldNotifyEdit) {
+    // 발행 — 새 캔버스는 다 쓰고 화면을 떠날 때 한 번만 알린다. 만들어진 직후가 아니라
+    // 이 시점이라 제목도 완성돼 있다(위 publishRef 설명). 'done'으로 먼저 잠가, 언마운트
+    // 때 두 정리 함수가 겹쳐 들어와도 같은 알림이 두 번 나가지 않게 한다.
+    if (publishing && publishRef.current === 'pending') {
+      publishRef.current = 'done'
       postSystemNotice({
         schoolId, channelId: channel.id, actorUid: user.uid,
-        text: title ? `${userName}님이 캔버스를 수정했습니다: ${title}` : `${userName}님이 캔버스를 수정했습니다.`,
+        text: title.trim()
+          ? `${userName}님이 새 캔버스를 만들었습니다: ${title}`
+          : `${userName}님이 새 캔버스를 만들었습니다.`,
         refRequestId: requestId, refTitle: title,
       }).catch(() => {})
     }
+
+    if (shouldNotifyEdit) notifyEdited()
   }
 
   // 처음 한 번(마운트, 또는 고치기 로딩 완료 직후)은 저장을 건너뛴다 — 안 그러면 아무것도
@@ -494,6 +689,7 @@ export default function PostComposer({
     // 이 이펙트가 그것 때문에 다시 돌면, 방금 막 저장한 것과 똑같은 내용을 700ms 뒤에
     // 한 번 더 쓰는 헛수고가 생긴다. flushRef.current()는 매 렌더 최신 created를
     // 참조하므로 다음 실제 변경부터는 어차피 옳은 값으로 판단한다.
+    //
     const timer = setTimeout(() => { flushRef.current() }, created ? 700 : 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -504,6 +700,31 @@ export default function PostComposer({
   useEffect(() => {
     return () => { flushRef.current({ silent: true }) }
   }, [])
+
+  // '나와의 대화' 할 일의 완료 체크 — 체크 = 끝(마감), 풀면 다시 열린다(setSelfTaskDone).
+  // 완료만 찍혔거나 마감만 된 옛 글도 끝난 것으로 본다.
+  const taskDone = completedUids.includes(user?.uid) || postStatus === 'closed'
+  const toggleTaskDone = async () => {
+    if (!created || togglingDone) return
+    const done = !taskDone
+    setTogglingDone(true)
+    try {
+      await setSelfTaskDone({
+        schoolId, requestId, actor: { uid: user.uid, name: userName }, done, keepInTabs: !manuallyArchived,
+      })
+      setCompletedUids(prev => (done ? [...new Set([...prev, user.uid])] : prev.filter(uid => uid !== user.uid)))
+      setPostStatus(done ? 'closed' : 'open')
+      // 아직 발행 전(draft)인 새 할 일이면, 떠날 때의 발행(status: 'open')이 방금 마감한 것을
+      // 도로 열어 버린다(flushRef의 publishing). 발행은 끝난 것으로 친다 — 나와의 대화라
+      // "새 캔버스를 만들었습니다" 알림이 안 나가도 잃는 게 없다.
+      publishRef.current = 'done'
+      toast.success(done ? '완료했습니다. 업무 진행 중에서 내려갑니다.' : '완료를 취소했습니다.')
+    } catch (e) {
+      toast.error('완료 표시를 바꾸지 못했습니다.', e)
+    } finally {
+      setTogglingDone(false)
+    }
+  }
 
   const [notifying, setNotifying] = useState(false)
 
@@ -560,20 +781,33 @@ export default function PostComposer({
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Box sx={{ flexShrink: 0, px: 2, pt: 1.5 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1 }}>
+          {/* DM에서도 고를 수 있다(2026-09-18 복구 — 개인 업무 목록을 '나와의 대화'에
+              넣어두고 마감을 확인하는 데 쓰는 선생님이 있었다). 2026-09-17에는 이 갈래
+              자체를 DM에서 통째로 숨겼었는데, 그러면서 딱 이 용도가 같이 막혔다. 기본값만
+              '안내'로 두고(위 useState(!dm) — 캐주얼한 메모에 완료 확인이 기본으로 붙는
+              것은 그때 지적대로 여전히 원치 않는다), 켜고 끄는 선택 자체는 돌려준다.
+              '나와의 대화'는 받는 사람이 없으니 '할 일/메모'라고 부른다(위 selfDm 설명) —
+              저장되는 값은 같다(kind 'request'/'notice'). */}
           <SegChoice
             value={needsCompletion ? 'request' : 'notice'}
             onChange={v => setNeedsCompletion(v === 'request')}
-            options={[
-              { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
-              { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
-            ]}
+            options={selfDm
+              ? [
+                  { value: 'request', label: '할 일', Icon: TaskAltIcon },
+                  { value: 'notice', label: '메모', Icon: StickyNote2OutlinedIcon },
+                ]
+              : [
+                  { value: 'request', label: '요청', Icon: CheckCircleOutlineIcon },
+                  { value: 'notice', label: '안내', Icon: CampaignOutlinedIcon },
+                ]}
           />
           {/* 이제 채널 탭을 눌러 돌아오면 글쓴이는 무조건 이 편집기로 온다(제출현황으로
               자동으로 안 튕긴다 — 사용자 확정, 2026-08-26). 그 대신 제출현황(완료 관리)을
               보고 싶을 때 누르는 문이 이 버튼이다 — 보기 화면(PostDetail)으로 보낸다.
               완료 수는 실시간이 아니다(고칠 글을 한 번만 읽어오므로) — 정확한 값은
-              눌러서 들어간 화면이 보여준다. */}
-          {needsCompletion && created && (
+              눌러서 들어간 화면이 보여준다. '나와의 대화'에서는 안 보인다 — 완료는 아래
+              체크박스로 이 자리에서 한다. */}
+          {needsCompletion && created && !selfDm && (
             <Button
               size="small" variant="outlined"
               onClick={() => onOpenCanvasRef?.(`/channels/${channel.id}/${requestId}`)}
@@ -613,7 +847,21 @@ export default function PostComposer({
                   sx={{ fontSize: '0.72rem', height: 22 }}
                 />
               ))}
-              {due && <Typography fontSize="0.74rem" color="text.secondary">{due}</Typography>}
+              {due && !(selfDm && taskDone) && <Typography fontSize="0.74rem" color="text.secondary">{due}</Typography>}
+              {/* '나와의 대화' 할 일의 완료 — 체크 = 끝(마감). 첫 저장 전에는 문서가 없어
+                  잠가 둔다(제목 한 글자만 쳐도 곧바로 저장된다). */}
+              {selfDm && (
+                <FormControlLabel
+                  sx={{ ml: 0.5, mr: 0 }}
+                  disabled={!created || togglingDone}
+                  control={<Checkbox size="small" checked={taskDone} onChange={toggleTaskDone} />}
+                  label={(
+                    <Typography fontSize="0.8rem" fontWeight={700} color={taskDone ? 'success.main' : 'text.primary'}>
+                      {taskDone ? '완료됨' : '완료'}
+                    </Typography>
+                  )}
+                />
+              )}
             </Box>
           ) : (
             <FormControlLabel
@@ -630,7 +878,9 @@ export default function PostComposer({
               땐 아무것도 안 보여준다 — "이 채널 참여자 N명이 대상입니다"는 채널 헤더에
               이미 참여자 수가 보이니 중복이라 뺐다(2026-08-28, 사용자 지적). "대상 좁히기"
               토글도 같은 이유로 헤더(제목 줄 오른쪽)로 옮겨갔다 — 여기 남은 건 Collapse뿐. */}
-          {targets.length === 0 && (
+          {/* DM에서는 '대상'이라는 개념 자체가 없다 — 그 대화에 있는 사람이 곧 독자다.
+              경고를 띄우면 고칠 방법도 없는 것을 고치라고 말하는 셈이 된다. */}
+          {!dm && targets.length === 0 && (
             <Typography fontSize="0.8rem" color="warning.main" fontWeight={700}>
               ⚠ 대상이 없습니다 — 아직 아무에게도 가지 않습니다
             </Typography>
@@ -647,8 +897,11 @@ export default function PostComposer({
         {/* 담당자 — 나(글쓴이) 말고 함께 편집·마감·다시 알림을 할 수 있는 사람(2026-09-10,
             사용자 요청). 대상(누구에게 가는가)과는 다른 개념이라 따로 둔다 — 대상은
             "받는 사람", 담당자는 "굴리는 사람"이다(workRequests.js). 안 골라도 글쓴이는
-            그대로 편집할 수 있어 늘 펼쳐 둬도 부담이 없다. */}
-        {!membersLoading && (
+            그대로 편집할 수 있어 늘 펼쳐 둬도 부담이 없다.
+
+            DM에서는 안 보여준다 — 그 대화의 참여자가 자동으로 담당자가 되므로(위 payload의
+            ownerUids) 고를 것이 없고, 빈 칸만 남으면 "골라야 하나" 싶어진다. */}
+        {!dm && !membersLoading && (
           <Box sx={{ mb: 1, maxWidth: 420 }}>
             <Autocomplete
               multiple size="small" autoHighlight

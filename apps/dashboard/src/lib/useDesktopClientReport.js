@@ -17,16 +17,11 @@ import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
+import { currentDesktopVersion } from '@shared/lib/desktopClients'
 
 // 렌더러는 트레이 상주로 며칠씩 살아 있어 마운트 때 한 번만 쓰면 '마지막 목격'이
 // 실제와 벌어진다. 그렇다고 자주 쓸 것도 아니라 6시간으로 둔다.
 const HEARTBEAT_MS = 6 * 60 * 60 * 1000
-
-function desktopVersion() {
-  if (typeof window === 'undefined') return null
-  const v = window.smartOfficeDesktop?.version
-  return typeof v === 'string' && v ? v : null
-}
 
 export default function useDesktopClientReport() {
   const { user, schoolId } = useAuth()
@@ -34,7 +29,7 @@ export default function useDesktopClientReport() {
   const seededRef = useRef(false)
 
   useEffect(() => {
-    const version = desktopVersion()
+    const version = currentDesktopVersion()
     if (!version || !schoolId || !user) return undefined
 
     const ref = doc(db, ...schoolPath(schoolId, COL.DESKTOP_CLIENTS), user.uid)

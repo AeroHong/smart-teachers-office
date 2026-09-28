@@ -23,6 +23,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { fileKind, formatBytes, deleteAttachment } from '@shared/lib/requestAttachments'
+import { useIsEvalPlanManager } from '@shared/hooks/useEvalPlanManager'
 import { USERS } from '@shared/lib/schema'
 import Layout from '../../components/Layout'
 import EvalPlanSection, { ACCENT, ACCENT_BG } from './EvalPlanSection'
@@ -107,6 +108,8 @@ export default function EvalPlanDetail() {
       .catch((e) => console.error('[EvalPlanDetail] 교직원 목록 조회 실패:', e))
   }, [schoolId, isAdmin])
 
+  const { isManager } = useIsEvalPlanManager(schoolId, user?.uid)
+
   const handleAssignTeacher = async (name, uid) => {
     if (!uid) return
     const nextMatches = (plan.teacherMatches || []).map((m) => (
@@ -123,8 +126,10 @@ export default function EvalPlanDetail() {
     }
   }
 
-  // 본인 제출물은 본인만, 관리자는 전체 삭제·수정 가능 (firestore.rules의 delete/update 규칙과 동일 조건)
-  const canEdit = isAdmin || plan?.uploaderUid === user?.uid
+  // 본인 제출물은 본인만, 관리자·업무 담당자는 전체 수정 가능 (firestore.rules의 update 규칙과
+  // 동일 조건 — 삭제는 여전히 소유자·관리자만이라 canEdit과 별도로 관리자만 노출한다).
+  const canEdit = isAdmin || isManager || plan?.uploaderUid === user?.uid
+  const canDelete = isAdmin || plan?.uploaderUid === user?.uid
 
   const handleDelete = async () => {
     if (!window.confirm('이 제출물을 삭제하시겠습니까? 원본 파일도 함께 삭제되며 되돌릴 수 없습니다.')) return
@@ -179,20 +184,20 @@ export default function EvalPlanDetail() {
               : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
           />
           {canEdit && (
-            <>
-              <Button
-                variant="outlined" size="small" onClick={() => navigate(`/evalplan/${planId}/edit`)}
-                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#e2e8f0', color: '#475569' }}
-              >
-                수정
-              </Button>
-              <Button
-                variant="outlined" size="small" color="error" disabled={deleting} onClick={handleDelete}
-                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700 }}
-              >
-                {deleting ? '삭제 중...' : '삭제'}
-              </Button>
-            </>
+            <Button
+              variant="outlined" size="small" onClick={() => navigate(`/evalplan/${planId}/edit`)}
+              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#e2e8f0', color: '#475569' }}
+            >
+              수정
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="outlined" size="small" color="error" disabled={deleting} onClick={handleDelete}
+              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700 }}
+            >
+              {deleting ? '삭제 중...' : '삭제'}
+            </Button>
           )}
         </Box>
       </Box>

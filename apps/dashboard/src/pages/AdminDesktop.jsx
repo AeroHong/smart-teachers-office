@@ -9,13 +9,14 @@
  * 나열하면 정작 알아야 할 안 깐 사람이 화면에 없다.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { collection, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Paper from '@mui/material/Paper'
+import TextField from '@mui/material/TextField'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
@@ -29,10 +30,13 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, schoolPath } from '@shared/lib/schema'
 import {
+  LATEST_YML_URL,
   MIN_AUTO_UPDATE_VERSION,
   compareVersions,
   isStale,
   needsManualReinstall,
+  parseLatestVersion,
+  versionState,
 } from '@shared/lib/desktopClients'
 import WorkspaceLayout from '../components/WorkspaceLayout'
 import { useToast } from '../components/ToastProvider'
@@ -61,6 +65,16 @@ export default function AdminDesktop() {
   // 구분한다(전체·개별을 같은 상태로 두면 하나가 도는 동안 나머지 버튼도 다 잠긴다).
   const [pushingKey, setPushingKey] = useState(null)
 
+  // 지금 배포된 최신 버전(latest.yml). 못 읽으면 null로 두고 '최신'이라고 단정하지 않는다.
+  const [latestVersion, setLatestVersion] = useState(null)
+
+  // 강제 업데이트 관문(DesktopUpdateGate.jsx) — 이 값보다 낮은 버전은 화면을 아예 못
+  // 쓴다. savedMinVersion은 지금 Firestore에 저장된 값(입력칸의 기준점), minVersionInput은
+  // 입력 중인 값. 되돌릴 수 없는 잠금이라 기본은 항상 "제한 없음"이다.
+  const [savedMinVersion, setSavedMinVersion] = useState(null)
+  const [minVersionInput, setMinVersionInput] = useState('')
+  const [savingMinVersion, setSavingMinVersion] = useState(false)
+
   // 배포 직후 10분(웹)·4시간(데스크톱 설치 파일) 자동 확인을 못 기다릴 때 쓴다 —
   // useAppUpdate.js가 schools/{schoolId}.forceUpdateCheckAt 변화를 보고 즉시 재확인한다.
   // targetUid를 주면 그 사람 세션만 반응한다(개별 푸시, 사용자 요청 2026-09-07 —
@@ -87,6 +101,67 @@ export default function AdminDesktop() {
       setPushingKey(null)
     }
   }
+
+  // X.Y.Z 형식만 받는다 — compareVersions는 형식이 어긋나도 조용히 0취급해 잘못
+  // 입력해도 저장이 되어버리므로, 여기서 먼저 막는다.
+  const isValidVersion = (v) => /^\d+\.\d+\.\d+$/.test(v.trim())
+
+  const handleSaveMinVersion = async () => {
+    const v = minVersionInput.trim()
+    if (!isValidVersion(v)) {
+      toast.error('버전은 0.2.2처럼 숫자.숫자.숫자 형식으로 입력해 주세요.')
+      return
+    }
+    setSavingMinVersion(true)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId), { minDesktopVersion: v })
+      setSavedMinVersion(v)
+      toast.success(`${v} 미만 데스크톱 앱의 사용을 막았습니다.`)
+    } catch (e) {
+      toast.error('최소 버전을 저장하지 못했습니다.', e)
+    } finally {
+      setSavingMinVersion(false)
+    }
+  }
+
+  const handleClearMinVersion = async () => {
+    setSavingMinVersion(true)
+    try {
+      await updateDoc(doc(db, 'schools', schoolId), { minDesktopVersion: null })
+      setSavedMinVersion(null)
+      setMinVersionInput('')
+      toast.success('강제 업데이트 제한을 해제했습니다.')
+    } catch (e) {
+      toast.error('제한 해제에 실패했습니다.', e)
+    } finally {
+      setSavingMinVersion(false)
+    }
+  }
+
+  // 업데이트 서버가 내건 최신 버전을 읽어 온다 — 화면에 적는 '최신'의 기준이다.
+  // 코드에 버전을 적어 두면 릴리즈 때 같이 고치는 것을 잊는 순간 조용히 틀린 값이 된다.
+  useEffect(() => {
+    let alive = true
+    fetch(LATEST_YML_URL, { cache: 'no-store' })
+      .then(res => (res.ok ? res.text() : ''))
+      .then(text => { if (alive) setLatestVersion(parseLatestVersion(text)) })
+      .catch(() => {})   // 못 읽으면 '확인 필요'로 보여준다(아래 STATE_CHIP)
+    return () => { alive = false }
+  }, [])
+
+  // 지금 저장된 최소 버전을 입력칸에 미리 채워 둔다 — 관리자가 안 건드리면 지금
+  // 값을 그대로 다시 저장하게 되어 "덮어쓸까 새로 정할까"를 고민할 필요가 없다.
+  useEffect(() => {
+    if (!schoolId) return undefined
+    let alive = true
+    getDoc(doc(db, 'schools', schoolId)).then((snap) => {
+      if (!alive) return
+      const v = snap.data()?.minDesktopVersion || null
+      setSavedMinVersion(v)
+      setMinVersionInput(v || '')
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [schoolId])
 
   // 설치 현황은 실시간으로 볼 이유가 없다(보고 주기가 6시간이다). 화면을 열 때 한 번 읽는다.
   useEffect(() => {
@@ -117,14 +192,18 @@ export default function AdminDesktop() {
           client,
           stale: client ? isStale(client, now) : false,
           outdated: client ? needsManualReinstall(client.version) : false,
+          state: client ? versionState(client.version, latestVersion) : null,
         }
       })
-      // 손을 써야 하는 사람이 위로: 구버전 → 미설치 → 조용함 → 최신, 그 안에서는 이름순
+      // 손을 써야 하는 사람이 위로: 수동 재설치 → 구버전 → 미설치 → 조용함 → 최신,
+      // 그 안에서는 이름순. 구버전을 미설치보다 위에 두는 이유는 "지금 종을 눌러 재촉하면
+      // 되는 사람"이기 때문이다 — 미설치 49명은 따로 설치를 안내해야 하는 별개의 일인데,
+      // 그 줄에 묻히면 정작 한 번 누르면 끝날 사람들이 화면 밖으로 밀려난다.
       .sort((a, b) => {
-        const rank = r => (r.outdated ? 0 : !r.client ? 1 : r.stale ? 2 : 3)
+        const rank = r => (r.outdated ? 0 : r.state === 'old' ? 1 : !r.client ? 2 : r.stale ? 3 : 4)
         return rank(a) - rank(b) || a.name.localeCompare(b.name, 'ko')
       })
-  }, [members, clients])
+  }, [members, clients, latestVersion])
 
   // 구성원에 없는 uid로 보고된 문서(퇴직·전출 등)도 놓치지 않고 센다.
   const orphanCount = useMemo(() => {
@@ -143,8 +222,16 @@ export default function AdminDesktop() {
 
   const installed = rows.filter(r => r.client).length
   const outdated = rows.filter(r => r.outdated).length
+  const oldVersion = rows.filter(r => r.state === 'old').length
   const missing = rows.filter(r => !r.client).length
   const busy = loading || membersLoading
+
+  // 지금 입력 중인 값을 저장하면 당장 몇 명이 화면을 못 쓰게 되는지 — 누르기 전에
+  // 규모를 보여준다. 형식이 안 맞으면(입력 중) 굳이 계산하지 않는다.
+  const minVersionValid = /^\d+\.\d+\.\d+$/.test(minVersionInput.trim())
+  const wouldBlockCount = minVersionValid
+    ? clients.filter(c => compareVersions(c.version, minVersionInput.trim()) < 0).length
+    : 0
 
   return (
     <WorkspaceLayout>
@@ -174,6 +261,56 @@ export default function AdminDesktop() {
           </Typography>
         )}
 
+        {/* 강제 업데이트 관문 — schools/{schoolId}.minDesktopVersion. 위 "업데이트 확인
+            강제"와 달리 닫을 수 없다(DesktopUpdateGate.jsx). 정말 방치하면 안 되는
+            결함이 나왔을 때만 쓰라고 문구로 못박아 둔다. */}
+        <Paper variant="outlined" sx={{ p: 2.5, mt: 2.5, borderColor: savedMinVersion ? 'error.main' : undefined }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>강제 업데이트</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+            이 버전보다 낮은 데스크톱 앱은 화면 전체가 막히고 업데이트 화면만 보게 됩니다.
+            닫을 수 없으니, 방치하면 안 되는 결함을 고쳐 배포했을 때만 사용하세요.
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
+            <TextField
+              size="small"
+              label="최소 버전"
+              placeholder="예: 0.2.2"
+              value={minVersionInput}
+              onChange={(e) => setMinVersionInput(e.target.value)}
+              disabled={savingMinVersion}
+              sx={{ width: 160 }}
+            />
+            <Button
+              variant="contained"
+              color="error"
+              size="small"
+              disabled={savingMinVersion || !minVersionValid || minVersionInput.trim() === (savedMinVersion || '')}
+              onClick={handleSaveMinVersion}
+            >
+              적용
+            </Button>
+            {savedMinVersion && (
+              <Button variant="outlined" size="small" disabled={savingMinVersion} onClick={handleClearMinVersion}>
+                제한 해제
+              </Button>
+            )}
+            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+              {savedMinVersion
+                ? `지금: ${savedMinVersion} 미만 차단 중`
+                : '지금: 제한 없음'}
+            </Typography>
+          </Box>
+
+          {minVersionValid && minVersionInput.trim() !== (savedMinVersion || '') && (
+            <Typography variant="caption" color={wouldBlockCount ? 'error.main' : 'text.secondary'} display="block" sx={{ mt: 1 }}>
+              {wouldBlockCount > 0
+                ? `적용하면 지금 보고된 ${wouldBlockCount}명이 즉시 막힙니다.`
+                : '적용해도 지금 보고된 사람 중 막히는 사람은 없습니다.'}
+            </Typography>
+          )}
+        </Paper>
+
         {busy ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress size={28} /></Box>
         ) : (
@@ -185,6 +322,12 @@ export default function AdminDesktop() {
                 value={outdated}
                 tone={outdated ? 'bad' : 'good'}
                 note={`${MIN_AUTO_UPDATE_VERSION} 미만`}
+              />
+              <SummaryCard
+                label="구버전"
+                value={latestVersion ? oldVersion : '—'}
+                tone={oldVersion ? 'warn' : 'good'}
+                note={latestVersion ? `최신 ${latestVersion}` : '최신 버전 확인 실패'}
               />
               <SummaryCard label="미설치" value={missing} tone={missing ? 'warn' : 'good'} />
               {orphanCount > 0 && (
@@ -205,9 +348,9 @@ export default function AdminDesktop() {
                   <Chip
                     key={version}
                     size="small"
-                    label={`${version} · ${count}명`}
-                    color={needsManualReinstall(version) ? 'error' : 'default'}
-                    variant={needsManualReinstall(version) ? 'filled' : 'outlined'}
+                    label={`${version} · ${count}명${version === latestVersion ? ' (최신)' : ''}`}
+                    color={{ manual: 'error', old: 'warning', latest: 'success', unknown: 'default' }[versionState(version, latestVersion)]}
+                    variant={versionState(version, latestVersion) === 'manual' ? 'filled' : 'outlined'}
                   />
                 ))}
               </Box>
@@ -237,8 +380,16 @@ export default function AdminDesktop() {
                           <Chip size="small" label="미설치" variant="outlined" />
                         ) : row.outdated ? (
                           <Chip size="small" label="수동 재설치 필요" color="error" />
+                        ) : row.state === 'old' ? (
+                          // 자동 업데이트를 받는 버전이라 앱을 켜 두면 스스로 올라간다 —
+                          // 재촉하려면 오른쪽 종 버튼으로 확인을 밀어 넣는다.
+                          <Chip size="small" label={`구버전 · ${latestVersion} 대기`} color="warning" />
                         ) : row.stale ? (
                           <Chip size="small" label="한동안 실행 안 함" color="warning" variant="outlined" />
+                        ) : row.state === 'unknown' ? (
+                          // 최신 버전을 못 읽었다(업데이트 서버 접속 실패 등) — 최신이라고
+                          // 단정하지 않는다. 예전에는 0.1.7 이상이면 무조건 '최신'이었다.
+                          <Chip size="small" label="설치됨" variant="outlined" />
                         ) : (
                           <Chip size="small" label="최신" color="success" variant="outlined" />
                         )}

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import {
   CANVAS_TAB_MAX, CHANNEL_NAME_MAX, CHANNEL_TYPE, POST_POLICY, VISIBILITY,
   canManageChannel, canPostTo, channelPostPolicy, channelStats, channelType, channelVisibility,
-  dmTitle, hasLeft, isDm, isGroupDm, isLivePost, isMember, isPrivateChannel, memberDiff,
+  dmTitle, hasLeft, isDm, isGroupDm, isLivePost, isSelfDm, isMember, isPrivateChannel, memberDiff,
   newChannelPayload, newDmPayload, newGroupDmPayload, postVisibilityFor, sortCanvasTabs,
   sortChannels, sortDms, validateChannelName,
 } from './channels.js'
@@ -396,6 +396,18 @@ test('isGroupDm — 참여자가 3명 이상인 DM만 그룹이다', () => {
   assert.equal(isGroupDm(dm2), false, '2인 DM은 그룹이 아니다')
   assert.equal(isGroupDm(dm3), true)
   assert.equal(isGroupDm({ type: 'channel', memberUids: ['a', 'b', 'c'] }), false, 'DM이 아니면 그룹 DM도 아니다')
+})
+
+test('isSelfDm — 참여자가 나 하나뿐인 DM만 나와의 대화다', () => {
+  const self = newDmPayload({ me: { uid: 'u1' }, other: { uid: 'u1' } })
+  const dm2 = newDmPayload({ me: { uid: 'u1' }, other: { uid: 'u2' } })
+  const group = newGroupDmPayload({ me: { uid: 'u1' }, others: [{ uid: 'u2' }, { uid: 'u3' }] })
+  assert.equal(isSelfDm(self), true)
+  assert.equal(isSelfDm({ type: 'dm', memberUids: ['u1', 'u1'] }), true, 'dm_{uid}_{uid}처럼 같은 uid가 두 번 있어도 나와의 대화')
+  assert.equal(isSelfDm(dm2), false, '상대가 있는 DM')
+  assert.equal(isSelfDm(group), false)
+  assert.equal(isSelfDm({ type: 'channel', memberUids: ['u1'] }), false, '혼자 있는 채널은 DM이 아니다')
+  assert.equal(isSelfDm(null), false)
 })
 
 test('그룹 DM 제목 — 상대가 여럿이면 이어붙이고, 많으면 줄인다', () => {

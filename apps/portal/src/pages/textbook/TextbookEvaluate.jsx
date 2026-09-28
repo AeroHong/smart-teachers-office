@@ -118,6 +118,7 @@ export default function TextbookEvaluate() {
         initialByCandidate={myScore?.byCandidate}
         initialOpinion={myScore?.opinion}
         canEdit={canEdit}
+        isSubmitted={!!myScore?.submittedAt}
         saving={saving}
         onSave={handleSave}
         onPrint={myScore ? handlePrint : undefined}

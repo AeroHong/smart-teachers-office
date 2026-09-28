@@ -97,6 +97,9 @@ async function applyCalendarSync(col, rawEvents, { source, type }) {
       await col.add({
         title, type, date: dates.date, endDate: dates.endDate,
         source, googleEventId: ev.id,
+        // 공개 범위 — 공휴일·학교 공유 캘린더는 교직원 전체가 본다. 이 필드가 없으면
+        // 보안 규칙이 읽기를 막는다(firestore.rules academicCalendar, 2026-09-21).
+        audience: 'all',
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       })
       created++

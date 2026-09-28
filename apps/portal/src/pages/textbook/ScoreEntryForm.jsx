@@ -12,7 +12,7 @@ import TableBody from '@mui/material/TableBody'
 import TableRow from '@mui/material/TableRow'
 import TableCell from '@mui/material/TableCell'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
-import { distributeScore, sumCriteria, rubricMax } from '@shared/lib/textbookAdoption'
+import { distributeScore, sumCriteria, rubricMax, OPINION_EXAMPLES } from '@shared/lib/textbookAdoption'
 import TextbookSection, { ACCENT, ACCENT_BG } from './TextbookSection'
 
 // byCandidate 문서 값 → 화면 편집용 로컬 상태(항목별 점수 맵)로 변환.
@@ -33,7 +33,7 @@ function toEditState(byCandidate, candidates) {
  * 이후 편집 중에는 다시 덮어쓰지 않는다.
  */
 export default function ScoreEntryForm({
-  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint,
+  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint, isSubmitted,
 }) {
   const [mode, setMode] = useState('quick')
   const [edits, setEdits] = useState({})
@@ -75,6 +75,10 @@ export default function ScoreEntryForm({
 
   const handleSave = (submit) => onSave(buildByCandidate(), opinion, submit)
 
+  const appendOpinionPhrase = (phrase) => {
+    setOpinion((prev) => (prev ? `${prev}\nㅇ ${phrase}` : `ㅇ ${phrase}`))
+  }
+
   return (
     <Box>
       <TextbookSection
@@ -97,9 +101,16 @@ export default function ScoreEntryForm({
         <Table size="small">
           <TableHead sx={{ '& th': { bgcolor: '#f8fafc', color: '#475569', fontWeight: 700, fontSize: '0.74rem', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' } }}>
             <TableRow>
-              <TableCell>출판사 / 저자</TableCell>
+              <TableCell>출판사 / 저자 / 가격</TableCell>
               {mode === 'detail'
-                ? rubric.map((r) => <TableCell key={r.name} align="center">{r.name}<br />({r.maxScore}점)</TableCell>)
+                ? rubric.map((r) => (
+                  <TableCell key={r.name} align="center" sx={{ whiteSpace: 'normal', minWidth: 130 }}>
+                    <Box sx={{ fontWeight: 700 }}>{r.name} ({r.maxScore}점)</Box>
+                    {r.criteria && (
+                      <Box sx={{ mt: 0.25, fontWeight: 400, fontSize: '0.68rem', color: '#94a3b8', whiteSpace: 'pre-line' }}>{r.criteria}</Box>
+                    )}
+                  </TableCell>
+                ))
                 : <TableCell align="center">총점 (~{maxSum}점)</TableCell>}
               <TableCell align="center">합계</TableCell>
             </TableRow>
@@ -110,6 +121,7 @@ export default function ScoreEntryForm({
                 <TableCell>
                   <Typography sx={{ fontWeight: 700, fontSize: '0.86rem', color: '#1e293b' }}>{c.publisher}</Typography>
                   {c.author && <Typography sx={{ fontSize: '0.76rem', color: '#94a3b8' }}>{c.author}</Typography>}
+                  {c.price && <Typography sx={{ fontSize: '0.76rem', color: '#94a3b8' }}>{c.price}원</Typography>}
                 </TableCell>
                 {mode === 'detail' ? (
                   rubric.map((r) => (
@@ -148,6 +160,18 @@ export default function ScoreEntryForm({
           value={opinion}
           onChange={(e) => setOpinion(e.target.value)}
         />
+        {canEdit && (
+          <Box sx={{ mt: 1.5 }}>
+            <Typography sx={{ fontSize: '0.76rem', color: '#94a3b8', mb: 0.75 }}>
+              참고(선정 매뉴얼 예시 문구) — 클릭하면 의견란에 추가됩니다
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {OPINION_EXAMPLES.map((phrase) => (
+                <Chip key={phrase} size="small" label={phrase} onClick={() => appendOpinionPhrase(phrase)} sx={{ cursor: 'pointer' }} />
+              ))}
+            </Box>
+          </Box>
+        )}
       </TextbookSection>
 
       <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2.5 }}>
@@ -164,12 +188,22 @@ export default function ScoreEntryForm({
             <Button variant="outlined" disabled={saving} onClick={() => handleSave(false)} sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700 }}>
               임시저장
             </Button>
-            <Button
-              variant="contained" disabled={saving} onClick={() => handleSave(true)}
-              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
-            >
-              제출 확정
-            </Button>
+            {isSubmitted ? (
+              <Button
+                variant="outlined" color="warning" disabled={saving}
+                onClick={() => { if (window.confirm('제출을 취소할까요? 취소하면 다시 제출하기 전까지 미제출 상태로 표시됩니다.')) handleSave(false) }}
+                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700 }}
+              >
+                제출 취소
+              </Button>
+            ) : (
+              <Button
+                variant="contained" disabled={saving} onClick={() => handleSave(true)}
+                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
+              >
+                제출 확정
+              </Button>
+            )}
           </>
         )}
       </Box>

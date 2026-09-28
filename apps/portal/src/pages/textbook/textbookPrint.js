@@ -44,11 +44,11 @@ export function buildScoreSheetHtml(adoption, score) {
   const rubric = adoption.rubric || []
   const maxSum = rubric.reduce((s, r) => s + (Number(r.maxScore) || 0), 0)
 
-  const headerRow = `<tr><th class="left">평가영역</th>${candidates.map((c) => `<th>${candidateLabel(c)}</th>`).join('')}</tr>`
-  const bodyRows = rubric.map((r) => `<tr><td class="left">${esc(r.name)} (${r.maxScore}점)</td>${
+  const headerRow = `<tr><th class="left">평가영역</th><th class="left">평가기준</th><th>배점</th>${candidates.map((c) => `<th>${candidateLabel(c)}</th>`).join('')}</tr>`
+  const bodyRows = rubric.map((r) => `<tr><td class="left">${esc(r.name)}</td><td class="left" style="font-size:8.5pt">${esc(r.criteria || '').replace(/\n/g, '<br>')}</td><td>${r.maxScore}</td>${
     candidates.map((c) => `<td>${score?.byCandidate?.[c.id]?.byCriterion?.[r.name] ?? ''}</td>`).join('')
   }</tr>`).join('')
-  const totalRow = `<tr><th class="left">합계 (${maxSum}점)</th>${
+  const totalRow = `<tr><th class="left" colspan="3">합계 (${maxSum}점)</th>${
     candidates.map((c) => `<th>${score?.byCandidate?.[c.id]?.total ?? ''}</th>`).join('')
   }</tr>`
 

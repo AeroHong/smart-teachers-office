@@ -257,6 +257,17 @@ export function isGroupDm(channel) {
 }
 
 /**
+ * '나와의 대화'인가 — 참여자가 나 하나뿐인 DM. 문서 ID가 dm_{uid}_{uid}라 memberUids에
+ * 같은 uid가 두 번 들어 있을 수 있어 중복을 빼고 센다.
+ *
+ * 개인 할 일 목록으로 쓰는 곳이라(2026-09-18) 캔버스 편집기가 '요청/안내' 대신 '할 일'
+ * 토글과 그 자리 완료 체크를 보여주는 기준이 된다(PostComposer.jsx).
+ */
+export function isSelfDm(channel) {
+  return isDm(channel) && new Set(channel?.memberUids || []).size === 1
+}
+
+/**
  * DM을 목록에 뭐라고 적을 것인가 — 상대의 이름.
  *
  * 이름이 없는 채널이라 name 필드를 그대로 쓰면 빈 줄이 된다. 나 자신과의 DM(메모 용도로

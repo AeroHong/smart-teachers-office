@@ -49,6 +49,14 @@ const TOOLS = [
     color: '#dc2626',
     bgColor: '#fef2f2',
   },
+  {
+    icon: '✉️',
+    title: '이메일 발송',
+    description: '학생 전체 또는 개별 대상에게 서식 있는 이메일을 발송합니다. 보낸 사람은 로그인한 계정 그대로 나갑니다.',
+    path: '/emails',
+    color: '#7c3aed',
+    bgColor: '#f3e8ff',
+  },
 ]
 
 export default function ToolsHome() {

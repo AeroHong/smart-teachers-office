@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { addDoc, collection, doc, deleteDoc, getDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, doc, deleteDoc, getDoc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -68,9 +68,13 @@ export default function AdminAcademicCalendar() {
 
   useEffect(() => {
     if (!schoolId) return
-    return onSnapshot(collection(db, ...schoolPath(schoolId, COL.ACADEMIC_CALENDAR)), snap => {
-      setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    })
+    // 전체가 보는 일정만 가져온다. 규칙이 "audience로 좁힌 질의"만 허용하기 때문이다
+    // (firestore.rules academicCalendar, 2026-09-21). 대상자만 보는 항목(업무 마감
+    // 자동 반영)은 이 화면에서 고칠 것이 아니라 원래 캔버스에서 바뀐다.
+    return onSnapshot(
+      query(collection(db, ...schoolPath(schoolId, COL.ACADEMIC_CALENDAR)), where('audience', '==', 'all')),
+      snap => setItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    )
   }, [schoolId])
 
   useEffect(() => {
@@ -142,6 +146,9 @@ export default function AdminAcademicCalendar() {
         // 관리자가 직접 쓰는 일정은 늘 manual — 동기화(academicCalendarSync.js)는
         // source=='googleCalendar' 문서만 건드리므로 이 값이 그 대상에서 지켜준다.
         source: 'manual',
+        // 공개 범위 — 관리자가 쓰는 학사일정은 교직원 전체가 본다. 모든 문서가 이 필드를
+        // 갖고 있어야 보안 규칙이 목록 조회를 허용한다(firestore.rules, 2026-09-21).
+        audience: 'all',
       }
       if (editingId) {
         await updateDoc(doc(db, ...schoolPath(schoolId, COL.ACADEMIC_CALENDAR), editingId), {
