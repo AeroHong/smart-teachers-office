@@ -109,7 +109,7 @@ export default function StudentCheckin() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
 
-  const { user, role, studentId, loading: authLoading, domainError } = useAuth()
+  const { user, role, studentId, loading: authLoading } = useAuth()
   const navigate = useNavigate()
 
   const [state, setState] = useState(STATE.LOADING)
@@ -341,6 +341,7 @@ export default function StudentCheckin() {
         <h2 style={styles.eventTitle}>{eventTitle}</h2>
         {event?.location && <p style={styles.eventMeta}>📍 {event.location}</p>}
         {event?.targetGroup && <p style={styles.eventMeta}>👥 {event.targetGroup}</p>}
+        {user?.email && <p style={styles.accountLine}>👤 {user.email}</p>}
 
         <div style={styles.body}>
           {(state === STATE.LOADING || state === STATE.CHECKING) && (
@@ -366,26 +367,30 @@ export default function StudentCheckin() {
           )}
           {state === STATE.LOGIN_REQUIRED && (
             <>
-              {domainError && (
-                <div style={styles.domainErrorBox}>
-                  ⚠️ 개인 Google 계정으로 로그인되어 있습니다.<br />
-                  <strong>@seonyoo.hs.kr</strong> 학교 계정으로 로그인해주세요.
-                </div>
-              )}
               <StatusScreen icon="🔐" message={'학교 Google 계정으로\n로그인하면 자동으로 출석됩니다.'} />
               <button onClick={handleLogin} style={styles.googleBtn}>
                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width={20} height={20} alt="" />
-                {domainError ? '다른 계정으로 로그인' : 'Google 계정으로 출석하기'}
+                Google 계정으로 출석하기
               </button>
             </>
           )}
           {state === STATE.INVALID && <StatusScreen icon="❌" title="유효하지 않은 QR" message="올바른 출석 QR 코드를 사용해 주세요." />}
           {state === STATE.QR_INACTIVE && <StatusScreen icon="⏸" title="출석 대기 중" message="선생님이 출석을 시작하면\nQR 코드가 활성화됩니다." />}
           {state === STATE.LATE_CUTOFF && <StatusScreen icon="⏰" title="QR 출석 마감" message={'수업 시간 1/3 이상 경과로\nQR 체크인이 마감되었습니다.\n\n출석이 필요하다면\n선생님께 말씀해주세요.'} />}
-          {state === STATE.TEACHER && <StatusScreen icon="👨‍🏫" title="교사 계정" message="교사 계정으로는 출석할 수 없습니다." />}
+          {state === STATE.TEACHER && (
+            <>
+              <StatusScreen icon="👨‍🏫" title="교사 계정" message="교사 계정으로는 출석할 수 없습니다." />
+              <AccountSwitchBox email={user?.email} onSwitch={handleLogin} />
+            </>
+          )}
           {state === STATE.NOT_STARTED && <StatusScreen icon="🕐" title="출석 시작 전" message="아직 출석 시간이 아닙니다." />}
           {state === STATE.ENDED && <StatusScreen icon="🔒" title="출석 마감" message="출석 시간이 종료되었습니다." />}
-          {state === STATE.NOT_IN_LIST && <StatusScreen icon="🔍" title="명단에 없는 학생" message="시간표를 확인하세요.\n출결 명단에 없습니다." />}
+          {state === STATE.NOT_IN_LIST && (
+            <>
+              <StatusScreen icon="🔍" title="명단에 없는 학생" message="시간표를 확인하세요.\n출결 명단에 없습니다." />
+              <AccountSwitchBox email={user?.email} onSwitch={handleLogin} />
+            </>
+          )}
           {state === STATE.ALREADY && (
             <StatusScreen icon="✅" title="이미 출석 완료"
               message={`${studentInfo?.name}\n(${studentInfo?.grade}학년 ${studentInfo?.class}반 ${studentInfo?.number}번)\n이미 출석이 확인되었습니다.`} />
@@ -433,6 +438,25 @@ export default function StudentCheckin() {
         )}
       </div>
     </div>
+  )
+}
+
+// 명단에 없거나 교사 계정으로 잡힌 경우 실제로는 대부분 "학생 폰이 개인 구글
+// 계정으로 이미 로그인돼 있던" 상황이라, 지금 로그인된 계정을 보여주고 바로
+// 학교 계정으로 바꿀 수 있게 한다(사용자 요청, 2026-09-28).
+function AccountSwitchBox({ email, onSwitch }) {
+  if (!email) return null
+  return (
+    <>
+      <div style={styles.domainErrorBox}>
+        현재 <strong>{email}</strong> 계정으로 로그인되어 있습니다.<br />
+        개인 계정이거나 다른 학교 계정이라면 학교 계정으로 다시 로그인해주세요.
+      </div>
+      <button onClick={onSwitch} style={styles.googleBtn}>
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width={20} height={20} alt="" />
+        다른 계정으로 로그인
+      </button>
+    </>
   )
 }
 
@@ -498,6 +522,7 @@ const styles = {
   schoolLabel: { fontSize: '0.8rem', color: '#888', margin: '0 0 0.25rem' },
   eventTitle: { fontSize: '1.3rem', fontWeight: 700, color: '#1a73e8', margin: '0 0 0.4rem' },
   eventMeta: { fontSize: '0.82rem', color: '#666', margin: '0.1rem 0' },
+  accountLine: { fontSize: '0.78rem', color: '#999', margin: '0.4rem 0 0' },
   body: { marginTop: '1.5rem' },
   statusBox: { padding: '0.5rem 0' },
   icon: { fontSize: '3rem', marginBottom: '0.75rem' },
