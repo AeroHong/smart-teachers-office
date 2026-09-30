@@ -12,6 +12,7 @@ import TableBody from '@mui/material/TableBody'
 import TableRow from '@mui/material/TableRow'
 import TableCell from '@mui/material/TableCell'
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { distributeScore, sumCriteria, rubricMax, OPINION_EXAMPLES } from '@shared/lib/textbookAdoption'
 import TextbookSection, { ACCENT, ACCENT_BG } from './TextbookSection'
 
@@ -33,12 +34,13 @@ function toEditState(byCandidate, candidates) {
  * 이후 편집 중에는 다시 덮어쓰지 않는다.
  */
 export default function ScoreEntryForm({
-  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint, isSubmitted,
+  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint, onPdf, isSubmitted,
 }) {
   const [mode, setMode] = useState('quick')
   const [edits, setEdits] = useState({})
   const [opinion, setOpinion] = useState('')
   const [initialized, setInitialized] = useState(false)
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   const candidates = adoption?.candidates || []
   const rubric = adoption?.rubric || []
@@ -181,6 +183,18 @@ export default function ScoreEntryForm({
             sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#e2e8f0', color: '#475569' }}
           >
             평가표 인쇄
+          </Button>
+        )}
+        {onPdf && (
+          <Button
+            variant="outlined" startIcon={<PictureAsPdfOutlinedIcon />} disabled={pdfBusy}
+            onClick={async () => {
+              setPdfBusy(true)
+              try { await onPdf(buildByCandidate(), opinion) } catch (e) { alert(`PDF 생성 실패: ${e.message}`) } finally { setPdfBusy(false) }
+            }}
+            sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#e2e8f0', color: '#475569' }}
+          >
+            {pdfBusy ? 'PDF 만드는 중...' : '평가표 PDF'}
           </Button>
         )}
         {canEdit && (

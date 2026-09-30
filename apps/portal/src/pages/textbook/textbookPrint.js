@@ -1,41 +1,97 @@
-// 검·인정도서 선정 — 서식1/2/3 인쇄용 HTML 빌더.
+// 검·인정도서 선정 — 서식1/2/3 출력물(인쇄·PDF·미리보기) HTML 빌더.
 //
-// apps/portal/src/pages/tools/asaChecklistPrint.js와 같은 패턴: HTML 문자열을 만들어 새 창에
-// document.write()로 그린 뒤 자동으로 window.print()를 띄운다. 여러 건은 <section
-// style="page-break-after:always">로 이어붙여 창 하나로 일괄 인쇄한다.
+// 서식마다 "A4 한 장"을 뜻하는 <div class="sheet">를 만들고, 같은 HTML을 세 곳에서 쓴다.
+//   - 인쇄: 새 창에 그려 window.print() (여러 장은 sheet를 이어붙여 창 하나로)
+//   - PDF: 화면 밖 iframe에 그려 sheet마다 html2canvas로 떠서 jsPDF 한 페이지씩
+//   - 미리보기: TextbookFormsPanel이 iframe srcDoc으로 그대로 보여줌
+// 그래서 인쇄물·PDF·화면 미리보기가 항상 같은 모양이다.
+//
+// 디자인 원칙(2026-10-01): 흑백·회색조만 쓴다(흑백 복사·인쇄에서도 그대로 보이게). 양식
+// 내용(항목·열 구성·문구)은 교육부 매뉴얼 서식 그대로 두고 조판만 다듬었다. 서명은 모두
+// 출력물에 직접 받으므로 서명란은 빈 칸 + (인)으로만 둔다.
+import { jsPDF } from 'jspdf'
+import html2canvas from 'html2canvas'
 
-const PRINT_STYLES = `
+const FORM_STYLES = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: '맑은 고딕', 'Malgun Gothic', sans-serif; font-size: 10pt; padding: 10mm 12mm; color: #111; }
-  h1 { text-align: center; font-size: 15pt; font-weight: bold; margin-bottom: 14px; }
-  .meta-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 10.5pt; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  td, th { border: 1px solid #333; padding: 5px 6px; vertical-align: middle; text-align: center; }
-  th { background: #f0f0f0; font-weight: bold; }
-  .left { text-align: left; }
-  .opinion-box { border: 1px solid #333; min-height: 60px; padding: 8px; margin-bottom: 14px; white-space: pre-wrap; }
-  .sign-row { display: flex; justify-content: flex-end; gap: 40px; margin-top: 18px; font-size: 10.5pt; }
-  .sign-cell { text-align: center; min-width: 160px; }
-  .sign-img { max-height: 44px; max-width: 120px; display: block; margin: 4px auto; }
-  .sign-blank { height: 44px; border-bottom: 1px solid #888; margin: 4px 0; }
+  html, body { background: #fff; }
+  body {
+    font-family: 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif;
+    color: #000; font-size: 10pt; line-height: 1.45; word-break: keep-all;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .sheet { background: #fff; padding: 13mm 15mm 12mm; position: relative; }
+  .sheet.landscape { width: 297mm; min-height: 210mm; page: landscape; }
+  .sheet.portrait { width: 210mm; min-height: 297mm; page: portrait; }
+
+  .form-no { font-size: 9pt; font-weight: 700; letter-spacing: 0.04em; margin-bottom: 3mm; }
+  .form-no span { display: inline-block; border: 1px solid #000; padding: 1px 7px; }
+  h1 {
+    text-align: center; font-size: 17pt; font-weight: 800; letter-spacing: 0.06em;
+    padding-bottom: 3mm; margin-bottom: 4.5mm; border-bottom: 3px double #000;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  .grid { border: 1.5px solid #000; }
+  .grid th, .grid td { border: 0.75px solid #6b6b6b; padding: 5px 7px; vertical-align: middle; text-align: center; }
+  .grid thead th { background: #e4e4e4; font-weight: 700; border-bottom: 1.2px solid #000; }
+  .grid tbody th { background: #f3f3f3; font-weight: 700; }
+  .grid tr.total th, .grid tr.total td { background: #e4e4e4; font-weight: 800; border-top: 1.2px solid #000; }
+  .grid .left { text-align: left; }
+  .num { font-variant-numeric: tabular-nums; }
+  .sub { display: block; font-size: 8pt; font-weight: 400; color: #444; margin-top: 1px; }
+  .criteria { font-size: 8.3pt; color: #222; line-height: 1.4; }
+
+  .info { border: 1.5px solid #000; margin-bottom: 5mm; }
+  .info th, .info td { border: 0.75px solid #6b6b6b; padding: 6px 9px; text-align: left; }
+  .info th { background: #e4e4e4; width: 24mm; text-align: center; font-weight: 700; }
+  .info td { font-weight: 600; }
+
+  .label { font-weight: 700; margin: 5mm 0 2mm; padding-left: 7px; border-left: 3px solid #000; }
+  .opinion-box { border: 1.5px solid #000; min-height: 26mm; padding: 9px 11px; white-space: pre-wrap; }
+
+  .sign { display: flex; justify-content: flex-end; margin-top: 7mm; }
+  .sign table { width: auto; border: 1.5px solid #000; }
+  .sign th, .sign td { border: 0.75px solid #6b6b6b; text-align: center; }
+  .sign th { background: #e4e4e4; font-weight: 700; font-size: 9pt; padding: 4px 10px; min-width: 42mm; }
+  .sign td { height: 15mm; padding: 0 10px; font-size: 10.5pt; font-weight: 600; }
+  .sign .seal { color: #8a8a8a; font-weight: 400; margin-left: 10px; }
+  /* 서식1은 표가 길어 종합의견과 서명란을 한 줄에 나란히 둬서 가로 A4 한 장에 맞춘다 */
+  .opinion-row { display: flex; gap: 6mm; align-items: flex-end; }
+  .opinion-row .opinion-col { flex: 1; }
+  .opinion-row .opinion-box { min-height: 22mm; }
+  .opinion-row .sign { margin-top: 0; }
+
+  @page landscape { size: A4 landscape; margin: 0; }
+  @page portrait { size: A4 portrait; margin: 0; }
+  @page { margin: 0; }
   @media print {
-    @page { size: A4 landscape; margin: 10mm 12mm; }
-    body { padding: 0; }
+    .sheet { break-after: page; }
+    .sheet:last-child { break-after: auto; }
+  }
+  @media screen {
+    body.preview { background: #d4d4d4; padding: 16px; }
+    body.preview .sheet { margin: 0 auto 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
   }
 `
 
 function esc(v) {
-  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function fmtDate(ts) {
-  if (!ts) return ''
-  const d = ts.toDate ? ts.toDate() : new Date(ts)
-  return d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+function fmtPrice(price) {
+  if (!price) return ''
+  const s = String(price).trim().replace(/원$/, '')
+  const n = Number(s.replace(/,/g, ''))
+  return `${Number.isFinite(n) && s !== '' ? n.toLocaleString('ko-KR') : s}원`
 }
 
-function candidateLabel(c) {
-  return c.price ? `${esc(c.publisher)}(${esc(c.price)})` : esc(c.publisher)
+function signTable(signers) {
+  return `
+<div class="sign"><table>
+  <tr>${signers.map((s) => `<th>${esc(s.role)}</th>`).join('')}</tr>
+  <tr>${signers.map((s) => `<td>${esc(s.name || '')}<span class="seal">(인)</span></td>`).join('')}</tr>
+</table></div>`
 }
 
 /** 서식1 — 위원 개인 평가표. score: scores/{uid} 문서 데이터(byCandidate, opinion, teacherName). */
@@ -44,144 +100,200 @@ export function buildScoreSheetHtml(adoption, score) {
   const rubric = adoption.rubric || []
   const maxSum = rubric.reduce((s, r) => s + (Number(r.maxScore) || 0), 0)
 
-  const headerRow = `<tr><th class="left">평가영역</th><th class="left">평가기준</th><th>배점</th>${candidates.map((c) => `<th>${candidateLabel(c)}</th>`).join('')}</tr>`
-  const bodyRows = rubric.map((r) => `<tr><td class="left">${esc(r.name)}</td><td class="left" style="font-size:8.5pt">${esc(r.criteria || '').replace(/\n/g, '<br>')}</td><td>${r.maxScore}</td>${
-    candidates.map((c) => `<td>${score?.byCandidate?.[c.id]?.byCriterion?.[r.name] ?? ''}</td>`).join('')
-  }</tr>`).join('')
-  const totalRow = `<tr><th class="left" colspan="3">합계 (${maxSum}점)</th>${
-    candidates.map((c) => `<th>${score?.byCandidate?.[c.id]?.total ?? ''}</th>`).join('')
-  }</tr>`
+  const head = `<tr>
+    <th style="width:30mm">평가영역</th><th>평가기준</th><th style="width:13mm">배점</th>
+    ${candidates.map((c) => `<th style="width:${Math.max(16, Math.min(28, 150 / Math.max(candidates.length, 1)))}mm">${esc(c.publisher)}${c.price ? `<span class="sub num">${esc(fmtPrice(c.price))}</span>` : ''}</th>`).join('')}
+  </tr>`
+  const body = rubric.map((r) => `<tr>
+    <th>${esc(r.name)}</th>
+    <td class="left criteria">${esc(r.criteria || '').replace(/\n/g, '<br>')}</td>
+    <td class="num">${r.maxScore}</td>
+    ${candidates.map((c) => `<td class="num">${score?.byCandidate?.[c.id]?.byCriterion?.[r.name] ?? ''}</td>`).join('')}
+  </tr>`).join('')
+  const total = `<tr class="total">
+    <th colspan="2">합 계</th><td class="num">${maxSum}</td>
+    ${candidates.map((c) => `<td class="num">${score?.byCandidate?.[c.id]?.total ?? ''}</td>`).join('')}
+  </tr>`
 
   return `
-<h1>【서식1】 검·인정도서 선정기준 평가표</h1>
-<div class="meta-row">
-  <span>과목: <strong>${esc(adoption.subjectName)}</strong></span>
-  <span>위원: <strong>${esc(score?.teacherName || '')}</strong> (인)</span>
-</div>
-<table>${headerRow}${bodyRows}${totalRow}</table>
-<div class="left" style="margin-bottom:4px;font-weight:bold">&lt;종합의견 및 추천의견&gt;</div>
-<div class="opinion-box">${esc(score?.opinion || '')}</div>
-`
+<div class="sheet landscape">
+  <div class="form-no"><span>서식 1</span></div>
+  <h1>검·인정도서 선정기준 평가표</h1>
+  <table class="info"><tr>
+    <th>과 목</th><td>${esc(adoption.subjectName)}</td>
+    <th>평가위원</th><td>${esc(score?.teacherName || '')}</td>
+  </tr></table>
+  <table class="grid"><thead>${head}</thead><tbody>${body}${total}</tbody></table>
+  <div class="opinion-row">
+    <div class="opinion-col">
+      <div class="label">종합의견 및 추천의견</div>
+      <div class="opinion-box">${esc(score?.opinion || '')}</div>
+    </div>
+    ${signTable([{ role: '평가위원', name: score?.teacherName }])}
+  </div>
+</div>`
 }
 
 /**
- * 서식2 — 평가 총괄표. scores: 그 건에 제출된(submittedAt 있는) 위원 점수 배열(익명, 순서만
- * 부여) — canManage(관리자/과목대표교사/교과부장)만 호출 가능한 데이터라 여기서도 그 앞단에서
- * 이미 걸러 넘겨받는다. deptHeadName: 실시간 조회한 교과부장 이름(확인자).
+ * 서식2 — 평가 총괄표. scores: 그 건의 위원 점수 배열(제출분만 쓰고 익명 번호만 부여) —
+ * canManage(관리자/과목대표교사/교과부장)만 받을 수 있는 데이터다. deptHeadName: 확인자(교과부장).
  */
 export function buildSummaryHtml(adoption, scores, deptHeadName) {
   const candidates = adoption.candidates || []
   const submitted = (scores || []).filter((s) => s.submittedAt)
   const aggregate = adoption.aggregate || {}
+  const memberCount = Math.max(submitted.length, 1)
 
-  const memberHeaders = submitted.map((_, i) => `<th>위원${i + 1}</th>`).join('')
-  const rows = candidates.map((c) => {
+  const head = `
+  <tr>
+    <th rowspan="2">출판사명</th><th rowspan="2" style="width:22mm">가격</th>
+    <th colspan="${memberCount}">위원별 점수</th>
+    <th rowspan="2" style="width:18mm">총점</th><th rowspan="2" style="width:18mm">평균</th><th rowspan="2" style="width:18mm">비고</th>
+  </tr>
+  <tr>${submitted.length ? submitted.map((_, i) => `<th style="width:16mm">위원${i + 1}</th>`).join('') : '<th></th>'}</tr>`
+  const body = candidates.map((c) => {
     const agg = aggregate[c.id] || {}
-    const memberCells = submitted.map((s) => `<td>${s.byCandidate?.[c.id]?.total ?? ''}</td>`).join('')
+    const cells = submitted.length
+      ? submitted.map((s) => `<td class="num">${s.byCandidate?.[c.id]?.total ?? ''}</td>`).join('')
+      : '<td></td>'
     return `<tr>
-      <td class="left">${esc(c.publisher)}${c.author ? `<br><span style="font-size:8.5pt;color:#555">${esc(c.author)}</span>` : ''}</td>
-      <td>${esc(c.price || '')}</td>
-      ${memberCells}
-      <td>${agg.total ?? ''}</td>
-      <td>${agg.average ?? ''}</td>
-      <td>${agg.rank === 1 ? '1순위' : ''}</td>
+      <th class="left">${esc(c.publisher)}${c.author ? `<span class="sub">${esc(c.author)}</span>` : ''}</th>
+      <td class="num">${esc(fmtPrice(c.price))}</td>
+      ${cells}
+      <td class="num"><strong>${agg.total ?? ''}</strong></td>
+      <td class="num">${agg.average ?? ''}</td>
+      <td>${agg.rank === 1 ? '<strong>1순위</strong>' : ''}</td>
     </tr>`
   }).join('')
 
   const signoff = adoption.summarySignoff || {}
-
   return `
-<h1>【서식2】 검·인정도서 선정기준 평가 총괄표</h1>
-<div class="meta-row"><span>과목: <strong>${esc(adoption.subjectName)}</strong></span></div>
-<table>
-  <tr><th class="left">출판사명</th><th>가격</th><th colspan="${submitted.length || 1}">위 원 별 점 수</th><th>총점</th><th>평균</th><th>비고</th></tr>
-  <tr><th class="left"></th><th></th>${memberHeaders || '<th></th>'}<th></th><th></th><th></th></tr>
-  ${rows}
-</table>
-<div class="sign-row">
-  <div class="sign-cell">작성자(위원): ${esc(signoff.preparedByName || '')} (인)</div>
-  <div class="sign-cell">확인자(교과부장): ${esc(deptHeadName || '')} (인)</div>
-</div>
-`
+<div class="sheet landscape">
+  <div class="form-no"><span>서식 2</span></div>
+  <h1>검·인정도서 선정기준 평가 총괄표</h1>
+  <table class="info"><tr><th>과 목</th><td>${esc(adoption.subjectName)}</td></tr></table>
+  <table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table>
+  ${signTable([
+    { role: '작성자 (위원)', name: signoff.preparedByName },
+    { role: '확인자 (교과부장)', name: deptHeadName },
+  ])}
+</div>`
 }
 
-/** 서식3 — 추천 검·인정도서 및 추천 의견서. deptHeadName: 작성자(교과부장, 실시간 조회). */
-export function buildRecommendationHtml(adoption, deptHeadName) {
+/**
+ * 서식3 — 추천 검·인정도서 및 추천 의견서. deptHeadName: 작성자(교과부장),
+ * principalName: 확인자(교감) — 시스템에 등록된 교감 이름을 표시만 한다(서명은 출력물에 직접).
+ */
+export function buildRecommendationHtml(adoption, deptHeadName, principalName) {
   const candidateById = Object.fromEntries((adoption.candidates || []).map((c) => [c.id, c]))
   const rec = adoption.recommendation || { opinions: [] }
-  const rows = rec.opinions.map((o) => {
+  const body = (rec.opinions || []).map((o) => {
     const c = candidateById[o.candidateId] || {}
     return `<tr>
-      <td>${o.rank}</td>
-      <td class="left">${esc(c.publisher)}${c.author ? ` (${esc(c.author)})` : ''}</td>
-      <td>${esc(c.price || '')}</td>
-      <td class="left">${esc(o.text || '')}</td>
+      <th class="num">${o.rank}</th>
+      <td class="left"><strong>${esc(c.publisher)}</strong>${c.author ? `<span class="sub">${esc(c.author)}</span>` : ''}</td>
+      <td class="num">${esc(fmtPrice(c.price))}</td>
+      <td class="left" style="white-space:pre-wrap;height:34mm;vertical-align:top">${esc(o.text || '')}</td>
     </tr>`
   }).join('')
 
-  const confirmedCell = rec.confirmedAt
-    ? `<img class="sign-img" src="${rec.confirmedSignature?.dataUrl || ''}"><div>${esc(rec.confirmedByName)} · ${fmtDate(rec.confirmedAt)}</div>`
-    : `<div class="sign-blank"></div><div style="color:#999">(미확인)</div>`
-
   return `
-<h1>【서식3】 추천 검·인정도서 및 추천 의견서</h1>
-<div class="meta-row"><span>과목: <strong>${esc(adoption.subjectName)}</strong></span></div>
-<table>
-  <tr><th>순위</th><th class="left">출판사명</th><th>가격</th><th class="left">추천 의견</th></tr>
-  ${rows}
-</table>
-<div class="sign-row">
-  <div class="sign-cell">교과협의회 작성자(교과부장): ${esc(deptHeadName || '')} (인)</div>
-  <div class="sign-cell">확인자(교감): ${confirmedCell}</div>
-</div>
-`
+<div class="sheet portrait">
+  <div class="form-no"><span>서식 3</span></div>
+  <h1>추천 검·인정도서 및 추천 의견서</h1>
+  <table class="info"><tr><th>과 목</th><td>${esc(adoption.subjectName)}</td></tr></table>
+  <table class="grid">
+    <thead><tr><th style="width:13mm">순위</th><th style="width:40mm">출판사명</th><th style="width:22mm">가격</th><th>추천 의견</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table>
+  ${signTable([
+    { role: '교과협의회 작성자 (교과부장)', name: deptHeadName },
+    { role: '확인자 (교감)', name: principalName },
+  ])}
+</div>`
 }
 
-function wrapPrintDocument(title, bodyHtml) {
+/** sheet HTML들을 완전한 문서로 감싼다. mode: 'print'(자동 인쇄) | 'preview'(회색 배경 위 종이) | 'plain' */
+export function wrapFormsDocument(title, sheetsHtml, mode = 'plain') {
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <title>${esc(title)}</title>
-<style>${PRINT_STYLES}</style>
+<style>${FORM_STYLES}</style>
 </head>
-<body>
-${bodyHtml}
-<script>setTimeout(function(){ window.print(); }, 400);</script>
+<body class="${mode === 'preview' ? 'preview' : ''}">
+${sheetsHtml}
+${mode === 'print' ? '<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 300); };</script>' : ''}
 </body>
 </html>`
 }
 
 // 반환값으로 팝업 차단 여부를 알려준다.
-function openPrintWindow(html) {
-  const w = window.open('', '_blank', 'width=1000,height=750')
+export function printForms(title, sheetsHtml) {
+  const w = window.open('', '_blank', 'width=1100,height=800')
   if (!w) return false
-  w.document.write(html)
+  w.document.write(wrapFormsDocument(title, sheetsHtml, 'print'))
   w.document.close()
   return true
 }
 
-export function openScoreSheetPrint(adoption, score) {
-  return openPrintWindow(wrapPrintDocument(`서식1_${adoption.subjectName}_${score?.teacherName || ''}`, buildScoreSheetHtml(adoption, score)))
-}
-
-export function openSummaryPrint(adoption, scores, deptHeadName) {
-  return openPrintWindow(wrapPrintDocument(`서식2_${adoption.subjectName}`, buildSummaryHtml(adoption, scores, deptHeadName)))
-}
-
-export function openRecommendationPrint(adoption, deptHeadName) {
-  return openPrintWindow(wrapPrintDocument(`서식3_${adoption.subjectName}`, buildRecommendationHtml(adoption, deptHeadName)))
+function safeFileName(name) {
+  return String(name || '서식').replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 100) || '서식'
 }
 
 /**
- * 여러 과목의 서식3을 창 하나에 페이지구분으로 이어붙여 일괄 인쇄한다.
+ * sheet마다 PDF 한 페이지(가로/세로는 sheet 클래스 그대로). 화면 밖 iframe에 그려서
+ * 포털 화면의 CSS가 섞이지 않게 하고, 폰트 로딩이 끝난 뒤 캡처한다. 한 장보다 길게
+ * 넘친 sheet는 잘리지 않도록 페이지 안에 맞춰 축소한다.
+ */
+export async function downloadFormsPdf(fileName, sheetsHtml) {
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:1600px;border:0;visibility:hidden'
+  document.body.appendChild(iframe)
+  try {
+    await new Promise((resolve) => {
+      iframe.onload = resolve
+      iframe.srcdoc = wrapFormsDocument(fileName, sheetsHtml, 'plain')
+    })
+    const doc = iframe.contentDocument
+    if (doc.fonts?.ready) await doc.fonts.ready
+    const sheets = Array.from(doc.querySelectorAll('.sheet'))
+    let pdf = null
+    for (const sheet of sheets) {
+      const landscape = sheet.classList.contains('landscape')
+      const orientation = landscape ? 'landscape' : 'portrait'
+      const [pw, ph] = landscape ? [297, 210] : [210, 297]
+      const canvas = await html2canvas(sheet, { scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false })
+      if (!pdf) pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4', compress: true })
+      else pdf.addPage('a4', orientation)
+      const ratio = canvas.height / canvas.width
+      let w = pw
+      let h = pw * ratio
+      if (h > ph) { h = ph; w = ph / ratio }
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (pw - w) / 2, 0, w, h, undefined, 'FAST')
+    }
+    if (pdf) pdf.save(`${safeFileName(fileName)}.pdf`)
+  } finally {
+    iframe.remove()
+  }
+}
+
+// ── 기존 호출부 호환용 단축 함수 ─────────────────────────────────────────────
+
+export function openScoreSheetPrint(adoption, score) {
+  return printForms(`서식1_${adoption.subjectName}_${score?.teacherName || ''}`, buildScoreSheetHtml(adoption, score))
+}
+
+export function downloadScoreSheetPdf(adoption, score) {
+  return downloadFormsPdf(`서식1_${adoption.subjectName}_${score?.teacherName || ''}`, buildScoreSheetHtml(adoption, score))
+}
+
+/**
+ * 여러 과목의 서식3을 창 하나로 일괄 인쇄한다.
  * @param {Array<{adoption: object, deptHeadName: string}>} items
  */
-export function openBulkRecommendationPrint(items, title = '추천의견서_일괄출력') {
+export function openBulkRecommendationPrint(items, title = '추천의견서_일괄출력', principalName = '') {
   if (!items?.length) return true
-  const sections = items.map(({ adoption, deptHeadName }, idx) => {
-    const isLast = idx === items.length - 1
-    return `<section style="${isLast ? '' : 'page-break-after: always;'}">${buildRecommendationHtml(adoption, deptHeadName)}</section>`
-  }).join('')
-  return openPrintWindow(wrapPrintDocument(title, sections))
+  return printForms(title, items.map(({ adoption, deptHeadName }) => buildRecommendationHtml(adoption, deptHeadName, principalName)).join(''))
 }

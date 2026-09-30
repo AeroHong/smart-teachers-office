@@ -74,9 +74,6 @@ const NAV_SECTIONS = [
     adminItems: [
       { label: '전체 현황', path: '/textbook/all', icon: '◈' },
     ],
-    principalItems: [
-      { label: '교감 확인', path: '/textbook/principal', icon: '◈' },
-    ],
   },
   {
     key: 'training',
@@ -140,7 +137,6 @@ const PAGE_TITLES = {
   '/evalplan/all': '전체 현황',
   '/textbook': '내 선정 건',
   '/textbook/all': '전체 현황',
-  '/textbook/principal': '교감 확인',
   '/setuk': '업로드/최근 점검',
   '/training': '연수 목록',
   '/training/new': '연수 만들기',

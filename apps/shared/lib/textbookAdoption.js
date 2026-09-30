@@ -1,9 +1,9 @@
 import {
   collection, doc, getDoc, getDocs, addDoc, setDoc, deleteDoc, onSnapshot,
-  query, where, serverTimestamp,
+  query, where, serverTimestamp, arrayUnion,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import { COL, schoolPath, sanitizeSubjectGroup } from './schema'
+import { COL, USERS, schoolPath, sanitizeSubjectGroup } from './schema'
 
 // 검·인정도서 선정.
 //
@@ -58,7 +58,16 @@ const scoresCol = (schoolId, adoptionId) => collection(adoptionDoc(schoolId, ado
 const scoreDoc = (schoolId, adoptionId, uid) => doc(adoptionDoc(schoolId, adoptionId), 'scores', uid)
 const deptHeadsCol = (schoolId) => collection(db, ...schoolPath(schoolId, COL.TEXTBOOK_DEPT_HEADS))
 const deptHeadDoc = (schoolId, subjectGroup) => doc(db, ...schoolPath(schoolId, COL.TEXTBOOK_DEPT_HEADS), sanitizeSubjectGroup(subjectGroup))
-const principalSigDoc = (schoolId, uid) => doc(db, ...schoolPath(schoolId, COL.TEXTBOOK_PRINCIPAL_SIGNATURE), uid)
+
+/**
+ * 과목 대표교사는 반드시 그 과목의 위원이기도 하다(2026-10-01 정책 — 대표교사가 채점 없이
+ * 진행만 관리하던 V1.1 방식을 폐기). 위원 명단을 저장하는 모든 경로가 이 함수를 거쳐
+ * 대표교사를 빠뜨리지 않게 한다. firestore.rules도 같은 불변식을 강제한다.
+ */
+export function withHeadInCommittee(committeeUids, subjectHeadUid) {
+  const uids = committeeUids || []
+  return subjectHeadUid && !uids.includes(subjectHeadUid) ? [...uids, subjectHeadUid] : uids
+}
 
 export function rubricMax(rubric) {
   return (rubric || []).reduce((sum, r) => sum + (Number(r.maxScore) || 0), 0)
@@ -160,7 +169,7 @@ export async function createAdoption(schoolId, data, uid) {
     cycleYear: data.cycleYear,
     candidates: data.candidates,
     rubric: data.rubric,
-    committeeUids: data.committeeUids || [],
+    committeeUids: withHeadInCommittee(data.committeeUids, data.subjectHeadUid),
     externalMembers: data.externalMembers || [],
     externalMemberIds: (data.externalMembers || []).map((m) => m.id),
     subjectHeadUid: data.subjectHeadUid || '',
@@ -182,7 +191,7 @@ export async function updateAdoptionSetup(schoolId, adoptionId, data) {
     cycleYear: data.cycleYear,
     candidates: data.candidates,
     rubric: data.rubric,
-    committeeUids: data.committeeUids || [],
+    committeeUids: withHeadInCommittee(data.committeeUids, data.subjectHeadUid),
     externalMembers: data.externalMembers || [],
     externalMemberIds: (data.externalMembers || []).map((m) => m.id),
     subjectHeadUid: data.subjectHeadUid || '',
@@ -202,9 +211,13 @@ export async function deleteAdoption(schoolId, adoptionId) {
  * 나중에 마감할 때 그 점수가 계속 집계에 들어가 버린다. 그래서 명단에서 빠지는 사람의
  * 점수 문서를 함께 지운다(제출 여부와 무관하게 — 초안만 있던 경우도 정리).
  */
-export async function updateCommittee(schoolId, adoptionId, nextCommitteeUids, removedUids) {
-  await Promise.all((removedUids || []).map((uid) => deleteDoc(scoreDoc(schoolId, adoptionId, uid))))
-  await setDoc(adoptionDoc(schoolId, adoptionId), { committeeUids: nextCommitteeUids, updatedAt: serverTimestamp() }, { merge: true })
+export async function updateCommittee(schoolId, adoptionId, nextCommitteeUids, removedUids, subjectHeadUid) {
+  const removed = (removedUids || []).filter((uid) => uid !== subjectHeadUid)
+  await Promise.all(removed.map((uid) => deleteDoc(scoreDoc(schoolId, adoptionId, uid))))
+  await setDoc(adoptionDoc(schoolId, adoptionId), {
+    committeeUids: withHeadInCommittee(nextCommitteeUids, subjectHeadUid),
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
 }
 
 /**
@@ -233,15 +246,37 @@ export function subscribeUnassignedSubjectHeadAdoptions(schoolId, cb, onError) {
  * 대표교사가 비어 있는 선정 건을 아무 교사나 자원해서 맡는다(self-claim). firestore.rules가
  * subjectHeadUid==''인 문서에 한해 request.auth.uid로만 채워 넣도록 강제하므로, 동시에 두
  * 사람이 자원하면 늦게 시도한 쪽은 permission-denied로 실패한다(먼저 쓴 사람이 가져가는
- * 낙관적 동시성 — 보강 신청과 동일한 방식).
+ * 낙관적 동시성 — 보강 신청과 동일한 방식). 대표교사는 위원을 겸하므로 위원 명단에도
+ * 함께 넣는다(rules가 "자기 uid 하나 추가"까지만 허용).
  */
 export async function claimSubjectHead(schoolId, adoptionId, uid) {
-  await setDoc(adoptionDoc(schoolId, adoptionId), { subjectHeadUid: uid, updatedAt: serverTimestamp() }, { merge: true })
+  await setDoc(adoptionDoc(schoolId, adoptionId), {
+    subjectHeadUid: uid, committeeUids: arrayUnion(uid), updatedAt: serverTimestamp(),
+  }, { merge: true })
 }
 
-/** 자원을 취소하고 다시 미지정 상태로 되돌린다. */
+/**
+ * 대표교사가 담당을 해제하면 그 과목을 처음 상태로 되돌린다(2026-10-01 정책): 대표교사와
+ * 함께 위원 전원(내부·외부)도 해제하고, 위원들이 남긴 점수(임시저장·제출 모두)를 지운다 —
+ * 위원 교체 시 빠지는 사람의 점수를 폐기하는 updateCommittee와 같은 원칙. 새 대표교사가
+ * 맡으면 위원을 새로 꾸린다.
+ *
+ * 점수 삭제는 rules상 "그 건의 대표교사"만 할 수 있으므로 반드시 subjectHeadUid를 비우기
+ * **전에** 한다. 마감된 건은 서식이 이미 나갔을 수 있어 해제하지 않는다(다시 채점 열기 먼저).
+ */
 export async function releaseSubjectHead(schoolId, adoptionId) {
-  await setDoc(adoptionDoc(schoolId, adoptionId), { subjectHeadUid: '', updatedAt: serverTimestamp() }, { merge: true })
+  const snap = await getDoc(adoptionDoc(schoolId, adoptionId))
+  if (snap.data()?.status === 'closed') throw new Error('마감된 과목은 해제할 수 없습니다. 상세 화면에서 "다시 채점 열기" 후 해제하세요.')
+  const scores = await getDocs(scoresCol(schoolId, adoptionId))
+  await Promise.all(scores.docs.map((d) => deleteDoc(d.ref)))
+  await setDoc(adoptionDoc(schoolId, adoptionId), {
+    subjectHeadUid: '',
+    committeeUids: [],
+    externalMembers: [],
+    externalMemberIds: [],
+    summarySignoff: null,
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
 }
 
 /**
@@ -332,8 +367,7 @@ export function subscribeScores(schoolId, adoptionId, cb, onError) {
 
 /**
  * 채점 마감 + 집계. 기존에 입력해둔 추천의견 텍스트는 후보 ID로 매칭해 보존한다
- * (재집계로 순위가 바뀌어도 이미 쓴 의견이 날아가지 않게). 교감 확인 정보도 보존한다 —
- * 재집계 한 번으로 이미 받은 확인이 날아가면 안 되므로.
+ * (재집계로 순위가 바뀌어도 이미 쓴 의견이 날아가지 않게).
  *
  * 추천의견서(서식3)의 "작성자"는 이제 이 문서에 저장하지 않는다 — 그 건 subjectGroup의
  * 교과부장을 항상 실시간으로 조회해서 보여준다(교과부장이 바뀌면 자동으로 새 이름이
@@ -350,32 +384,14 @@ export async function closeAndAggregate(schoolId, adoptionId, candidates, existi
   await setDoc(adoptionDoc(schoolId, adoptionId), {
     status: 'closed',
     aggregate,
-    recommendation: {
-      opinions,
-      confirmedByUid: existingRecommendation?.confirmedByUid || null,
-      confirmedByName: existingRecommendation?.confirmedByName || null,
-      confirmedAt: existingRecommendation?.confirmedAt || null,
-      confirmedSignature: existingRecommendation?.confirmedSignature || null,
-    },
+    recommendation: { opinions },
     updatedAt: serverTimestamp(),
   }, { merge: true })
 }
 
-/**
- * 채점을 다시 연다. 이미 교감이 서식3을 확인(서명)한 뒤 재채점→재마감하면 순위·추천 후보가
- * 바뀔 수 있는데, 기존엔 confirmedAt 등 확인 정보가 그대로 남아 실제로는 재확인이 필요한
- * 새 내용인데도 화면엔 계속 "확인완료"로 보이는 문제가 있었다(2026-09-16). 그래서 재오픈
- * 시점에 확인 정보를 지워 교감이 다시 확인하게 만든다(opinions 등 나머지 내용은 유지).
- */
-export async function reopenAdoption(schoolId, adoptionId, recommendation) {
-  const patch = { status: 'collecting', updatedAt: serverTimestamp() }
-  if (recommendation?.confirmedAt) {
-    patch.recommendation = {
-      ...recommendation,
-      confirmedByUid: null, confirmedByName: null, confirmedAt: null, confirmedSignature: null,
-    }
-  }
-  await setDoc(adoptionDoc(schoolId, adoptionId), patch, { merge: true })
+/** 채점을 다시 연다. 추천의견 등 나머지 내용은 그대로 둔다(다시 마감하면 의견은 후보 ID로 보존). */
+export async function reopenAdoption(schoolId, adoptionId) {
+  await setDoc(adoptionDoc(schoolId, adoptionId), { status: 'collecting', updatedAt: serverTimestamp() }, { merge: true })
 }
 
 export async function saveRecommendation(schoolId, adoptionId, recommendation) {
@@ -386,20 +402,6 @@ export async function saveRecommendation(schoolId, adoptionId, recommendation) {
 export async function saveSummarySignoff(schoolId, adoptionId, { preparedByUid, preparedByName }) {
   await setDoc(adoptionDoc(schoolId, adoptionId), {
     summarySignoff: { preparedByUid, preparedByName: preparedByName || '' },
-    updatedAt: serverTimestamp(),
-  }, { merge: true })
-}
-
-/** 서식3(추천의견서) 확인 — 교감이 실제 계정으로 로그인해 그림 서명과 함께 확인한다. */
-export async function confirmRecommendation(schoolId, adoptionId, existingRecommendation, { uid, name, dataUrl }) {
-  await setDoc(adoptionDoc(schoolId, adoptionId), {
-    recommendation: {
-      ...existingRecommendation,
-      confirmedByUid: uid,
-      confirmedByName: name,
-      confirmedAt: serverTimestamp(),
-      confirmedSignature: { dataUrl },
-    },
     updatedAt: serverTimestamp(),
   }, { merge: true })
 }
@@ -523,15 +525,11 @@ export function subscribeMyDeptHeadGroups(schoolId, uid, cb, onError) {
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => d.data().subjectGroup)), onError)
 }
 
-// ── 교감 서명 저장소 (서식3 확인용) ────────────────────────────────────────────
-// apps/portal/src/pages/tools/AsaChecklistPrincipal.jsx의 asaPrincipalSignature와 같은
-// 모양이지만, 모듈마다 서명 저장소를 따로 두는 기존 관례를 따라 별도 컬렉션을 쓴다.
+// ── 교감(서식3 확인자) ──────────────────────────────────────────────────────
+// 교감 확인·서명 기능은 폐기했다(2026-10-01 — 서명은 모두 출력물에 직접 받는다). 서식3에는
+// 시스템에 교감(role 'principal')으로 등록된 사람의 이름만 표시한다.
 
-export async function getPrincipalSignature(schoolId, uid) {
-  const snap = await getDoc(principalSigDoc(schoolId, uid))
-  return snap.exists() ? snap.data() : null
-}
-
-export async function savePrincipalSignature(schoolId, uid, dataUrl, name) {
-  await setDoc(principalSigDoc(schoolId, uid), { dataUrl, name, savedAt: serverTimestamp() })
+export async function loadPrincipalName(schoolId) {
+  const snap = await getDocs(query(collection(db, USERS), where('schoolId', '==', schoolId), where('role', '==', 'principal')))
+  return snap.docs.map((d) => d.data().name || d.data().email).filter(Boolean).join(', ')
 }

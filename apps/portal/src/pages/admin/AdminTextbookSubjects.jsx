@@ -561,9 +561,9 @@ export default function AdminTextbookSubjects() {
             <Button size="small" startIcon={<AddIcon />} onClick={addExternalMember} sx={{ alignSelf: 'flex-start' }}>외부 위원 추가</Button>
           </Box>
 
-          {/* 과목 대표교사 = 이 선정 건의 채점 마감·집계 운영 담당자. 채점을 하지 않고
-              진행상황만 관리하는 사람일 수도 있어 위원 목록에 없어도 지정할 수 있어야 한다 —
-              그래서 위원(committee)이 아니라 전체 교직원(staff) 중에서 고른다. 교과군 전체를
+          {/* 과목 대표교사 = 이 선정 건의 채점 마감·집계 운영 담당자이자 위원(2026-10-01부터
+              위원 겸임 필수). 전체 교직원(staff) 중에서 고르면 위원 명단에도 자동으로 들어가고,
+              저장 시에도 withHeadInCommittee가 한 번 더 보장한다. 교과군 전체를
               관장하는 "교과부장"(서식2 확인자·서식3 작성자)과는 다른 역할이며, 교과부장은
               관리자 홈 &gt; 교과부장 지정에서 별도로 지정한다. */}
           <Autocomplete
@@ -574,8 +574,12 @@ export default function AdminTextbookSubjects() {
             getOptionLabel={(o) => o.name || o.email || ''}
             isOptionEqualToValue={(a, b) => a.uid === b.uid}
             value={staffByUid[form.subjectHeadUid] ? [staffByUid[form.subjectHeadUid]] : []}
-            onChange={(_, value) => setForm((f) => ({ ...f, subjectHeadUid: value.length ? value[value.length - 1].uid : '' }))}
-            renderInput={(params) => <TextField {...params} label="과목 대표교사 (채점 마감·집계 권한, 위원이 아니어도 지정 가능)" />}
+            onChange={(_, value) => setForm((f) => {
+              const head = value.length ? value[value.length - 1] : null
+              const committee = head && !f.committee.some((s) => s.uid === head.uid) ? [...f.committee, head] : f.committee
+              return { ...f, subjectHeadUid: head?.uid || '', committee }
+            })}
+            renderInput={(params) => <TextField {...params} label="과목 대표교사 (채점 마감·집계 권한, 위원으로 자동 포함)" />}
           />
         </DialogContent>
         <DialogActions>

@@ -16,7 +16,7 @@ import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { useTableSort } from '@shared/hooks/useTableSort'
 import {
-  loadAdoptions, attachProgress, subscribeMyDeptHeadGroups, getDeptHead, STATUS_LABELS,
+  loadAdoptions, attachProgress, subscribeMyDeptHeadGroups, getDeptHead, loadPrincipalName, STATUS_LABELS,
 } from '@shared/lib/textbookAdoption'
 import { openBulkRecommendationPrint } from './textbookPrint'
 import Layout from '../../components/Layout'
@@ -97,7 +97,7 @@ export default function TextbookManagerDashboard() {
         }
         items.push({ adoption, deptHeadName: groupCache[adoption.subjectGroup]?.name || '' })
       }
-      openBulkRecommendationPrint(items, `추천의견서_일괄출력_${targets.length}건`)
+      openBulkRecommendationPrint(items, `추천의견서_일괄출력_${targets.length}건`, await loadPrincipalName(schoolId))
     } catch (e) {
       setError(`일괄 출력 실패: ${e.message}`)
     } finally {

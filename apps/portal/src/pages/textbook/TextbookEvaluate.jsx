@@ -9,7 +9,7 @@ import Alert from '@mui/material/Alert'
 import Snackbar from '@mui/material/Snackbar'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { subscribeAdoption, subscribeMyScore, saveScore, rubricMax, STATUS_LABELS } from '@shared/lib/textbookAdoption'
-import { openScoreSheetPrint } from './textbookPrint'
+import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
 import Layout from '../../components/Layout'
 import ScoreEntryForm from './ScoreEntryForm'
 import { ACCENT, ACCENT_BG } from './TextbookSection'
@@ -122,6 +122,7 @@ export default function TextbookEvaluate() {
         saving={saving}
         onSave={handleSave}
         onPrint={myScore ? handlePrint : undefined}
+        onPdf={myScore ? (byCandidate, opinion) => downloadScoreSheetPdf(adoption, { ...myScore, byCandidate, opinion, teacherName: userName }) : undefined}
       />
 
       <Button

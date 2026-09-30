@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -9,12 +10,13 @@ import Alert from '@mui/material/Alert'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { db } from '@shared/lib/firebase'
+import { USERS, sanitizeSubjectGroup } from '@shared/lib/schema'
 import {
   subscribeMyAdoptions, subscribeMySubjectHeadAdoptions, subscribeMyDeptHeadGroups,
   subscribeUnassignedSubjectHeadAdoptions, claimSubjectHead, releaseSubjectHead, STATUS_LABELS,
 } from '@shared/lib/textbookAdoption'
 import { SUBJECT_GROUPS } from '@shared/lib/subjectData'
-import { sanitizeSubjectGroup } from '@shared/lib/schema'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './TextbookSection'
 
@@ -27,7 +29,23 @@ const groupOrder = (key) => {
   return idx === -1 ? SUBJECT_GROUPS.length : idx
 }
 
-function AdoptionCard({ adoption, onClick, onRelease }) {
+// 내 선정 건 카드에 과목 대표교사·위원 명단을 보여준다 — 누가 그 과목을 맡고 누가 채점하는지는
+// 공개 정보다(점수만 비공개). 대표교사를 위원 명단 맨 앞에 둔다.
+function PeopleLine({ label, names }) {
+  return (
+    <Typography sx={{ fontSize: '0.8rem', color: '#475569', mt: 0.5 }}>
+      <Box component="span" sx={{ color: '#94a3b8', fontWeight: 600, mr: 0.75 }}>{label}</Box>
+      {names.length ? names.join(', ') : <Box component="span" sx={{ color: '#cbd5e1' }}>미지정</Box>}
+    </Typography>
+  )
+}
+
+function AdoptionCard({ adoption, nameOf, onClick, onRelease }) {
+  const headUid = adoption.subjectHeadUid || ''
+  const committeeNames = [
+    ...(adoption.committeeUids || []).filter((uid) => uid === headUid),
+    ...(adoption.committeeUids || []).filter((uid) => uid !== headUid),
+  ].map(nameOf).concat((adoption.externalMembers || []).map((m) => `${m.name}(외부)`))
   return (
     <Box
       onClick={onClick}
@@ -38,7 +56,7 @@ function AdoptionCard({ adoption, onClick, onRelease }) {
         '&:hover': { borderColor: ACCENT, boxShadow: '0 2px 8px rgba(15,118,110,0.08)' },
       }}
     >
-      <Box>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
           {adoption.subjectName || '(과목명 없음)'}
         </Typography>
@@ -48,6 +66,8 @@ function AdoptionCard({ adoption, onClick, onRelease }) {
           <Chip size="small" sx={infoChipSx} label={`${adoption.cycleYear}학년도 선정`} />
           <Chip size="small" sx={infoChipSx} label={`후보 ${adoption.candidates?.length || 0}개`} />
         </Box>
+        <PeopleLine label="대표교사" names={headUid ? [nameOf(headUid)] : []} />
+        <PeopleLine label="위원" names={committeeNames} />
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {adoption.isHead && onRelease && (
@@ -133,6 +153,16 @@ export default function TextbookHome() {
     return unsub
   }, [schoolId, user])
 
+  // 카드에 대표교사·위원 이름을 보여주기 위한 같은 학교 구성원 이름표(TextbookDetail과 같은 조회).
+  const [staffByUid, setStaffByUid] = useState({})
+  useEffect(() => {
+    if (!schoolId) return
+    getDocs(query(collection(db, USERS), where('schoolId', '==', schoolId)))
+      .then((snap) => setStaffByUid(Object.fromEntries(snap.docs.map((d) => [d.id, d.data().name || d.data().email]))))
+      .catch((e) => console.error('[TextbookHome] 구성원 이름 조회 실패:', e))
+  }, [schoolId])
+  const nameOf = (uid) => staffByUid[uid] || '(알 수 없음)'
+
   // 교과부장이면 "전체 현황"에서 자기 교과군을 모아볼 수 있어야 하므로 지정 여부만 확인.
   const [myDeptGroups, setMyDeptGroups] = useState([])
   useEffect(() => {
@@ -171,7 +201,16 @@ export default function TextbookHome() {
   }
 
   const handleRelease = async (adoption) => {
-    if (!window.confirm(`'${adoption.subjectName}' 과목 대표교사 담당을 취소하시겠습니까?`)) return
+    if (adoption.status === 'closed') {
+      alert('마감된 과목은 해제할 수 없습니다.\n상세 화면에서 "다시 채점 열기" 후 해제하세요.')
+      return
+    }
+    const memberCount = (adoption.committeeUids || []).length + (adoption.externalMembers || []).length
+    if (!window.confirm(
+      `'${adoption.subjectName}' 과목 대표교사 담당을 해제하시겠습니까?\n\n`
+      + `위원 ${memberCount}명(본인 포함)도 모두 해제되고, 위원들이 입력한 점수도 함께 삭제됩니다.\n`
+      + '이 과목은 담당자 미지정 목록으로 돌아갑니다.',
+    )) return
     try {
       await releaseSubjectHead(schoolId, adoption.id)
     } catch (e) {
@@ -272,7 +311,7 @@ export default function TextbookHome() {
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
                 {adoptions.map((a) => (
-                  <AdoptionCard key={a.id} adoption={a} onClick={() => navigate(`/textbook/${a.id}`)} onRelease={handleRelease} />
+                  <AdoptionCard key={a.id} adoption={a} nameOf={nameOf} onClick={() => navigate(`/textbook/${a.id}`)} onRelease={handleRelease} />
                 ))}
               </Box>
             )}

@@ -23,7 +23,6 @@ import IconButton from '@mui/material/IconButton'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import LockIcon from '@mui/icons-material/Lock'
 import LockOpenIcon from '@mui/icons-material/LockOpen'
-import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined'
 import HowToRegIcon from '@mui/icons-material/HowToReg'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -39,9 +38,10 @@ import { USERS } from '@shared/lib/schema'
 import {
   subscribeAdoption, subscribeScores, subscribeMyScore, subscribeDeptHead,
   closeAndAggregate, reopenAdoption, saveRecommendation, saveSummarySignoff, saveExternalScore,
-  updateCommittee, updateRubric, rubricMax, STATUS_LABELS,
+  updateCommittee, updateRubric, rubricMax, withHeadInCommittee, loadPrincipalName, STATUS_LABELS,
 } from '@shared/lib/textbookAdoption'
-import { openSummaryPrint, openRecommendationPrint, openScoreSheetPrint } from './textbookPrint'
+import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
+import TextbookFormsPanel from './TextbookFormsPanel'
 import Layout from '../../components/Layout'
 import ScoreEntryForm from './ScoreEntryForm'
 import TextbookSection, { ACCENT, ACCENT_BG } from './TextbookSection'
@@ -66,6 +66,7 @@ export default function TextbookDetail() {
   const [snack, setSnack] = useState('')
   const [staffByUid, setStaffByUid] = useState({})
   const [deptHead, setDeptHead] = useState(null)
+  const [principalName, setPrincipalName] = useState('')
   const [savingSignoff, setSavingSignoff] = useState(false)
   const [proxyTarget, setProxyTarget] = useState(null) // 대리채점 중인 externalMember
   const [proxyScore, setProxyScore] = useState(null)
@@ -95,6 +96,12 @@ export default function TextbookDetail() {
     getDocs(query(collection(db, USERS), where('schoolId', '==', schoolId)))
       .then((snap) => setStaffByUid(Object.fromEntries(snap.docs.map((d) => [d.id, d.data().name || d.data().email]))))
       .catch(() => {})
+  }, [schoolId])
+
+  // 서식3 확인자(교감) — 시스템에 교감으로 등록된 사람 이름을 표시만 한다.
+  useEffect(() => {
+    if (!schoolId) return
+    loadPrincipalName(schoolId).then(setPrincipalName).catch(() => setPrincipalName(''))
   }, [schoolId])
 
   // 위원 편집 Autocomplete용 — canManage(관리자·과목 대표교사·교과부장)만 실제로 쓰지만
@@ -198,14 +205,10 @@ export default function TextbookDetail() {
   }
 
   const handleReopen = async () => {
-    const wasConfirmed = !!adoption.recommendation?.confirmedAt
-    const msg = wasConfirmed
-      ? '이미 교감이 확인한 추천의견서(서식3)가 있습니다.\n다시 채점을 열면 순위·추천 후보가 바뀔 수 있어 교감 확인이 초기화되고 재확인이 필요합니다.\n계속할까요?'
-      : '채점을 다시 열까요? 위원들이 점수를 다시 수정·제출할 수 있게 됩니다.'
-    if (!window.confirm(msg)) return
+    if (!window.confirm('채점을 다시 열까요? 위원들이 점수를 다시 수정·제출할 수 있게 됩니다.\n이미 출력해 서명받은 서식이 있다면 다시 마감한 뒤 새로 출력해야 합니다.')) return
     try {
-      await reopenAdoption(schoolId, adoptionId, adoption.recommendation)
-      setSnack(wasConfirmed ? '채점을 다시 열었고, 교감 확인은 초기화했습니다.' : '채점을 다시 열었습니다.')
+      await reopenAdoption(schoolId, adoptionId)
+      setSnack('채점을 다시 열었습니다.')
     } catch (e) {
       setError(`재오픈 실패: ${e.message}`)
     }
@@ -235,9 +238,6 @@ export default function TextbookDetail() {
     }
   }
 
-  const handlePrintSummary = () => openSummaryPrint(adoption, scores, deptHead?.name)
-  const handlePrintRecommendation = () => openRecommendationPrint(adoption, deptHead?.name)
-
   const handleSaveExternalScore = async (byCandidate, opinion, submit) => {
     setProxySaving(true)
     try {
@@ -253,9 +253,12 @@ export default function TextbookDetail() {
   const handlePrintExternalScore = (byCandidate, opinion) => {
     openScoreSheetPrint(adoption, { ...proxyScore, byCandidate, opinion, teacherName: proxyTarget?.name })
   }
+  const handlePdfExternalScore = (byCandidate, opinion) => (
+    downloadScoreSheetPdf(adoption, { ...proxyScore, byCandidate, opinion, teacherName: proxyTarget?.name })
+  )
 
   const openEditCommittee = () => {
-    setCommitteeDraft((adoption.committeeUids || []).map((uid) => (
+    setCommitteeDraft(withHeadInCommittee(adoption.committeeUids, adoption.subjectHeadUid).map((uid) => (
       staffList.find((s) => s.uid === uid) || { uid, name: staffByUid[uid] || uid }
     )))
     setEditingCommittee(true)
@@ -273,7 +276,7 @@ export default function TextbookDetail() {
     }
     setSavingCommittee(true)
     try {
-      await updateCommittee(schoolId, adoptionId, nextUids, removedUids)
+      await updateCommittee(schoolId, adoptionId, nextUids, removedUids, adoption.subjectHeadUid)
       setEditingCommittee(false)
       setSnack('위원 명단을 저장했습니다.')
     } catch (e) {
@@ -465,7 +468,23 @@ export default function TextbookDetail() {
                     getOptionLabel={(o) => o.name || o.email || ''}
                     isOptionEqualToValue={(a, b) => a.uid === b.uid}
                     value={committeeDraft}
-                    onChange={(_, value) => setCommitteeDraft(value)}
+                    // 과목 대표교사는 위원을 겸하므로 명단에서 뺄 수 없다(칩 삭제·전체 지우기 모두 막음).
+                    onChange={(_, value) => setCommitteeDraft(
+                      adoption.subjectHeadUid && !value.some((s) => s.uid === adoption.subjectHeadUid)
+                        ? [...committeeDraft.filter((s) => s.uid === adoption.subjectHeadUid), ...value]
+                        : value,
+                    )}
+                    renderTags={(value, getTagProps) => value.map((option, index) => {
+                      const { key, ...tagProps } = getTagProps({ index })
+                      const isHeadTag = option.uid === adoption.subjectHeadUid
+                      return (
+                        <Chip
+                          key={key} size="small" {...tagProps}
+                          label={isHeadTag ? `${option.name} (대표교사)` : option.name}
+                          onDelete={isHeadTag ? undefined : tagProps.onDelete}
+                        />
+                      )
+                    })}
                     renderInput={(params) => <TextField {...params} placeholder="위원 검색 후 추가" />}
                     sx={{ mb: 1 }}
                   />
@@ -537,54 +556,18 @@ export default function TextbookDetail() {
         </TextbookSection>
       )}
 
-      {/* 마감 후에도 외부 위원 평가표(서식1)는 다시 열어 볼 수 있어야 한다 — 내부 위원은 각자
-          /evaluate 페이지에서 상태와 무관하게 조회·인쇄할 수 있지만, 외부 위원은 계정이 없어
-          이 화면의 대리채점 다이얼로그가 유일한 창구이기 때문. */}
-      {adoption.status !== 'collecting' && canManage && externalMembers.length > 0 && (
-        <TextbookSection title="외부 위원 평가표 (서식1)">
-          <Typography sx={{ fontSize: '0.82rem', color: '#64748b', mb: 1.5 }}>
-            외부 위원 칩을 클릭하면 제출된 평가표를 다시 열어 인쇄할 수 있습니다.
-          </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
-            {externalMembers.map((m) => {
-              const s = scores.find((sc) => sc.uid === m.id)
-              return (
-                <Chip
-                  key={m.id} size="small"
-                  icon={<HowToRegIcon sx={{ fontSize: '1rem !important' }} />}
-                  onClick={() => setProxyTarget(m)}
-                  label={`${m.name} (외부)`}
-                  sx={s?.submittedAt
-                    ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700, cursor: 'pointer' }
-                    : { bgcolor: '#f1f5f9', color: '#94a3b8', fontWeight: 600, cursor: 'pointer' }}
-                />
-              )
-            })}
-          </Box>
-        </TextbookSection>
-      )}
-
       {/* ── 집계 결과 (서식2 — 검·인정도서 선정기준 평가 총괄표) ── */}
       {adoption.status === 'closed' && (
         <TextbookSection
-          title="집계 결과 (서식2)"
-          right={
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              {canManage && (
-                <Button size="small" startIcon={<PrintOutlinedIcon />} onClick={handlePrintSummary} sx={{ textTransform: 'none', fontWeight: 700, color: '#475569' }}>
-                  인쇄
-                </Button>
-              )}
-              {canManage && (
-                <Button
-                  size="small" startIcon={<LockOpenIcon />} onClick={handleReopen}
-                  sx={{ textTransform: 'none', fontWeight: 700, color: '#94a3b8' }}
-                >
-                  다시 채점 열기
-                </Button>
-              )}
-            </Box>
-          }
+          title="집계 결과"
+          right={canManage && (
+            <Button
+              size="small" startIcon={<LockOpenIcon />} onClick={handleReopen}
+              sx={{ textTransform: 'none', fontWeight: 700, color: '#94a3b8' }}
+            >
+              다시 채점 열기
+            </Button>
+          )}
         >
           <Box sx={{ overflowX: 'auto' }}>
             <Table size="small">
@@ -627,8 +610,28 @@ export default function TextbookDetail() {
             </Table>
           </Box>
 
-          {canManage && (
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 2 }}>
+        </TextbookSection>
+      )}
+
+      {/* ── 제출서류 (서식1·2·3 — 미리보기·인쇄·PDF) ── */}
+      {adoption.status === 'closed' && (
+        <TextbookFormsPanel
+          adoption={adoption}
+          scores={scores}
+          myScore={myScore}
+          myName={userName}
+          canManage={canManage}
+          isCommittee={isCommittee}
+          members={[
+            ...(adoption.committeeUids || []).map((uid) => ({ key: uid, name: staffByUid[uid] || uid })),
+            ...externalMembers.map((m) => ({ key: m.id, name: `${m.name}(외부)` })),
+          ]}
+          deptHeadName={deptHead?.name || ''}
+          principalName={principalName}
+          recommendationForPreview={recDraft}
+          onError={setError}
+          summaryControls={(
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
               <FormControl size="small">
                 <InputLabel>작성자(위원)</InputLabel>
                 <Select
@@ -640,68 +643,48 @@ export default function TextbookDetail() {
                   ))}
                 </Select>
               </FormControl>
-              <TextField
-                label="확인자(교과부장)" size="small" disabled
-                value={deptHead?.name || '(교과부장 미지정)'}
-              />
+              <TextField label="확인자(교과부장)" size="small" disabled value={deptHead?.name || '(교과부장 미지정)'} />
             </Box>
           )}
-        </TextbookSection>
-      )}
-
-      {/* ── 추천의견 (서식3 — 추천 검·인정도서 및 추천 의견서) ── */}
-      {adoption.status === 'closed' && recDraft && (
-        <TextbookSection
-          title="추천 도서 및 추천의견 (서식3, 상위 3개)"
-          right={
-            <Button size="small" startIcon={<PrintOutlinedIcon />} onClick={handlePrintRecommendation} sx={{ textTransform: 'none', fontWeight: 700, color: '#475569' }}>
-              인쇄
-            </Button>
-          }
-        >
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2 }}>
-            {recDraft.opinions.map((op, idx) => {
-              const c = candidateById[op.candidateId]
-              return (
-                <Box key={op.candidateId} sx={{ p: 1.5, borderRadius: '10px', border: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
-                  <Typography sx={{ fontSize: '0.86rem', fontWeight: 700, color: '#1e293b', mb: 0.75 }}>
-                    {op.rank}순위 · {c?.publisher || '(삭제된 후보)'}{c?.price ? ` · ${c.price}원` : ''}
-                  </Typography>
-                  <TextField
-                    fullWidth multiline minRows={2} size="small" placeholder="추천의견을 입력하세요"
-                    disabled={!canManage}
-                    value={op.text}
-                    onChange={(e) => {
-                      const opinions = [...recDraft.opinions]
-                      opinions[idx] = { ...op, text: e.target.value }
-                      setRecDraft({ ...recDraft, opinions })
-                    }}
-                  />
-                </Box>
-              )
-            })}
-          </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: canManage ? 2 : 0 }}>
-            <TextField
-              label="작성자(교과부장)" size="small" disabled
-              value={deptHead?.name || '(교과부장 미지정)'}
-            />
-            <TextField
-              label="확인자(교감)" size="small" disabled
-              value={adoption.recommendation?.confirmedAt
-                ? `${adoption.recommendation.confirmedByName} · 확인완료`
-                : '미확인 — 교감 계정의 "교감 확인" 화면에서 확인 대기중'}
-            />
-          </Box>
-          {canManage && (
-            <Button
-              variant="contained" size="small" disabled={savingRec} onClick={handleSaveRecommendation}
-              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
-            >
-              추천의견 저장
-            </Button>
+          recommendationControls={recDraft && (
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
+                {recDraft.opinions.map((op, idx) => {
+                  const c = candidateById[op.candidateId]
+                  return (
+                    <Box key={op.candidateId} sx={{ p: 1.5, borderRadius: '10px', border: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
+                      <Typography sx={{ fontSize: '0.86rem', fontWeight: 700, color: '#1e293b', mb: 0.75 }}>
+                        {op.rank}순위 · {c?.publisher || '(삭제된 후보)'}{c?.price ? ` · ${c.price}원` : ''}
+                      </Typography>
+                      <TextField
+                        fullWidth multiline minRows={2} size="small" placeholder="추천의견을 입력하세요"
+                        disabled={!canManage}
+                        value={op.text}
+                        onChange={(e) => {
+                          const opinions = [...recDraft.opinions]
+                          opinions[idx] = { ...op, text: e.target.value }
+                          setRecDraft({ ...recDraft, opinions })
+                        }}
+                      />
+                    </Box>
+                  )
+                })}
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: canManage ? 2 : 0 }}>
+                <TextField label="작성자(교과부장)" size="small" disabled value={deptHead?.name || '(교과부장 미지정)'} />
+                <TextField label="확인자(교감)" size="small" disabled value={principalName || '(교감 계정 없음)'} />
+              </Box>
+              {canManage && (
+                <Button
+                  variant="contained" size="small" disabled={savingRec} onClick={handleSaveRecommendation}
+                  sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
+                >
+                  추천의견 저장
+                </Button>
+              )}
+            </Box>
           )}
-        </TextbookSection>
+        />
       )}
 
       <Button size="small" onClick={() => navigate('/textbook')} sx={{ mt: 1, textTransform: 'none', color: '#64748b' }}>
@@ -746,6 +729,7 @@ export default function TextbookDetail() {
               saving={proxySaving}
               onSave={handleSaveExternalScore}
               onPrint={proxyScore ? handlePrintExternalScore : undefined}
+              onPdf={proxyScore ? handlePdfExternalScore : undefined}
             />
           )}
         </DialogContent>

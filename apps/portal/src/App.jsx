@@ -38,7 +38,6 @@ const TextbookHome             = lazy(() => import('./pages/textbook/TextbookHom
 const TextbookEvaluate         = lazy(() => import('./pages/textbook/TextbookEvaluate'))
 const TextbookDetail           = lazy(() => import('./pages/textbook/TextbookDetail'))
 const TextbookManagerDashboard = lazy(() => import('./pages/textbook/TextbookManagerDashboard'))
-const TextbookPrincipalConfirm = lazy(() => import('./pages/textbook/TextbookPrincipalConfirm'))
 
 // 생기부 세특 점검 도구 - lazy load
 const SetukUpload         = lazy(() => import('./pages/setuk/SetukUpload'))
@@ -134,7 +133,6 @@ export default function App() {
           {/* ── 검·인정도서 선정 (로그인만 하면 접근, 조회·채점 권한은 컴포넌트 내부에서 판정) ── */}
           <Route path="/textbook"                       element={<ProtectedRoute anyUser><TextbookHome /></ProtectedRoute>} />
           <Route path="/textbook/all"                    element={<ProtectedRoute anyUser><TextbookManagerDashboard /></ProtectedRoute>} />
-          <Route path="/textbook/principal"               element={<ProtectedRoute anyUser principalAllowed><TextbookPrincipalConfirm /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId"             element={<ProtectedRoute anyUser><TextbookDetail /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
 
