@@ -39,6 +39,7 @@ import {
   subscribeAdoption, subscribeScores, subscribeMyScore, subscribeDeptHead,
   closeAndAggregate, reopenAdoption, saveRecommendation, saveSummarySignoff, saveExternalScore,
   updateCommittee, updateRubric, rubricMax, withHeadInCommittee, loadPrincipalName, STATUS_LABELS,
+  OPINION_EXAMPLES, RECOMMENDATION_CLOSINGS,
 } from '@shared/lib/textbookAdoption'
 import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
 import TextbookFormsPanel from './TextbookFormsPanel'
@@ -48,6 +49,37 @@ import TextbookSection, { ACCENT, ACCENT_BG } from './TextbookSection'
 
 const infoChipSx = { bgcolor: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: '0.74rem' }
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+
+/**
+ * 서식3 순위별 의견 예시 문구 — 클릭하면 의견란 끝에 "ㅇ 문구"로 덧붙인다(서식1 채점 화면과
+ * 같은 방식). 순위별 맺음 문장을 먼저, 매뉴얼 21p 장점 문구는 펼쳐서 고르게 해 세 순위가
+ * 한 화면에 있어도 칩이 너무 많아 보이지 않게 한다.
+ */
+function RecommendationExamples({ rank, onPick }) {
+  const [showAll, setShowAll] = useState(false)
+  const chipSx = { cursor: 'pointer', height: 'auto', py: 0.4, '& .MuiChip-label': { whiteSpace: 'normal' } }
+  return (
+    <Box sx={{ mt: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.6 }}>
+        <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b' }}>예시 문구 (클릭하면 추가)</Typography>
+        <Button size="small" onClick={() => setShowAll((v) => !v)} sx={{ textTransform: 'none', fontSize: '0.72rem', minWidth: 0, px: 0.75, py: 0, color: ACCENT }}>
+          {showAll ? '장점 문구 접기' : '장점 문구 더 보기'}
+        </Button>
+      </Box>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+        {(RECOMMENDATION_CLOSINGS[rank] || []).map((phrase) => (
+          <Chip
+            key={phrase} size="small" label={phrase} onClick={() => onPick(phrase)}
+            sx={{ ...chipSx, bgcolor: ACCENT_BG, color: ACCENT, fontWeight: 600, border: '1px solid #99f6e4' }}
+          />
+        ))}
+        {showAll && OPINION_EXAMPLES.map((phrase) => (
+          <Chip key={phrase} size="small" label={phrase} onClick={() => onPick(phrase)} sx={chipSx} />
+        ))}
+      </Box>
+    </Box>
+  )
+}
 
 export default function TextbookDetail() {
   const { adoptionId } = useParams()
@@ -666,6 +698,17 @@ export default function TextbookDetail() {
                           setRecDraft({ ...recDraft, opinions })
                         }}
                       />
+                      {canManage && (
+                        <RecommendationExamples
+                          rank={op.rank}
+                          onPick={(phrase) => setRecDraft((prev) => {
+                            const opinions = [...prev.opinions]
+                            const cur = opinions[idx].text || ''
+                            opinions[idx] = { ...opinions[idx], text: cur ? `${cur}\nㅇ ${phrase}` : `ㅇ ${phrase}` }
+                            return { ...prev, opinions }
+                          })}
+                        />
+                      )}
                     </Box>
                   )
                 })}
