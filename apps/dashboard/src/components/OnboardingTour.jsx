@@ -76,7 +76,7 @@ export default function OnboardingTour() {
 
   // 첫 로그인 자동 팝업 — 설정 창(별도 작은 창)에서는 건너뛴다(위 파일 설명 참고).
   useEffect(() => {
-    if (loading || !user || pathname.startsWith('/settings')) return
+    if (loading || !user || pathname.startsWith('/settings') || pathname.startsWith('/share/')) return
     if (!getSeenUids().includes(user.uid)) setOpen(true)
   }, [loading, user, pathname])
 

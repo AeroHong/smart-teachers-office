@@ -61,6 +61,10 @@ exports.syncEvaluationPlanToStaff = evaluationPlanSync.syncEvaluationPlanToStaff
 const requestCalendarSync = require('./requestCalendarSync')
 exports.syncRequestToCalendar = requestCalendarSync.syncRequestToCalendar
 
+// 캔버스 공개 링크(링크가 있는 누구나 보기) — 원본 글의 publicShare에 맞춰 공개용 사본 동기화
+const publicCanvasSync = require('./publicCanvasSync')
+exports.syncPublicCanvas = publicCanvasSync.syncPublicCanvas
+
 // 이메일 발송(교사 → 학생) — emailJobs 문서가 'queued'로 (즉시든 예약 승격이든) 바뀌면
 // Gmail API로 실제 발송, 매분 예약 발송 예정 시각 도래 여부 확인
 const emailSend = require('./emailSend')

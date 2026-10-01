@@ -22,6 +22,7 @@ import Members from './pages/Members'
 import Settings from './pages/Settings'
 import AdminDesktop from './pages/AdminDesktop'
 import RedirectToPortal from './pages/RedirectToPortal'
+import PublicCanvas from './pages/PublicCanvas'
 
 export default function App() {
   return (
@@ -49,6 +50,8 @@ export default function App() {
         <ErrorBoundary label="화면">
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* 캔버스 공개 링크 — 로그인 없이 읽기 전용(publicCanvases 사본만 읽는다) */}
+          <Route path="/share/:token" element={<PublicCanvas />} />
           {/* 대시보드 앱에 없는 온보딩/학생 전용 화면은 포털로 이동 */}
           <Route path="/school-setup" element={<RedirectToPortal path="/school-setup" />} />
           <Route path="/student" element={<RedirectToPortal path="/student" />} />

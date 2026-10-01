@@ -42,6 +42,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import GroupsIcon from '@mui/icons-material/Groups'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import IosShareIcon from '@mui/icons-material/IosShare'
 import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
 import PersonAddIcon from '@mui/icons-material/PersonAddAlt1'
 import PersonIcon from '@mui/icons-material/PersonOutline'
@@ -71,6 +72,7 @@ import Directory from '../components/Directory'
 import DmDialog from '../components/DmDialog'
 import InviteMembersDialog from '../components/InviteMembersDialog'
 import ShareCanvasDialog from '../components/ShareCanvasDialog'
+import PublicShareDialog from '../components/PublicShareDialog'
 import PostComposer from '../components/PostComposer'
 import PostDetail from '../components/PostDetail'
 import BlockCommentsPanel from '../components/BlockCommentsPanel'
@@ -186,6 +188,7 @@ export default function Channels() {
   const [sideView, setSideView] = useState('messages')   // 'messages' | 'archive'
   const [moreAnchor, setMoreAnchor] = useState(null)
   const [sharing, setSharing] = useState(false)   // 캔버스 넘기기 대화상자
+  const [publicSharing, setPublicSharing] = useState(false) // 캔버스 공유(교직원 링크·공개 링크)
   // 3단 오른쪽 4번째 칸(블록 댓글, PLAN_canvasBlocks.md Phase 4) — 어느 캔버스의 어느
   // 블록을 보고 있는지. WorkspaceLayout.jsx 자체는 안 건드리고 이 페이지가 캔버스 옆에
   // 조건부로 그린다(항상 있는 레일·사이드바와 달리 블록 하나를 고를 때만 뜨는 칸이라).
@@ -841,6 +844,17 @@ export default function Channels() {
                 </IconButton>
               </Tooltip>
             )}
+            {/* 캔버스를 열어 두었을 때만 — 링크 복사·공개 링크가 메뉴 안쪽('이 글 전달' 창)에
+                숨어 있어 찾기 어렵다는 피드백(2026-10-01)으로 머리줄에 바로 꺼내 둔다. */}
+            {canvas.open && (
+              <Button
+                size="small" startIcon={<IosShareIcon sx={{ fontSize: 16 }} />}
+                onClick={() => setPublicSharing(true)}
+                sx={{ minWidth: 0, fontSize: '0.8rem', fontWeight: 700, mr: 0.5 }}
+              >
+                공유
+              </Button>
+            )}
             {/* DM도 이 메뉴를 연다(2026-09-10) — 안에서는 나가기/다시 참여와 완전 삭제만
                 뜬다(canManage가 dm에서 늘 false라 채널 전용 항목은 자동으로 숨는다). */}
             <Tooltip title={dm ? '대화 관리' : '채널 관리'}>
@@ -1487,6 +1501,17 @@ export default function Channels() {
         existingNames={allNames}
         onClose={() => { setEditing(null); setPreset(null) }}
         onSave={saveChannel}
+      />
+
+      <PublicShareDialog
+        open={publicSharing}
+        onClose={() => setPublicSharing(false)}
+        post={canvas.open}
+        staffUrl={canvas.open ? `${window.location.origin}/channels/${canvas.open.channelId || active?.id}/${canvas.open.id}` : ''}
+        canManage={!!canvas.open && (
+          canvas.open.createdBy === user?.uid || (canvas.open.ownerUids || []).includes(user?.uid) || (isAdmin && !dm)
+        )}
+        onForward={canvas.open && !isPrivateChannel(active) ? () => { setPublicSharing(false); setSharing(true) } : null}
       />
 
       <ShareCanvasDialog
