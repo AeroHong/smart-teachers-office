@@ -41,7 +41,9 @@ app.userAgentFallback = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5
 // 런타임에 읽는 아이콘은 assets/에 둔다. build/는 electron-builder가 빌드 리소스
 // 전용으로 취급해 앱 패키지(app.asar)에 넣지 않으므로, 거기서 읽으면 설치본에서만
 // Tray 생성이 실패한다 (dev에서는 파일이 있어 멀쩡히 동작해 눈치채기 어렵다).
-const ICON_PATH = path.join(__dirname, 'assets', 'icon.ico')
+// ICO는 Windows 전용 포맷이라 macOS/Linux의 Tray가 못 읽는다(Electron 자체 ICO
+// 디코더가 Windows 밖에서는 실패함) — 그 플랫폼들은 PNG를 쓴다.
+const ICON_PATH = path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
 
 // 토스트 알림에 넣는 로고. Windows가 직접 읽는 이미지라 app.asar 안에 있으면 안 되고
 // (package.json의 asarUnpack), ICO는 지원하지 않아 PNG를 쓴다. dev 실행에는 asar 자체가
