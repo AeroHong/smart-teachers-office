@@ -208,6 +208,12 @@ service cloud.firestore {
       return request.auth.uid in a.get('committeeUids', []);
     }
 
+    // 선정 건 위원(내부 committeeUids + 외부 externalMemberIds)이 1명 이상이고 전원 제출했는가.
+    function textbookAllSubmitted() {
+      let members = request.resource.data.get('committeeUids', []).concat(request.resource.data.get('externalMemberIds', []));
+      return members.size() > 0 && resource.data.get('submittedUids', []).hasAll(members);
+    }
+
     function isTextbookSubjectHead(schoolId, adoptionId) {
       let a = get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data;
       return request.auth.uid == a.get('subjectHeadUid', '');
@@ -1155,7 +1161,15 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId);
         allow create: if isSuperAdmin() || isSchoolAdmin(schoolId);
-        allow update: if (
+        // submittedUids는 서버 트리거(syncTextbookSubmitted)만 쓴다 — 클라이언트가 고칠 수 있으면
+        // 아래 "전원 제출 전 마감 금지"를 스스로 우회할 수 있다.
+        // 마감(collecting → closed)은 위원(내부+외부) 전원이 제출했을 때만(2026-10-01, 사용자 확정
+        // "전원 제출 전에는 마감 및 집계를 막아야 함"). 판정은 트리거가 적어 둔 submittedUids로 한다.
+        allow update: if
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['submittedUids']) &&
+          (request.resource.data.get('status', 'collecting') != 'closed' ||
+           resource.data.get('status', 'collecting') == 'closed' ||
+           textbookAllSubmitted()) && (
           isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && request.auth.uid == resource.data.get('subjectHeadUid', '')) ||
           (isTeacher(schoolId) && resource.data.get('subjectGroup', '') != '' &&

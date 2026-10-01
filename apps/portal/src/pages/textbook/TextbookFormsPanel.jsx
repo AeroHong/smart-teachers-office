@@ -126,7 +126,7 @@ export default function TextbookFormsPanel({
     ? `서식1_${subject}_위원평가표${selectedEntries.length > 1 ? `_${selectedEntries.length}명` : ''}`
     : `서식1_${subject}_${selectedEntries[0].name}`
 
-  const form2Html = canManage ? buildSummaryHtml(adoption, scores, deptHeadName) : ''
+  const form2Html = canManage ? buildSummaryHtml(adoption, scores, deptHeadName, members) : ''
   const form3Html = buildRecommendationHtml(
     recommendationForPreview ? { ...adoption, recommendation: recommendationForPreview } : adoption,
     deptHeadName, principalName,

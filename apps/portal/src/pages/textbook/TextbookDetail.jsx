@@ -151,6 +151,18 @@ export default function TextbookDetail() {
   const canManage = isAdmin || isHead || isDeptHead
   const externalMembers = adoption?.externalMembers || []
   const totalMemberCount = (adoption?.committeeUids?.length || 0) + externalMembers.length
+  // 집계 표·서식2·서식1 탭이 함께 쓰는 위원 목록 — 대표교사를 맨 앞에, 외부 위원은 뒤에.
+  const memberList = [
+    ...(adoption?.committeeUids || []).filter((u) => u === adoption?.subjectHeadUid),
+    ...(adoption?.committeeUids || []).filter((u) => u !== adoption?.subjectHeadUid),
+  ].map((uid) => ({ key: uid, name: staffByUid[uid] || uid }))
+    .concat(externalMembers.map((m) => ({ key: m.id, name: `${m.name}(외부)` })))
+  const unsubmittedNames = memberList
+    .filter((m) => !scores.find((s) => s.uid === m.key)?.submittedAt)
+    .map((m) => m.name)
+  // 마감 가능 판정은 rules와 똑같이 서버 트리거가 적어 둔 submittedUids로 한다(점수 화면 반영보다
+  // 1~2초 늦을 수 있어, 화면 점수 기준으로 열어 두면 눌렀을 때 규칙에 막힌다).
+  const allSubmitted = memberList.length > 0 && memberList.every((m) => (adoption?.submittedUids || []).includes(m.key))
 
   // 이 건의 교과부장 — 서식2 확인자·서식3 작성자로 실시간 표시한다(교과부장이 바뀌면 즉시 반영).
   useEffect(() => {
@@ -229,7 +241,9 @@ export default function TextbookDetail() {
       await closeAndAggregate(schoolId, adoptionId, adoption.candidates || [], adoption.recommendation)
       setSnack('채점을 마감하고 집계했습니다.')
     } catch (e) {
-      setError(`마감 실패: ${e.message}`)
+      setSnack(e.code === 'permission-denied'
+        ? '마감하지 못했습니다. 위원 전원이 제출했는지 확인하고 잠시 후 다시 시도해 주세요.'
+        : `마감 실패: ${e.message}`)
     } finally {
       setClosing(false)
       setConfirmOpen(false)
@@ -577,12 +591,22 @@ export default function TextbookDetail() {
                   외부 위원 칩을 클릭하면 오프라인으로 받은 점수를 대신 입력할 수 있습니다.
                 </Typography>
               )}
-              <Button
-                variant="outlined" size="small" startIcon={<LockIcon />} onClick={() => setConfirmOpen(true)}
-                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: ACCENT, color: ACCENT }}
-              >
-                채점 마감 및 집계
-              </Button>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
+                <Button
+                  variant="outlined" size="small" startIcon={<LockIcon />} onClick={() => setConfirmOpen(true)}
+                  disabled={!allSubmitted}
+                  sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: ACCENT, color: ACCENT }}
+                >
+                  채점 마감 및 집계
+                </Button>
+                {!allSubmitted && (
+                  <Typography sx={{ fontSize: '0.78rem', color: '#b45309' }}>
+                    {memberList.length === 0
+                      ? '위원을 먼저 지정해야 마감할 수 있습니다.'
+                      : `위원 전원이 제출해야 마감할 수 있습니다${unsubmittedNames.length ? ` (미제출: ${unsubmittedNames.join(', ')})` : ' (제출 현황 반영 중…)'}`}
+                  </Typography>
+                )}
+              </Box>
             </>
           )}
           {!isCommittee && !canManage && (
@@ -613,8 +637,8 @@ export default function TextbookDetail() {
                   <TableCell align="center" width={60}>순위</TableCell>
                   <TableCell>출판사 / 저자</TableCell>
                   <TableCell align="center">가격</TableCell>
-                  {canManage && scores.filter((s) => s.submittedAt).map((_, i) => (
-                    <TableCell key={i} align="center">위원{i + 1}</TableCell>
+                  {canManage && memberList.map((m) => (
+                    <TableCell key={m.key} align="center">{m.name}</TableCell>
                   ))}
                   <TableCell align="center">총점</TableCell>
                   <TableCell align="center">평균</TableCell>
@@ -624,7 +648,6 @@ export default function TextbookDetail() {
                 {rankedIds.map((id) => {
                   const c = candidateById[id]
                   const agg = adoption.aggregate[id]
-                  const submittedScores = scores.filter((s) => s.submittedAt)
                   return (
                     <TableRow key={id} sx={{ '& td': { borderBottom: '1px solid #f1f5f9' } }}>
                       <TableCell align="center">
@@ -635,9 +658,14 @@ export default function TextbookDetail() {
                         {c?.author && <Typography sx={{ fontSize: '0.76rem', color: '#94a3b8' }}>{c.author}</Typography>}
                       </TableCell>
                       <TableCell align="center">{c?.price || '-'}</TableCell>
-                      {canManage && submittedScores.map((s) => (
-                        <TableCell key={s.uid} align="center">{s.byCandidate?.[id]?.total ?? '-'}</TableCell>
-                      ))}
+                      {canManage && memberList.map((m) => {
+                        const s = scores.find((sc) => sc.uid === m.key)
+                        return (
+                          <TableCell key={m.key} align="center" sx={s?.submittedAt ? undefined : { color: '#94a3b8', fontSize: '0.74rem' }}>
+                            {s?.submittedAt ? (s.byCandidate?.[id]?.total ?? '-') : '미제출'}
+                          </TableCell>
+                        )
+                      })}
                       <TableCell align="center">{agg.total}</TableCell>
                       <TableCell align="center">{agg.average}</TableCell>
                     </TableRow>
@@ -659,10 +687,7 @@ export default function TextbookDetail() {
           myName={userName}
           canManage={canManage}
           isCommittee={isCommittee}
-          members={[
-            ...(adoption.committeeUids || []).map((uid) => ({ key: uid, name: staffByUid[uid] || uid })),
-            ...externalMembers.map((m) => ({ key: m.id, name: `${m.name}(외부)` })),
-          ]}
+          members={memberList}
           deptHeadName={deptHead?.name || ''}
           principalName={principalName}
           recommendationForPreview={recDraft}
@@ -743,9 +768,10 @@ export default function TextbookDetail() {
         <DialogTitle>채점을 마감할까요?</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: '0.88rem', color: '#475569' }}>
-            제출된 위원 점수({submittedCount} / {totalMemberCount}명)를 기준으로 집계합니다.
+            위원 {totalMemberCount}명 전원의 제출 점수로 집계합니다.
             마감 후에는 위원들이 채점을 수정할 수 없고, 필요하면 다시 열 수 있습니다.
           </Typography>
+
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirmOpen(false)}>취소</Button>

@@ -392,6 +392,15 @@ export function subscribeScores(schoolId, adoptionId, cb, onError) {
  * 나오게). getDeptHead()/subscribeDeptHead() 참고.
  */
 export async function closeAndAggregate(schoolId, adoptionId, candidates, existingRecommendation) {
+  // 위원 전원이 제출해야 마감할 수 있다(rules도 같은 조건으로 막는다 — 여기서 먼저 걸러 이유를 알려준다).
+  const adoptionSnap = await getDoc(adoptionDoc(schoolId, adoptionId))
+  const a = adoptionSnap.data() || {}
+  const members = [...(a.committeeUids || []), ...(a.externalMemberIds || [])]
+  const submitted = new Set(a.submittedUids || [])
+  if (!members.length) throw new Error('위원이 없어 마감할 수 없습니다.')
+  if (!members.every((id) => submitted.has(id))) {
+    throw new Error('아직 제출하지 않은 위원이 있습니다. 방금 제출했다면 몇 초 뒤 다시 시도해 주세요.')
+  }
   const scores = await loadAllScores(schoolId, adoptionId)
   const aggregate = computeAggregate(scores, candidates)
   const top3 = Object.entries(aggregate)

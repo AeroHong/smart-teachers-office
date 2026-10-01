@@ -923,3 +923,37 @@ test('학사일정: 슈퍼 관리자는 전체를 본다 (운영 점검용)', as
   const all = await assertSucceeds(getDocs(query(calendar(asSuper()))))
   assert.equal(all.size, 2)
 })
+
+// ── 검·인정도서 선정: 전원 제출 전 마감 금지 (2026-10-01) ──────────────
+// A = 과목 대표교사, B·C = 위원. submittedUids는 서버 트리거만 쓴다.
+async function seedAdoption(submittedUids) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('textbookAdoptions', 'tb')), {
+      subjectName: '과목', status: 'collecting', subjectHeadUid: A,
+      committeeUids: [A, B, C], externalMemberIds: [], submittedUids,
+    })
+  })
+}
+const tb = (db) => doc(db, ...path('textbookAdoptions', 'tb'))
+
+test('교과서 선정: 미제출 위원이 있으면 대표교사도 관리자도 마감할 수 없다', async () => {
+  await seedAdoption([A, B])
+  await assertFails(updateDoc(tb(as(A)), { status: 'closed' }))
+  await assertFails(updateDoc(tb(as(ADMIN)), { status: 'closed' }))
+})
+
+test('교과서 선정: 위원 전원이 제출하면 대표교사가 마감할 수 있다', async () => {
+  await seedAdoption([A, B, C])
+  await assertSucceeds(updateDoc(tb(as(A)), { status: 'closed', aggregate: {} }))
+})
+
+test('교과서 선정: 클라이언트는 submittedUids를 고쳐 마감 조건을 우회할 수 없다', async () => {
+  await seedAdoption([A])
+  await assertFails(updateDoc(tb(as(A)), { submittedUids: [A, B, C] }))
+  await assertFails(updateDoc(tb(as(A)), { submittedUids: [A, B, C], status: 'closed' }))
+})
+
+test('교과서 선정: 마감 아닌 일반 수정(추천의견 등)은 미제출 위원이 있어도 된다', async () => {
+  await seedAdoption([A])
+  await assertSucceeds(updateDoc(tb(as(A)), { rubric: [] }))
+})

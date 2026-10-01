@@ -138,11 +138,16 @@ export function buildScoreSheetHtml(adoption, score) {
  * 서식2 — 평가 총괄표. scores: 그 건의 위원 점수 배열(제출분만 쓰고 익명 번호만 부여) —
  * canManage(관리자/과목대표교사/교과부장)만 받을 수 있는 데이터다. deptHeadName: 확인자(교과부장).
  */
-export function buildSummaryHtml(adoption, scores, deptHeadName) {
+export function buildSummaryHtml(adoption, scores, deptHeadName, members) {
   const candidates = adoption.candidates || []
-  const submitted = (scores || []).filter((s) => s.submittedAt)
   const aggregate = adoption.aggregate || {}
-  const memberCount = Math.max(submitted.length, 1)
+  const scoreById = Object.fromEntries((scores || []).map((s) => [s.uid, s]))
+  // 위원 전원을 이름으로 세운다(2026-10-01 — 예전엔 제출자만 "위원1·2"로 익명 표기해, 미제출
+  // 위원이 있으면 누가 빠졌는지 알 수 없었다). members가 없으면 점수 문서로 대신한다.
+  const cols = (members?.length ? members : (scores || []).map((s) => ({ key: s.uid, name: s.teacherName || '' })))
+    .map((m) => ({ ...m, score: scoreById[m.key]?.submittedAt ? scoreById[m.key] : null }))
+  const submittedCount = cols.filter((c) => c.score).length
+  const memberCount = Math.max(cols.length, 1)
 
   const head = `
   <tr>
@@ -150,11 +155,13 @@ export function buildSummaryHtml(adoption, scores, deptHeadName) {
     <th colspan="${memberCount}">위원별 점수</th>
     <th rowspan="2" style="width:18mm">총점</th><th rowspan="2" style="width:18mm">평균</th><th rowspan="2" style="width:18mm">비고</th>
   </tr>
-  <tr>${submitted.length ? submitted.map((_, i) => `<th style="width:16mm">위원${i + 1}</th>`).join('') : '<th></th>'}</tr>`
+  <tr>${cols.length ? cols.map((m) => `<th style="width:20mm">${esc(m.name)}</th>`).join('') : '<th></th>'}</tr>`
   const body = candidates.map((c) => {
     const agg = aggregate[c.id] || {}
-    const cells = submitted.length
-      ? submitted.map((s) => `<td class="num">${s.byCandidate?.[c.id]?.total ?? ''}</td>`).join('')
+    const cells = cols.length
+      ? cols.map((m) => (m.score
+        ? `<td class="num">${m.score.byCandidate?.[c.id]?.total ?? ''}</td>`
+        : '<td style="color:#888;font-size:8pt">미제출</td>')).join('')
       : '<td></td>'
     return `<tr>
       <th class="left">${esc(c.publisher)}${c.author ? `<span class="sub">${esc(c.author)}</span>` : ''}</th>
@@ -173,6 +180,7 @@ export function buildSummaryHtml(adoption, scores, deptHeadName) {
   <h1>검·인정도서 선정기준 평가 총괄표</h1>
   <table class="info"><tr><th>과 목</th><td>${esc(adoption.subjectName)}</td></tr></table>
   <table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table>
+  ${submittedCount < cols.length ? `<div style="margin-top:2mm;font-size:8.5pt;color:#333">※ 총점·평균은 제출한 위원 ${submittedCount}명(전체 ${cols.length}명)의 점수로 산출했습니다.</div>` : ''}
   ${signTable([
     { role: '작성자 (위원)', name: signoff.preparedByName },
     { role: '확인자 (교과부장)', name: deptHeadName },
