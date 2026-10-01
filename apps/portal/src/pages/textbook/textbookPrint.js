@@ -20,9 +20,12 @@ const FORM_STYLES = `
     color: #000; font-size: 10pt; line-height: 1.45; word-break: keep-all;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  .sheet { background: #fff; padding: 13mm 15mm 12mm; position: relative; }
-  .sheet.landscape { width: 297mm; min-height: 210mm; page: landscape; }
-  .sheet.portrait { width: 210mm; min-height: 297mm; page: portrait; }
+  /* 한 장 = 정확히 A4 한 면. 내용이 넘치면 FIT_SCRIPT가 .fit을 축소해 한 장에 맞춘다
+     (후보 교과서가 많아 서식1이 2쪽으로 넘어가던 문제, 2026-10-02). */
+  .sheet { background: #fff; padding: 13mm 15mm 12mm; position: relative; overflow: hidden; }
+  .sheet.landscape { width: 297mm; height: 210mm; page: landscape; }
+  .sheet.portrait { width: 210mm; height: 297mm; page: portrait; }
+  .sheet > .fit { transform-origin: top left; }
 
   .form-no { font-size: 9pt; font-weight: 700; letter-spacing: 0.04em; margin-bottom: 3mm; }
   .form-no span { display: inline-block; border: 1px solid #000; padding: 1px 7px; }
@@ -100,9 +103,13 @@ export function buildScoreSheetHtml(adoption, score) {
   const rubric = adoption.rubric || []
   const maxSum = rubric.reduce((s, r) => s + (Number(r.maxScore) || 0), 0)
 
+  // 표 폭 267mm(가로 A4 − 여백) 중 평가영역 30 + 배점 13을 빼고, 평가기준 칸을 최소 70mm
+  // 남긴 나머지를 후보 수로 나눈다(최대 28mm). 후보가 아주 많으면 칸이 좁아지고, 그래도
+  // 넘치는 높이는 FIT_SCRIPT가 한 장에 맞춰 줄인다.
+  const candWidth = Math.min(28, (267 - 30 - 13 - 70) / Math.max(candidates.length, 1))
   const head = `<tr>
     <th style="width:30mm">평가영역</th><th>평가기준</th><th style="width:13mm">배점</th>
-    ${candidates.map((c) => `<th style="width:${Math.max(16, Math.min(28, 150 / Math.max(candidates.length, 1)))}mm">${esc(c.publisher)}${c.price ? `<span class="sub num">${esc(fmtPrice(c.price))}</span>` : ''}</th>`).join('')}
+    ${candidates.map((c) => `<th style="width:${candWidth.toFixed(1)}mm">${esc(c.publisher)}${c.price ? `<span class="sub num">${esc(fmtPrice(c.price))}</span>` : ''}</th>`).join('')}
   </tr>`
   const body = rubric.map((r) => `<tr>
     <th>${esc(r.name)}</th>
@@ -221,6 +228,44 @@ export function buildRecommendationHtml(adoption, deptHeadName, principalName) {
 </div>`
 }
 
+// 각 .sheet의 내용을 .fit으로 감싸고, 한 장(패딩 안쪽) 높이를 넘으면 축소해 맞춘다. 축소하면
+// 폭도 줄어 오른쪽이 비므로, 줄인 만큼 폭을 넓혀 다시 재는 것을 몇 번 반복한다(넓히면 줄바꿈이
+// 줄어 높이도 조금 준다). transform은 레이아웃에 영향이 없어 .sheet의 overflow:hidden으로
+// 보이는 크기만 한 장이 된다. 인쇄 창·PDF용 iframe·미리보기 모두 이 스크립트를 쓴다.
+const FIT_SCRIPT = `
+window.fitSheets = function () {
+  document.querySelectorAll('.sheet').forEach(function (sheet) {
+    var inner = sheet.querySelector(':scope > .fit');
+    if (!inner) {
+      inner = document.createElement('div');
+      inner.className = 'fit';
+      while (sheet.firstChild) inner.appendChild(sheet.firstChild);
+      sheet.appendChild(inner);
+    }
+    inner.style.transform = '';
+    inner.style.width = '';
+    var cs = getComputedStyle(sheet);
+    var availH = sheet.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    var availW = sheet.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (inner.scrollHeight <= availH + 0.5) return;
+    // 한 장에 들어가는 가장 큰 배율을 이분 탐색으로 찾는다(배율 s면 폭을 availW/s로 넓혀 잰다).
+    var fits = function (s) {
+      inner.style.width = (availW / s) + 'px';
+      return inner.scrollHeight * s <= availH;
+    };
+    var lo = 0.3, hi = 1;
+    for (var i = 0; i < 14; i++) {
+      var mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid; else hi = mid;
+    }
+    fits(lo);
+    inner.style.transform = 'scale(' + lo + ')';
+  });
+};
+window.fitSheets();
+window.addEventListener('load', window.fitSheets);
+`
+
 /** sheet HTML들을 완전한 문서로 감싼다. mode: 'print'(자동 인쇄) | 'preview'(회색 배경 위 종이) | 'plain' */
 export function wrapFormsDocument(title, sheetsHtml, mode = 'plain') {
   return `<!DOCTYPE html>
@@ -232,7 +277,8 @@ export function wrapFormsDocument(title, sheetsHtml, mode = 'plain') {
 </head>
 <body class="${mode === 'preview' ? 'preview' : ''}">
 ${sheetsHtml}
-${mode === 'print' ? '<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 300); };</script>' : ''}
+<script>${FIT_SCRIPT}</script>
+${mode === 'print' ? '<script>window.onload = function(){ window.fitSheets(); setTimeout(function(){ window.print(); }, 300); };</script>' : ''}
 </body>
 </html>`
 }
@@ -266,6 +312,7 @@ export async function downloadFormsPdf(fileName, sheetsHtml) {
     })
     const doc = iframe.contentDocument
     if (doc.fonts?.ready) await doc.fonts.ready
+    iframe.contentWindow.fitSheets?.()
     const sheets = Array.from(doc.querySelectorAll('.sheet'))
     let pdf = null
     for (const sheet of sheets) {
