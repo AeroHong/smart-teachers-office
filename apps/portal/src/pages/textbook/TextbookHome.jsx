@@ -40,7 +40,17 @@ function PeopleLine({ label, names }) {
   )
 }
 
-function AdoptionCard({ adoption, nameOf, onClick, onRelease }) {
+// 제출 현황 — submittedUids는 서버 트리거(functions/textbookScoreSync.js)가 점수 없이 "누가
+// 제출했는지"만 적어 둔 값이라 일반 위원도 읽을 수 있다(점수 자체는 계속 비공개).
+function submissionState(adoption) {
+  const members = [...(adoption.committeeUids || []), ...(adoption.externalMemberIds || [])]
+  const submitted = new Set(adoption.submittedUids || [])
+  const done = members.filter((id) => submitted.has(id)).length
+  return { total: members.length, done, all: members.length > 0 && done === members.length }
+}
+
+function AdoptionCard({ adoption, myUid, nameOf, onClick, onRelease }) {
+  const sub = submissionState(adoption)
   const headUid = adoption.subjectHeadUid || ''
   const committeeNames = [
     ...(adoption.committeeUids || []).filter((uid) => uid === headUid),
@@ -62,6 +72,11 @@ function AdoptionCard({ adoption, nameOf, onClick, onRelease }) {
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.6, mt: 0.75, flexWrap: 'wrap' }}>
           {adoption.isCommittee && <Chip size="small" sx={roleChipSx} label="위원" />}
+          {adoption.isCommittee && adoption.status !== 'closed' && (
+            (adoption.submittedUids || []).includes(myUid)
+              ? <Chip size="small" label="✓ 내 채점 완료" sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 700, fontSize: '0.74rem' }} />
+              : <Chip size="small" label="채점 전" sx={{ bgcolor: '#fff7ed', color: '#c2410c', fontWeight: 700, fontSize: '0.74rem', border: '1px solid #fed7aa' }} />
+          )}
           {adoption.isHead && <Chip size="small" sx={roleChipSx} label="과목 대표교사" />}
           <Chip size="small" sx={infoChipSx} label={`${adoption.cycleYear}학년도 선정`} />
           <Chip size="small" sx={infoChipSx} label={`후보 ${adoption.candidates?.length || 0}개`} />
@@ -80,10 +95,14 @@ function AdoptionCard({ adoption, nameOf, onClick, onRelease }) {
         )}
         <Chip
           size="small"
-          label={STATUS_LABELS[adoption.status] || adoption.status}
+          label={adoption.status === 'closed'
+            ? STATUS_LABELS.closed
+            : sub.all ? '채점완료 · 마감 대기' : `${STATUS_LABELS.collecting} ${sub.done}/${sub.total}`}
           sx={adoption.status === 'closed'
             ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700 }
-            : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
+            : sub.all
+              ? { bgcolor: '#e0f2fe', color: '#075985', fontWeight: 700 }
+              : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
         />
         <ChevronRightIcon sx={{ color: '#cbd5e1' }} />
       </Box>
@@ -311,7 +330,7 @@ export default function TextbookHome() {
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
                 {adoptions.map((a) => (
-                  <AdoptionCard key={a.id} adoption={a} nameOf={nameOf} onClick={() => navigate(`/textbook/${a.id}`)} onRelease={handleRelease} />
+                  <AdoptionCard key={a.id} adoption={a} myUid={user?.uid} nameOf={nameOf} onClick={() => navigate(`/textbook/${a.id}`)} onRelease={handleRelease} />
                 ))}
               </Box>
             )}

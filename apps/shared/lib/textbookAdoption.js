@@ -82,9 +82,9 @@ const deptHeadsCol = (schoolId) => collection(db, ...schoolPath(schoolId, COL.TE
 const deptHeadDoc = (schoolId, subjectGroup) => doc(db, ...schoolPath(schoolId, COL.TEXTBOOK_DEPT_HEADS), sanitizeSubjectGroup(subjectGroup))
 
 /**
- * 과목 대표교사는 반드시 그 과목의 위원이기도 하다(2026-10-01 정책 — 대표교사가 채점 없이
- * 진행만 관리하던 V1.1 방식을 폐기). 위원 명단을 저장하는 모든 경로가 이 함수를 거쳐
- * 대표교사를 빠뜨리지 않게 한다. firestore.rules도 같은 불변식을 강제한다.
+ * 과목 대표교사를 위원 명단에 넣는다(이미 있으면 그대로). 대표교사는 **기본적으로** 위원을
+ * 겸하므로 선정 건을 새로 만들 때와 자원(claim)할 때 자동으로 넣는다. 다만 대표교사가
+ * 채점에서 빠지는 경우도 있어(2026-10-01 정책 완화) 그 뒤 위원 편집에서 빼는 것은 막지 않는다.
  */
 export function withHeadInCommittee(committeeUids, subjectHeadUid) {
   const uids = committeeUids || []
@@ -213,7 +213,7 @@ export async function updateAdoptionSetup(schoolId, adoptionId, data) {
     cycleYear: data.cycleYear,
     candidates: data.candidates,
     rubric: data.rubric,
-    committeeUids: withHeadInCommittee(data.committeeUids, data.subjectHeadUid),
+    committeeUids: data.committeeUids || [],
     externalMembers: data.externalMembers || [],
     externalMemberIds: (data.externalMembers || []).map((m) => m.id),
     subjectHeadUid: data.subjectHeadUid || '',
@@ -233,13 +233,9 @@ export async function deleteAdoption(schoolId, adoptionId) {
  * 나중에 마감할 때 그 점수가 계속 집계에 들어가 버린다. 그래서 명단에서 빠지는 사람의
  * 점수 문서를 함께 지운다(제출 여부와 무관하게 — 초안만 있던 경우도 정리).
  */
-export async function updateCommittee(schoolId, adoptionId, nextCommitteeUids, removedUids, subjectHeadUid) {
-  const removed = (removedUids || []).filter((uid) => uid !== subjectHeadUid)
-  await Promise.all(removed.map((uid) => deleteDoc(scoreDoc(schoolId, adoptionId, uid))))
-  await setDoc(adoptionDoc(schoolId, adoptionId), {
-    committeeUids: withHeadInCommittee(nextCommitteeUids, subjectHeadUid),
-    updatedAt: serverTimestamp(),
-  }, { merge: true })
+export async function updateCommittee(schoolId, adoptionId, nextCommitteeUids, removedUids) {
+  await Promise.all((removedUids || []).map((uid) => deleteDoc(scoreDoc(schoolId, adoptionId, uid))))
+  await setDoc(adoptionDoc(schoolId, adoptionId), { committeeUids: nextCommitteeUids, updatedAt: serverTimestamp() }, { merge: true })
 }
 
 /**
@@ -441,9 +437,13 @@ export async function attachProgress(schoolId, adoptions) {
   return Promise.all(adoptions.map(async (a) => {
     try {
       const scores = await loadAllScores(schoolId, a.id)
-      return { ...a, submittedCount: scores.filter((s) => s.submittedAt).length }
+      // 전체 현황 화면이 "누가 아직 안 냈는지"까지 보여주므로 제출/임시저장 id도 함께 붙인다
+      // (scores 문서 ID = 위원 uid 또는 외부 위원 id).
+      const submittedIds = scores.filter((s) => s.submittedAt).map((s) => s.uid)
+      const draftIds = scores.filter((s) => !s.submittedAt).map((s) => s.uid)
+      return { ...a, submittedCount: submittedIds.length, submittedIds, draftIds }
     } catch {
-      return { ...a, submittedCount: null }
+      return { ...a, submittedCount: null, submittedIds: null, draftIds: null }
     }
   }))
 }

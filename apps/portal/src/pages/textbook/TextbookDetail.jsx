@@ -38,7 +38,7 @@ import { USERS } from '@shared/lib/schema'
 import {
   subscribeAdoption, subscribeScores, subscribeMyScore, subscribeDeptHead,
   closeAndAggregate, reopenAdoption, saveRecommendation, saveSummarySignoff, saveExternalScore,
-  updateCommittee, updateRubric, rubricMax, withHeadInCommittee, loadPrincipalName, STATUS_LABELS,
+  updateCommittee, updateRubric, rubricMax, loadPrincipalName, STATUS_LABELS,
   OPINION_EXAMPLES, RECOMMENDATION_CLOSINGS,
 } from '@shared/lib/textbookAdoption'
 import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
@@ -290,7 +290,7 @@ export default function TextbookDetail() {
   )
 
   const openEditCommittee = () => {
-    setCommitteeDraft(withHeadInCommittee(adoption.committeeUids, adoption.subjectHeadUid).map((uid) => (
+    setCommitteeDraft((adoption.committeeUids || []).map((uid) => (
       staffList.find((s) => s.uid === uid) || { uid, name: staffByUid[uid] || uid }
     )))
     setEditingCommittee(true)
@@ -308,7 +308,7 @@ export default function TextbookDetail() {
     }
     setSavingCommittee(true)
     try {
-      await updateCommittee(schoolId, adoptionId, nextUids, removedUids, adoption.subjectHeadUid)
+      await updateCommittee(schoolId, adoptionId, nextUids, removedUids)
       setEditingCommittee(false)
       setSnack('위원 명단을 저장했습니다.')
     } catch (e) {
@@ -345,11 +345,22 @@ export default function TextbookDetail() {
             </Box>
           </Box>
         </Box>
-        <Chip
-          size="small"
-          label={STATUS_LABELS[adoption.status] || adoption.status}
-          sx={adoption.status === 'closed' ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700 } : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* 마감 상태 바로 옆에서 되돌릴 수 있게(아래 '집계 결과' 머리줄의 같은 버튼과 동일 동작) */}
+          {adoption.status === 'closed' && canManage && (
+            <Button
+              size="small" variant="outlined" startIcon={<LockOpenIcon sx={{ fontSize: 16 }} />} onClick={handleReopen}
+              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#cbd5e1', color: '#475569' }}
+            >
+              마감 취소 (채점 다시 열기)
+            </Button>
+          )}
+          <Chip
+            size="small"
+            label={STATUS_LABELS[adoption.status] || adoption.status}
+            sx={adoption.status === 'closed' ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700 } : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
+          />
+        </Box>
       </Box>
 
       {error && <Alert severity="error" sx={{ mt: 2, borderRadius: '10px' }}>{error}</Alert>}
@@ -500,20 +511,14 @@ export default function TextbookDetail() {
                     getOptionLabel={(o) => o.name || o.email || ''}
                     isOptionEqualToValue={(a, b) => a.uid === b.uid}
                     value={committeeDraft}
-                    // 과목 대표교사는 위원을 겸하므로 명단에서 뺄 수 없다(칩 삭제·전체 지우기 모두 막음).
-                    onChange={(_, value) => setCommitteeDraft(
-                      adoption.subjectHeadUid && !value.some((s) => s.uid === adoption.subjectHeadUid)
-                        ? [...committeeDraft.filter((s) => s.uid === adoption.subjectHeadUid), ...value]
-                        : value,
-                    )}
+                    onChange={(_, value) => setCommitteeDraft(value)}
+                    // 대표교사는 기본으로 위원을 겸하지만 채점에서 빠질 수도 있어 칩을 지울 수 있다.
                     renderTags={(value, getTagProps) => value.map((option, index) => {
                       const { key, ...tagProps } = getTagProps({ index })
-                      const isHeadTag = option.uid === adoption.subjectHeadUid
                       return (
                         <Chip
                           key={key} size="small" {...tagProps}
-                          label={isHeadTag ? `${option.name} (대표교사)` : option.name}
-                          onDelete={isHeadTag ? undefined : tagProps.onDelete}
+                          label={option.uid === adoption.subjectHeadUid ? `${option.name} (대표교사)` : option.name}
                         />
                       )
                     })}

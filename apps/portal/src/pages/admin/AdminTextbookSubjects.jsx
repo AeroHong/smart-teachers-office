@@ -561,9 +561,9 @@ export default function AdminTextbookSubjects() {
             <Button size="small" startIcon={<AddIcon />} onClick={addExternalMember} sx={{ alignSelf: 'flex-start' }}>외부 위원 추가</Button>
           </Box>
 
-          {/* 과목 대표교사 = 이 선정 건의 채점 마감·집계 운영 담당자이자 위원(2026-10-01부터
-              위원 겸임 필수). 전체 교직원(staff) 중에서 고르면 위원 명단에도 자동으로 들어가고,
-              저장 시에도 withHeadInCommittee가 한 번 더 보장한다. 교과군 전체를
+          {/* 과목 대표교사 = 이 선정 건의 채점 마감·집계 운영 담당자. 전체 교직원(staff) 중에서
+              고르면 위원 명단에도 자동으로 들어간다(기본 겸임). 채점에서 빠지는 경우 위원 칸에서
+              빼면 그대로 저장된다(2026-10-01 정책 완화). 교과군 전체를
               관장하는 "교과부장"(서식2 확인자·서식3 작성자)과는 다른 역할이며, 교과부장은
               관리자 홈 &gt; 교과부장 지정에서 별도로 지정한다. */}
           <Autocomplete
@@ -579,7 +579,7 @@ export default function AdminTextbookSubjects() {
               const committee = head && !f.committee.some((s) => s.uid === head.uid) ? [...f.committee, head] : f.committee
               return { ...f, subjectHeadUid: head?.uid || '', committee }
             })}
-            renderInput={(params) => <TextField {...params} label="과목 대표교사 (채점 마감·집계 권한, 위원으로 자동 포함)" />}
+            renderInput={(params) => <TextField {...params} label="과목 대표교사 (채점 마감·집계 권한, 위원에 자동 추가 — 빼기 가능)" />}
           />
         </DialogContent>
         <DialogActions>

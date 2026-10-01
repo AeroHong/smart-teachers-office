@@ -65,6 +65,10 @@ exports.syncRequestToCalendar = requestCalendarSync.syncRequestToCalendar
 const publicCanvasSync = require('./publicCanvasSync')
 exports.syncPublicCanvas = publicCanvasSync.syncPublicCanvas
 
+// 검·인정도서 선정 — 위원 제출 현황(점수 제외, 제출자 id만)을 선정 건 문서에 요약
+const textbookScoreSync = require('./textbookScoreSync')
+exports.syncTextbookSubmitted = textbookScoreSync.syncTextbookSubmitted
+
 // 이메일 발송(교사 → 학생) — emailJobs 문서가 'queued'로 (즉시든 예약 승격이든) 바뀌면
 // Gmail API로 실제 발송, 매분 예약 발송 예정 시각 도래 여부 확인
 const emailSend = require('./emailSend')
