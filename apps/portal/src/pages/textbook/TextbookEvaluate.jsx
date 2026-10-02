@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -17,6 +17,7 @@ import { ACCENT, ACCENT_BG } from './TextbookSection'
 export default function TextbookEvaluate() {
   const { adoptionId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation() // 상세로 돌아갈 때 들어온 곳(전체 현황 여부)을 유지
   const { user, userName, schoolId, isAdmin } = useAuth()
 
   const [adoption, setAdoption] = useState(null)
@@ -126,7 +127,7 @@ export default function TextbookEvaluate() {
       />
 
       <Button
-        size="small" onClick={() => navigate(`/textbook/${adoptionId}`)}
+        size="small" onClick={() => navigate(`/textbook/${adoptionId}`, { state: location.state })}
         sx={{ mt: 2, textTransform: 'none', color: '#64748b' }}
       >
         ← 상세로 돌아가기

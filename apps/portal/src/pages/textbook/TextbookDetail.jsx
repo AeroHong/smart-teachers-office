@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -84,6 +84,10 @@ function RecommendationExamples({ rank, onPick }) {
 export default function TextbookDetail() {
   const { adoptionId } = useParams()
   const navigate = useNavigate()
+  // 전체 현황에서 들어오면 목록 버튼이 전체 현황으로 돌아가야 한다(내 선정 건과 구분, 2026-10-02).
+  // 채점 화면을 다녀와도 유지되도록 evaluate로 갈 때도 같은 state를 넘긴다.
+  const location = useLocation()
+  const backTo = location.state?.from === '/textbook/all' ? '/textbook/all' : '/textbook'
   const { user, userName, schoolId, isAdmin } = useAuth()
 
   const [adoption, setAdoption] = useState(null)
@@ -492,7 +496,7 @@ export default function TextbookDetail() {
           title="채점"
           right={isCommittee && (
             <Button
-              variant="contained" size="small" startIcon={<EditNoteIcon />} onClick={() => navigate(`/textbook/${adoptionId}/evaluate`)}
+              variant="contained" size="small" startIcon={<EditNoteIcon />} onClick={() => navigate(`/textbook/${adoptionId}/evaluate`, { state: location.state })}
               sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
             >
               채점하기
@@ -760,8 +764,8 @@ export default function TextbookDetail() {
         />
       )}
 
-      <Button size="small" onClick={() => navigate('/textbook')} sx={{ mt: 1, textTransform: 'none', color: '#64748b' }}>
-        ← 목록으로
+      <Button size="small" onClick={() => navigate(backTo)} sx={{ mt: 1, textTransform: 'none', color: '#64748b' }}>
+        {backTo === '/textbook/all' ? '← 전체 현황으로' : '← 내 선정 건으로'}
       </Button>
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>

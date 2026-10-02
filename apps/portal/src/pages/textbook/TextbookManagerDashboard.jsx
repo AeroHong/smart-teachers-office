@@ -90,6 +90,10 @@ const CARD_FILTERS = {
 }
 
 const UNASSIGNED = '__unassigned__'
+const FILTER_KEY = 'textbookDashboardFilters'
+function readSavedFilters() {
+  try { return JSON.parse(sessionStorage.getItem(FILTER_KEY) || '{}') || {} } catch { return {} }
+}
 const groupLabel = (key) => (key === UNASSIGNED ? '교과군 미지정' : SUBJECT_GROUPS.find((g) => sanitizeSubjectGroup(g) === key) || key.replace(/_/g, '/'))
 const groupOrder = (key) => {
   if (key === UNASSIGNED) return SUBJECT_GROUPS.length + 1
@@ -136,9 +140,14 @@ export default function TextbookManagerDashboard() {
   const [printing, setPrinting] = useState(false)
   const [staffByUid, setStaffByUid] = useState({})
   const [deptHeads, setDeptHeads] = useState({}) // subjectGroup → 교과부장 이름
-  const [cardFilter, setCardFilter] = useState('all')
-  const [groupFilter, setGroupFilter] = useState('all')
-  const [search, setSearch] = useState('')
+  // 과목 상세에 다녀와도 걸어 둔 필터가 남도록 세션 동안 기억한다(저장소 접근 실패는 무시).
+  const saved = readSavedFilters()
+  const [cardFilter, setCardFilter] = useState(CARD_FILTERS[saved.cardFilter] ? saved.cardFilter : 'all')
+  const [groupFilter, setGroupFilter] = useState(saved.groupFilter || 'all')
+  const [search, setSearch] = useState(saved.search || '')
+  useEffect(() => {
+    try { sessionStorage.setItem(FILTER_KEY, JSON.stringify({ cardFilter, groupFilter, search })) } catch { /* 무시 */ }
+  }, [cardFilter, groupFilter, search])
   const [collapsed, setCollapsed] = useState(new Set())
   const [reloadKey, setReloadKey] = useState(0)
   const { toggle, sortData, Ind } = useTableSort('subjectName')
@@ -419,7 +428,7 @@ export default function TextbookManagerDashboard() {
                             <TableCell padding="checkbox">
                               <Checkbox size="small" checked={selected.has(r.id)} disabled={!r.recommendation} onChange={() => toggleSelect(r.id)} />
                             </TableCell>
-                            <TableCell sx={{ fontWeight: 700, color: '#1e293b', cursor: 'pointer', whiteSpace: 'nowrap', '&:hover': { color: ACCENT } }} onClick={() => navigate(`/textbook/${r.id}`)}>
+                            <TableCell sx={{ fontWeight: 700, color: '#1e293b', cursor: 'pointer', whiteSpace: 'nowrap', '&:hover': { color: ACCENT } }} onClick={() => navigate(`/textbook/${r.id}`, { state: { from: '/textbook/all' } })}>
                               {r.subjectName}
                               <Typography sx={smallSx}>후보 {r.candidates?.length || 0}개</Typography>
                             </TableCell>
