@@ -15,14 +15,20 @@ import DialogActions from '@mui/material/DialogActions'
 import Typography from '@mui/material/Typography'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import { rankedCandidates } from '@shared/lib/textbookAdoption'
-import { buildCommitteeReportHtml, fmtPrice } from './textbookPrint'
-import { FormPreview, OutputButtons } from './TextbookFormsPanel'
+import { buildCommitteeReportHtml } from './textbookPrint'
+import { downloadReportHwpx } from './hwpxReport'
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
+import { FormPreview, OutputButtons, PORTRAIT_WIDTH_PX } from './TextbookFormsPanel'
 
 export const SINGLE_BOOK_NOTE = '1책 1도서로 해당 도서를 선정함'
 
 /** 선정 건 목록(이미 교과군·과목 순으로 정렬된 것) → 보고서 행. */
 export function buildReportRows(adoptions, groupLabel) {
   return adoptions.map((a) => {
+    // 미마감 건은 순위를 싣지 않는다(다시 열린 건에 남은 옛 집계가 섞이지 않게) — 확인용 미리보기에서만 생긴다.
+    if (a.status !== 'closed') {
+      return { group: groupLabel(a.subjectGroup || '__unassigned__'), subject: a.subjectName, ranks: [null, null, null], note: '선정 진행 중(미마감)' }
+    }
     const ranked = rankedCandidates(a).slice(0, 3)
     const ranks = [0, 1, 2].map((k) => {
       const r = ranked[k]
@@ -43,13 +49,12 @@ async function downloadXlsx(rows, title) {
       const n = idx + 1
       row[`${n}순위 출판사`] = k ? `${k.publisher}${k.tied ? '(공동)' : ''}` : ''
       row[`${n}순위 저자`] = k?.author || ''
-      row[`${n}순위 가격`] = k ? fmtPrice(k.price) : ''
     })
     row.비고 = r.note
     return row
   })
   const ws = XLSX.utils.json_to_sheet(sheetRows)
-  ws['!cols'] = [{ wch: 5 }, { wch: 14 }, { wch: 22 }, ...Array(3).fill([{ wch: 16 }, { wch: 16 }, { wch: 10 }]).flat(), { wch: 26 }]
+  ws['!cols'] = [{ wch: 5 }, { wch: 14 }, { wch: 22 }, ...Array(3).fill([{ wch: 18 }, { wch: 18 }]).flat(), { wch: 26 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '선정결과')
   XLSX.writeFile(wb, `${title.replace(/[\\/:*?"<>|]/g, '_')}.xlsx`)
@@ -57,8 +62,11 @@ async function downloadXlsx(rows, title) {
 
 export default function TextbookCommitteeReport({ open, onClose, adoptions, groupLabel, onError }) {
   const [xlsxBusy, setXlsxBusy] = useState(false)
+  const [hwpxBusy, setHwpxBusy] = useState(false)
   const year = Math.max(...adoptions.map((a) => Number(a.cycleYear) || 0), 0)
-  const title = `${year ? `${year}학년도 ` : ''}검·인정 교과용도서 선정 결과`
+  // 전 과목 마감 전 확인용으로 열었을 때는 제목에 표시해 실제 제출본과 헷갈리지 않게 한다.
+  const preview = adoptions.some((a) => a.status !== 'closed')
+  const title = `${year ? `${year}학년도 ` : ''}검·인정 교과용도서 선정 결과${preview ? ' [확인용 — 미마감 과목 포함]' : ''}`
   const rows = useMemo(() => buildReportRows(adoptions, groupLabel), [adoptions, groupLabel])
   const singleN = rows.filter((r) => r.note === SINGLE_BOOK_NOTE).length
   const summary = `총 ${rows.length}과목 (교원 의견수렴 ${rows.length - singleN}과목 · 1책 1도서 ${singleN}과목)`
@@ -75,6 +83,17 @@ export default function TextbookCommitteeReport({ open, onClose, adoptions, grou
     }
   }
 
+  const handleHwpx = async () => {
+    setHwpxBusy(true)
+    try {
+      await downloadReportHwpx({ title, summary, rows })
+    } catch (e) {
+      onError?.(`한글 파일 생성 실패: ${e.message}`)
+    } finally {
+      setHwpxBusy(false)
+    }
+  }
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ pb: 1 }}>
@@ -84,6 +103,12 @@ export default function TextbookCommitteeReport({ open, onClose, adoptions, grou
       <DialogContent>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
           <Button
+            size="small" variant="outlined" startIcon={<DescriptionOutlinedIcon />} disabled={hwpxBusy} onClick={handleHwpx}
+            sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#cbd5e1', color: '#334155' }}
+          >
+            {hwpxBusy ? '한글 파일 만드는 중...' : '한글(hwpx) 다운로드'}
+          </Button>
+          <Button
             size="small" variant="outlined" startIcon={<TableChartOutlinedIcon />} disabled={xlsxBusy} onClick={handleXlsx}
             sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, borderColor: '#cbd5e1', color: '#334155' }}
           >
@@ -91,7 +116,9 @@ export default function TextbookCommitteeReport({ open, onClose, adoptions, grou
           </Button>
           <OutputButtons title={title} sheetsHtml={html} onError={onError} />
         </Box>
-        <FormPreview sheetsHtml={html} />
+        <Box sx={{ maxWidth: 760, mx: 'auto' }}>
+          <FormPreview sheetsHtml={html} paperWidth={PORTRAIT_WIDTH_PX} />
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>닫기</Button>

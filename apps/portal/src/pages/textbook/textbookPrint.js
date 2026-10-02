@@ -234,29 +234,30 @@ export function buildRecommendationHtml(adoption, deptHeadName, principalName) {
  * 한 장에 REPORT_ROWS_PER_PAGE행씩 나눠 가로 A4 여러 장으로 만들고 머리글을 장마다 되풀이한다
  * (FIT_SCRIPT가 장마다 넘치면 줄이므로 행이 길어도 한 장을 넘지 않는다).
  */
-const REPORT_ROWS_PER_PAGE = 12
+const REPORT_ROWS_PER_PAGE = 18 // 세로 A4 한 장 기준(2026-10-02 세로형으로 변경)
 
 export function buildCommitteeReportHtml({ title, summary, rows }) {
   const pages = []
   for (let i = 0; i < Math.max(rows.length, 1); i += REPORT_ROWS_PER_PAGE) pages.push(rows.slice(i, i + REPORT_ROWS_PER_PAGE))
+  // 순위 칸은 출판사(굵게)와 저자만 — 가격은 학운위 자료에서 뺀다(2026-10-02 사용자 요청).
   const rankCell = (r) => (r
-    ? `<td class="left"><strong>${esc(r.publisher)}</strong>${r.tied ? ' <span style="font-size:8pt">(공동)</span>' : ''}<span class="sub">${[r.author, fmtPrice(r.price)].filter(Boolean).map(esc).join(' · ')}</span></td>`
+    ? `<td class="left" style="font-size:9pt"><strong>${esc(r.publisher)}</strong>${r.tied ? ' <span style="font-size:7.5pt">(공동)</span>' : ''}${r.author ? `<span class="sub">${esc(r.author)}</span>` : ''}</td>`
     : '<td style="color:#888">-</td>')
   return pages.map((pageRows, pi) => `
-<div class="sheet landscape">
+<div class="sheet portrait">
   ${pi === 0 ? `<h1>${esc(title)}</h1>
-  <div style="display:flex;justify-content:space-between;font-size:9.5pt;margin-bottom:3mm"><span>${esc(summary)}</span></div>` : `<div style="font-size:9pt;font-weight:700;margin-bottom:3mm">${esc(title)} (계속)</div>`}
+  <div style="font-size:9.5pt;margin-bottom:3mm">${esc(summary)}</div>` : `<div style="font-size:9pt;font-weight:700;margin-bottom:3mm">${esc(title)} (계속)</div>`}
   <table class="grid">
     <thead><tr>
-      <th style="width:11mm">연번</th><th style="width:28mm">교과군</th><th style="width:42mm">과목</th>
-      <th>1순위</th><th>2순위</th><th>3순위</th><th style="width:48mm">비고</th>
+      <th style="width:9mm">연번</th><th style="width:19mm">교과군</th><th style="width:28mm">과목</th>
+      <th>1순위</th><th>2순위</th><th>3순위</th><th style="width:26mm">비고</th>
     </tr></thead>
     <tbody>${pageRows.map((row, ri) => `<tr>
       <td class="num">${pi * REPORT_ROWS_PER_PAGE + ri + 1}</td>
-      <td>${esc(row.group)}</td>
-      <th class="left">${esc(row.subject)}</th>
+      <td style="font-size:8.5pt">${esc(row.group)}</td>
+      <th class="left" style="font-size:9pt">${esc(row.subject)}</th>
       ${[0, 1, 2].map((k) => rankCell(row.ranks[k])).join('')}
-      <td class="left" style="font-size:8.5pt">${esc(row.note || '')}</td>
+      <td class="left" style="font-size:8pt">${esc(row.note || '')}</td>
     </tr>`).join('')}</tbody>
   </table>
   <div style="text-align:center;font-size:8.5pt;margin-top:3mm">- ${pi + 1} / ${pages.length} -</div>

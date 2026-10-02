@@ -96,6 +96,8 @@ const CARD_FILTERS = {
 }
 
 const UNASSIGNED = '__unassigned__'
+// 임시: 학운위 제출 자료를 전 과목 마감 전에도 확인용으로 열 수 있게 한다(확인 후 false로).
+const REPORT_PREVIEW_UNLOCKED = true
 const FILTER_KEY = 'textbookDashboardFilters'
 function readSavedFilters() {
   try { return JSON.parse(sessionStorage.getItem(FILTER_KEY) || '{}') || {} } catch { return {} }
@@ -326,11 +328,13 @@ export default function TextbookManagerDashboard() {
         <Box sx={{ display: 'flex', gap: 1 }}>
           {/* 학운위 제출 자료 — 업무 담당자(관리자) 전용, 모든 선정 건이 마감(1책 1도서는 확정)된 뒤에만 */}
           {isAdmin && (
-            <Tooltip title={allClosed ? '' : `모든 과목이 마감되어야 만들 수 있습니다 (마감 ${closedTotal}/${rows.length})`}>
+            <Tooltip title={allClosed ? '' : `확인용 미리보기 — 마감 ${closedTotal}/${rows.length}, 미마감 과목은 '선정 진행 중'으로 표시`}>
               <span>
                 <Button
                   variant="contained" size="small" startIcon={<GavelIcon />}
-                  disabled={!allClosed} onClick={() => setReportOpen(true)}
+                  // 임시(2026-10-02): 형식 확인을 위해 전 과목 마감 전에도 연다(제목에 '확인용' 표시).
+                  // 확인이 끝나면 disabled={!allClosed}로 되돌린다 — REPORT_PREVIEW_UNLOCKED.
+                  disabled={!allClosed && !REPORT_PREVIEW_UNLOCKED} onClick={() => setReportOpen(true)}
                   sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
                 >
                   학운위 제출 자료
