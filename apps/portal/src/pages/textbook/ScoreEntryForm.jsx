@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Box from '@mui/material/Box'
+import Alert from '@mui/material/Alert'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
@@ -34,7 +35,7 @@ function toEditState(byCandidate, candidates) {
  * 이후 편집 중에는 다시 덮어쓰지 않는다.
  */
 export default function ScoreEntryForm({
-  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint, onPdf, isSubmitted,
+  adoption, ready, initialByCandidate, initialOpinion, canEdit, saving, onSave, onPrint, onPdf, isSubmitted, staleNotice,
 }) {
   const [mode, setMode] = useState('quick')
   const [edits, setEdits] = useState({})
@@ -75,7 +76,18 @@ export default function ScoreEntryForm({
     return byCandidate
   }
 
-  const handleSave = (submit) => onSave(buildByCandidate(), opinion, submit)
+  const handleSave = (submit) => {
+    // 제출 확정은 모든 후보에 점수를 넣었을 때만(0점도 직접 입력하면 됨). 진행 중 후보가 추가되면
+    // 새 후보 칸이 비어 있는 채로 제출되는 것을 막는다(2026-10-02).
+    if (submit) {
+      const empty = candidates.filter((c) => !Object.keys(edits[c.id] || {}).length)
+      if (empty.length) {
+        alert(`점수를 입력하지 않은 후보가 있습니다.\n${empty.map((c) => c.publisher).join(', ')}\n\n점수를 입력한 뒤 제출해 주세요(0점도 직접 입력).`)
+        return
+      }
+    }
+    onSave(buildByCandidate(), opinion, submit)
+  }
 
   const appendOpinionPhrase = (phrase) => {
     setOpinion((prev) => (prev ? `${prev}\nㅇ ${phrase}` : `ㅇ ${phrase}`))
@@ -83,6 +95,12 @@ export default function ScoreEntryForm({
 
   return (
     <Box>
+      {staleNotice && canEdit && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: '10px' }}>
+          제출한 뒤 <strong>새 후보 교과서가 추가</strong>되었습니다. 새 후보 점수를 입력하고 <strong>다시 제출 확정</strong>해 주세요.
+          그 전까지는 미제출로 표시되고 마감할 수 없습니다.
+        </Alert>
+      )}
       <TextbookSection
         title="입력 방식"
         right={

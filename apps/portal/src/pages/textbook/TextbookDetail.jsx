@@ -39,6 +39,7 @@ import {
   subscribeAdoption, subscribeScores, subscribeMyScore, subscribeDeptHead,
   closeAndAggregate, reopenAdoption, saveRecommendation, saveSummarySignoff, saveExternalScore,
   updateCommittee, updateRubric, rubricMax, loadPrincipalName, STATUS_LABELS,
+  isCompleteSubmission, isStaleSubmission,
   OPINION_EXAMPLES, RECOMMENDATION_CLOSINGS,
 } from '@shared/lib/textbookAdoption'
 import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
@@ -161,8 +162,12 @@ export default function TextbookDetail() {
     ...(adoption?.committeeUids || []).filter((u) => u !== adoption?.subjectHeadUid),
   ].map((uid) => ({ key: uid, name: staffByUid[uid] || uid }))
     .concat(externalMembers.map((m) => ({ key: m.id, name: `${m.name}(외부)` })))
+  // 제출 판정은 "현재 후보 전부 채점 + 제출 확정"(isCompleteSubmission). 진행 중 후보가 추가되면
+  // 이미 제출한 위원도 재채점 전까지 미제출로 본다.
+  const done = (s) => isCompleteSubmission(s, adoption?.candidates)
+  const stale = (s) => isStaleSubmission(s, adoption?.candidates)
   const unsubmittedNames = memberList
-    .filter((m) => !scores.find((s) => s.uid === m.key)?.submittedAt)
+    .filter((m) => !done(scores.find((s) => s.uid === m.key)))
     .map((m) => m.name)
   // 마감 가능 판정은 rules와 똑같이 서버 트리거가 적어 둔 submittedUids로 한다(점수 화면 반영보다
   // 1~2초 늦을 수 있어, 화면 점수 기준으로 열어 두면 눌렀을 때 규칙에 막힌다).
@@ -208,7 +213,7 @@ export default function TextbookDetail() {
     return map
   }, [adoption])
 
-  const submittedCount = scores.filter((s) => s.submittedAt).length
+  const submittedCount = scores.filter(done).length
   // 관리자는 언제든 고칠 수 있고(AdminTextbookSubjects와 동일), 과목 대표교사·교과부장은
   // 아무도 채점을 제출하지 않았을 때만 고칠 수 있다 — 이미 제출된 점수는 항목명 기준으로
   // 저장돼 있어 rubric을 바꾸면 되살릴 방법이 없기 때문(updateRubric 주석 참고).
@@ -505,7 +510,7 @@ export default function TextbookDetail() {
         >
           {isCommittee && (
             <Typography sx={{ fontSize: '0.82rem', color: '#64748b', mb: canManage ? 2 : 0 }}>
-              {myScore?.submittedAt ? '제출을 완료했습니다.' : myScore ? '임시저장된 채점이 있습니다.' : '아직 채점하지 않았습니다.'}
+              {done(myScore) ? '제출을 완료했습니다.' : stale(myScore) ? '새 후보가 추가되어 다시 채점 후 제출해야 합니다.' : myScore ? '임시저장된 채점이 있습니다.' : '아직 채점하지 않았습니다.'}
             </Typography>
           )}
           {canManage && (
@@ -563,9 +568,10 @@ export default function TextbookDetail() {
                     return (
                       <Chip
                         key={uid} size="small"
-                        label={s?.teacherName || staffByUid[uid] || uid}
-                        sx={s?.submittedAt
+                        label={`${s?.teacherName || staffByUid[uid] || uid}${stale(s) ? ' · 재채점 필요' : ''}`}
+                        sx={done(s)
                           ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700 }
+                          : stale(s) ? { bgcolor: '#ffedd5', color: '#9a3412', fontWeight: 700 }
                           : s
                             ? { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }
                             : { bgcolor: '#f1f5f9', color: '#94a3b8', fontWeight: 600 }}
@@ -579,9 +585,10 @@ export default function TextbookDetail() {
                         key={m.id} size="small"
                         icon={<HowToRegIcon sx={{ fontSize: '1rem !important' }} />}
                         onClick={() => setProxyTarget(m)}
-                        label={`${m.name} (외부)`}
-                        sx={s?.submittedAt
+                        label={`${m.name} (외부)${stale(s) ? ' · 재채점 필요' : ''}`}
+                        sx={done(s)
                           ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700, cursor: 'pointer' }
+                          : stale(s) ? { ...{ bgcolor: '#ffedd5', color: '#9a3412', fontWeight: 700 }, cursor: 'pointer' }
                           : s
                             ? { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700, cursor: 'pointer' }
                             : { bgcolor: '#f1f5f9', color: '#94a3b8', fontWeight: 600, cursor: 'pointer' }}
@@ -665,8 +672,8 @@ export default function TextbookDetail() {
                       {canManage && memberList.map((m) => {
                         const s = scores.find((sc) => sc.uid === m.key)
                         return (
-                          <TableCell key={m.key} align="center" sx={s?.submittedAt ? undefined : { color: '#94a3b8', fontSize: '0.74rem' }}>
-                            {s?.submittedAt ? (s.byCandidate?.[id]?.total ?? '-') : '미제출'}
+                          <TableCell key={m.key} align="center" sx={done(s) ? undefined : { color: '#94a3b8', fontSize: '0.74rem' }}>
+                            {done(s) ? (s.byCandidate?.[id]?.total ?? '-') : '미제출'}
                           </TableCell>
                         )
                       })}
@@ -803,7 +810,8 @@ export default function TextbookDetail() {
               initialByCandidate={proxyScore?.byCandidate}
               initialOpinion={proxyScore?.opinion}
               canEdit={adoption.status === 'collecting'}
-              isSubmitted={!!proxyScore?.submittedAt}
+              isSubmitted={done(proxyScore)}
+              staleNotice={stale(proxyScore)}
               saving={proxySaving}
               onSave={handleSaveExternalScore}
               onPrint={proxyScore ? handlePrintExternalScore : undefined}

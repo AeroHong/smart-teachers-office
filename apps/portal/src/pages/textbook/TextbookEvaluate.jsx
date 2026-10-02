@@ -8,7 +8,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Snackbar from '@mui/material/Snackbar'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { subscribeAdoption, subscribeMyScore, saveScore, rubricMax, STATUS_LABELS } from '@shared/lib/textbookAdoption'
+import { subscribeAdoption, subscribeMyScore, saveScore, rubricMax, STATUS_LABELS, isCompleteSubmission, isStaleSubmission } from '@shared/lib/textbookAdoption'
 import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
 import Layout from '../../components/Layout'
 import ScoreEntryForm from './ScoreEntryForm'
@@ -107,7 +107,7 @@ export default function TextbookEvaluate() {
           채점이 마감되어 더 이상 수정할 수 없습니다. <a href={`/textbook/${adoptionId}`}>집계 결과 보기</a>
         </Alert>
       )}
-      {myScore?.submittedAt && adoption.status === 'collecting' && (
+      {isCompleteSubmission(myScore, adoption.candidates) && adoption.status === 'collecting' && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: '10px' }}>
           이미 제출을 완료했습니다. 마감 전까지는 계속 수정할 수 있습니다.
         </Alert>
@@ -119,7 +119,8 @@ export default function TextbookEvaluate() {
         initialByCandidate={myScore?.byCandidate}
         initialOpinion={myScore?.opinion}
         canEdit={canEdit}
-        isSubmitted={!!myScore?.submittedAt}
+        isSubmitted={isCompleteSubmission(myScore, adoption.candidates)}
+        staleNotice={isStaleSubmission(myScore, adoption.candidates)}
         saving={saving}
         onSave={handleSave}
         onPrint={myScore ? handlePrint : undefined}

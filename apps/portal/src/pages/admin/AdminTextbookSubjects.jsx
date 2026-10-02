@@ -321,6 +321,20 @@ export default function AdminTextbookSubjects() {
     form.rubric.every((r) => r.name.trim() && Number(r.maxScore) > 0)
 
   const handleSave = async () => {
+    // 진행 중인 건의 후보를 추가·삭제하면 제출 현황·집계가 달라진다 — 저장 전에 영향을 알린다(2026-10-02).
+    if (editTarget) {
+      const ids = (list) => (list || []).map((c) => c.id).sort().join('|')
+      const added = form.candidates.filter((c) => !(editTarget.candidates || []).some((o) => o.id === c.id))
+      if (ids(form.candidates) !== ids(editTarget.candidates)) {
+        const warnings = []
+        if (editTarget.status === 'closed') {
+          warnings.push('이미 마감된 선정 건입니다. 집계·1순위·서식2·3은 바뀌지 않으며, "다시 채점 열기" 후 다시 마감해야 반영됩니다.')
+        } else if (added.length && editTarget.submittedCount > 0) {
+          warnings.push(`후보 ${added.length}개가 추가됩니다. 이미 제출한 위원 ${editTarget.submittedCount}명은 새 후보를 채점해 다시 제출하기 전까지 미제출로 바뀌고, 그동안 마감할 수 없습니다.`)
+        }
+        if (warnings.length && !window.confirm(`${warnings.join('\n\n')}\n\n저장할까요?`)) return
+      }
+    }
     setSaving(true)
     setError('')
     try {

@@ -12,6 +12,7 @@ import {
   buildScoreSheetHtml, buildSummaryHtml, buildRecommendationHtml,
   wrapFormsDocument, printForms, downloadFormsPdf,
 } from './textbookPrint'
+import { isCompleteSubmission } from '@shared/lib/textbookAdoption'
 import TextbookSection, { ACCENT, ACCENT_BG } from './TextbookSection'
 
 const SHEET_WIDTH_PX = 1123 // A4 가로 297mm @96dpi — 미리보기 축소 비율 계산용
@@ -110,14 +111,14 @@ export default function TextbookFormsPanel({
     if (canManage) {
       return members.map((m) => {
         const s = scores.find((sc) => sc.uid === m.key)
-        return { ...m, score: s?.submittedAt ? { ...s, teacherName: s.teacherName || m.name } : null }
+        return { ...m, score: isCompleteSubmission(s, adoption.candidates) ? { ...s, teacherName: s.teacherName || m.name } : null }
       })
     }
     if (isCommittee) {
-      return [{ key: 'me', name: myName, score: myScore?.submittedAt ? { ...myScore, teacherName: myScore.teacherName || myName } : null }]
+      return [{ key: 'me', name: myName, score: isCompleteSubmission(myScore, adoption.candidates) ? { ...myScore, teacherName: myScore.teacherName || myName } : null }]
     }
     return []
-  }, [canManage, isCommittee, members, scores, myScore, myName])
+  }, [canManage, isCommittee, members, scores, myScore, myName, adoption.candidates])
 
   const submittedEntries = sheetEntries.filter((e) => e.score)
   const selectedEntries = memberKey === 'all' ? submittedEntries : submittedEntries.filter((e) => e.key === memberKey)

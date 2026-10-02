@@ -133,8 +133,23 @@ export function sumCriteria(byCriterion) {
  * 제출 완료(submittedAt 있는) 위원 점수만 후보별로 합산해 총점·평균·순위를 계산한다.
  * 원본의 평가일람표 S(총점)/T(평균)/U(순위) 열에 대응.
  */
+/**
+ * "제출 완료" 판정 — 제출 확정(submittedAt)했고 **현재 후보 전부**의 점수가 들어 있어야 한다.
+ * 진행 중에 후보가 추가되면 이미 제출한 위원의 점수에는 새 후보가 없어, 그대로 두면 새 후보가
+ * 0점으로 불리하게 집계된다(2026-10-02). 그래서 그 위원은 재채점 전까지 미제출로 본다.
+ * functions/textbookScoreSync.js의 recomputeSubmitted와 같은 기준이어야 한다(rules 마감 판정의 근거).
+ */
+export function isCompleteSubmission(score, candidates) {
+  return !!score?.submittedAt && (candidates || []).every((c) => score.byCandidate?.[c.id])
+}
+
+/** 제출 확정은 했지만 그 뒤 추가된 후보가 비어 있는 점수 — "다시 채점 필요" 안내용. */
+export function isStaleSubmission(score, candidates) {
+  return !!score?.submittedAt && !isCompleteSubmission(score, candidates)
+}
+
 export function computeAggregate(scoreDocs, candidates) {
-  const submitted = (scoreDocs || []).filter((s) => s.submittedAt)
+  const submitted = (scoreDocs || []).filter((s) => isCompleteSubmission(s, candidates))
   const totals = {}
   candidates.forEach((c) => { totals[c.id] = 0 })
   submitted.forEach((s) => {
@@ -448,8 +463,9 @@ export async function attachProgress(schoolId, adoptions) {
       const scores = await loadAllScores(schoolId, a.id)
       // 전체 현황 화면이 "누가 아직 안 냈는지"까지 보여주므로 제출/임시저장 id도 함께 붙인다
       // (scores 문서 ID = 위원 uid 또는 외부 위원 id).
-      const submittedIds = scores.filter((s) => s.submittedAt).map((s) => s.uid)
-      const draftIds = scores.filter((s) => !s.submittedAt).map((s) => s.uid)
+      const done = (s) => isCompleteSubmission(s, a.candidates)
+      const submittedIds = scores.filter(done).map((s) => s.uid)
+      const draftIds = scores.filter((s) => !done(s)).map((s) => s.uid)
       return { ...a, submittedCount: submittedIds.length, submittedIds, draftIds }
     } catch {
       return { ...a, submittedCount: null, submittedIds: null, draftIds: null }
