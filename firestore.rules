@@ -214,6 +214,12 @@ service cloud.firestore {
       return members.size() > 0 && resource.data.get('submittedUids', []).hasAll(members);
     }
 
+    // 1책 1도서(후보 1개) 확정 — 매뉴얼상 교원 의견수렴(채점)이 필요 없어 전원 제출 없이 마감한다.
+    function textbookSingleBookConfirm() {
+      return request.resource.data.get('candidates', []).size() == 1 &&
+        request.resource.data.get('singleBook', false) == true;
+    }
+
     function isTextbookSubjectHead(schoolId, adoptionId) {
       let a = get(/databases/$(database)/documents/schools/$(schoolId)/textbookAdoptions/$(adoptionId)).data;
       return request.auth.uid == a.get('subjectHeadUid', '');
@@ -1169,7 +1175,8 @@ service cloud.firestore {
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['submittedUids']) &&
           (request.resource.data.get('status', 'collecting') != 'closed' ||
            resource.data.get('status', 'collecting') == 'closed' ||
-           textbookAllSubmitted()) && (
+           textbookAllSubmitted() ||
+           textbookSingleBookConfirm()) && (
           isSuperAdmin() || isSchoolAdmin(schoolId) ||
           (isTeacher(schoolId) && request.auth.uid == resource.data.get('subjectHeadUid', '')) ||
           (isTeacher(schoolId) && resource.data.get('subjectGroup', '') != '' &&

@@ -82,7 +82,7 @@ function esc(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function fmtPrice(price) {
+export function fmtPrice(price) {
   if (!price) return ''
   const s = String(price).trim().replace(/원$/, '')
   const n = Number(s.replace(/,/g, ''))
@@ -226,6 +226,41 @@ export function buildRecommendationHtml(adoption, deptHeadName, principalName) {
     { role: '확인자 (교감)', name: principalName },
   ])}
 </div>`
+}
+
+/**
+ * 학교운영위원회 제출 자료 — 과목별 1~3순위 선정 결과표(2026-10-02).
+ * rows: [{ group, subject, ranks: [{ publisher, author, price, rank, tied } | null] ×3, note }]
+ * 한 장에 REPORT_ROWS_PER_PAGE행씩 나눠 가로 A4 여러 장으로 만들고 머리글을 장마다 되풀이한다
+ * (FIT_SCRIPT가 장마다 넘치면 줄이므로 행이 길어도 한 장을 넘지 않는다).
+ */
+const REPORT_ROWS_PER_PAGE = 12
+
+export function buildCommitteeReportHtml({ title, summary, rows }) {
+  const pages = []
+  for (let i = 0; i < Math.max(rows.length, 1); i += REPORT_ROWS_PER_PAGE) pages.push(rows.slice(i, i + REPORT_ROWS_PER_PAGE))
+  const rankCell = (r) => (r
+    ? `<td class="left"><strong>${esc(r.publisher)}</strong>${r.tied ? ' <span style="font-size:8pt">(공동)</span>' : ''}<span class="sub">${[r.author, fmtPrice(r.price)].filter(Boolean).map(esc).join(' · ')}</span></td>`
+    : '<td style="color:#888">-</td>')
+  return pages.map((pageRows, pi) => `
+<div class="sheet landscape">
+  ${pi === 0 ? `<h1>${esc(title)}</h1>
+  <div style="display:flex;justify-content:space-between;font-size:9.5pt;margin-bottom:3mm"><span>${esc(summary)}</span></div>` : `<div style="font-size:9pt;font-weight:700;margin-bottom:3mm">${esc(title)} (계속)</div>`}
+  <table class="grid">
+    <thead><tr>
+      <th style="width:11mm">연번</th><th style="width:28mm">교과군</th><th style="width:42mm">과목</th>
+      <th>1순위</th><th>2순위</th><th>3순위</th><th style="width:48mm">비고</th>
+    </tr></thead>
+    <tbody>${pageRows.map((row, ri) => `<tr>
+      <td class="num">${pi * REPORT_ROWS_PER_PAGE + ri + 1}</td>
+      <td>${esc(row.group)}</td>
+      <th class="left">${esc(row.subject)}</th>
+      ${[0, 1, 2].map((k) => rankCell(row.ranks[k])).join('')}
+      <td class="left" style="font-size:8.5pt">${esc(row.note || '')}</td>
+    </tr>`).join('')}</tbody>
+  </table>
+  <div style="text-align:center;font-size:8.5pt;margin-top:3mm">- ${pi + 1} / ${pages.length} -</div>
+</div>`).join('')
 }
 
 // 각 .sheet의 내용을 .fit으로 감싸고, 한 장(패딩 안쪽) 높이를 넘으면 축소해 맞춘다. 축소하면

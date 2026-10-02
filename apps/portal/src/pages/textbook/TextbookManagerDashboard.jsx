@@ -35,6 +35,8 @@ import {
   loadAdoptions, attachProgress, subscribeMyDeptHeadGroups, subscribeDeptHeads, getDeptHead, loadPrincipalName,
 } from '@shared/lib/textbookAdoption'
 import { openBulkRecommendationPrint } from './textbookPrint'
+import TextbookCommitteeReport from './TextbookCommitteeReport'
+import GavelIcon from '@mui/icons-material/Gavel'
 import Layout from '../../components/Layout'
 import { ACCENT, ACCENT_BG } from './TextbookSection'
 
@@ -45,9 +47,10 @@ const STAGES = {
   noCommittee: { label: '위원 구성 필요', sx: { bgcolor: '#ffedd5', color: '#9a3412' } },
   scoring: { label: '채점 중', sx: { bgcolor: '#fef9c3', color: '#854d0e' } },
   ready: { label: '마감 대기', sx: { bgcolor: '#e0f2fe', color: '#075985' } },
+  single: { label: '1책 1도서 · 확정 대기', sx: { bgcolor: '#e0f2fe', color: '#075985' } },
   closed: { label: '마감', sx: { bgcolor: '#dcfce7', color: '#166534' } },
 }
-const STAGE_ORDER = ['noHead', 'noCommittee', 'scoring', 'ready', 'closed']
+const STAGE_ORDER = ['noHead', 'noCommittee', 'scoring', 'ready', 'single', 'closed']
 const MIN_COMMITTEE = 3 // 매뉴얼: 위원 3인 이상 권장
 
 const memberCount = (r) => (r.committeeUids?.length || 0) + (r.externalMembers?.length || 0)
@@ -55,6 +58,8 @@ const memberCount = (r) => (r.committeeUids?.length || 0) + (r.externalMembers?.
 function stageOf(r) {
   if (r.status === 'closed') return 'closed'
   if (!r.subjectHeadUid) return 'noHead'
+  // 1책 1도서는 위원·채점이 필요 없다 — 대표교사가 확정만 하면 된다.
+  if ((r.candidates || []).length === 1) return 'single'
   const total = memberCount(r)
   if (total === 0) return 'noCommittee'
   if (r.submittedCount != null && r.submittedCount >= total) return 'ready'
@@ -72,6 +77,7 @@ function opinionsWritten(r) {
 
 /** 마감 건의 1순위 후보(동점이면 함께). aggregate가 없으면 null. */
 function topCandidates(r) {
+  if (r.singleBook) return (r.candidates || []).slice(0, 1)
   if (!r.aggregate) return null
   const entries = Object.entries(r.aggregate)
   if (!entries.length) return null
@@ -85,7 +91,7 @@ const CARD_FILTERS = {
   all: { label: '전체 과목', test: () => true },
   noHead: { label: '대표교사 미지정', test: (r) => stageOf(r) === 'noHead' },
   noCommittee: { label: '위원 미구성', test: (r) => stageOf(r) === 'noCommittee' },
-  scoring: { label: '채점 중', test: (r) => ['scoring', 'ready'].includes(stageOf(r)) },
+  scoring: { label: '채점 중', test: (r) => ['scoring', 'ready', 'single'].includes(stageOf(r)) },
   closed: { label: '마감', test: (r) => stageOf(r) === 'closed' },
 }
 
@@ -150,6 +156,7 @@ export default function TextbookManagerDashboard() {
   }, [cardFilter, groupFilter, search])
   const [collapsed, setCollapsed] = useState(new Set())
   const [reloadKey, setReloadKey] = useState(0)
+  const [reportOpen, setReportOpen] = useState(false)
   const { toggle, sortData, Ind } = useTableSort('subjectName')
 
   // 관리자는 전체, 아니면 내가 교과부장으로 지정된 교과군만 — 이 결과가 오기 전까지는
@@ -224,6 +231,7 @@ export default function TextbookManagerDashboard() {
   const counts = useMemo(() => {
     const c = Object.fromEntries(Object.entries(CARD_FILTERS).map(([k, f]) => [k, enriched.filter(f.test).length]))
     c.ready = enriched.filter((r) => stageOf(r) === 'ready').length
+    c.single = enriched.filter((r) => stageOf(r) === 'single').length
     c.closedNoOpinion = enriched.filter((r) => stageOf(r) === 'closed' && opinionsWritten(r) < (r.recommendation?.opinions?.length || 0)).length
     return c
   }, [enriched])
@@ -290,6 +298,12 @@ export default function TextbookManagerDashboard() {
     }
   }
 
+  const closedTotal = rows.filter((r) => r.status === 'closed').length
+  const allClosed = rows.length > 0 && closedTotal === rows.length
+  const reportAdoptions = [...rows].sort((a, b) => (
+    groupOrder(a.subjectGroup || UNASSIGNED) - groupOrder(b.subjectGroup || UNASSIGNED)
+  ) || (a.subjectName || '').localeCompare(b.subjectName || '', 'ko'))
+
   if (checkingAccess) {
     return <Layout><Box display="flex" justifyContent="center" py={6}><CircularProgress sx={{ color: ACCENT }} /></Box></Layout>
   }
@@ -310,6 +324,20 @@ export default function TextbookManagerDashboard() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
+          {/* 학운위 제출 자료 — 업무 담당자(관리자) 전용, 모든 선정 건이 마감(1책 1도서는 확정)된 뒤에만 */}
+          {isAdmin && (
+            <Tooltip title={allClosed ? '' : `모든 과목이 마감되어야 만들 수 있습니다 (마감 ${closedTotal}/${rows.length})`}>
+              <span>
+                <Button
+                  variant="contained" size="small" startIcon={<GavelIcon />}
+                  disabled={!allClosed} onClick={() => setReportOpen(true)}
+                  sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
+                >
+                  학운위 제출 자료
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Tooltip title="새로고침">
             <IconButton size="small" onClick={() => setReloadKey((k) => k + 1)} disabled={loading}><RefreshIcon fontSize="small" /></IconButton>
           </Tooltip>
@@ -345,7 +373,7 @@ export default function TextbookManagerDashboard() {
             <SummaryCard label="전체 과목" value={counts.all} active={cardFilter === 'all'} onClick={() => setCardFilter('all')} />
             <SummaryCard label="대표교사 미지정" value={counts.noHead} tone="#b91c1c" active={cardFilter === 'noHead'} onClick={() => setCardFilter((f) => (f === 'noHead' ? 'all' : 'noHead'))} />
             <SummaryCard label="위원 미구성" value={counts.noCommittee} tone="#c2410c" active={cardFilter === 'noCommittee'} onClick={() => setCardFilter((f) => (f === 'noCommittee' ? 'all' : 'noCommittee'))} />
-            <SummaryCard label="채점 중" value={counts.scoring} sub={counts.ready ? `전원 제출(마감 대기) ${counts.ready}건` : null} active={cardFilter === 'scoring'} onClick={() => setCardFilter((f) => (f === 'scoring' ? 'all' : 'scoring'))} />
+            <SummaryCard label="채점 중" value={counts.scoring} sub={[counts.ready ? `전원 제출(마감 대기) ${counts.ready}건` : '', counts.single ? `1책 1도서 확정 대기 ${counts.single}건` : ''].filter(Boolean).join(' · ') || null} active={cardFilter === 'scoring'} onClick={() => setCardFilter((f) => (f === 'scoring' ? 'all' : 'scoring'))} />
             <SummaryCard label="마감" value={counts.closed} sub={counts.closedNoOpinion ? `추천의견 미작성 ${counts.closedNoOpinion}건` : null} tone="#15803d" active={cardFilter === 'closed'} onClick={() => setCardFilter((f) => (f === 'closed' ? 'all' : 'closed'))} />
           </Box>
 
@@ -421,6 +449,7 @@ export default function TextbookManagerDashboard() {
                         const stage = stageOf(r)
                         const total = memberCount(r)
                         const tops = topCandidates(r)
+                        const singleRow = (r.candidates || []).length === 1 || !!r.singleBook
                         const opN = opinionsWritten(r)
                         const opTotal = r.recommendation?.opinions?.length || 0
                         return (
@@ -439,7 +468,10 @@ export default function TextbookManagerDashboard() {
                               {r.headName || <Typography component="span" sx={{ fontSize: '0.8rem', color: '#cbd5e1' }}>미지정</Typography>}
                             </TableCell>
                             <TableCell sx={{ maxWidth: 260 }}>
-                              {total === 0 ? (
+                              {/* 1책 1도서는 채점이 없어 위원 구성·3인 기준이 필요 없다 */}
+                              {singleRow ? (
+                                <Typography component="span" sx={{ fontSize: '0.8rem', color: '#94a3b8' }}>불필요(1책 1도서)</Typography>
+                              ) : total === 0 ? (
                                 <Typography component="span" sx={{ fontSize: '0.8rem', color: '#cbd5e1' }}>없음</Typography>
                               ) : (
                                 <>
@@ -454,7 +486,7 @@ export default function TextbookManagerDashboard() {
                               )}
                             </TableCell>
                             <TableCell sx={{ maxWidth: 220 }}>
-                              {total === 0 ? '-' : (
+                              {singleRow || total === 0 ? '-' : (
                                 <>
                                   <Typography sx={{ fontSize: '0.84rem', fontWeight: 700, color: r.submittedCount >= total ? '#15803d' : '#1e293b' }}>
                                     {r.submittedCount ?? '-'} / {total}
@@ -474,7 +506,7 @@ export default function TextbookManagerDashboard() {
                                     {tops.map((c) => c.publisher).join(', ')}
                                   </Typography>
                                   <Typography sx={smallSx}>
-                                    {tops.length > 1 ? '동점 — 협의 필요' : fmtPrice(tops[0].price)}
+                                    {tops.length > 1 ? '동점 — 협의 필요' : [r.singleBook ? '1책 1도서' : '', fmtPrice(tops[0].price)].filter(Boolean).join(' · ')}
                                   </Typography>
                                 </>
                               ) : <Typography component="span" sx={{ fontSize: '0.8rem', color: '#cbd5e1' }}>-</Typography>}
@@ -494,6 +526,12 @@ export default function TextbookManagerDashboard() {
             </Box>
           )}
         </>
+      )}
+      {reportOpen && (
+        <TextbookCommitteeReport
+          open={reportOpen} onClose={() => setReportOpen(false)}
+          adoptions={reportAdoptions} groupLabel={groupLabel} onError={setError}
+        />
       )}
     </Layout>
   )

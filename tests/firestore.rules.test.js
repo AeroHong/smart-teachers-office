@@ -957,3 +957,25 @@ test('교과서 선정: 마감 아닌 일반 수정(추천의견 등)은 미제�
   await seedAdoption([A])
   await assertSucceeds(updateDoc(tb(as(A)), { rubric: [] }))
 })
+
+test('교과서 선정: 후보 1개(1책 1도서)는 채점 없이 대표교사가 확정할 수 있다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('textbookAdoptions', 'one')), {
+      subjectName: '과목', status: 'collecting', subjectHeadUid: A,
+      candidates: [{ id: 'c1' }], committeeUids: [A, B], externalMemberIds: [], submittedUids: [],
+    })
+  })
+  const one = (db) => doc(db, ...path('textbookAdoptions', 'one'))
+  await assertSucceeds(updateDoc(one(as(A)), { status: 'closed', singleBook: true }))
+})
+
+test('교과서 선정: 후보가 2개 이상이면 1책 1도서 표시로도 전원 제출을 건너뛸 수 없다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('textbookAdoptions', 'two')), {
+      subjectName: '과목', status: 'collecting', subjectHeadUid: A,
+      candidates: [{ id: 'c1' }, { id: 'c2' }], committeeUids: [A, B], externalMemberIds: [], submittedUids: [],
+    })
+  })
+  const two = (db) => doc(db, ...path('textbookAdoptions', 'two'))
+  await assertFails(updateDoc(two(as(A)), { status: 'closed', singleBook: true }))
+})

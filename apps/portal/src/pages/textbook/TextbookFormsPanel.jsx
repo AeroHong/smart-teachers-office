@@ -16,14 +16,14 @@ import { isCompleteSubmission } from '@shared/lib/textbookAdoption'
 import TextbookSection, { ACCENT, ACCENT_BG } from './TextbookSection'
 
 const SHEET_WIDTH_PX = 1123 // A4 가로 297mm @96dpi — 미리보기 축소 비율 계산용
-const PORTRAIT_WIDTH_PX = 794 // A4 세로 210mm
+export const PORTRAIT_WIDTH_PX = 794 // A4 세로 210mm
 const PREVIEW_PAD = 16
 
 /**
  * 서식 HTML을 실제 출력물과 같은 모양으로 보여준다(같은 빌더·같은 CSS). 종이 폭 기준으로
  * 그린 뒤 카드 폭에 맞춰 축소하고, 높이는 iframe 문서 높이를 재서 맞춘다.
  */
-function FormPreview({ sheetsHtml, paperWidth = SHEET_WIDTH_PX }) {
+export function FormPreview({ sheetsHtml, paperWidth = SHEET_WIDTH_PX }) {
   const wrapRef = useRef(null)
   const iframeRef = useRef(null)
   const [scale, setScale] = useState(1)
@@ -58,7 +58,7 @@ function FormPreview({ sheetsHtml, paperWidth = SHEET_WIDTH_PX }) {
   )
 }
 
-function OutputButtons({ title, sheetsHtml, disabled, onError }) {
+export function OutputButtons({ title, sheetsHtml, disabled, onError }) {
   const [busy, setBusy] = useState(false)
   const handlePdf = async () => {
     setBusy(true)

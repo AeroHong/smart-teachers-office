@@ -14,7 +14,7 @@ import { db } from '@shared/lib/firebase'
 import { USERS, sanitizeSubjectGroup } from '@shared/lib/schema'
 import {
   subscribeMyAdoptions, subscribeMySubjectHeadAdoptions, subscribeMyDeptHeadGroups,
-  subscribeUnassignedSubjectHeadAdoptions, claimSubjectHead, releaseSubjectHead, STATUS_LABELS,
+  subscribeUnassignedSubjectHeadAdoptions, claimSubjectHead, releaseSubjectHead, STATUS_LABELS, isSingleBook,
 } from '@shared/lib/textbookAdoption'
 import { SUBJECT_GROUPS } from '@shared/lib/subjectData'
 import Layout from '../../components/Layout'
@@ -51,6 +51,7 @@ function submissionState(adoption) {
 
 function AdoptionCard({ adoption, myUid, nameOf, onClick, onRelease }) {
   const sub = submissionState(adoption)
+  const single = isSingleBook(adoption)
   const headUid = adoption.subjectHeadUid || ''
   const committeeNames = [
     ...(adoption.committeeUids || []).filter((uid) => uid === headUid),
@@ -72,7 +73,8 @@ function AdoptionCard({ adoption, myUid, nameOf, onClick, onRelease }) {
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.6, mt: 0.75, flexWrap: 'wrap' }}>
           {adoption.isCommittee && <Chip size="small" sx={roleChipSx} label="위원" />}
-          {adoption.isCommittee && adoption.status !== 'closed' && (
+          {single && <Chip size="small" label="1책 1도서 · 의견수렴 생략" sx={{ bgcolor: '#f1f5f9', color: '#334155', fontWeight: 700, fontSize: '0.74rem', border: '1px solid #cbd5e1' }} />}
+          {adoption.isCommittee && adoption.status !== 'closed' && !single && (
             (adoption.submittedUids || []).includes(myUid)
               ? <Chip size="small" label="✓ 내 채점 완료" sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 700, fontSize: '0.74rem' }} />
               : <Chip size="small" label="채점 전" sx={{ bgcolor: '#fff7ed', color: '#c2410c', fontWeight: 700, fontSize: '0.74rem', border: '1px solid #fed7aa' }} />
@@ -96,11 +98,12 @@ function AdoptionCard({ adoption, myUid, nameOf, onClick, onRelease }) {
         <Chip
           size="small"
           label={adoption.status === 'closed'
-            ? STATUS_LABELS.closed
-            : sub.all ? '채점완료 · 마감 대기' : `${STATUS_LABELS.collecting} ${sub.done}/${sub.total}`}
+            ? (adoption.singleBook ? '선정 확정' : STATUS_LABELS.closed)
+            : single ? '확정 대기'
+              : sub.all ? '채점완료 · 마감 대기' : `${STATUS_LABELS.collecting} ${sub.done}/${sub.total}`}
           sx={adoption.status === 'closed'
             ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 700 }
-            : sub.all
+            : sub.all || single
               ? { bgcolor: '#e0f2fe', color: '#075985', fontWeight: 700 }
               : { bgcolor: '#fef9c3', color: '#854d0e', fontWeight: 700 }}
         />

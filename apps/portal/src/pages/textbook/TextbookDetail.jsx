@@ -39,7 +39,7 @@ import {
   subscribeAdoption, subscribeScores, subscribeMyScore, subscribeDeptHead,
   closeAndAggregate, reopenAdoption, saveRecommendation, saveSummarySignoff, saveExternalScore,
   updateCommittee, updateRubric, rubricMax, loadPrincipalName, STATUS_LABELS,
-  isCompleteSubmission, isStaleSubmission,
+  isCompleteSubmission, isStaleSubmission, isSingleBook, confirmSingleBook,
   OPINION_EXAMPLES, RECOMMENDATION_CLOSINGS,
 } from '@shared/lib/textbookAdoption'
 import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
@@ -259,6 +259,18 @@ export default function TextbookDetail() {
     }
   }
 
+  // 1책 1도서 확정 — 채점·서식 없이 바로 마감(매뉴얼상 교원 의견수렴 불필요).
+  const handleConfirmSingle = async () => {
+    const c = adoption.candidates?.[0]
+    if (!window.confirm(`1책 1도서로 '${c?.publisher || ''}' 도서를 선정 확정할까요?\n(교원 의견수렴·채점 생략, 학교운영위원회 심의는 별도로 필요)`)) return
+    try {
+      await confirmSingleBook(schoolId, adoptionId)
+      setSnack('1책 1도서로 선정을 확정했습니다.')
+    } catch (e) {
+      setSnack(`확정 실패: ${e.message}`)
+    }
+  }
+
   const handleReopen = async () => {
     if (!window.confirm('채점을 다시 열까요? 위원들이 점수를 다시 수정·제출할 수 있게 됩니다.\n이미 출력해 서명받은 서식이 있다면 다시 마감한 뒤 새로 출력해야 합니다.')) return
     try {
@@ -351,6 +363,9 @@ export default function TextbookDetail() {
     return <Layout><Alert severity="warning" sx={{ borderRadius: '10px' }}>선정 건을 찾을 수 없습니다.</Alert></Layout>
   }
 
+  const single = isSingleBook(adoption)
+  // 후보가 1개였을 때 확정한 건(이후 후보가 늘어도 다시 열기 전까지는 1책 1도서 확정 상태)
+  const singleDone = single || !!adoption.singleBook
   const rankedIds = adoption.aggregate
     ? Object.entries(adoption.aggregate).sort((a, b) => a[1].rank - b[1].rank).map(([id]) => id)
     : []
@@ -401,7 +416,30 @@ export default function TextbookDetail() {
         </Box>
       </TextbookSection>
 
+      {/* ── 1책 1도서 — 채점·서식 없이 대표교사가 바로 확정 ── */}
+      {single && (
+        <TextbookSection title="1책 1도서 · 의견수렴 생략">
+          <Alert severity="info" sx={{ borderRadius: '10px', mb: canManage && adoption.status === 'collecting' ? 2 : 0 }}>
+            후보 교과서가 1개뿐인 과목입니다. 매뉴얼에 따라 <strong>교원 의견수렴(채점)과 서식1·2·3은 생략</strong>하고,
+            학교운영위원회 심의 자료에 "1책 1도서로 해당 도서를 선정함"으로 표시됩니다.
+            {adoption.status === 'closed' && <><br /><strong>선정 확정 완료</strong></>}
+          </Alert>
+          {canManage && adoption.status === 'collecting' && (
+            <Button
+              variant="contained" size="small" startIcon={<LockIcon />} onClick={handleConfirmSingle}
+              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 700, bgcolor: ACCENT, boxShadow: 'none', '&:hover': { bgcolor: '#0d5f59', boxShadow: 'none' } }}
+            >
+              1책 1도서로 선정 확정
+            </Button>
+          )}
+          {!canManage && adoption.status === 'collecting' && (
+            <Typography sx={{ fontSize: '0.8rem', color: '#64748b' }}>과목 대표교사가 선정을 확정합니다.</Typography>
+          )}
+        </TextbookSection>
+      )}
+
       {/* ── 평가 기준 ── */}
+      {!single && (
       <TextbookSection
         title="평가 기준"
         right={canEditRubric && !editingRubric && (
@@ -494,9 +532,10 @@ export default function TextbookDetail() {
           </Typography>
         )}
       </TextbookSection>
+      )}
 
       {/* ── 채점 진행 상태 ── */}
-      {adoption.status === 'collecting' && (
+      {adoption.status === 'collecting' && !single && (
         <TextbookSection
           title="채점"
           right={isCommittee && (
@@ -629,7 +668,7 @@ export default function TextbookDetail() {
       )}
 
       {/* ── 집계 결과 (서식2 — 검·인정도서 선정기준 평가 총괄표) ── */}
-      {adoption.status === 'closed' && (
+      {adoption.status === 'closed' && !singleDone && (
         <TextbookSection
           title="집계 결과"
           right={canManage && (
@@ -690,7 +729,7 @@ export default function TextbookDetail() {
       )}
 
       {/* ── 제출서류 (서식1·2·3 — 미리보기·인쇄·PDF) ── */}
-      {adoption.status === 'closed' && (
+      {adoption.status === 'closed' && !singleDone && (
         <TextbookFormsPanel
           adoption={adoption}
           scores={scores}

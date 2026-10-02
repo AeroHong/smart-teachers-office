@@ -8,7 +8,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Snackbar from '@mui/material/Snackbar'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { subscribeAdoption, subscribeMyScore, saveScore, rubricMax, STATUS_LABELS, isCompleteSubmission, isStaleSubmission } from '@shared/lib/textbookAdoption'
+import { subscribeAdoption, subscribeMyScore, saveScore, rubricMax, STATUS_LABELS, isCompleteSubmission, isStaleSubmission, isSingleBook } from '@shared/lib/textbookAdoption'
 import { openScoreSheetPrint, downloadScoreSheetPdf } from './textbookPrint'
 import Layout from '../../components/Layout'
 import ScoreEntryForm from './ScoreEntryForm'
@@ -53,7 +53,7 @@ export default function TextbookEvaluate() {
   const isCommittee = !!(user && adoption?.committeeUids?.includes(user.uid))
   // 점수 저장 규칙(firestore.rules)은 committeeUids 소속만 허용한다(superAdmin 예외 제외) —
   // 관리자는 이 화면을 볼 수는 있지만(구성 확인용) 위원으로 지정되지 않았다면 채점은 못 한다.
-  const canEdit = isCommittee && adoption?.status === 'collecting'
+  const canEdit = isCommittee && adoption?.status === 'collecting' && !isSingleBook(adoption)
   const maxSum = rubricMax(adoption?.rubric)
 
   const handleSave = async (byCandidate, opinion, submit) => {
@@ -102,6 +102,11 @@ export default function TextbookEvaluate() {
         />
       </Box>
 
+      {isSingleBook(adoption) && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: '10px' }}>
+          1책 1도서(후보 1개) 과목이라 채점이 필요 없습니다. 과목 대표교사가 바로 선정을 확정합니다.
+        </Alert>
+      )}
       {adoption.status === 'closed' && (
         <Alert severity="info" sx={{ mb: 2, borderRadius: '10px' }}>
           채점이 마감되어 더 이상 수정할 수 없습니다. <a href={`/textbook/${adoptionId}`}>집계 결과 보기</a>

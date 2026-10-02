@@ -433,7 +433,46 @@ export async function closeAndAggregate(schoolId, adoptionId, candidates, existi
 
 /** 채점을 다시 연다. 추천의견 등 나머지 내용은 그대로 둔다(다시 마감하면 의견은 후보 ID로 보존). */
 export async function reopenAdoption(schoolId, adoptionId) {
-  await setDoc(adoptionDoc(schoolId, adoptionId), { status: 'collecting', updatedAt: serverTimestamp() }, { merge: true })
+  await setDoc(adoptionDoc(schoolId, adoptionId), { status: 'collecting', singleBook: false, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+// ── 1책 1도서 ───────────────────────────────────────────────────────────────
+// 매뉴얼: "선정하고자 하는 검·인정도서가 1책 1도서인 경우 교원 의견 수렴 불필요(단, 학교운영위원회
+// 심의 절차 필요)". 후보가 1개뿐인 과목은 채점·서식1~3 없이 대표교사(또는 관리자·교과부장)가 바로
+// 확정한다(2026-10-02). 학운위 제출 자료에는 "1책 1도서로 해당 도서를 선정함"으로 나간다.
+
+/**
+ * 마감된 선정 건의 후보 순위 목록 [{ candidate, rank, total, average, tied }]. 동점은 같은 순위
+ * (1, 1, 3 …)로 매기고 tied=true. 1책 1도서 확정 건은 그 한 권을 1순위로 돌려준다.
+ * 학교운영위원회 제출 자료와 전체 현황이 같은 순위를 쓰도록 여기 하나만 둔다.
+ */
+export function rankedCandidates(adoption) {
+  const candidates = adoption?.candidates || []
+  if (adoption?.singleBook || (adoption?.status === 'closed' && candidates.length === 1 && !adoption.aggregate)) {
+    return candidates.slice(0, 1).map((c) => ({ candidate: c, rank: 1, total: null, average: null, tied: false }))
+  }
+  const agg = adoption?.aggregate
+  if (!agg) return []
+  const rows = candidates
+    .filter((c) => agg[c.id])
+    .map((c) => ({ candidate: c, total: agg[c.id].total ?? 0, average: agg[c.id].average ?? null }))
+    .sort((a, b) => b.total - a.total)
+  return rows.map((r) => {
+    const rank = 1 + rows.filter((o) => o.total > r.total).length
+    const tied = rows.filter((o) => o.total === r.total).length > 1
+    return { ...r, rank, tied }
+  })
+}
+
+export function isSingleBook(adoption) {
+  return (adoption?.candidates || []).length === 1
+}
+
+/** 1책 1도서 확정 — rules가 후보 1개 + singleBook 표시일 때만 "전원 제출" 없이 마감을 허용한다. */
+export async function confirmSingleBook(schoolId, adoptionId) {
+  await setDoc(adoptionDoc(schoolId, adoptionId), {
+    status: 'closed', singleBook: true, aggregate: null, recommendation: null, updatedAt: serverTimestamp(),
+  }, { merge: true })
 }
 
 export async function saveRecommendation(schoolId, adoptionId, recommendation) {
