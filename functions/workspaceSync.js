@@ -227,11 +227,21 @@ async function syncStudents(db, schoolId, directory, ouPath) {
 
     // Workspace에 없으면 아카이브
     if (wId && !activeWorkspaceIds.has(wId)) {
+      // 사유: StudentHub에서 학적 담당자가 기록한 변동(전출·자퇴 등)이 있으면 그 type,
+      // 없으면 알 수 없음(졸업·계정 정리 등)으로 남긴다.
+      const changesSnap = await db.collection('schools').doc(schoolId).collection('enrollmentChanges')
+        .where('workspaceUserId', '==', wId)
+        .get()
+      const lastChange = changesSnap.docs
+        .map(d => d.data())
+        .filter(c => ['transferOut', 'withdraw'].includes(c.type))
+        .sort((a, b) => String(b.effectiveDate || '').localeCompare(String(a.effectiveDate || '')))[0]
+
       // archivedStudents 컬렉션으로 이동
       await db.collection('schools').doc(schoolId).collection('archivedStudents').doc(wId).set({
         ...data,
         archivedAt: FieldValue.serverTimestamp(),
-        archivedReason: 'workspace_sync_removed', // 'graduated' or 'transferred' 구분은 향후 수동 관리
+        archivedReason: lastChange ? lastChange.type : 'workspace_sync_removed',
       })
 
       // 원본 삭제

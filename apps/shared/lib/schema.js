@@ -142,6 +142,47 @@ export const COL = {
   SETUK_CHECKS: 'setukChecks',   // auto-ID(업로드 배치 1개). 하위에 records/{id}, items/{id} 서브컬렉션
   SETUK_DICTIONARY: 'setukDictionary', // 단일 문서 'default' — 금지어/오타 사전(관리자 편집)
   SETUK_DICTIONARY_MANAGERS: 'setukDictionaryManagers', // ID: uid (학교 전체 단일 담당자 목록) — evaluationPlanManagers와 같은 패턴
+
+  // ── 학적·고사 관리 (StudentHub 앱 — C:\Claude code\StudentHub) ──
+  // 학적 변동 이력 — auto-ID + year 필드. 학생 문서(students)는 "지금"만 담고, 언제 누가
+  // 어떻게 바꿨는지는 여기에 남긴다. 전출생은 Workspace 동기화가 archivedStudents로 옮겨도
+  // 이 문서의 before 스냅샷이 남아 있어 고사 명렬표의 결번을 계산할 수 있다.
+  ENROLLMENT_CHANGES: 'enrollmentChanges',
+  // 기능별 업무 담당자 — ID: uid. evaluationPlanManagers와 같은 "존재 = 담당자" 패턴이지만
+  // 기능(학적·고사·결시·선택과목)이 여럿이라 컬렉션을 나누지 않고 roles[] 필드로 구분한다.
+  STUDENT_HUB_MANAGERS: 'studentHubManagers',
+  // 고사 — auto-ID + year·semester 필드. 하위에 seatings/{grade}, absences/{absenceId(...)}
+  EXAMS: 'exams',
+  EXAM_SEATINGS: 'seatings',                 // exams/{id}/seatings/{grade} — 학년당 1문서
+  EXAM_ABSENCES: 'absences',                 // exams/{id}/absences/{examAbsenceId(wid, code)}
+  // 선택과목 수강신청 결과(교육부 시스템) 업로드 기록 — auto-ID. 적용 결과는 students.electiveSubjects
+  ELECTIVE_IMPORTS: 'electiveImports',
+}
+
+/**
+ * StudentHub 기능별 담당자 역할. studentHubManagers/{uid}.roles[]에 들어가는 값.
+ * firestore.rules의 hasHubRole()과 문자열이 같아야 한다.
+ */
+export const HUB_ROLES = {
+  ENROLLMENT: 'enrollment', // 학적(전입·전출) 관리
+  EXAM: 'exam',             // 고사 명렬표(응시현황표)
+  ABSENCE: 'absence',       // 결시 현황 확정
+  ELECTIVE: 'elective',     // 선택과목 결과 업로드
+}
+
+/**
+ * 고사 결시 문서 ID.
+ * schools/{schoolId}/exams/{examId}/absences/{workspaceUserId}_{subjectCode}
+ *
+ * 학생·과목당 1건이라 결정적 ID를 쓴다 — 감독교사 두 명이 같은 학생을 동시에 체크해도
+ * 문서가 둘 생기지 않는다. 사람 키는 학번이 아니라 불변 workspaceUserId다(§5-2).
+ *
+ * @param {string} workspaceUserId
+ * @param {string} subjectCode 고사 계획의 과목 코드
+ * @returns {string}
+ */
+export function examAbsenceId(workspaceUserId, subjectCode) {
+  return `${workspaceUserId}_${String(subjectCode).replace(/\//g, '_')}`
 }
 
 /**

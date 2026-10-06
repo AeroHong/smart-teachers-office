@@ -1030,6 +1030,45 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 **접근 권한:**
 - Read/Write: 슈퍼 어드민, 학교 관리자
 
+### 학적·고사 관리 — StudentHub 앱 (2026-10-06 신설)
+
+별도 앱(`C:\Claude code\StudentHub`, hosting target `studenthub`)이 **이 DB를 그대로** 쓴다.
+경로·문서 ID는 `apps/shared/lib/schema.js`(`COL.ENROLLMENT_CHANGES` 등, `examAbsenceId()`)를 StudentHub가
+alias로 직접 import해 강제한다. 보안 규칙도 이 레포 `firestore.rules`에 있다(`hasHubRole`, `isHomeroomOf`).
+
+#### `students` 추가 필드
+| 필드 | 설명 |
+|---|---|
+| `status` | 없음=재학. `consigned`(위탁·직업반), `leaveOfAbsence`(유예·휴학), `transferredOut`(전출), `withdrawn`(자퇴) |
+| `gender` | '남'·'여' — 고사 응시현황표용 (Workspace에 없어 StudentHub에서 입력) |
+| `source: 'studentHub'` | Workspace 계정 없이 수동 등록한 전입생(문서 ID = auto-ID) |
+
+#### `/schools/{schoolId}/enrollmentChanges/{autoId}` — 학적 변동 이력
+`type`(transferIn·transferOut·withdraw·leaveOfAbsence·return·classChange·consign·unconsign), `workspaceUserId`,
+`nameSnapshot`, `before{grade,class,number}`, `after{…}`, `effectiveDate`(yyyy-MM-dd), `year`(학년도), `reason`,
+`recordedBy{uid,name}`, `recordedAt`.
+- 전출생은 Workspace 동기화가 `archivedStudents`로 옮겨 `students`에서 사라진다. 결번은 `before` 스냅샷으로 계산한다.
+- `workspaceSync.js`는 보관할 때 이 이력의 type(전출·자퇴)을 `archivedReason`에 쓴다.
+- 접근: 읽기 교사 전체 / 생성·삭제 학적 담당자(`enrollment`) / 수정 금지
+
+#### `/schools/{schoolId}/studentHubManagers/{uid}` — 기능별 업무 담당자
+`roles[]`(enrollment·exam·absence·elective), `nameSnapshot`, `grantedBy{uid,name}`. 관리자는 지정 없이 전부.
+- 접근: 읽기 교사 전체 / 쓰기 관리자
+
+#### `/schools/{schoolId}/exams/{autoId}` — 고사
+`name`, `year`, `semester`, `plan[]`(dateStr·period·grade·subject·code·timeRange·minutes), `vacancyOverrides[]`
+(hakbeon·type '결번'|'직업반'·note), `status`(preparing|closed), `createdBy`.
+- `seatings/{grade}` — `{ headers[], rows: { [workspaceUserId]: { [과목 열]: 고사실 코드 } } }`
+- `absences/{examAbsenceId(workspaceUserId, subjectKey)}` — 결시. `status` reported→classified(담임)→confirmed(결시 담당),
+  `type`(illness·approved·unapproved·other), `reason`, `evidenceSubmitted`, `grade`·`classNo`·`number`·`hakbeon` 스냅샷,
+  `subjectKey`·`subject`·`dateStr`·`period`·`roomName`, `reportedBy`, `classifiedBy`.
+- 응시현황표는 저장하지 않는다 — 볼 때마다 students + enrollmentChanges + seatings로 다시 계산(학적 변동 즉시 반영).
+- 접근: 고사·배정 쓰기 고사 담당자(`exam`) / 결시 생성 교사 누구나(본인 이름, reported만) / 담임은 자기 반의
+  유형·사유·증빙만(필드 잠금) / 결시 담당자(`absence`)는 전부
+
+#### `/schools/{schoolId}/electiveImports/{autoId}` — (예정) 교육부 수강신청 결과 업로드 기록
+적용 결과는 `students.electiveSubjects`. 쓰기 선택과목 담당자(`elective`).
+
 ---
 
 ## Cloud Functions
@@ -1044,6 +1083,10 @@ ASA 분석 결과. 문서 ID = `encodeURIComponent(`{uid}_{grade}_{subjectName}`
 - **generateAsaChecklistPdf** (onCall) - 성취평가제 체크리스트 PDF 생성 (Puppeteer, 1GiB)
 - **parseEvaluationPlan** (onCall) - 업로드한 hwpx 계획서에서 반영비율·성적산출방법 표 추출
   (`functions/evaluationPlanParser.js`)
+
+### `functions/studentHub.js`
+- **issueHubHandoffToken** (onCall) - 교직원 본인 uid의 custom token 발급 → StudentHub가 재로그인 없이 진입
+  (서비스 계정에 `iam.serviceAccounts.signBlob` 권한 필요)
 
 ### `functions/workspaceSync.js`
 - **syncWorkspaceDirectory** (onSchedule) - Google Workspace Directory 정기 동기화

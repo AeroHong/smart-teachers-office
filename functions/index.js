@@ -58,6 +58,10 @@ exports.refreshMyClaims = userClaims.refreshMyClaims
 const staffActivation = require('./staffActivation')
 exports.activatePreApprovedStaff = staffActivation.activatePreApprovedStaff
 
+// 스마트교무실 → StudentHub(학적·고사 관리) 재로그인 없이 이동
+const studentHub = require('./studentHub')
+exports.issueHubHandoffToken = studentHub.issueHubHandoffToken
+
 // 평가 운영 계획 확정 → 교직원 관리(기본배정·과목배정) 자동 반영
 exports.syncEvaluationPlanToStaff = evaluationPlanSync.syncEvaluationPlanToStaff
 

@@ -979,3 +979,97 @@ test('교과서 선정: 후보가 2개 이상이면 1책 1도서 표시로도 �
   const two = (db) => doc(db, ...path('textbookAdoptions', 'two'))
   await assertFails(updateDoc(two(as(A)), { status: 'closed', singleBook: true }))
 })
+
+// ── 학적·고사 관리 (StudentHub) ───────────────────────────────
+// A: 학적·결시 담당자로 지정 / B: 2026학년도 2학년 3반 담임 / C: 아무 역할 없는 교사
+async function seedHub() {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, ...path('studentHubManagers', A)), { roles: ['enrollment', 'absence'] })
+    await setDoc(doc(db, ...path('teacherAssignments', `2026_${B}`)), {
+      uid: B, year: 2026, isHomeroom: true, homeroomGrade: 2, homeroomClassNo: 3,
+    })
+    await setDoc(doc(db, ...path('exams', 'e1')), { year: 2026, name: '2학기 중간' })
+    await setDoc(doc(db, ...path('exams', 'e1', 'absences', 'w1_2-11')), {
+      workspaceUserId: 'w1', subjectCode: '2-11', year: 2026, grade: 2, classNo: 3,
+      status: 'reported', type: null, reportedBy: { uid: C, name: 'C' },
+    })
+  })
+}
+const change = (uid) => ({
+  type: 'transferOut', workspaceUserId: 'w9', year: 2026,
+  before: { grade: 2, class: 3, number: 7 }, recordedBy: { uid, name: 'x' },
+})
+const absence = (db) => doc(db, ...path('exams', 'e1', 'absences', 'w1_2-11'))
+const classify = (uid, over = {}) => ({
+  type: 'illness', reason: '병원', evidenceSubmitted: true,
+  classifiedBy: { uid, name: 'x' }, status: 'classified', ...over,
+})
+
+test('학적: 지정된 담당자와 관리자만 학적 변동을 기록한다', async () => {
+  await seedHub()
+  await assertSucceeds(setDoc(doc(as(A), ...path('enrollmentChanges', 'c1')), change(A)))
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...path('enrollmentChanges', 'c2')), change(ADMIN)))
+  await assertFails(setDoc(doc(as(C), ...path('enrollmentChanges', 'c3')), change(C)))
+  // 기록자를 남으로 적을 수 없다
+  await assertFails(setDoc(doc(as(A), ...path('enrollmentChanges', 'c4')), change(B)))
+})
+
+test('학적: 다른 학교 교사는 이력을 읽을 수 없다', async () => {
+  await seedHub()
+  await assertFails(getDoc(doc(as(SUPER), ...path('enrollmentChanges', 'c1'))))
+})
+
+test('학적: 담당자 지정은 관리자만 한다', async () => {
+  await seedHub()
+  await assertFails(setDoc(doc(as(A), ...path('studentHubManagers', C)), { roles: ['exam'] }))
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...path('studentHubManagers', C)), { roles: ['exam'] }))
+})
+
+test('고사: 시험 편집은 고사 담당자만 — 학적 담당만 가진 교사는 안 된다', async () => {
+  await seedHub()
+  await assertFails(updateDoc(doc(as(A), ...path('exams', 'e1')), { name: 'x' }))
+  await assertSucceeds(updateDoc(doc(as(ADMIN), ...path('exams', 'e1')), { name: 'x' }))
+})
+
+test('결시: 교사 누구나 본인 이름으로 보고 상태로 등록한다', async () => {
+  await seedHub()
+  const d = doc(as(C), ...path('exams', 'e1', 'absences', 'w2_2-11'))
+  await assertSucceeds(setDoc(d, { status: 'reported', reportedBy: { uid: C, name: 'C' }, year: 2026, grade: 2, classNo: 1 }))
+  const d2 = doc(as(C), ...path('exams', 'e1', 'absences', 'w3_2-11'))
+  await assertFails(setDoc(d2, { status: 'confirmed', reportedBy: { uid: C, name: 'C' } }))
+})
+
+test('결시: 담임은 자기 반 학생의 유형만 분류한다', async () => {
+  await seedHub()
+  await assertSucceeds(updateDoc(absence(as(B)), classify(B)))
+})
+
+test('결시: 담임이 아닌 교사는 분류할 수 없다', async () => {
+  await seedHub()
+  await assertFails(updateDoc(absence(as(C)), classify(C)))
+})
+
+test('결시: 다른 반 담임은 분류할 수 없다', async () => {
+  await seedHub()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(absence(ctx.firestore()), { classNo: 4 })
+  })
+  await assertFails(updateDoc(absence(as(B)), classify(B)))
+})
+
+test('결시: 담임은 허용 필드 밖(과목·학생)을 못 고치고 확정도 못 한다', async () => {
+  await seedHub()
+  await assertFails(updateDoc(absence(as(B)), classify(B, { subjectCode: '2-12' })))
+  await assertFails(updateDoc(absence(as(B)), classify(B, { status: 'confirmed' })))
+  await assertFails(updateDoc(absence(as(B)), classify(B, { type: '무단' })))
+})
+
+test('결시: 확정된 건은 담임이 다시 못 고치고, 결시 담당자는 고친다', async () => {
+  await seedHub()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(absence(ctx.firestore()), { status: 'confirmed', type: 'illness' })
+  })
+  await assertFails(updateDoc(absence(as(B)), classify(B)))
+  await assertSucceeds(updateDoc(absence(as(A)), { type: 'approved' }))
+})

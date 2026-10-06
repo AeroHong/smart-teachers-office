@@ -1318,6 +1318,81 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
       }
+
+      // ── 학적·고사 관리 (StudentHub 앱) ──────────────────────────────
+      // 기능별 업무 담당자 — evaluationPlanManagers와 같은 "문서 존재 = 담당자" 패턴이되,
+      // 기능이 넷(enrollment·exam·absence·elective)이라 roles[] 필드로 구분한다.
+      // 관리자는 지정 없이 모든 역할을 가진 것으로 본다. 역할 문자열은 schema.js HUB_ROLES와 같다.
+      function hasHubRole(schoolId, role) {
+        return isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) &&
+           exists(/databases/$(database)/documents/schools/$(schoolId)/studentHubManagers/$(request.auth.uid)) &&
+           role in get(/databases/$(database)/documents/schools/$(schoolId)/studentHubManagers/$(request.auth.uid)).data.get('roles', []));
+      }
+
+      // 그 학년도에 해당 반 담임인가 — teacherAssignments/{year}_{uid}의 담임 필드로 판정한다.
+      // homeroomGrade·homeroomClassNo는 AdminStaffBasic이 Number로 저장한다.
+      function isHomeroomOf(schoolId, year, grade, classNo) {
+        let path = /databases/$(database)/documents/schools/$(schoolId)/teacherAssignments/$(string(year) + '_' + request.auth.uid);
+        return isTeacher(schoolId) && exists(path) &&
+          get(path).data.get('isHomeroom', false) == true &&
+          get(path).data.get('homeroomGrade', 0) == grade &&
+          get(path).data.get('homeroomClassNo', 0) == classNo;
+      }
+
+      // 담당자 목록 — 누가 담당인지는 교사 전체가 보고, 지정·해제는 관리자만.
+      match /studentHubManagers/{uid} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      // 학적 변동 이력 — 조회는 교사 전체(담임·교과가 전출입 사실을 알아야 한다),
+      // 기록은 학적 담당자만. 이력은 고치지 않는다 — 잘못 넣었으면 지우고 다시 넣는다.
+      match /enrollmentChanges/{changeId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow create: if hasHubRole(schoolId, 'enrollment') &&
+          request.resource.data.recordedBy.uid == request.auth.uid;
+        allow update: if false;
+        allow delete: if hasHubRole(schoolId, 'enrollment');
+      }
+
+      // 고사 — 조회는 교사 전체(감독·담임이 명렬표와 결시를 본다), 편집은 고사 담당자.
+      match /exams/{examId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if hasHubRole(schoolId, 'exam');
+
+        match /seatings/{grade} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow write: if hasHubRole(schoolId, 'exam');
+        }
+
+        // 결시 — 문서 ID는 examAbsenceId(workspaceUserId, subjectCode).
+        //  · 등록(create): 교사 누구나(감독교사가 고사실에서 체크). 삭제는 확정 전까지만
+        //  · 담임: 자기 반 학생의 유형·사유·증빙만 고친다(필드 잠금, §5-5)
+        //  · 결시 담당자: 전부 고치고 확정(confirmed)한다
+        match /absences/{absenceId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if isTeacher(schoolId) &&
+            request.resource.data.status == 'reported' &&
+            request.resource.data.reportedBy.uid == request.auth.uid;
+          allow delete: if hasHubRole(schoolId, 'absence') ||
+            (isTeacher(schoolId) && resource.data.status == 'reported');
+          allow update: if hasHubRole(schoolId, 'absence') ||
+            (resource.data.status != 'confirmed' &&
+             request.resource.data.status == 'classified' &&
+             request.resource.data.classifiedBy.uid == request.auth.uid &&
+             request.resource.data.type in ['illness', 'approved', 'unapproved', 'other'] &&
+             request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['type', 'reason', 'evidenceSubmitted', 'classifiedBy', 'classifiedAt', 'status']) &&
+             isHomeroomOf(schoolId, resource.data.year, resource.data.grade, resource.data.classNo));
+        }
+      }
+
+      // 선택과목 수강신청 결과 업로드 기록 — 선택과목 담당자만.
+      match /electiveImports/{importId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if hasHubRole(schoolId, 'elective');
+      }
     }
   }
 }

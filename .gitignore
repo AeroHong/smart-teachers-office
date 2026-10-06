@@ -38,3 +38,6 @@ kiosk/assets/
 # 확장자를 가리지 않는다 — 소스뿐 아니라 빌드 산출물(.html·.svg)에도 생긴다.
 * [0-9].*
 firestore-debug.log
+
+# StudentHub 빌드 결과물 (C:\Claude code\StudentHub 에서 npm run build)
+studenthub/

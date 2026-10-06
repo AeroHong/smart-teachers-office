@@ -9,7 +9,7 @@
  * 넣고 빼야 하지만(다학교 확장), 목록이 서너 개인 동안은 화면을 만드는 값이 안 나온다.
  * 옮길 때는 schools/{schoolId}/externalLinks 쯤이 자리가 될 것이다.
  */
-import { PORTAL_URL } from './portalUrl'
+import { PORTAL_URL, portalLink } from './portalUrl'
 
 /**
  * @type {{label: string, href: string, hint?: string}[]}
@@ -24,6 +24,12 @@ export const EXTERNAL_LINKS = [
     label: '스마트교무실 포털',
     href: PORTAL_URL,
     hint: '학생·과목·연수 관리',
+  },
+  {
+    // 포털의 중간 페이지를 거쳐 재로그인 없이 StudentHub로 넘어간다(apps/shared/lib/studentHub.js)
+    label: '학적·고사 관리',
+    href: portalLink('/studenthub'),
+    hint: '전입·전출 · 응시현황표 · 결시',
   },
   {
     label: '고사 업무 지원',

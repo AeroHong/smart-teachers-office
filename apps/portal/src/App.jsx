@@ -44,6 +44,7 @@ const SetukUpload         = lazy(() => import('./pages/setuk/SetukUpload'))
 const SetukCheckDetail    = lazy(() => import('./pages/setuk/SetukCheckDetail'))
 const SetukSubjectDetail  = lazy(() => import('./pages/setuk/SetukSubjectDetail'))
 const SetukGuide          = lazy(() => import('./pages/setuk/SetukGuide'))
+const StudentHubLaunch    = lazy(() => import('./pages/StudentHubLaunch'))
 
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
@@ -139,6 +140,7 @@ export default function App() {
           <Route path="/setuk"                        element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
           {/* 로그인 없이도 링크만으로 바로 볼 수 있어야 하는 사용법 안내 — 의도적으로 ProtectedRoute로 감싸지 않음 */}
           <Route path="/setuk/guide"                  element={<SetukGuide />} />
+          <Route path="/studenthub"                   element={<ProtectedRoute><StudentHubLaunch /></ProtectedRoute>} />
           <Route path="/setuk/subject/:subjectName"  element={<ProtectedRoute anyUser><SetukSubjectDetail /></ProtectedRoute>} />
           <Route path="/setuk/:checkId"               element={<ProtectedRoute anyUser><SetukCheckDetail /></ProtectedRoute>} />
 

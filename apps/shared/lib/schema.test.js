@@ -47,3 +47,9 @@ test('currentYearSemester는 지금 이 순간에도 형태가 깨지지 않는�
   assert.ok(Number.isInteger(year) && year > 2000)
   assert.ok(semester === 1 || semester === 2)
 })
+
+test('결시 문서 ID — 학생·과목당 하나, 과목 코드의 / 는 경로를 깨지 않게 바꾼다', async () => {
+  const { examAbsenceId } = await import('./schema.js')
+  assert.equal(examAbsenceId('w123', '2-11'), 'w123_2-11')
+  assert.equal(examAbsenceId('w123', '기술가정/정보'), 'w123_기술가정_정보')
+})

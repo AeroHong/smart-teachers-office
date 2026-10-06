@@ -19,6 +19,9 @@
         ],
         "desktop-updates": [
           "smart-school-updates"
+        ],
+        "studenthub": [
+          "smart-studenthub"
         ]
       }
     }
