@@ -14,6 +14,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import { collection, getDocs, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { STAFF_TYPE_STYLE } from '@shared/lib/staffType'
 import Layout from '../../components/Layout'
 import { loadMembers, filterBySearch } from './trainingUtils'
 
@@ -127,6 +128,7 @@ export default function TrainingCreate() {
 
   // 구분별 카운트
   const teacherCount = allUsers.filter(u => u.staffType === '교사').length
+  const lecturerCount = allUsers.filter(u => u.staffType === '강사').length
   const staffCount   = allUsers.filter(u => u.staffType === '교직원').length
 
   return (
@@ -164,6 +166,7 @@ export default function TrainingCreate() {
         >
           <ToggleButton value="전체">전체 ({allUsers.length})</ToggleButton>
           <ToggleButton value="교사">교사 ({teacherCount})</ToggleButton>
+          {lecturerCount > 0 && <ToggleButton value="강사">강사 ({lecturerCount})</ToggleButton>}
           <ToggleButton value="교직원">교직원 ({staffCount})</ToggleButton>
         </ToggleButtonGroup>
 
@@ -228,8 +231,8 @@ export default function TrainingCreate() {
                 {u.staffType && (
                   <span style={{
                     fontSize: '0.72rem', padding: '1px 6px', borderRadius: 8,
-                    backgroundColor: u.staffType === '교사' ? '#e0f2fe' : '#f0fdf4',
-                    color: u.staffType === '교사' ? '#0369a1' : '#15803d',
+                    backgroundColor: STAFF_TYPE_STYLE[u.staffType]?.bg,
+                    color: STAFF_TYPE_STYLE[u.staffType]?.color,
                     fontWeight: 600,
                   }}>{u.staffType}</span>
                 )}
@@ -265,6 +268,9 @@ export default function TrainingCreate() {
             {members.filter(m => m.staffType === '교사').length > 0 && (
               <> · 교사 {members.filter(m => m.staffType === '교사').length}명</>
             )}
+            {members.filter(m => m.staffType === '강사').length > 0 && (
+              <> · 강사 {members.filter(m => m.staffType === '강사').length}명</>
+            )}
             {members.filter(m => m.staffType === '교직원').length > 0 && (
               <> · 교직원 {members.filter(m => m.staffType === '교직원').length}명</>
             )}
@@ -278,8 +284,7 @@ export default function TrainingCreate() {
                 onDelete={() => removeMember(i)}
                 title={m.email || undefined}
                 sx={{
-                  bgcolor: m.staffType === '교사' ? '#e0f2fe'
-                    : m.staffType === '교직원' ? '#f0fdf4' : undefined,
+                  bgcolor: STAFF_TYPE_STYLE[m.staffType]?.bg,
                 }}
               />
             ))}

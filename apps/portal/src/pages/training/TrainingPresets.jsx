@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { STAFF_TYPE_STYLE } from '@shared/lib/staffType'
 import { loadMembers, filterBySearch } from './trainingUtils'
 
 export default function TrainingPresets() {
@@ -91,10 +92,8 @@ export default function TrainingPresets() {
                       size="small"
                       variant="outlined"
                       sx={{
-                        borderColor: m.staffType === '교사' ? '#7dd3fc'
-                          : m.staffType === '교직원' ? '#86efac' : undefined,
-                        color: m.staffType === '교사' ? '#0369a1'
-                          : m.staffType === '교직원' ? '#15803d' : undefined,
+                        borderColor: STAFF_TYPE_STYLE[m.staffType]?.color,
+                        color: STAFF_TYPE_STYLE[m.staffType]?.color,
                       }}
                     />
                   ))}
@@ -265,8 +264,8 @@ function PresetDialog({ preset, allUsers, user, schoolId, onClose }) {
                   {u.staffType && (
                     <span style={{
                       fontSize: '0.72rem', padding: '1px 6px', borderRadius: 8,
-                      backgroundColor: u.staffType === '교사' ? '#e0f2fe' : '#f0fdf4',
-                      color: u.staffType === '교사' ? '#0369a1' : '#15803d', fontWeight: 600,
+                      backgroundColor: STAFF_TYPE_STYLE[u.staffType]?.bg,
+                      color: STAFF_TYPE_STYLE[u.staffType]?.color, fontWeight: 600,
                     }}>{u.staffType}</span>
                   )}
                   <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>{u.email}</span>
@@ -317,8 +316,7 @@ function PresetDialog({ preset, allUsers, user, schoolId, onClose }) {
               size="small"
               onDelete={() => removeMember(i)}
               sx={{
-                bgcolor: m.staffType === '교사' ? '#e0f2fe'
-                  : m.staffType === '교직원' ? '#f0fdf4' : undefined,
+                bgcolor: STAFF_TYPE_STYLE[m.staffType]?.bg,
               }}
             />
           ))}

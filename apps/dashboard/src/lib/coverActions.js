@@ -8,6 +8,7 @@ import {
   updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
+import { isTeachingStaff } from '@shared/lib/staffType'
 import { COL, schoolPath } from '@shared/lib/schema'
 import { COVER_STATUS, buildCoverRowPayload, validCoverRows } from '@shared/lib/coverRequests'
 
@@ -81,11 +82,11 @@ export async function deleteCover(schoolId, coverId) {
   await deleteDoc(coverDoc(schoolId, coverId))
 }
 
-/** 이 학교 교사 목록(보강교사 선택용) — staffType==='교사'만, 이름순. */
+/** 이 학교 교사 목록(보강교사 선택용) — 교사·강사(isTeachingStaff), 이름순. */
 export async function fetchTeachersList(schoolId) {
   const snap = await getDocs(query(collection(db, 'users'), where('schoolId', '==', schoolId)))
   return snap.docs
     .map(d => ({ uid: d.id, ...d.data() }))
-    .filter(u => u.staffType === '교사')
+    .filter(u => isTeachingStaff(u.staffType))
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
 }

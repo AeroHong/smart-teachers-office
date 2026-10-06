@@ -7,6 +7,7 @@ import { db, functions } from '@shared/lib/firebase'
 import { RowActions, EditAction, DeleteAction, TextAction } from './adminUi'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { emailToDocId } from '@shared/lib/emailToDocId'
+import { STAFF_TYPES, STAFF_TYPE_STYLE, normalizeStaffType } from '@shared/lib/staffType'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Tabs from '@mui/material/Tabs'
@@ -20,11 +21,6 @@ const ROLE_LABELS = {
   school_admin: '학교 관리자',
   admin: '학교 관리자',
   principal: '교감',
-}
-
-const STAFF_TYPE_STYLE = {
-  '교사':   { bg: '#e0f2fe', color: '#0369a1' },
-  '교직원': { bg: '#f0fdf4', color: '#15803d' },
 }
 
 // TSV 파싱: "이름\t이메일\t구분" 형식
@@ -59,7 +55,7 @@ function parseCsv(text) {
 }
 
 function downloadCsvTemplate() {
-  const rows = ['이름,이메일,구분(교사/교직원)', '홍길동,hong@school.hs.kr,교사', '김철수,kim@school.hs.kr,교직원'].join('\n')
+  const rows = ['이름,이메일,구분(교사/강사/교직원)', '홍길동,hong@school.hs.kr,교사', '이영희,lee@school.hs.kr,강사', '김철수,kim@school.hs.kr,교직원'].join('\n')
   const blob = new Blob(['﻿' + rows], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -79,6 +75,8 @@ export default function AdminAccounts() {
 
   // 구성원 목록 탭
   const [teacherList, setTeacherList] = useState([])
+  const [activating, setActivating] = useState(() => new Set()) // 활성화 진행 중인 행 id
+  const [memberMsg, setMemberMsg] = useState('')
 
   // 사전 등록 탭
   const [pasteText, setPasteText] = useState('')
@@ -191,9 +189,52 @@ export default function AdminAccounts() {
     setTeacherList(prev => prev.map(u => u.id === uid ? { ...u, role: newRole } : u))
   }
 
-  const changeStaffType = async (uid, newType) => {
-    await updateDoc(doc(db, 'users', uid), { staffType: newType })
-    setTeacherList(prev => prev.map(u => u.id === uid ? { ...u, staffType: newType } : u))
+  const changeStaffType = async (u, newType) => {
+    // 미접속 행은 users 문서가 없으니 사전 등록 쪽 구분을 고친다 (로그인·활성화 시 그대로 옮겨감)
+    const ref = u._preOnly
+      ? doc(db, 'schools', schoolId, 'preApproved', emailToDocId(u.email))
+      : doc(db, 'users', u.id)
+    await updateDoc(ref, { staffType: newType })
+    setTeacherList(prev => prev.map(t => t.id === u.id ? { ...t, staffType: newType } : t))
+  }
+
+  // 미접속(사전 등록만 된) 구성원을 로그인 없이 바로 활성화 — 강사처럼 접속이 드문 분들용
+  const activateOne = async (u, staffType) => {
+    const run = httpsCallable(functions, 'activatePreApprovedStaff')
+    const { data } = await run({ schoolId, email: u.email, staffType: staffType || u.staffType || '교사' })
+    return { ...u, id: data.uid, staffType: data.staffType, role: u.role || 'teacher', _preOnly: false }
+  }
+
+  const activateMembers = async (targets, staffType) => {
+    if (targets.length === 0) return
+    setMemberMsg('')
+    setActivating(prev => new Set([...prev, ...targets.map(t => t.id)]))
+    const failed = []
+    for (const u of targets) {
+      try {
+        const activated = await activateOne(u, staffType)
+        setTeacherList(prev => prev.map(t => t.id === u.id ? activated : t))
+      } catch (err) {
+        console.error('활성화 실패:', u.email, err)
+        failed.push(`${u.name || u.email}: ${err.message}`)
+      } finally {
+        setActivating(prev => { const n = new Set(prev); n.delete(u.id); return n })
+      }
+    }
+    const ok = targets.length - failed.length
+    setMemberMsg(failed.length
+      ? `❌ ${ok}명 활성화, ${failed.length}명 실패 — ${failed.join(' / ')}`
+      : `✅ ${ok}명 활성화 완료`)
+  }
+
+  const activateAllPreOnlyAsLecturer = () => {
+    const targets = teacherList.filter(u => u._preOnly)
+    if (!window.confirm(
+      `미접속 구성원 ${targets.length}명을 강사로 활성화하시겠습니까?\n\n`
+      + targets.map(u => u.name || u.email).join(', ')
+      + '\n\n로그인하지 않아도 각종 도구에 바로 나타납니다. 권한은 교사와 같습니다.'
+    )) return
+    activateMembers(targets, '강사')
   }
 
   const removeMember = async (u) => {
@@ -224,7 +265,7 @@ export default function AdminAccounts() {
   const handleParse = () => {
     const rows = parseTsv(pasteText)
     if (rows.length === 0) {
-      alert('유효한 데이터가 없습니다.\n형식: 이름 TAB 이메일 TAB 구분(교사/교직원)')
+      alert('유효한 데이터가 없습니다.\n형식: 이름 TAB 이메일 TAB 구분(교사/강사/교직원)')
       return
     }
     setParsedRows(rows)
@@ -257,7 +298,7 @@ export default function AdminAccounts() {
         return setDoc(doc(db, 'schools', schoolId, 'preApproved', docId), {
           name: r.name,
           email: r.email,
-          staffType: r.staffType === '교직원' ? '교직원' : '교사',
+          staffType: normalizeStaffType(r.staffType),
           role: 'teacher',
           createdAt: serverTimestamp(),
         }, { merge: true })
@@ -358,6 +399,7 @@ export default function AdminAccounts() {
                   <td style={styles.td}>
                     <RowActions>
                       <TextAction onClick={() => approve(u.id, 'teacher', '교사')}>교사 승인</TextAction>
+                      <TextAction onClick={() => approve(u.id, 'teacher', '강사')}>강사 승인</TextAction>
                       <TextAction onClick={() => approve(u.id, 'teacher', '교직원')}>교직원 승인</TextAction>
                       <TextAction onClick={() => approve(u.id, 'school_admin', '교사')}>관리자 승인</TextAction>
                       <TextAction onClick={() => reject(u.id)} danger>거절</TextAction>
@@ -373,6 +415,27 @@ export default function AdminAccounts() {
         teacherList.length === 0 ? (
           <Typography color="text.secondary">등록된 구성원이 없습니다.</Typography>
         ) : (
+          <Box>
+          {teacherList.some(u => u._preOnly) && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+              <Typography variant="body2" color="text.secondary">
+                미접속 {teacherList.filter(u => u._preOnly).length}명 — 로그인 전이라 다른 도구에 나타나지 않습니다.
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={activateAllPreOnlyAsLecturer}
+                disabled={activating.size > 0}
+              >
+                미접속 구성원 모두 강사로 활성화
+              </Button>
+            </Box>
+          )}
+          {memberMsg && (
+            <Alert severity={memberMsg.startsWith('✅') ? 'success' : 'error'} sx={{ mb: 2 }} onClose={() => setMemberMsg('')}>
+              {memberMsg}
+            </Alert>
+          )}
           <table style={styles.table}>
             <thead>
               <tr>
@@ -398,28 +461,17 @@ export default function AdminAccounts() {
                     </td>
                     <td style={styles.td}>{u.email}</td>
                     <td style={styles.td}>
-                      {isPreOnly ? (
-                        <span style={{
-                          ...styles.roleBadge,
-                          backgroundColor: typeStyle?.bg || '#e0f2fe',
-                          color: typeStyle?.color || '#0369a1',
-                        }}>
-                          {u.staffType || '교사'}
-                        </span>
-                      ) : (
-                        <select
-                          value={u.staffType || ''}
-                          onChange={e => e.target.value && changeStaffType(u.id, e.target.value)}
-                          style={{
-                            ...styles.select,
-                            ...(typeStyle ? { backgroundColor: typeStyle.bg, color: typeStyle.color, fontWeight: 600 } : {}),
-                          }}
-                        >
-                          <option value="">미설정</option>
-                          <option value="교사">교사</option>
-                          <option value="교직원">교직원</option>
-                        </select>
-                      )}
+                      <select
+                        value={u.staffType || ''}
+                        onChange={e => e.target.value && changeStaffType(u, e.target.value)}
+                        style={{
+                          ...styles.select,
+                          ...(typeStyle ? { backgroundColor: typeStyle.bg, color: typeStyle.color, fontWeight: 600 } : {}),
+                        }}
+                      >
+                        {!u.staffType && <option value="">미설정</option>}
+                        {STAFF_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
                     </td>
                     <td style={styles.td}>
                       {isPreOnly ? (
@@ -438,7 +490,13 @@ export default function AdminAccounts() {
                     </td>
                     <td style={styles.td}>
                       {isPreOnly ? (
-                        <span style={styles.muted}>로그인 후 활성화</span>
+                        activating.has(u.id) ? (
+                          <span style={styles.muted}>활성화 중…</span>
+                        ) : (
+                          <RowActions>
+                            <TextAction onClick={() => activateMembers([u])}>로그인 없이 활성화</TextAction>
+                          </RowActions>
+                        )
                       ) : (
                         <RowActions>
                           {u.role !== 'teacher' && (
@@ -461,12 +519,14 @@ export default function AdminAccounts() {
               })}
             </tbody>
           </table>
+          </Box>
         )
       ) : tab === 2 ? (
         /* ── 사전 등록 탭 ── */
         <Box>
           <Alert severity="info" sx={{ mb: 3 }}>
             교직원 구글 계정을 사전에 등록해두면, 나중에 해당 이메일로 로그인할 때 승인 대기 없이 자동으로 승인됩니다.
+            로그인을 기다리지 않으려면 구성원 목록 탭에서 바로 활성화할 수 있습니다(강사 등).
           </Alert>
 
           <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
@@ -482,7 +542,7 @@ export default function AdminAccounts() {
           <textarea
             value={pasteText}
             onChange={e => setPasteText(e.target.value)}
-            placeholder="이름 TAB 이메일 TAB 구분(교사/교직원) 형식으로 붙여넣기"
+            placeholder="이름 TAB 이메일 TAB 구분(교사/강사/교직원) 형식으로 붙여넣기"
             style={styles.textarea}
             rows={8}
           />

@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { isTeachingStaff } from '@shared/lib/staffType'
 import Layout from '../../components/Layout'
 
 import Box from '@mui/material/Box'
@@ -263,7 +264,7 @@ export default function CoverMain() {
       .then(snap => {
         const list = snap.docs
           .map(d => ({ uid: d.id, ...d.data() }))
-          .filter(u => u.staffType === '교사')
+          .filter(u => isTeachingStaff(u.staffType))
           .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
         setTeachersList(list)
       })

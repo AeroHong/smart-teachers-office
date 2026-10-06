@@ -54,6 +54,10 @@ const userClaims = require('./userClaims')
 exports.syncUserClaims = userClaims.syncUserClaims
 exports.refreshMyClaims = userClaims.refreshMyClaims
 
+// 사전 등록 구성원 로그인 없이 활성화 (강사 등)
+const staffActivation = require('./staffActivation')
+exports.activatePreApprovedStaff = staffActivation.activatePreApprovedStaff
+
 // 평가 운영 계획 확정 → 교직원 관리(기본배정·과목배정) 자동 반영
 exports.syncEvaluationPlanToStaff = evaluationPlanSync.syncEvaluationPlanToStaff
 

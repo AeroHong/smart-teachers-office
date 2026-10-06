@@ -21,6 +21,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { STAFF_TYPE_STYLE } from '@shared/lib/staffType'
 import Layout from '../../components/Layout'
 import { loadMembers, filterBySearch } from './trainingUtils'
 
@@ -443,7 +444,7 @@ function SignatureStatus({ training, signatures, id, schoolId, canManage }) {
         : status === 'noted'
           ? '<span style="background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:3px;font-size:7.5pt;">불참(사유있음)</span>'
           : '<span style="background:#fef3c7;color:#b45309;padding:1px 5px;border-radius:3px;font-size:7.5pt;">미서명</span>'
-      const typeColor = m.staffType === '교사' ? '#0369a1' : m.staffType === '교직원' ? '#15803d' : '#cbd5e1'
+      const typeColor = STAFF_TYPE_STYLE[m.staffType]?.color || '#cbd5e1'
       const rowBg = status === 'unsigned' ? '#fffdf7' : '#fff'
 
       return `<tr style="background:${rowBg};border-left:3px solid ${borderColor};">
@@ -620,8 +621,7 @@ function SignatureStatus({ training, signatures, id, schoolId, canManage }) {
               {/* 구분 */}
               <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center', borderRight: '1px solid #f1f5f9' }}>
                 <Typography fontSize="0.76rem" fontWeight={m.staffType ? 600 : 400} sx={{
-                  color: m.staffType === '교사' ? '#0369a1'
-                    : m.staffType === '교직원' ? '#15803d' : '#cbd5e1',
+                  color: STAFF_TYPE_STYLE[m.staffType]?.color || '#cbd5e1',
                 }}>
                   {m.staffType || '—'}
                 </Typography>
@@ -966,8 +966,8 @@ function MemberEditor({ id, training, setTraining, schoolId }) {
                 {u.staffType && (
                   <span style={{
                     fontSize: '0.72rem', padding: '1px 6px', borderRadius: 8,
-                    backgroundColor: u.staffType === '교사' ? '#e0f2fe' : '#f0fdf4',
-                    color: u.staffType === '교사' ? '#0369a1' : '#15803d', fontWeight: 600,
+                    backgroundColor: STAFF_TYPE_STYLE[u.staffType]?.bg,
+                    color: STAFF_TYPE_STYLE[u.staffType]?.color, fontWeight: 600,
                   }}>{u.staffType}</span>
                 )}
                 <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>{u.email}</span>
@@ -995,8 +995,7 @@ function MemberEditor({ id, training, setTraining, schoolId }) {
             size="small"
             onDelete={() => removeMember(i)}
             sx={{
-              bgcolor: m.staffType === '교사' ? '#e0f2fe'
-                : m.staffType === '교직원' ? '#f0fdf4' : undefined,
+              bgcolor: STAFF_TYPE_STYLE[m.staffType]?.bg,
             }}
           />
         ))}

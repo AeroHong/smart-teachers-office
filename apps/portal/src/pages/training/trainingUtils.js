@@ -2,11 +2,11 @@ import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 
 export const APPROVED_ROLES = ['teacher', 'school_admin', 'admin']
-export const STAFF_TYPES = ['교사', '교직원']
+export { STAFF_TYPES } from '@shared/lib/staffType'
 
 /**
  * 승인된 구성원 목록 로드 (/users 컬렉션 기준)
- * @param {string} staffTypeFilter '교사' | '교직원' | '전체'
+ * @param {string} staffTypeFilter '교사' | '강사' | '교직원' | '전체'
  * @param {string} schoolId  로그인한 학교 ID
  */
 export async function loadMembers(staffTypeFilter = '전체', schoolId) {
