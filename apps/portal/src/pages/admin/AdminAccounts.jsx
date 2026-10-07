@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   collection, query, where, getDocs, getDoc, updateDoc, doc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
@@ -68,6 +69,7 @@ function downloadCsvTemplate() {
 
 export default function AdminAccounts() {
   const { schoolId } = useAuth()
+  const navigate = useNavigate()
   const [tab, setTab] = useState(0) // 0: pending, 1: members, 2: preregister, 3: workspace
   const [loading, setLoading] = useState(true)
 
@@ -91,7 +93,7 @@ export default function AdminAccounts() {
   const [wsEnabled, setWsEnabled] = useState(false)
   const [wsAdminEmail, setWsAdminEmail] = useState('')
   const [wsStaffOu, setWsStaffOu] = useState('')
-  const [wsStudentOu, setWsStudentOu] = useState('')
+  const [wsStudentOu, setWsStudentOu] = useState('') // 표시만 — 편집은 StudentHub
   const [savingWs, setSavingWs] = useState(false)
   const [syncingNow, setSyncingNow] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
@@ -326,13 +328,11 @@ export default function AdminAccounts() {
     setSavingWs(true)
     setSyncMsg('')
     try {
+      // 필드 단위로 쓴다 — studentOuPath(StudentHub에서 관리)·lastStudentSyncAt을 지우지 않도록
       await updateDoc(doc(db, 'schools', schoolId), {
-        workspaceSync: {
-          enabled: wsEnabled,
-          adminEmail: wsAdminEmail.trim(),
-          staffOuPath: wsStaffOu.trim(),
-          studentOuPath: wsStudentOu.trim(),
-        },
+        'workspaceSync.enabled': wsEnabled,
+        'workspaceSync.adminEmail': wsAdminEmail.trim(),
+        'workspaceSync.staffOuPath': wsStaffOu.trim(),
       })
       setSyncMsg('✅ 설정 저장 완료')
     } catch (err) {
@@ -347,12 +347,12 @@ export default function AdminAccounts() {
     setSyncMsg('')
     try {
       const run = httpsCallable(functions, 'runWorkspaceSyncNow')
-      const { data } = await run({ schoolId })
-      const { staff, students } = data.result || {}
-      const parts = []
-      if (staff) parts.push(`교직원 사전등록 신규 ${staff.created}·갱신 ${staff.updated}·정리 ${staff.removed} (전체 ${staff.total}명)`)
-      if (students) parts.push(`학생 신규 ${students.created}·갱신 ${students.updated} (전체 ${students.total}명, 형식 불일치 ${students.skipped}건)`)
-      setSyncMsg('✅ 동기화 완료 — ' + parts.join(' / '))
+      // 학생 동기화는 StudentHub 「Workspace 학생 동기화」에서 한다
+      const { data } = await run({ schoolId, scope: 'staff' })
+      const { staff } = data.result || {}
+      setSyncMsg('✅ 동기화 완료 — ' + (staff
+        ? `교직원 사전등록 신규 ${staff.created}·갱신 ${staff.updated}·정리 ${staff.removed} (전체 ${staff.total}명)`
+        : '교직원 OU 경로가 없어 실행할 항목이 없습니다.'))
     } catch (err) {
       setSyncMsg('❌ 동기화 실패: ' + err.message)
     } finally {
@@ -620,7 +620,9 @@ export default function AdminAccounts() {
           <Alert severity="info" sx={{ mb: 3 }}>
             Google Workspace API를 사용하여 교직원 및 학생 계정을 자동으로 동기화할 수 있습니다.
             <br />
-            설정 후 매일 자동으로 실행되며, 필요 시 수동 실행도 가능합니다.
+            설정 후 매일 자동으로 실행되며, 필요 시 수동 실행도 가능합니다. 여기서는 교직원 동기화를 실행합니다.
+            <br />
+            학생 OU 경로와 학생 동기화 실행은 StudentHub 「Workspace 학생 동기화」에서 관리합니다.
           </Alert>
 
           <Box sx={{ mb: 3 }}>
@@ -657,16 +659,14 @@ export default function AdminAccounts() {
               />
             </label>
 
-            <label style={styles.modalLabel}>
-              학생 OU 경로
-              <input
-                type="text"
-                value={wsStudentOu}
-                onChange={e => setWsStudentOu(e.target.value)}
-                placeholder="/학생/2027"
-                style={styles.input}
-              />
-            </label>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <Typography variant="body2" color="text.secondary">
+                학생 OU 경로: <strong>{wsStudentOu || '(없음)'}</strong>
+              </Typography>
+              <Button size="small" variant="outlined" onClick={() => navigate('/studenthub?next=/enrollment/workspace')}>
+                StudentHub에서 학생 동기화 관리
+              </Button>
+            </Box>
           </Box>
 
           <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
@@ -674,7 +674,7 @@ export default function AdminAccounts() {
               {savingWs ? '저장 중...' : '설정 저장'}
             </Button>
             <Button variant="outlined" onClick={handleSyncNow} disabled={syncingNow || !wsEnabled}>
-              {syncingNow ? '동기화 중...' : '지금 동기화 실행'}
+              {syncingNow ? '동기화 중...' : '교직원 동기화 실행'}
             </Button>
           </Box>
 

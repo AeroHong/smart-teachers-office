@@ -3,6 +3,7 @@ const { SecretManagerServiceClient } = require('@google-cloud/secret-manager')
 const { getFirestore, FieldValue } = require('firebase-admin/firestore')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
+const { mergeSyncedStudent } = require('./studentSyncMerge')
 
 /**
  * Google Workspace Directory API 동기화
@@ -20,6 +21,8 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https')
  *        재사용하므로 최초 로그인 시 users/{uid}가 자동 생성됨.
  * 학생: schools/{id}/students 직접 upsert — 문서ID/학번은 이메일 로컬파트 9자리 패턴에서 파싱
  *      (parseStudentEmail, AuthContext.jsx와 동일 규칙 — 그 쪽을 바꾸면 여기도 맞춰야 함)
+ *      학적의 기준은 StudentHub — 기존 학생의 학년·반·번호는 학년도 전환 때만 바꾼다(studentSyncMerge.js).
+ *      학생 OU 설정·즉시 실행 화면은 StudentHub 「Workspace 학생 동기화」에 있다.
  */
 
 const SECRET_NAME = 'projects/seonyoo-system/secrets/workspace-sync-key/versions/latest'
@@ -171,45 +174,12 @@ async function syncStudents(db, schoolId, directory, ouPath) {
       })
       created++
     } else {
-      const existing = snap.data()
-
-      // 이메일 이력 업데이트 (진급으로 이메일이 바뀐 경우)
-      let emailHistory = existing.emailHistory || [{ email: existing.email, year: existing.year }]
-      const lastHistory = emailHistory[emailHistory.length - 1]
-      if (lastHistory.email !== email) {
-        emailHistory.push({ email, year })
-      }
-
-      // 이름은 관리자가 학생 명단 탭에서 수동으로 고칠 수 있음 — 그 경우 동기화가 되돌리지 않도록 제외
-      const syncedName = existing.nameEditedManually ? existing.name : name
-
-      // admissionYear는 첫 등록 시 설정되고 이후 불변
-      const admissionYear = existing.admissionYear || existing.year || year
-
-      const newData = {
-        workspaceUserId,
-        studentId,
-        fullStudentId,
-        email,
-        name: syncedName,
-        year,
-        grade,
-        class: classNo,
-        number,
-        admissionYear,
-        emailHistory,
-        source: 'workspaceSync',
-        updatedAt: FieldValue.serverTimestamp(),
-      }
-
-      // 변경사항 체크
-      const changed = ['studentId', 'fullStudentId', 'email', 'year', 'grade', 'class', 'number']
-        .some(k => existing[k] !== newData[k]) ||
-        (!existing.nameEditedManually && existing.name !== syncedName) ||
-        JSON.stringify(existing.emailHistory) !== JSON.stringify(emailHistory)
-
+      // 학년·반·번호는 학년도 전환 때만 갱신 — 같은 학년도 안에서는 StudentHub 학적이 기준
+      const { data, changed } = mergeSyncedStudent(snap.data(), {
+        workspaceUserId, studentId, fullStudentId, email, name, year, grade, classNo, number,
+      })
       if (changed) {
-        await ref.set(newData, { merge: true })
+        await ref.set({ ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
         updated++
       }
     }
@@ -253,17 +223,18 @@ async function syncStudents(db, schoolId, directory, ouPath) {
   return { total: users.length, created, updated, skipped, archived }
 }
 
-async function syncSchool(db, schoolId, schoolData) {
+/** @param {'all'|'staff'|'students'} scope 교직원(스마트교무실)·학생(StudentHub)을 따로 실행할 수 있다 */
+async function syncSchool(db, schoolId, schoolData, scope = 'all') {
   const cfg = schoolData.workspaceSync
   if (!cfg?.enabled || !cfg.adminEmail) return null
 
   const directory = await getDirectoryClient(cfg.adminEmail)
   const result = { schoolId }
 
-  if (cfg.staffOuPath) {
+  if (cfg.staffOuPath && scope !== 'students') {
     result.staff = await syncStaff(db, schoolId, directory, cfg.staffOuPath)
   }
-  if (cfg.studentOuPath) {
+  if (cfg.studentOuPath && scope !== 'staff') {
     result.students = await syncStudents(db, schoolId, directory, cfg.studentOuPath)
     // StudentHub 「학적 기준일」 — 학생 명단을 마지막으로 Workspace와 맞춘 시각
     await db.collection('schools').doc(schoolId).update({
@@ -298,8 +269,11 @@ exports.runWorkspaceSyncNow = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
 
-    const { schoolId } = request.data || {}
+    const { schoolId, scope = 'all' } = request.data || {}
     if (!schoolId) throw new HttpsError('invalid-argument', 'schoolId가 필요합니다.')
+    if (!['all', 'staff', 'students'].includes(scope)) {
+      throw new HttpsError('invalid-argument', 'scope는 all·staff·students 중 하나입니다.')
+    }
 
     const db = getFirestore()
     const userDoc = await db.collection('users').doc(request.auth.uid).get()
@@ -308,8 +282,21 @@ exports.runWorkspaceSyncNow = onCall(
     const isSchoolAdmin = userData?.schoolId === schoolId &&
       ['admin', 'school_admin'].includes(userData?.role)
 
-    if (!isSuperAdmin && !isSchoolAdmin) {
-      throw new HttpsError('permission-denied', '이 학교의 관리자만 동기화를 실행할 수 있습니다.')
+    // 학생 동기화는 StudentHub 관리자(교감)·학적 담당자도 실행한다 — firestore.rules hasHubRole과 같은 기준
+    let canSyncStudents = isSuperAdmin || isSchoolAdmin
+    if (!canSyncStudents && scope === 'students' && userData?.schoolId === schoolId) {
+      if (userData.role === 'principal') {
+        canSyncStudents = true
+      } else if (['teacher', 'headmaster'].includes(userData.role)) {
+        const mgr = await db.collection('schools').doc(schoolId).collection('studentHubManagers').doc(request.auth.uid).get()
+        canSyncStudents = (mgr.data()?.roles || []).includes('enrollment')
+      }
+    }
+
+    if (!canSyncStudents) {
+      throw new HttpsError('permission-denied', scope === 'students'
+        ? '관리자·교감·학적 담당자만 학생 동기화를 실행할 수 있습니다.'
+        : '이 학교의 관리자만 동기화를 실행할 수 있습니다.')
     }
 
     const schoolDoc = await db.collection('schools').doc(schoolId).get()
@@ -321,7 +308,7 @@ exports.runWorkspaceSyncNow = onCall(
     }
 
     try {
-      const result = await syncSchool(db, schoolId, schoolDoc.data())
+      const result = await syncSchool(db, schoolId, schoolDoc.data(), scope)
       return { success: true, result }
     } catch (e) {
       console.error(`[${schoolId}] 수동 동기화 실패:`, e)

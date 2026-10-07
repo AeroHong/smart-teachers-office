@@ -181,7 +181,9 @@
   - `enabled` (boolean)
   - `adminEmail` (string) - 도메인 위임 대리 인증용 Workspace 관리자 이메일
   - `staffOuPath` (string) - 교직원 OU 경로 (예: `/교원`)
-  - `studentOuPath` (string) - 학생 OU 경로 (예: `/학생 2026`)
+  - `studentOuPath` (string) - 학생 OU 경로 (예: `/학생 2026`) — StudentHub 「Workspace 학생 동기화」에서 고친다
+  - `lastStudentSyncAt` (timestamp) - 마지막 학생 동기화 시각(Functions가 기록, StudentHub 학적 기준일)
+  - 포털 계정 관리는 `enabled`·`adminEmail`·`staffOuPath`를 필드 단위로 저장한다(다른 필드를 지우지 않게)
 
 > ⚠️ **문서 정정**: `workspaceSync.lastSyncAt`을 쓰는 코드는 없다. 실제로는 `adminEmail`, `staffOuPath`가 있다.
 
@@ -189,7 +191,7 @@
 - Get: 슈퍼 어드민, 소속 교사, 로그인한 사용자
 - List: 슈퍼 어드민, 소속 교사, 미가입자 (SchoolSetup용)
 - Create: 슈퍼 어드민, school-* 패턴 학교 생성 가능
-- Update: 슈퍼 어드민, 학교 관리자
+- Update: 슈퍼 어드민, 학교 관리자. StudentHub 학적 담당자는 `workspaceSync.studentOuPath`만
 - Delete: 슈퍼 어드민만
 
 ---
@@ -206,7 +208,15 @@
 #### `/schools/{schoolId}/students/{workspaceUserId}`
 학생 정보 (문서 ID: Workspace User ID 21자리. Workspace ID를 못 찾으면 5자리 학번으로 fallback)
 
-**필드:** (쓰기: `functions/workspaceSync.js:155~215`, `StudentList.jsx:210, 330`, `AdminStudents.jsx:165, 252`)
+**쓰기 주체 (2026-10):** 학적의 기준은 StudentHub다. Workspace 동기화를 쓰는 학교에서는
+- StudentHub — 학적 변동·성별·명단 삭제(학적 담당자), 선택과목 업로드·편집(선택과목 담당자, `electiveSubjects*` 필드만)
+- `functions/workspaceSync.js` — 새 학생 생성, 이름·이메일·이력 갱신. **학년·반·번호·학번은 이메일 연도가 문서의 `year`보다
+  클 때(학년도 전환)만 이메일 학번으로 바꾼다** — 같은 학년도 안에서는 StudentHub 값을 되돌리지 않는다(`functions/studentSyncMerge.js`)
+- 스마트교무실 portal은 읽기만 한다(`AdminStudents.jsx` 조회·CSV, 출결 그룹 CSV는 기존 학생과 맞춰 그룹에만 넣는다)
+
+동기화를 쓰지 않는 학교(`workspaceSync.enabled`가 아님)는 예전처럼 교사가 출결 그룹 CSV(`StudentList.jsx`)로 학생을 만든다.
+
+**필드:**
 - `workspaceUserId` (string) - Workspace User ID (21자리)
 - `studentId` (string) - 학번 (5자리: 학년1 + 반2 + 번호2)
 - `fullStudentId` (string) - 9자리 학번
@@ -230,7 +240,8 @@
 
 **접근 권한:**
 - Read: 슈퍼 어드민, 소속 교사, 학생 본인
-- Write: 슈퍼 어드민, 소속 교사
+- Write: 슈퍼 어드민, StudentHub 학적 담당자(관리자·교감 포함). 선택과목 담당자는 `electiveSubjects`·`electiveSubjectsUpdatedAt`만.
+  동기화를 쓰지 않는 학교는 소속 교사도 쓴다(`isSyncManagedSchool`)
 
 ---
 
@@ -1058,11 +1069,20 @@ alias로 직접 import해 강제한다. 보안 규칙도 이 레포 `firestore.r
 #### `/schools/{schoolId}/exams/{autoId}` — 고사
 `name`, `year`, `semester`, `plan[]`(dateStr·period·grade·subject·code·timeRange·minutes), `vacancyOverrides[]`
 (hakbeon·type '결번'|'직업반'·note), `status`(preparing|closed), `createdBy`.
+ExamCore(2026-10, 고사 업무 앱 — StudentHub에서 옮김)가 저장할 때 더하는 필드: `revision`(저장마다 +1 — 동시 편집 판별),
+`versionCount`, `latestVersionId`, `updatedBy`({uid, name}), `updatedAt`.
 - `seatings/{grade}` — `{ headers[], rows: { [workspaceUserId]: { [과목 열]: 고사실 코드 } } }`
 - `absences/{examAbsenceId(workspaceUserId, subjectKey)}` — 결시. `status` reported→classified(담임)→confirmed(결시 담당),
   `type`(illness·approved·unapproved·other), `reason`, `evidenceSubmitted`, `grade`·`classNo`·`number`·`hakbeon` 스냅샷,
   `subjectKey`·`subject`·`dateStr`·`period`·`roomName`, `reportedBy`, `classifiedBy`.
 - 응시현황표는 저장하지 않는다 — 볼 때마다 students + enrollmentChanges + seatings로 다시 계산(학적 변동 즉시 반영).
+- `versions/{autoId}` — 저장 버전 요약 `{ versionNo, action('exam_save'|'exam_restore'), summary, details[], by{uid,name}, at }`
+- `versionData/{같은 id}` — 그 버전의 전체 데이터 `{ plan, vacancyOverrides, seatings: { [grade]: {headers, rows} } }`.
+  ExamCore 저장은 한 transaction: 고사 문서 + seatings + versions + versionData + studentHubLogs. 내가 연 뒤 revision이
+  바뀌었으면 칸(학생 workspaceUserId × 과목 열) 단위 3-way 병합 후 저장(ExamCore `src/exam/db/draft.js`). 버전은 고치거나 지우지 않는다.
+- `proctor/main` — 감독 배정(core ProctorDoc): `staff`(교직원 스냅숏·순환 순서), `settings`(인원·출제교사·담임·제외·가중치),
+  `assignments[]`({slotKey, room, pos, staffId, locked}), `planFingerprint`, `summary`(교사별 정·부·시감 — 시험 간 누적 통계용), `rev`·`updatedBy`·`updatedAt`.
+  rev가 내가 연 뒤 바뀌었으면 저장을 막는다. 조회 교사 전체, 쓰기 고사 담당자(`exam`).
 - 접근: 고사·배정 쓰기 고사 담당자(`exam`) / 결시 생성 교사 누구나(본인 이름, reported만) / 담임은 자기 반의
   유형·사유·증빙만(필드 잠금) / 결시 담당자(`absence`)는 전부
 
@@ -1086,8 +1106,11 @@ alias로 직접 import해 강제한다. 보안 규칙도 이 레포 `firestore.r
 - 교감(`principal`)은 StudentHub에서 관리자와 동급(`isHubAdmin`) — 담당자 지정·학교 공통 설정·공용 화면·학적·고사·결시 모두.
   담임·부담임 지정을 위해 `teacherAssignments` 쓰기도 교감에게 열었다.
 
-#### `/schools/{schoolId}/electiveImports/{autoId}` — (예정) 교육부 수강신청 결과 업로드 기록
+#### `/schools/{schoolId}/electiveImports/{autoId}` — 선택과목 CSV 업로드 기록 (StudentHub 「선택과목」)
 적용 결과는 `students.electiveSubjects`. 쓰기 선택과목 담당자(`elective`).
+- `file` (string), `rows` (number) - 파일 행 수, `updated` (number) - 반영한 학생 수
+- `missing` (array<string>) - 학적에서 못 찾은 학번, `unmatched` (array<string>) - 교육과정 과목 목록에 없는 과목명
+- `importedBy` ({ uid, name }), `importedAt` (timestamp)
 
 ---
 
@@ -1110,8 +1133,9 @@ alias로 직접 import해 강제한다. 보안 규칙도 이 레포 `firestore.r
 
 ### `functions/workspaceSync.js`
 - **syncWorkspaceDirectory** (onSchedule) - Google Workspace Directory 정기 동기화
-- **runWorkspaceSyncNow** (onCall) - 관리자 수동 실행
-  - 교직원 → `preApproved` upsert/정리, 학생 → `students` upsert + `archivedStudents` 이동
+- **runWorkspaceSyncNow** (onCall) - 수동 실행. `scope`: `all`(기본)·`staff`·`students`
+  - `staff`·`all`은 학교 관리자, `students`는 관리자·교감·StudentHub 학적 담당자도 실행 (StudentHub 「Workspace 학생 동기화」)
+  - 교직원 → `preApproved` upsert/정리, 학생 → `students` upsert(배치는 학년도 전환 때만, `studentSyncMerge.js`) + `archivedStudents` 이동
   - 서비스계정 키는 Secret Manager `workspace-sync-key`에 보관
 
 ### `functions/callSystem.js`

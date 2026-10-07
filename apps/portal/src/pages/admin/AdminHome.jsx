@@ -197,12 +197,12 @@ export default function AdminHome() {
     {
       title: '학생 OU 갱신 필요',
       count: summary.studentOuOutdated ? 1 : 0,
-      path: '/admin/accounts',
+      path: '/studenthub?next=/enrollment/workspace',
       severity: summary.studentOuOutdated ? 'warning' : 'success',
       icon: summary.studentOuOutdated ? WarningIcon : CheckCircleIcon,
       color: summary.studentOuOutdated ? '#ed6c02' : '#2e7d32',
       bgColor: summary.studentOuOutdated ? '#fff4e5' : '#edf7ed',
-      details: summary.studentOuOutdated ? 'Workspace 동기화 설정에서 학생 OU 경로를 확인하세요' : '',
+      details: summary.studentOuOutdated ? 'StudentHub 「Workspace 학생 동기화」에서 학생 OU 경로를 확인하세요' : '',
     },
   ]
 

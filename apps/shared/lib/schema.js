@@ -155,6 +155,11 @@ export const COL = {
   EXAMS: 'exams',
   EXAM_SEATINGS: 'seatings',                 // exams/{id}/seatings/{grade} — 학년당 1문서
   EXAM_ABSENCES: 'absences',                 // exams/{id}/absences/{examAbsenceId(wid, code)}
+  // ExamCore(2026-10) — 저장마다 남기는 버전. 요약(목록용)과 전체 데이터(복구용)를 나눈다. 고치거나 지우지 않는다
+  EXAM_VERSIONS: 'versions',                 // exams/{id}/versions/{autoId} — { versionNo, action, summary, details[], by, at }
+  EXAM_VERSION_DATA: 'versionData',          // exams/{id}/versionData/{같은 id} — { plan, vacancyOverrides, seatings }
+  // ExamCore 감독 배정 — 고정 ID 문서 'main' 하나(core ProctorDoc: 교직원 명단·규칙·배정·요약 + rev)
+  EXAM_PROCTOR: 'proctor',                   // exams/{id}/proctor/main
   // 선택과목 수강신청 결과(교육부 시스템) 업로드 기록 — auto-ID. 적용 결과는 students.electiveSubjects
   ELECTIVE_IMPORTS: 'electiveImports',
   // StudentHub 사용자 로그 — auto-ID. 지우거나 고치지 않는다(firestore.rules). 고사 명렬표 도구의

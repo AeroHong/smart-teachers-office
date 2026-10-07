@@ -9,6 +9,8 @@ export default function StudentList() {
   const { schoolId, user, role } = useAuth()
 
   const [studentDomain, setStudentDomain] = useState('')
+  // Workspace 동기화를 쓰는 학교는 학생 명단을 StudentHub가 관리한다 — 여기서는 기존 학생과 맞춰 그룹에만 넣는다
+  const [syncManaged, setSyncManaged] = useState(false)
   const [groups, setGroups] = useState([])
   const [loadingGroups, setLoadingGroups] = useState(true)
   const [expandedGroupId, setExpandedGroupId] = useState(null)
@@ -56,7 +58,10 @@ export default function StudentList() {
   useEffect(() => {
     if (!schoolId) return
     getDoc(doc(db, 'schools', schoolId))
-      .then(snap => setStudentDomain(snap.data()?.studentDomain || ''))
+      .then(snap => {
+        setStudentDomain(snap.data()?.studentDomain || '')
+        setSyncManaged(snap.data()?.workspaceSync?.enabled === true)
+      })
       .catch(() => {})
   }, [schoolId])
 
@@ -181,6 +186,47 @@ export default function StudentList() {
     reader.readAsText(file, 'utf-8')
   }
 
+  // 기존 학생 색인 — 이메일·학번(학년·반·번호, 재적)·문서 ID
+  const loadStudentIndex = async () => {
+    const snap = await getDocs(collection(db, 'schools', schoolId, 'students'))
+    const byEmail = {}
+    const bySlot = {}
+    const byId = {}
+    snap.docs.forEach(d => {
+      const data = d.data()
+      byId[d.id] = data
+      if (data.email) byEmail[data.email.toLowerCase()] = d.id
+      if (!['transferredOut', 'withdrawn'].includes(data.status) && data.grade && data.class && data.number) {
+        bySlot[`${Number(data.grade)}-${Number(data.class)}-${Number(data.number)}`] = d.id
+      }
+    })
+    return { byEmail, bySlot, byId }
+  }
+
+  /**
+   * CSV 한 행 → 학생 문서. 동기화 학교는 기존 학생과 맞추기만 하고(못 찾으면 null),
+   * 그 밖의 학교는 예전처럼 학생 문서를 만들거나 고친다.
+   * @returns {Promise<{ id: string, data: object } | null>}
+   */
+  const resolveStudent = async (s, index) => {
+    const found = (s.email && index.byEmail[s.email.toLowerCase()]) ||
+      index.bySlot[`${s.grade}-${s.class}-${s.number}`]
+    if (syncManaged) {
+      if (!found) return null
+      if (s.email) {
+        await setDoc(doc(db, 'studentRegistrations', s.email), { schoolId, studentId: s.studentId, name: s.name }, { merge: true })
+      }
+      return { id: found, data: index.byId[found] }
+    }
+    const docId = (s.email && index.byEmail[s.email.toLowerCase()] && index.byId[index.byEmail[s.email.toLowerCase()]]?.workspaceUserId) || s.studentId
+    const writes = [setDoc(doc(db, 'schools', schoolId, 'students', docId), s, { merge: true })]
+    if (s.email) {
+      writes.push(setDoc(doc(db, 'studentRegistrations', s.email), { schoolId, studentId: s.studentId, name: s.name }, { merge: true }))
+    }
+    await Promise.all(writes)
+    return { id: docId, data: s }
+  }
+
   const handleSave = async () => {
     if (!preview.length) return
     if (!groupName.trim()) {
@@ -190,34 +236,14 @@ export default function StudentList() {
     setUploading(true)
     setUploadResult(null)
     try {
-      // 1. 먼저 기존 students 컬렉션에서 이메일로 workspaceUserId 찾기
-      const existingStudentsSnap = await getDocs(collection(db, 'schools', schoolId, 'students'))
-      const emailToWorkspaceId = {}
-      existingStudentsSnap.docs.forEach(d => {
-        const data = d.data()
-        if (data.email && data.workspaceUserId) {
-          emailToWorkspaceId[data.email.toLowerCase()] = data.workspaceUserId
-        }
-      })
-
-      // 2. 학생 저장 + workspaceUserId 수집
-      const workspaceUserIds = []
-      await Promise.all(preview.map(async student => {
-        // 이메일로 기존 workspaceUserId 찾기
-        const workspaceUserId = student.email ? emailToWorkspaceId[student.email.toLowerCase()] : null
-        const docId = workspaceUserId || student.studentId // workspaceUserId 우선, 없으면 studentId 사용
-
-        const writes = [
-          setDoc(doc(db, 'schools', schoolId, 'students', docId), student, { merge: true }),
-        ]
-        if (student.email) {
-          writes.push(setDoc(doc(db, 'studentRegistrations', student.email), {
-            schoolId, studentId: student.studentId, name: student.name,
-          }, { merge: true }))
-        }
-        await Promise.all(writes)
-        workspaceUserIds.push(docId)
-      }))
+      // 1. 기존 학생과 맞추기(동기화 학교) 또는 학생 저장(그 밖의 학교)
+      const index = await loadStudentIndex()
+      const resolved = await Promise.all(preview.map(student => resolveStudent(student, index)))
+      const workspaceUserIds = resolved.filter(Boolean).map(r => r.id)
+      const unmatched = preview.filter((_, i) => !resolved[i])
+      if (workspaceUserIds.length === 0) {
+        throw new Error('학생 명단에서 찾은 학생이 없습니다. 학생 명단은 StudentHub에서 관리합니다.')
+      }
 
       const isAdminShared = role === 'school_admin' && isShared
       const ownerUid = (!isAdminShared && role === 'school_admin' && assignedTeacher) ? assignedTeacher : user.uid
@@ -227,7 +253,7 @@ export default function StudentList() {
       await addDoc(collection(db, 'schools', schoolId, 'studentGroups'), {
         name: groupName.trim(),
         workspaceUserIds, // 새 필드
-        studentIds: preview.map(s => s.studentId), // 하위 호환용 (구형 코드에서 사용)
+        studentIds: preview.filter((_, i) => resolved[i]).map(s => s.studentId), // 하위 호환용 (구형 코드에서 사용)
         shared: isAdminShared,
         createdBy: ownerUid,
         ...(isAdminShared && selectedTeacher && { mainTeacherUid: selectedTeacher.id, mainTeacherName: selectedTeacher.name }),
@@ -235,7 +261,7 @@ export default function StudentList() {
         createdAt: new Date(),
       })
 
-      setUploadResult({ success: true, count: preview.length })
+      setUploadResult({ success: true, count: workspaceUserIds.length, unmatched: unmatched.map(s => `${s.studentId} ${s.name}`) })
       setPreview([])
       setGroupName('')
       setAssignedTeacher('')
@@ -301,40 +327,26 @@ export default function StudentList() {
   })
 
   const addStudentsToGroup = async (group, students) => {
-    // 1. 먼저 기존 students 컬렉션에서 이메일로 workspaceUserId 찾기
-    const existingStudentsSnap = await getDocs(collection(db, 'schools', schoolId, 'students'))
-    const emailToWorkspaceId = {}
-    existingStudentsSnap.docs.forEach(d => {
-      const data = d.data()
-      if (data.email && data.workspaceUserId) {
-        emailToWorkspaceId[data.email.toLowerCase()] = data.workspaceUserId
-      }
-    })
-
-    // 2. 각 학생 저장 + workspaceUserId 수집
+    // 1. 기존 학생과 맞추기(동기화 학교) 또는 학생 저장(그 밖의 학교)
+    const index = await loadStudentIndex()
     const existingIds = group.workspaceUserIds || group.studentIds || []
     const workspaceUserIdsToAdd = []
     const newOnes = []
+    const unmatched = []
 
     for (const s of students) {
-      const workspaceUserId = s.email ? emailToWorkspaceId[s.email.toLowerCase()] : null
-      const docId = workspaceUserId || s.studentId
-
+      const known = (s.email && index.byEmail[s.email.toLowerCase()]) || index.bySlot[`${s.grade}-${s.class}-${s.number}`]
       // 이미 그룹에 있으면 skip
-      if (existingIds.includes(docId)) continue
+      if (known && existingIds.includes(known)) continue
+      const r = await resolveStudent(s, index)
+      if (!r) { unmatched.push(`${s.studentId} ${s.name}`); continue }
+      if (existingIds.includes(r.id)) continue
+      workspaceUserIdsToAdd.push(r.id)
+      newOnes.push({ id: r.id, ...r.data })
+    }
 
-      const writes = [
-        setDoc(doc(db, 'schools', schoolId, 'students', docId), s, { merge: true }),
-      ]
-      if (s.email) {
-        writes.push(setDoc(doc(db, 'studentRegistrations', s.email), {
-          schoolId, studentId: s.studentId, name: s.name,
-        }, { merge: true }))
-      }
-      await Promise.all(writes)
-
-      workspaceUserIdsToAdd.push(docId)
-      newOnes.push({ id: docId, ...s })
+    if (unmatched.length > 0) {
+      alert(`학생 명단에 없는 학생 ${unmatched.length}명은 넣지 못했습니다 (학생 명단은 StudentHub에서 관리):\n${unmatched.slice(0, 20).join('\n')}`)
     }
 
     if (workspaceUserIdsToAdd.length === 0) {
@@ -598,7 +610,10 @@ export default function StudentList() {
         {uploadResult && (
           <p style={uploadResult.success ? styles.successMsg : styles.errorMsg}>
             {uploadResult.success
-              ? `저장 완료: ${uploadResult.count}명이 학생 레지스트리에 등록되고 그룹이 생성되었습니다.`
+              ? `저장 완료: ${uploadResult.count}명으로 그룹이 생성되었습니다.` +
+                (uploadResult.unmatched?.length
+                  ? ` 학생 명단에 없는 ${uploadResult.unmatched.length}명은 제외했습니다(학생 명단은 StudentHub에서 관리): ${uploadResult.unmatched.slice(0, 20).join(', ')}`
+                  : '')
               : `오류: ${uploadResult.message}`}
           </p>
         )}

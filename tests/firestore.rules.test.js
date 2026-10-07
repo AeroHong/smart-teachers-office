@@ -1163,3 +1163,93 @@ test('교장: 모두 읽되(로그 포함) 고치지 못한다', async () => {
   await assertFails(updateDoc(doc(as(HM), ...path('teacherAssignments', `2026_${B}`)), { isSubHomeroom: true }))
   await assertFails(setDoc(doc(as(HM), ...path('studentHubDashboards', 'hs')), { scope: 'shared', ownerUid: null, widgets: [] }))
 })
+
+// ── 학생 명단 쓰기 주체 = StudentHub(2026-10) ──────────────────────────
+// SCHOOL은 workspaceSync.enabled 학교, OTHER_SCHOOL은 동기화를 쓰지 않는 학교(문서 없음).
+// A: 학적 담당자(seedHub) / C: 선택과목 담당자 / B: 일반 교사
+async function seedStudents() {
+  await seedLeaders()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, ...path('studentHubManagers', C)), { roles: ['elective'] })
+    await setDoc(doc(db, ...path('students', 'w1')), { name: '가', grade: 2, class: 3, number: 1, source: 'workspaceSync' })
+    await setDoc(doc(db, 'users', 'other-t'), { role: 'teacher', schoolId: OTHER_SCHOOL })
+    await setDoc(doc(db, 'schools', OTHER_SCHOOL, 'students', 's1'), { name: '나', grade: 1, class: 1, number: 1 })
+  })
+}
+const stu = (db, id = 'w1') => doc(db, ...path('students', id))
+
+test('학생 명단(동기화 학교): 일반 교사는 만들기·고치기·지우기를 못 한다', async () => {
+  await seedStudents()
+  await assertSucceeds(getDoc(stu(as(B))))
+  await assertFails(setDoc(stu(as(B), 'new'), { name: '다' }))
+  await assertFails(updateDoc(stu(as(B)), { class: 5 }))
+  await assertFails(deleteDoc(stu(as(B))))
+})
+
+test('학생 명단(동기화 학교): 학적 담당자·관리자·교감은 쓴다, 교장은 못 쓴다', async () => {
+  await seedStudents()
+  await assertSucceeds(updateDoc(stu(as(A)), { class: 5 }))
+  await assertSucceeds(setDoc(stu(as(ADMIN), 'm1'), { name: '다', source: 'studentHub' }))
+  await assertSucceeds(updateDoc(stu(as(VP)), { number: 2 }))
+  await assertFails(updateDoc(stu(as(HM)), { number: 3 }))
+  await assertSucceeds(deleteDoc(stu(as(A), 'm1')))
+})
+
+test('학생 명단(동기화 학교): 선택과목 담당자는 선택과목 필드만 고친다', async () => {
+  await seedStudents()
+  await assertSucceeds(updateDoc(stu(as(C)), { electiveSubjects: [{ subjectName: '미적분', semester: 1 }], electiveSubjectsUpdatedAt: new Date() }))
+  await assertFails(updateDoc(stu(as(C)), { electiveSubjects: [], class: 9 }))
+  await assertFails(setDoc(stu(as(C), 'x'), { electiveSubjects: [] }))
+  await assertFails(deleteDoc(stu(as(C))))
+})
+
+test('학생 명단(동기화를 쓰지 않는 학교): 교사가 예전처럼 출결 그룹 CSV로 등록한다', async () => {
+  await seedStudents()
+  const db = as('other-t')
+  await assertSucceeds(setDoc(doc(db, 'schools', OTHER_SCHOOL, 'students', 's2'), { name: '라' }, { merge: true }))
+  await assertSucceeds(updateDoc(doc(db, 'schools', OTHER_SCHOOL, 'students', 's1'), { class: 2 }))
+})
+
+test('학교 문서: 학적 담당자는 학생 OU 경로만 고친다', async () => {
+  await seedStudents()
+  await assertSucceeds(updateDoc(doc(as(A), 'schools', SCHOOL), { 'workspaceSync.studentOuPath': '/학생 2027' }))
+  await assertSucceeds(updateDoc(doc(as(VP), 'schools', SCHOOL), { 'workspaceSync.studentOuPath': '/학생 2028' }))
+  await assertFails(updateDoc(doc(as(A), 'schools', SCHOOL), { 'workspaceSync.enabled': false }))
+  await assertFails(updateDoc(doc(as(A), 'schools', SCHOOL), { 'workspaceSync.studentOuPath': '/x', name: '바뀜' }))
+  await assertFails(updateDoc(doc(as(B), 'schools', SCHOOL), { 'workspaceSync.studentOuPath': '/x' }))
+  await assertFails(updateDoc(doc(as(C), 'schools', SCHOOL), { 'workspaceSync.studentOuPath': '/x' }))
+  await assertSucceeds(updateDoc(doc(as(ADMIN), 'schools', SCHOOL), { 'workspaceSync.adminEmail': 'a@b.kr' }))
+})
+
+// ── ExamCore(2026-10): 고사 버전·감독 배정 ──────────────────────────────
+// A: 학적·결시 담당(seedHub) — 고사 담당 아님 / C: 고사 담당자로 지정
+async function seedExamCore() {
+  await seedLeaders()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, ...path('studentHubManagers', C)), { roles: ['exam'] })
+    await setDoc(doc(db, ...path('exams', 'e1', 'versions', 'v1')), { versionNo: 1, summary: 's' })
+  })
+}
+
+test('고사 버전: 고사 담당자·관리자만 남기고, 아무도 고치거나 지우지 못한다', async () => {
+  await seedExamCore()
+  await assertSucceeds(setDoc(doc(as(C), ...path('exams', 'e1', 'versions', 'v2')), { versionNo: 2 }))
+  await assertSucceeds(setDoc(doc(as(C), ...path('exams', 'e1', 'versionData', 'v2')), { plan: [] }))
+  await assertSucceeds(setDoc(doc(as(VP), ...path('exams', 'e1', 'versions', 'v3')), { versionNo: 3 }))
+  await assertFails(setDoc(doc(as(A), ...path('exams', 'e1', 'versions', 'v4')), { versionNo: 4 }))
+  await assertFails(updateDoc(doc(as(C), ...path('exams', 'e1', 'versions', 'v1')), { summary: 'x' }))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...path('exams', 'e1', 'versions', 'v1'))))
+  await assertSucceeds(getDoc(doc(as(B), ...path('exams', 'e1', 'versions', 'v1'))))
+})
+
+test('감독 배정: 교사 전체가 보고, 고사 담당자·관리자만 고친다(교장은 못 고친다)', async () => {
+  await seedExamCore()
+  const d = (db) => doc(db, ...path('exams', 'e1', 'proctor', 'main'))
+  await assertSucceeds(setDoc(d(as(C)), { rev: 1, assignments: [] }))
+  await assertSucceeds(setDoc(d(as(ADMIN)), { rev: 2, assignments: [] }))
+  await assertFails(setDoc(d(as(B)), { rev: 3 }))
+  await assertFails(setDoc(d(as(HM)), { rev: 3 }))
+  await assertSucceeds(getDoc(d(as(B))))
+})

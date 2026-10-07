@@ -100,14 +100,24 @@ const NAV_SECTIONS = [
   {
     // 별도 앱(StudentHub) — /studenthub 중간 페이지가 재로그인 없이 넘겨준다
     key: 'studenthub',
-    label: '학적·고사 관리',
+    label: '학적 관리',
     icon: '🗂️',
     prefix: '/studenthub',
     items: [
       { label: '학적 현황', path: '/studenthub?next=/enrollment', icon: '◈' },
       { label: '학적 업무(담당자)', path: '/studenthub?next=/enrollment/work', icon: '◈' },
-      { label: '고사(응시현황표)', path: '/studenthub?next=/exams', icon: '◈' },
-      { label: '우리 반 결시', path: '/studenthub?next=/absences', icon: '◈' },
+      { label: '선택과목', path: '/studenthub?next=/electives', icon: '◈' },
+    ],
+  },
+  {
+    // 별도 앱(ExamCore, 2026-10) — 고사 업무를 StudentHub에서 옮겼다. /examcore 중간 페이지가 재로그인 없이 넘겨준다
+    key: 'examcore',
+    label: '고사 관리',
+    icon: '📝',
+    prefix: '/examcore',
+    items: [
+      { label: '고사 목록', path: '/examcore?next=/exams', icon: '◈' },
+      { label: '우리 반 결시', path: '/examcore?next=/absences', icon: '◈' },
     ],
   },
   {

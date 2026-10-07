@@ -338,8 +338,19 @@ service cloud.firestore {
       allow create: if isSuperAdmin() ||
         (isSignedIn() && schoolId.matches('school-.*') && request.resource.data.createdBy == request.auth.token.email) ||
         (isSignedIn() && schoolId.matches('guest_.*') && request.resource.data.ownerUid == request.auth.uid);
-      allow update: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      allow update: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+        // StudentHub 「Workspace 학생 동기화」 — 학적 담당자는 학생 OU 경로만 고친다
+        (hasHubRole(schoolId, 'enrollment') &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['workspaceSync']) &&
+         request.resource.data.workspaceSync.diff(resource.data.get('workspaceSync', {})).affectedKeys().hasOnly(['studentOuPath']));
       allow delete: if isSuperAdmin();
+
+      // Workspace 동기화를 쓰는 학교 — 학생 명단의 쓰기 주체는 StudentHub(학적 담당자)다(2026-10).
+      // 동기화를 쓰지 않는 학교(게스트 등)는 예전처럼 교사가 출결 그룹 CSV로 학생을 등록한다.
+      function isSyncManagedSchool(schoolId) {
+        let school = /databases/$(database)/documents/schools/$(schoolId);
+        return exists(school) && get(school).data.get('workspaceSync', {}).get('enabled', false) == true;
+      }
 
       // 보강 신청 — 소속 학교 구성원만 ────────────────────────────
       match /coverRequests/{requestId} {
@@ -901,7 +912,14 @@ service cloud.firestore {
         // 항상 일치한다고 볼 수 없다. resource.data.studentId 필드로 비교해야 한다.
         allow read: if isSuperAdmin() || isTeacher(schoolId) ||
           (isStudent(schoolId) && resource.data.studentId == getUserData().studentId);
-        allow write: if isSuperAdmin() || isTeacher(schoolId);
+        // 쓰기: 동기화 학교는 학적 담당자(관리자·교감 포함)만, 선택과목 담당자는 선택과목 필드만.
+        // Workspace 동기화(Cloud Functions)는 Admin SDK라 규칙을 거치지 않는다.
+        allow create, delete: if isSuperAdmin() || hasHubRole(schoolId, 'enrollment') ||
+          (isTeacher(schoolId) && !isSyncManagedSchool(schoolId));
+        allow update: if isSuperAdmin() || hasHubRole(schoolId, 'enrollment') ||
+          (isTeacher(schoolId) && !isSyncManagedSchool(schoolId)) ||
+          (hasHubRole(schoolId, 'elective') &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['electiveSubjects', 'electiveSubjectsUpdatedAt']));
       }
 
       // 연도별 교원 배정 정보(담당교과·부서·담임·좌석·직함) — 조회는 소속 교사 전체, 쓰기는 관리자만
@@ -1375,6 +1393,24 @@ service cloud.firestore {
         allow write: if hasHubRole(schoolId, 'exam');
 
         match /seatings/{grade} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow write: if hasHubRole(schoolId, 'exam');
+        }
+
+        // ExamCore(2026-10) 저장 버전 — 요약(versions)과 전체 데이터(versionData). 한 번 남기면 고치거나 지우지 않는다.
+        match /versions/{versionId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if hasHubRole(schoolId, 'exam');
+          allow update, delete: if false;
+        }
+        match /versionData/{versionId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if hasHubRole(schoolId, 'exam');
+          allow update, delete: if false;
+        }
+
+        // ExamCore 감독 배정(proctor/main) — 조회는 교사 전체(자기 감독을 본다), 편집은 고사 담당자.
+        match /proctor/{docId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
           allow write: if hasHubRole(schoolId, 'exam');
         }
