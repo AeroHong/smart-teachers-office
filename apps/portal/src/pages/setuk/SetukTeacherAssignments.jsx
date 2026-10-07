@@ -29,7 +29,7 @@ import {
 } from '@shared/lib/setukCheck'
 import { useSetukTermFilter, useSetukTermBackfill, filterChecksByTerm, SetukTermFilterControls } from './setukShared'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 const thSortSx = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }
 
 /** 배정에서 현재 선택된 교사 목록을 Autocomplete가 쓸 {uid,name} 배열로 복원한다. */

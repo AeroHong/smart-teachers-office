@@ -15,7 +15,7 @@ import { officeLayoutId } from '@shared/lib/officeLayout'
  * 문서 ID 규칙은 @shared/lib/officeLayout.js의 officeLayoutId()를 쓴다.
  */
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 // 카드 크기는 캔버스 대비 비율로 지정한다. 키오스크(CallInput.jsx)도 같은 값을 쓰므로
 // 화면 크기가 달라도 관리자가 맞춘 배치가 그대로 재현된다. 두 파일을 함께 고쳐야 함.

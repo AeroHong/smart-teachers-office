@@ -200,7 +200,7 @@ export default function AsaChecklistAdmin() {
       (snap) => {
         const list = snap.docs
           .map((d) => ({ uid: d.id, ...d.data() }))
-          .filter((t) => t.email && ['teacher', 'admin', 'school_admin', 'principal'].includes(t.role))
+          .filter((t) => t.email && ['teacher', 'admin', 'school_admin', 'principal', 'headmaster'].includes(t.role))
           .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
         setTeachers(list)
       },

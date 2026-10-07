@@ -1073,3 +1073,93 @@ test('결시: 확정된 건은 담임이 다시 못 고치고, 결시 담당자�
   await assertFails(updateDoc(absence(as(B)), classify(B)))
   await assertSucceeds(updateDoc(absence(as(A)), { type: 'approved' }))
 })
+
+// ── StudentHub 사용자 로그 · 대시보드 · 메타 ─────────────────────
+test('로그: 본인 이름·서버 시각·정해진 필드로만 남기고, 고치거나 지울 수 없다', async () => {
+  await seedHub()
+  const { serverTimestamp, Timestamp } = await import('firebase/firestore')
+  const ok = { action: 'login', summary: 's', details: [], uid: C, email: 'c@x', name: 'C', at: serverTimestamp() }
+  const d = (db, id) => doc(db, ...path('studentHubLogs', id))
+  await assertSucceeds(setDoc(d(as(C), 'l1'), ok))
+  await assertFails(setDoc(d(as(C), 'l2'), { ...ok, uid: A }))
+  await assertFails(setDoc(d(as(C), 'l3'), { ...ok, at: Timestamp.fromMillis(0) }))
+  await assertFails(setDoc(d(as(C), 'l4'), { ...ok, extra: 1 }))
+  await assertFails(updateDoc(d(as(C), 'l1'), { summary: 'x' }))
+  await assertFails(deleteDoc(d(as(ADMIN), 'l1')))
+})
+
+test('로그: 열람은 담당자·관리자만', async () => {
+  await seedHub()
+  await assertSucceeds(getDoc(doc(as(A), ...path('studentHubLogs', 'l1'))))
+  await assertSucceeds(getDoc(doc(as(ADMIN), ...path('studentHubLogs', 'l1'))))
+  await assertFails(getDoc(doc(as(C), ...path('studentHubLogs', 'l1'))))
+})
+
+test('대시보드: 공용은 관리자만 꾸미고 교사 전체가 본다, 개인은 본인만', async () => {
+  await seedHub()
+  const shared = { scope: 'shared', ownerUid: null, name: 'TV', widgets: [] }
+  await assertFails(setDoc(doc(as(A), ...path('studentHubDashboards', 's1')), shared))
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...path('studentHubDashboards', 's1')), shared))
+  await assertSucceeds(getDoc(doc(as(C), ...path('studentHubDashboards', 's1'))))
+  await assertFails(updateDoc(doc(as(C), ...path('studentHubDashboards', 's1')), { name: 'x' }))
+
+  const mine = { scope: 'personal', ownerUid: C, name: '내 화면', widgets: [] }
+  await assertSucceeds(setDoc(doc(as(C), ...path('studentHubDashboards', 'p1')), mine))
+  await assertFails(setDoc(doc(as(A), ...path('studentHubDashboards', 'p2')), mine))
+  await assertFails(getDoc(doc(as(A), ...path('studentHubDashboards', 'p1'))))
+  // 개인 화면을 공용으로 바꿔치기할 수 없다
+  await assertFails(updateDoc(doc(as(C), ...path('studentHubDashboards', 'p1')), { scope: 'shared' }))
+  // 쿼리 안전성: 공용 목록 쿼리와 내 화면 쿼리
+  await assertSucceeds(getDocs(query(collection(as(C), ...path('studentHubDashboards')), where('scope', '==', 'shared'))))
+  await assertSucceeds(getDocs(query(collection(as(C), ...path('studentHubDashboards')), where('ownerUid', '==', C))))
+})
+
+test('메타·부담임: 나이스 업로드 기록은 학적 담당자만, 교원 배정(부담임)은 관리자만', async () => {
+  await seedHub()
+  await assertSucceeds(setDoc(doc(as(A), ...path('studentHubMeta', 'roster')), { neisImportedAt: 1 }))
+  await assertFails(setDoc(doc(as(C), ...path('studentHubMeta', 'roster')), { neisImportedAt: 1 }))
+  await assertFails(updateDoc(doc(as(A), ...path('teacherAssignments', `2026_${B}`)), { isSubHomeroom: true }))
+  await assertSucceeds(updateDoc(doc(as(ADMIN), ...path('teacherAssignments', `2026_${B}`)), { isSubHomeroom: true, subHomeroomGrade: 2, subHomeroomClassNo: 4 }))
+})
+
+test('학교 공통 설정: 관리자만 고치고 교사 전체가 읽는다(학적 담당자도 못 고친다)', async () => {
+  await seedHub()
+  const d = (db) => doc(db, ...path('studentHubMeta', 'settings'))
+  await assertSucceeds(setDoc(d(as(ADMIN)), { bell: [] }))
+  await assertFails(setDoc(d(as(A)), { bell: [] }))
+  await assertSucceeds(getDoc(d(as(C))))
+})
+
+// ── 교감(principal) = StudentHub 관리자 동급, 교장(headmaster) = 전 화면 열람 ──
+const VP = 'vice-principal'
+const HM = 'headmaster-u'
+async function seedLeaders() {
+  await seedHub()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, 'users', VP), { role: 'principal', schoolId: SCHOOL })
+    await setDoc(doc(db, 'users', HM), { role: 'headmaster', schoolId: SCHOOL })
+  })
+}
+
+test('교감: 담당자 지정·학적 변동·공통 설정·공용 화면·담임 지정을 관리자처럼 한다', async () => {
+  await seedLeaders()
+  await assertSucceeds(setDoc(doc(as(VP), ...path('studentHubManagers', C)), { roles: ['exam'] }))
+  await assertSucceeds(setDoc(doc(as(VP), ...path('enrollmentChanges', 'v1')), change(VP)))
+  await assertSucceeds(setDoc(doc(as(VP), ...path('studentHubMeta', 'settings')), { bell: [] }))
+  await assertSucceeds(setDoc(doc(as(VP), ...path('studentHubDashboards', 'vs')), { scope: 'shared', ownerUid: null, widgets: [] }))
+  await assertSucceeds(updateDoc(doc(as(VP), ...path('teacherAssignments', `2026_${B}`)), { isSubHomeroom: true }))
+  await assertSucceeds(getDoc(doc(as(VP), ...path('studentHubLogs', 'l1'))))
+})
+
+test('교장: 모두 읽되(로그 포함) 고치지 못한다', async () => {
+  await seedLeaders()
+  await assertSucceeds(getDoc(doc(as(HM), ...path('studentHubLogs', 'l1'))))
+  await assertSucceeds(getDoc(doc(as(HM), ...path('students', 'any'))))
+  await assertSucceeds(getDoc(doc(as(HM), ...path('enrollmentChanges', 'c1'))))
+  await assertFails(setDoc(doc(as(HM), ...path('studentHubManagers', C)), { roles: ['exam'] }))
+  await assertFails(setDoc(doc(as(HM), ...path('enrollmentChanges', 'h1')), change(HM)))
+  await assertFails(setDoc(doc(as(HM), ...path('studentHubMeta', 'settings')), { bell: [] }))
+  await assertFails(updateDoc(doc(as(HM), ...path('teacherAssignments', `2026_${B}`)), { isSubHomeroom: true }))
+  await assertFails(setDoc(doc(as(HM), ...path('studentHubDashboards', 'hs')), { scope: 'shared', ownerUid: null, widgets: [] }))
+})

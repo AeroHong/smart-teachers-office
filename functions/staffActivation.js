@@ -65,7 +65,7 @@ exports.activatePreApprovedStaff = onCall({ region: REGION }, async (request) =>
   if (userSnap.exists) {
     const existing = userSnap.data()
     const inThisSchool = existing.schoolId === schoolId
-    const activeRole = ['teacher', 'admin', 'school_admin', 'principal'].includes(existing.role)
+    const activeRole = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster'].includes(existing.role)
     // 다른 학교 소속으로 활성 중인 계정은 건드리지 않는다
     if (!inThisSchool && activeRole && !existing.schoolId?.startsWith('guest_')) {
       throw new HttpsError('failed-precondition', '이미 다른 학교 소속으로 사용 중인 계정입니다.')

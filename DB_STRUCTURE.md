@@ -1066,6 +1066,26 @@ alias로 직접 import해 강제한다. 보안 규칙도 이 레포 `firestore.r
 - 접근: 고사·배정 쓰기 고사 담당자(`exam`) / 결시 생성 교사 누구나(본인 이름, reported만) / 담임은 자기 반의
   유형·사유·증빙만(필드 잠금) / 결시 담당자(`absence`)는 전부
 
+#### 2026-10-07 개편 추가분
+- `students.status`에 `deferred`(유예) 추가, `students.specialClass: true`(특수학급 — 고사는 별도실 응시).
+  집계 기준: 재적 = 재학·위탁·휴학·유예 / 현원 = 재적 − 휴학·유예 / 고사 응시 = 현원 − 위탁.
+- `enrollmentChanges.type`에 `deferral`·`repeat`(유급, 이력만)·`specialOn`·`specialOff`·`readmit`(재입학 — 자퇴한 학생만, 반드시 새 학번. 전출 갔던 학생이 돌아오면 `transferIn`이고 역시 새 학번) 추가.
+- `teacherAssignments`에 `isSubHomeroom`·`subHomeroomGrade`·`subHomeroomClassNo`(부담임, Number) 추가 — 쓰기는 관리자.
+- `schools/{schoolId}.workspaceSync.lastStudentSyncAt` — 학생 동기화 마지막 시각(StudentHub 「학적 기준일」).
+- `/schools/{schoolId}/studentHubLogs/{autoId}` — 사용자 로그 `{action, summary, details[], targetId, uid, email, name, at}`.
+  생성은 본인 uid·서버 시각·필드 화이트리스트, 수정·삭제 금지, 열람은 StudentHub 담당자·관리자. 색인 (action, at desc).
+- `/schools/{schoolId}/studentHubDashboards/{autoId}` — 대시보드 화면 `{name, scope:'shared'|'personal', ownerUid, theme, widgets[{i,type,x,y,w,h,config}]}`.
+  shared: 읽기 교사 전체·쓰기 관리자 / personal: 본인만. scope·ownerUid는 바꿀 수 없다.
+- `/schools/{schoolId}/studentHubMeta/roster` — 나이스 명렬 마지막 반영 `{neisImportedAt, neisImportedBy, neisFile, neisCounts}`. 쓰기 학적 담당자.
+- `/schools/{schoolId}/studentHubMeta/settings` — 학교 공통 설정 `{bell[{label,start,end,note}], info('라벨: 내용' 줄), notice{title,body}}`.
+  모든 대시보드 화면(공용·개인·TV)의 일과시간표·학교 정보·공지 위젯이 함께 읽는다. 쓰기 관리자.
+
+#### 역할: 교장(headmaster) 신설·교감 권한 (2026-10-07)
+- `users.role`에 `headmaster`(교장) 추가 — 교직원 역할 목록(`STAFF_ROLES`)·규칙 `isTeacher`에 포함, 계정 관리에 「교장으로」.
+  규칙 함수 `isHeadmaster(schoolId)`. StudentHub에서는 관리 화면·사용자 로그까지 모두 **열람**만 한다.
+- 교감(`principal`)은 StudentHub에서 관리자와 동급(`isHubAdmin`) — 담당자 지정·학교 공통 설정·공용 화면·학적·고사·결시 모두.
+  담임·부담임 지정을 위해 `teacherAssignments` 쓰기도 교감에게 열었다.
+
 #### `/schools/{schoolId}/electiveImports/{autoId}` — (예정) 교육부 수강신청 결과 업로드 기록
 적용 결과는 `students.electiveSubjects`. 쓰기 선택과목 담당자(`elective`).
 

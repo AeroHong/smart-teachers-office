@@ -29,13 +29,20 @@ service cloud.firestore {
 
     function isTeacher(schoolId) {
       return isSignedIn() &&
-        getUserData().role in ['teacher', 'admin', 'school_admin', 'principal'] &&
+        getUserData().role in ['teacher', 'admin', 'school_admin', 'principal', 'headmaster'] &&
         getUserData().schoolId == schoolId;
     }
 
     function isPrincipal(schoolId) {
       return isSignedIn() &&
         getUserData().role == 'principal' &&
+        getUserData().schoolId == schoolId;
+    }
+
+    // 교장 — 2026-10 신설. 교사와 같은 열람 권한이고, StudentHub에서는 전 화면 열람(쓰기 없음).
+    function isHeadmaster(schoolId) {
+      return isSignedIn() &&
+        getUserData().role == 'headmaster' &&
         getUserData().schoolId == schoolId;
     }
 
@@ -900,7 +907,8 @@ service cloud.firestore {
       // 연도별 교원 배정 정보(담당교과·부서·담임·좌석·직함) — 조회는 소속 교사 전체, 쓰기는 관리자만
       match /teacherAssignments/{assignmentId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
-        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        // 교감은 StudentHub 「담임·부담임 지정」에서 쓴다(2026-10 — 교감 = StudentHub 관리자 동급)
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId);
       }
 
       // 교육과정 과목 정보 (입학년도-학년-학기별) — 조회는 소속 교사 전체, 쓰기는 관리자만
@@ -1323,8 +1331,13 @@ service cloud.firestore {
       // 기능별 업무 담당자 — evaluationPlanManagers와 같은 "문서 존재 = 담당자" 패턴이되,
       // 기능이 넷(enrollment·exam·absence·elective)이라 roles[] 필드로 구분한다.
       // 관리자는 지정 없이 모든 역할을 가진 것으로 본다. 역할 문자열은 schema.js HUB_ROLES와 같다.
+      // StudentHub 관리자 동급 — 학교 관리자 + 교감(principal)
+      function isHubAdmin(schoolId) {
+        return isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId);
+      }
+
       function hasHubRole(schoolId, role) {
-        return isSuperAdmin() || isSchoolAdmin(schoolId) ||
+        return isHubAdmin(schoolId) ||
           (isTeacher(schoolId) &&
            exists(/databases/$(database)/documents/schools/$(schoolId)/studentHubManagers/$(request.auth.uid)) &&
            role in get(/databases/$(database)/documents/schools/$(schoolId)/studentHubManagers/$(request.auth.uid)).data.get('roles', []));
@@ -1343,7 +1356,7 @@ service cloud.firestore {
       // 담당자 목록 — 누가 담당인지는 교사 전체가 보고, 지정·해제는 관리자만.
       match /studentHubManagers/{uid} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
-        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow write: if isHubAdmin(schoolId);
       }
 
       // 학적 변동 이력 — 조회는 교사 전체(담임·교과가 전출입 사실을 알아야 한다),
@@ -1392,6 +1405,51 @@ service cloud.firestore {
       match /electiveImports/{importId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if hasHubRole(schoolId, 'elective');
+      }
+
+      // StudentHub 담당자(역할 하나라도) 또는 관리자
+      function isAnyHubManager(schoolId) {
+        return isHubAdmin(schoolId) || isHeadmaster(schoolId) ||
+          (isTeacher(schoolId) &&
+           exists(/databases/$(database)/documents/schools/$(schoolId)/studentHubManagers/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/schools/$(schoolId)/studentHubManagers/$(request.auth.uid)).data.get('roles', []).size() > 0);
+      }
+
+      // 사용자 로그 — 고사 명렬표 도구 activityLogs와 같은 원칙: 본인 이름으로만, 서버 시각으로만,
+      // 정해진 필드만 쓰고, 한 번 쓴 기록은 아무도 고치거나 지우지 못한다. 열람은 담당자·관리자.
+      match /studentHubLogs/{logId} {
+        allow read: if isAnyHubManager(schoolId);
+        allow create: if isTeacher(schoolId) &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.at == request.time &&
+          request.resource.data.action is string &&
+          request.resource.data.keys().hasOnly(['action', 'summary', 'details', 'targetId', 'uid', 'email', 'name', 'at']);
+        allow update, delete: if false;
+      }
+
+      // 대시보드 화면 — 공용(shared)은 교사 전체가 보고 관리자가 꾸민다. 개인(personal)은 본인만.
+      match /studentHubDashboards/{dashboardId} {
+        allow read: if isSuperAdmin() || (isTeacher(schoolId) &&
+          (resource.data.scope == 'shared' || resource.data.ownerUid == request.auth.uid));
+        allow create: if isSuperAdmin() || (isTeacher(schoolId) &&
+          ((request.resource.data.scope == 'shared' && isHubAdmin(schoolId)) ||
+           (request.resource.data.scope == 'personal' && request.resource.data.ownerUid == request.auth.uid)));
+        allow update: if isSuperAdmin() || (isTeacher(schoolId) &&
+          request.resource.data.scope == resource.data.scope &&
+          request.resource.data.ownerUid == resource.data.ownerUid &&
+          ((resource.data.scope == 'shared' && isHubAdmin(schoolId)) ||
+           (resource.data.scope == 'personal' && resource.data.ownerUid == request.auth.uid)));
+        allow delete: if isSuperAdmin() || (isTeacher(schoolId) &&
+          ((resource.data.scope == 'shared' && isHubAdmin(schoolId)) ||
+           (resource.data.scope == 'personal' && resource.data.ownerUid == request.auth.uid)));
+      }
+
+      // StudentHub 메타 — roster: 나이스 명렬 업로드 기록(학적 담당자) /
+      // settings: 학교 공통 설정(일과시간표·학교 정보·공지 — 관리자). 모든 대시보드 화면이 함께 읽는다.
+      match /studentHubMeta/{docId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if (docId == 'roster' && hasHubRole(schoolId, 'enrollment')) ||
+          (docId == 'settings' && isHubAdmin(schoolId));
       }
     }
   }

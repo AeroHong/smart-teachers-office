@@ -31,7 +31,7 @@ import RichTextEditor from './RichTextEditor'
 import AttachmentPicker from './AttachmentPicker'
 import { useToast } from './ToastProvider'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 /**
  * @param {object} [replyTo] 답장 대상 쪽지. 있으면 받는 사람과 제목을 미리 채운다.

@@ -135,7 +135,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
         getDocs(query(
           collection(db, USERS),
           where('schoolId', '==', schoolId),
-          where('role', 'in', ['teacher', 'admin', 'school_admin', 'principal']),
+          where('role', 'in', ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']),
         )),
         getDocs(query(
           collection(db, ...schoolPath(schoolId, COL.TEACHER_ASSIGNMENTS)),
@@ -230,6 +230,9 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
       isHomeroom: a.isHomeroom || false,
       homeroomGrade: a.homeroomGrade || '',
       homeroomClassNo: a.homeroomClassNo || '',
+      isSubHomeroom: a.isSubHomeroom || false,
+      subHomeroomGrade: a.subHomeroomGrade || '',
+      subHomeroomClassNo: a.subHomeroomClassNo || '',
       office: a.office || '',
       positionLabel: a.positionLabel || '',
       duty: a.duty || '',
@@ -241,7 +244,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
     if (!editingAssignment) return
     setSavingAssignment(true)
     try {
-      const { uid, name, homeroomGrade, homeroomClassNo, ...form } = editingAssignment
+      const { uid, name, homeroomGrade, homeroomClassNo, subHomeroomGrade, subHomeroomClassNo, ...form } = editingAssignment
       const docId = teacherAssignmentId(assignmentYear, uid)
       await setDoc(doc(db, ...schoolPath(schoolId, COL.TEACHER_ASSIGNMENTS), docId), {
         uid,
@@ -249,6 +252,9 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
         ...form,
         homeroomGrade: form.isHomeroom && homeroomGrade ? Number(homeroomGrade) : null,
         homeroomClassNo: form.isHomeroom && homeroomClassNo ? Number(homeroomClassNo) : null,
+        // 부담임 — StudentHub(학적·고사 관리) 대시보드 학급 카드에 담임과 함께 표시된다
+        subHomeroomGrade: form.isSubHomeroom && subHomeroomGrade ? Number(subHomeroomGrade) : null,
+        subHomeroomClassNo: form.isSubHomeroom && subHomeroomClassNo ? Number(subHomeroomClassNo) : null,
         updatedAt: serverTimestamp(),
       }, { merge: true })
       setEditingAssignment(null)
@@ -559,7 +565,10 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                     <td style={table.td}>{a?.positionLabel || '—'}</td>
                     <td style={table.td}>{a?.department || '—'}</td>
                     <td style={table.td}>{a?.subject || '—'}</td>
-                    <td style={table.td}>{a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}</td>
+                    <td style={table.td}>
+                      {a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}
+                      {a?.isSubHomeroom && a.subHomeroomGrade ? ` (부담임 ${a.subHomeroomGrade}-${a.subHomeroomClassNo || ''})` : ''}
+                    </td>
                     <td style={table.td}>{a?.office || '—'}</td>
                     <td style={table.td}>{a?.duty || '—'}</td>
                     <td style={table.td}>{a?.extension || '—'}</td>
@@ -717,6 +726,41 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                   label="담임 반"
                   value={editingAssignment?.homeroomClassNo || ''}
                   onChange={e => setEditingAssignment(prev => ({ ...prev, homeroomClassNo: e.target.value }))}
+                  placeholder="예: 3"
+                  fullWidth
+                />
+              </Box>
+            )}
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={editingAssignment?.isSubHomeroom || false}
+                  onChange={e => setEditingAssignment(prev => ({ ...prev, isSubHomeroom: e.target.checked }))}
+                />
+              }
+              label="부담임"
+            />
+
+            {editingAssignment?.isSubHomeroom && (
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <FormControl fullWidth>
+                  <InputLabel>부담임 학년</InputLabel>
+                  <Select
+                    value={editingAssignment?.subHomeroomGrade || ''}
+                    label="부담임 학년"
+                    onChange={e => setEditingAssignment(prev => ({ ...prev, subHomeroomGrade: e.target.value }))}
+                  >
+                    <MenuItem value="">선택</MenuItem>
+                    <MenuItem value="1">1학년</MenuItem>
+                    <MenuItem value="2">2학년</MenuItem>
+                    <MenuItem value="3">3학년</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="부담임 반"
+                  value={editingAssignment?.subHomeroomClassNo || ''}
+                  onChange={e => setEditingAssignment(prev => ({ ...prev, subHomeroomClassNo: e.target.value }))}
                   placeholder="예: 3"
                   fullWidth
                 />

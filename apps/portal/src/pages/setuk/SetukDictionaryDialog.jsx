@@ -34,7 +34,7 @@ import {
 } from '@shared/lib/setukCheck'
 import { loadDictionary, AUTHORITY_LABELS, SEVERITY_LABELS, NAMED_ENTITY_TYPES, AMBIGUITY_LABELS } from './setukUtils'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 function blankEntity() {
   return { canonical: '', aliases: [], type: 'institution', ambiguity: 'medium', authority: 'official_2026', severity: 'WARNING', enabled: true }

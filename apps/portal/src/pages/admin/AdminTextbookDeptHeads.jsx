@@ -18,7 +18,7 @@ import { USERS } from '@shared/lib/schema'
 import { SUBJECT_GROUPS } from '@shared/lib/subjectData'
 import { subscribeDeptHeads, saveDeptHead, removeDeptHead } from '@shared/lib/textbookAdoption'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 // PostComposer.jsx의 "담당자" Autocomplete와 같은 스타일(칩+개별 삭제+필드 클리어 버튼).
 // value를 Firestore 구독 결과(byGroup)에서 곧바로 계산해 쓰면, 선택 직후 Firestore

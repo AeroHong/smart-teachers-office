@@ -49,7 +49,7 @@ import ScoreEntryForm from './ScoreEntryForm'
 import TextbookSection, { ACCENT, ACCENT_BG } from './TextbookSection'
 
 const infoChipSx = { bgcolor: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', fontWeight: 600, fontSize: '0.74rem' }
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 /**
  * 서식3 순위별 의견 예시 문구 — 클릭하면 의견란 끝에 "ㅇ 문구"로 덧붙인다(서식1 채점 화면과

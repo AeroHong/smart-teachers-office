@@ -14,7 +14,7 @@ import FormControl from '@mui/material/FormControl'
 import Autocomplete from '@mui/material/Autocomplete'
 import TextField from '@mui/material/TextField'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 export default function AdminDashboardModules() {
   const { schoolId } = useAuth()

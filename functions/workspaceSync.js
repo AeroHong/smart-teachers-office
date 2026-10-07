@@ -265,6 +265,10 @@ async function syncSchool(db, schoolId, schoolData) {
   }
   if (cfg.studentOuPath) {
     result.students = await syncStudents(db, schoolId, directory, cfg.studentOuPath)
+    // StudentHub 「학적 기준일」 — 학생 명단을 마지막으로 Workspace와 맞춘 시각
+    await db.collection('schools').doc(schoolId).update({
+      'workspaceSync.lastStudentSyncAt': FieldValue.serverTimestamp(),
+    })
   }
 
   return result

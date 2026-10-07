@@ -21,6 +21,7 @@ const ROLE_LABELS = {
   school_admin: '학교 관리자',
   admin: '학교 관리자',
   principal: '교감',
+  headmaster: '교장',
 }
 
 // TSV 파싱: "이름\t이메일\t구분" 형식
@@ -144,7 +145,7 @@ export default function AdminAccounts() {
 
     const realUsers = usersSnap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => ['teacher', 'school_admin', 'admin', 'principal'].includes(u.role))
+      .filter(u => ['teacher', 'school_admin', 'admin', 'principal', 'headmaster'].includes(u.role))
 
     const realEmails = new Set(realUsers.map(u => u.email?.toLowerCase()))
 
@@ -501,6 +502,9 @@ export default function AdminAccounts() {
                         <RowActions>
                           {u.role !== 'teacher' && (
                             <TextAction onClick={() => changeRole(u.id, 'teacher')}>교사로</TextAction>
+                          )}
+                          {u.role !== 'headmaster' && (
+                            <TextAction onClick={() => changeRole(u.id, 'headmaster')}>교장으로</TextAction>
                           )}
                           {u.role !== 'principal' && (
                             <TextAction onClick={() => changeRole(u.id, 'principal')}>교감으로</TextAction>

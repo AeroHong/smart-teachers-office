@@ -20,7 +20,7 @@ const REGION = 'asia-northeast3'
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000   // 페어링 코드 유효시간 10분
 const CALL_EXPIRE_MS = 5 * 60 * 1000         // pending 5분 경과 시 자동 만료
 const RECALL_COOLDOWN_MS = 60 * 1000         // 같은 학생 1분 이내 재호출 차단
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 // 재실 상태 — apps/shared/lib/presence.js와 같은 규칙.
 // Functions는 CommonJS라 그 파일을 직접 import할 수 없어 최소한만 옮겨 둔다. 함께 고쳐야 함.

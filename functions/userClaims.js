@@ -25,7 +25,7 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const REGION = 'asia-northeast3'
 
 /** 교직원으로 볼 역할. 학생·대기·거절 계정은 파일을 올릴 수 없다. */
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 const ADMIN_ROLES = ['admin', 'school_admin']
 
 /**

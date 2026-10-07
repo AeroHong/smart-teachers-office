@@ -327,6 +327,7 @@ export function AuthProvider({ children }) {
       isSuperAdmin,
       isAdmin: role === 'admin' || role === 'school_admin',
       isPrincipal: role === 'principal',
+      isHeadmaster: role === 'headmaster',
       loading, needsSchoolSetup,
       login, logout, completeSchoolSetup,
       // photoURL은 로그인 시점에 한 번 읽은 값이라, 로그인한 채로 내 사진을 바꾸면

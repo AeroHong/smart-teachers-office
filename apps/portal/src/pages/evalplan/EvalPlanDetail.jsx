@@ -29,7 +29,7 @@ import Layout from '../../components/Layout'
 import EvalPlanSection, { ACCENT, ACCENT_BG } from './EvalPlanSection'
 import { STATUS_LABELS, STATUS_COLORS, GRADE_METHOD_FIELDS, GRADE_METHOD_COLORS, needsMinAchievementPlan, checkExamRatio, fmtDate } from './evalPlanUtils'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 const tableHeadSx = {
   '& th': { bgcolor: '#f8fafc', color: '#475569', fontWeight: 700, fontSize: '0.78rem', borderBottom: '1px solid #e2e8f0' },

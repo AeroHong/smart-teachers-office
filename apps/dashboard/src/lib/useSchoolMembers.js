@@ -60,7 +60,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { COL, USERS, schoolPath, currentYearSemester } from '@shared/lib/schema'
 import { buildTargetMembers } from '@shared/lib/targeting'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 const REFRESH_EVENT = 'smart-office-refresh-members'
 
 /** 내 프로필 사진처럼, 명단에 영향을 주는 걸 바꾼 직후 부른다. */

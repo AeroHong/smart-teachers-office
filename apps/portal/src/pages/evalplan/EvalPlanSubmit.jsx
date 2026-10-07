@@ -20,7 +20,7 @@ import EvalPlanSection, { ACCENT, ACCENT_BG } from './EvalPlanSection'
 import { matchTeacherNames } from './teacherMatch'
 import { validateHwpxFile, buildInitialData, parseGradeNumbers, parseSemesterNumber, parseWeeklyHoursNumber, fmtDate } from './evalPlanUtils'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 export default function EvalPlanSubmit() {
   const navigate = useNavigate()

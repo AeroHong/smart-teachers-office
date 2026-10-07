@@ -44,7 +44,7 @@ import {
 import { RowActions, EditAction, DeleteAction } from './adminUi'
 import AdminTextbookBulkImport from './AdminTextbookBulkImport'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 // 평가영역·평가기준·배점 편집기 — 선정 건 등록/수정 다이얼로그와 "배점기준 일괄 적용"
 // 다이얼로그가 똑같이 쓴다(둘 다 같은 모양의 rubric 배열을 편집하는 UI라서 하나로 뺐다).

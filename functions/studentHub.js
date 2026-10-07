@@ -22,7 +22,7 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const REGION = 'asia-northeast3'
 
 /** 교직원만 넘긴다 — 학생·대기·거절 계정은 StudentHub에 들어갈 일이 없다. */
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 exports.issueHubHandoffToken = onCall({ region: REGION }, async (request) => {
   const uid = request.auth?.uid

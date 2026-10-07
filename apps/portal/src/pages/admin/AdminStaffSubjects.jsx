@@ -153,7 +153,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
       // role 필터링은 클라이언트에서 수행
       const teacherList = usersSnap.docs
         .map(d => ({ uid: d.id, ...d.data() }))
-        .filter(u => ['teacher', 'admin', 'school_admin', 'principal'].includes(u.role))
+        .filter(u => ['teacher', 'admin', 'school_admin', 'principal', 'headmaster'].includes(u.role))
         .map(u => ({ uid: u.uid, name: u.name, email: u.email }))
         .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'))
       setTeachers(teacherList)

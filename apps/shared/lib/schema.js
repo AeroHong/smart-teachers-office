@@ -157,7 +157,19 @@ export const COL = {
   EXAM_ABSENCES: 'absences',                 // exams/{id}/absences/{examAbsenceId(wid, code)}
   // 선택과목 수강신청 결과(교육부 시스템) 업로드 기록 — auto-ID. 적용 결과는 students.electiveSubjects
   ELECTIVE_IMPORTS: 'electiveImports',
+  // StudentHub 사용자 로그 — auto-ID. 지우거나 고치지 않는다(firestore.rules). 고사 명렬표 도구의
+  // activityLogs와 같은 모양(action·summary·details·uid·email·name·at)
+  HUB_LOGS: 'studentHubLogs',
+  // 대시보드 화면 — auto-ID. scope 'shared'(관리자가 꾸미는 공용·TV 화면) | 'personal'(본인만)
+  HUB_DASHBOARDS: 'studentHubDashboards',
+  // StudentHub 메타 — 고정 ID 문서. 'roster': 나이스 명렬 마지막 업로드(학적 기준일 계산용)
+  HUB_META: 'studentHubMeta',
 }
+
+/** studentHubMeta 고정 문서 ID */
+export const HUB_META_ROSTER = 'roster'
+/** 학교 공통 설정(일과시간표·학교 정보·공지) — 모든 대시보드 화면이 같이 쓴다 */
+export const HUB_META_SETTINGS = 'settings'
 
 /**
  * StudentHub 기능별 담당자 역할. studentHubManagers/{uid}.roles[]에 들어가는 값.

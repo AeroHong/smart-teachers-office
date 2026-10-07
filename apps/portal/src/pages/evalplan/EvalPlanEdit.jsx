@@ -22,7 +22,7 @@ import {
   validateHwpxFile, buildInitialData, parseGradeNumbers, parseSemesterNumber, parseWeeklyHoursNumber,
 } from './evalPlanUtils'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 export default function EvalPlanEdit() {
   const { planId } = useParams()

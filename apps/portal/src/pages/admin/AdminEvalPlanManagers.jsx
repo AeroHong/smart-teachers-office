@@ -17,7 +17,7 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { USERS, COL, schoolPath } from '@shared/lib/schema'
 
-const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal']
+const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
 export default function AdminEvalPlanManagers() {
   const { user, userName, schoolId } = useAuth()
