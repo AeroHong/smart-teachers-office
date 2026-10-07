@@ -22,6 +22,9 @@
         ],
         "studenthub": [
           "smart-studenthub"
+        ],
+        "examcore": [
+          "smart-examcore"
         ]
       }
     }
