@@ -32,7 +32,8 @@ async function fetchSchoolData(schoolId) {
   return {}
 }
 
-const AuthContext = createContext(null)
+// export — StudentHub가 슈퍼 어드민을 테스트 학교로 들여보낼 때 값을 덧씌운다(ActingSchoolProvider)
+export const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)

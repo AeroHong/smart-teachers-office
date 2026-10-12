@@ -222,12 +222,18 @@
 - `fullStudentId` (string) - 9자리 학번
 - `name` (string)
 - `email` (string)
-- `year` (number) - 해당 학년도
+- `year` (number) - 지금 자리(학년·반·번호)가 어느 학년도 것인지. StudentHub 학년도 전환이 올린다(2026-10).
+  지금 학년도보다 크면 입학 예정자(2월 신입생 동기화)라 지금 명단에서 뺀다
 - `grade`, `class`, `number` (number) — 필드명이 `class`(예약어 아님, `classNo` 아님)
 - `admissionYear` (number) - 첫 등록 시의 연도. 이후 불변
 - `emailHistory` (array<{ email, year }>) - 진급으로 이메일이 바뀐 이력
 - `source` (string) - `workspaceSync` (동기화가 만든 문서만 아카이브 대상)
 - `nameEditedManually` (boolean, 선택) - true면 동기화가 이름을 덮어쓰지 않음
+- `status` (string, 선택) - 없으면 재학. `consigned`·`leaveOfAbsence`·`deferred`·`transferredOut`·`withdrawn`·`expelled`·`graduated`(졸업, 학년도 전환)
+- `placements` (map<학년도, { grade, class, number }>) - 학년도별 자리 이력. StudentHub 학년도 전환이 쌓는다(2026-10)
+- `nextPlacement` ({ year, grade, class, number }, 선택) - 다음 학년도 반편성. 2월에 등록, 전환 때 지운다.
+  새 학년도 선택과목 업로드는 이 새 학번으로 학생을 찾는다
+- `graduatedYear` (number, 선택) - 졸업한 학년도
 - `electiveSubjects` (array<object>) - 선택과목. **2026-07-31부터 객체 배열**
   (표준형은 `apps/shared/lib/subjectData.js`의 `normalizeElective()`가 정의한다)
   - `subjectId` (string) - `subjects` 문서 ID. 매칭 실패 시 `''`
@@ -235,6 +241,9 @@
   - 구형 데이터(문자열 배열)도 읽는 쪽에서
     `{subjectId:'', subjectName, classNo:'', semester:1}`로 자동 변환된다.
     2·3학년은 과목마다 분반이 달라 이름만으로는 명단을 만들 수 없어 확장했다.
+  - `year` (number), `grade` (number) - **2026-10부터** 학년도·학년별로 누적한다(진급해도 지난 학년도 과목이 남는다).
+    읽는 쪽은 `readElectives(student, year)`로 그 학년도만 거른다. 표시 없는 예전 항목은
+    `electiveSubjectsUpdatedAt`의 학년도(없으면 `year`)로 추정하고, 학년도 전환 때 값을 박는다
 - `electiveSubjectsUpdatedAt` (timestamp)
 - `createdAt`, `updatedAt` (timestamp)
 

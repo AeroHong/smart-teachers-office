@@ -1,6 +1,6 @@
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where } from 'firebase/firestore'
 import { db } from './firebase'
-import { COL, schoolPath } from './schema'
+import { COL, schoolPath, schoolYearFor } from './schema'
 
 // 교과군 10개 고정 목록 — 과목 관리(AdminSubjects)와 검·인정도서 선정의 교과부장 지정
 // (AdminTextbookDeptHeads)이 함께 쓴다. 두 화면이 같은 분류를 써야 "교과부장이 자기 교과군
@@ -163,25 +163,52 @@ export async function loadStudents(schoolId) {
  *
  * 읽는 쪽은 항상 이 함수를 거쳐 두 형태를 모두 받아들인다.
  *
+ * 2026-10부터 항목마다 학년도(year)·학년(grade)을 붙여 해마다 누적한다(StudentHub 학년도 전환).
+ * 그 전 항목은 year가 없다 — readElectives가 학생 문서로 추정해 채운다(electiveYearOf).
+ *
  * @param {string|Object} entry
- * @returns {{subjectId: string, subjectName: string, classNo: string}}
+ * @returns {{subjectId: string, subjectName: string, classNo: string, semester: 1|2, year: number|null, grade: number|null}}
  */
 export function normalizeElective(entry) {
   if (typeof entry === 'string') {
     // 구형 데이터는 학기 구분이 없다. 1학기로 본다 — 2학기 편성이 다르면 다시 입력해야 한다.
-    return { subjectId: '', subjectName: entry.trim(), classNo: '', semester: 1 }
+    return { subjectId: '', subjectName: entry.trim(), classNo: '', semester: 1, year: null, grade: null }
   }
   return {
     subjectId: entry?.subjectId || '',
     subjectName: (entry?.subjectName || '').trim(),
     classNo: entry?.classNo == null ? '' : String(entry.classNo),
     semester: Number(entry?.semester) === 2 ? 2 : 1,
+    year: Number(entry?.year) || null,
+    grade: Number(entry?.grade) || null,
   }
 }
 
-/** 학생 문서의 electiveSubjects를 표준 형태 배열로 읽는다. */
-export function readElectives(student) {
-  return (student?.electiveSubjects || []).map(normalizeElective)
+/**
+ * 학년도 표시가 없는 예전 항목의 학년도·학년 추정 — 선택과목을 마지막으로 고친 때(electiveSubjectsUpdatedAt)의
+ * 학년도, 없으면 학생 문서의 학년도(year). 학년은 학생 문서의 학년에서 그만큼 뺀다.
+ * @returns {{ year: number|null, grade: number|null }}
+ */
+export function electiveYearOf(student) {
+  const at = student?.electiveSubjectsUpdatedAt
+  const fromAt = at && (typeof at.toDate === 'function' || at instanceof Date || typeof at === 'number') ? schoolYearFor(at) : null
+  const docYear = Number(student?.year) || null
+  const year = (Number.isFinite(fromAt) && fromAt) || docYear
+  const g = Number(student?.grade) || null
+  const grade = g && year && docYear ? g - (docYear - year) : g
+  return { year, grade: grade >= 1 ? grade : null }
+}
+
+/**
+ * 학생 문서의 electiveSubjects를 표준 형태 배열로 읽는다.
+ * year를 주면 그 학년도 항목만 — 지난 학년도 선택과목이 지금 명단·고사에 섞이지 않게 한다.
+ * 생략하면 모든 학년도(누적 기록).
+ */
+export function readElectives(student, year) {
+  const legacy = electiveYearOf(student)
+  const all = (student?.electiveSubjects || []).map(normalizeElective)
+    .map((e) => (e.year ? e : { ...e, year: legacy.year, grade: e.grade || legacy.grade }))
+  return year == null ? all : all.filter((e) => e.year === Number(year))
 }
 
 /** 화면 표시용 라벨. 예: "확률과 통계 (3반)". 학기는 칩 바깥에서 구분해 표시한다. */
@@ -190,8 +217,8 @@ export function electiveLabel(entry) {
   return e.classNo ? `${e.subjectName} (${e.classNo}반)` : e.subjectName
 }
 
-/** 학기별로 나눠 읽는다. 1·2학기 선택과목 편성이 다르기 때문. */
-export function readElectivesBySemester(student) {
-  const all = readElectives(student)
+/** 학기별로 나눠 읽는다. 1·2학기 선택과목 편성이 다르기 때문. year는 readElectives와 같다. */
+export function readElectivesBySemester(student, year) {
+  const all = readElectives(student, year)
   return { 1: all.filter(e => e.semester === 1), 2: all.filter(e => e.semester === 2) }
 }

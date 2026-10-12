@@ -4,6 +4,7 @@ import { collection, getDocs } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { readElectives, electiveLabel } from '@shared/lib/subjectData'
+import { currentSchoolYear } from '@shared/lib/schema'
 import { table } from './adminUi'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
@@ -65,14 +66,14 @@ export default function AdminStudents() {
 
     // CSV 헤더 생성
     // 선택과목은 과목마다 분반이 다르므로 과목명과 분반을 짝으로 내보낸다
-    const maxElectives = Math.max(...studentList.map(s => readElectives(s).length), 0)
+    const maxElectives = Math.max(...studentList.map(s => readElectives(s, currentSchoolYear()).length), 0)
     const electiveHeaders = Array.from({ length: maxElectives },
       (_, i) => [`학기${i + 1}`, `선택과목${i + 1}`, `분반${i + 1}`]).flat()
     const header = ['학년', '반', '번호', '이름', '학번', '이메일', ...electiveHeaders]
 
     // CSV 데이터 생성
     const rows = studentList.map(s => {
-      const electives = readElectives(s)
+      const electives = readElectives(s, currentSchoolYear())
       const electiveValues = Array.from({ length: maxElectives }, (_, i) =>
         [electives[i]?.semester || '', electives[i]?.subjectName || '', electives[i]?.classNo || '']).flat()
       return [
@@ -261,7 +262,7 @@ export default function AdminStudents() {
                     {s.electiveSubjects && s.electiveSubjects.length > 0 ? (
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
                         {[1, 2].map(sem => {
-                          const list = readElectives(s).filter(e => e.semester === sem)
+                          const list = readElectives(s, currentSchoolYear()).filter(e => e.semester === sem)
                           if (!list.length) return null
                           return (
                             <Box key={sem} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', width: '100%' }}>
