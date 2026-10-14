@@ -23,6 +23,7 @@ import Alert from '@mui/material/Alert'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import VerifiedIcon from '@mui/icons-material/Verified'
+import MailOutlineIcon from '@mui/icons-material/MailOutline'
 import { useAuth } from '@shared/contexts/AuthContext'
 import {
   subscribeChecks, loadRecords, loadItemsBySubject, updateItemNote, updateItemResolved, isAssignedTeacher,
@@ -114,6 +115,9 @@ export default function SetukSubjectDetail() {
 
     return () => { cancelled = true }
   }, [subject, schoolId, checks, loadingChecks, isAdmin, user])
+
+  // 세특 메일 발송은 과목 담당 교사와 관리자만(담임·업로더는 열람만) — SetukEmailSend와 같은 기준.
+  const canSendEmail = isAdmin || checks.some((c) => isAssignedTeacher(c.subjectAssignments?.[subject], user?.uid))
 
   // 전입생 등으로 우리 학교에 개설되지 않아 담당 교사를 지정할 수 없다고 표시된 과목
   // (noAssignment)은 관리자만 처리 가능한 상태로 영원히 막히면 안 되니 담임(업로더)에게도 연다.
@@ -259,6 +263,12 @@ export default function SetukSubjectDetail() {
             <MenuItem value="no_issue">이상없음만 ({statusCounts.no_issue})</MenuItem>
           </Select>
         </FormControl>
+        {canSendEmail && (
+          <Button variant="outlined" size="small" startIcon={<MailOutlineIcon />} sx={{ ml: 'auto' }}
+            onClick={() => navigate(`/setuk/subject/${encodeURIComponent(subject)}/email`)}>
+            학생에게 세특 메일 보내기
+          </Button>
+        )}
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}

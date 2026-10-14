@@ -109,6 +109,14 @@ export default function SetukGuide() {
         caption="점검 기준 화면 — 항목별로 사용 여부와 표현 목록을 직접 관리할 수 있습니다."
       />
 
+      <Typography variant="h6" fontWeight={700} sx={{ mt: 4, mb: 1 }}>5. 학생에게 세특 메일 보내기</Typography>
+      <Box component="ol" sx={{ m: 0, pl: 2.5, fontSize: '0.92rem', display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <li>「과목별 보기」에서 과목을 열고 <b>학생에게 세특 메일 보내기</b>를 누릅니다(과목 담당 교사·관리자만 보입니다).</li>
+        <li>학생마다 <b>자기 세특만</b> 담긴 메일이 선생님 계정으로 한 통씩 발송됩니다. 받는 주소는 학생 명부에서 학년·반·번호·이름으로 찾습니다.</li>
+        <li>행을 펼치면 내용을 고치고 실제 메일 모양을 미리 볼 수 있습니다. 고친 내용은 <b>이번 메일에만</b> 쓰이고 업로드된 원문은 바뀌지 않습니다.</li>
+        <li>먼저 <b>나에게 테스트 발송</b>으로 메일 모양을 확인한 뒤 발송하세요. 예약 발송도 가능하며, 발송 결과는 도구모음 › 이메일 발송 내역에서 볼 수 있습니다.</li>
+      </Box>
+
       <Button size="small" onClick={() => navigate('/setuk')} sx={{ mt: 2, textTransform: 'none', color: '#64748b' }}>
         ← 세특 점검으로
       </Button>

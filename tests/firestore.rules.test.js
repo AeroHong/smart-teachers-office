@@ -886,6 +886,37 @@ test('[이메일 예약] 취소를 핑계로 다른 필드는 못 바꾼다 ★'
   }))
 })
 
+// ── 세특 개별 발송(kind:'setuk') · 테스트 발송(isTest) ─────────────────
+
+const setukRecipient = (over) => ({
+  workspaceUserId: 'w1', email: 'stu1@test.example', name: '학생1',
+  grade: 1, class: 1, number: 1, classLabel: '1학년 1반', checkId: 'c1', recordId: 'r1',
+  setukText: '세특 내용', setukEdited: false,
+  status: 'pending', sentAt: null, gmailMessageId: null, error: null,
+  ...over,
+})
+
+test('[이메일 세특] 세특 개별 발송 요청을 만들 수 있다', async () => {
+  await assertSucceeds(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'setuk1')),
+    emailJob({ kind: 'setuk', isTest: false, setuk: { subjectName: '국어' }, recipients: [setukRecipient()] })))
+})
+
+test('[이메일 세특] 알 수 없는 kind로는 만들 수 없다', async () => {
+  await assertFails(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'setuk2')),
+    emailJob({ kind: 'other', setuk: { subjectName: '국어' } })))
+})
+
+test('[이메일 세특] 테스트 발송은 본인 주소 1명에게만 가능하다', async () => {
+  await assertSucceeds(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'setukT1')),
+    emailJob({ kind: 'setuk', isTest: true, setuk: { subjectName: '국어' }, recipients: [setukRecipient({ email: A_EMAIL })] })))
+})
+
+test('[이메일 세특] 테스트 발송을 핑계로 학생에게 보낼 수 없다 ★', async () => {
+  // isTest 발송은 학생 세특에 발송 이력을 남기지 않으므로, 학생 주소를 넣으면 막혀야 한다.
+  await assertFails(setDoc(doc(as(A, { email: A_EMAIL }), ...path('emailJobs', 'setukT2')),
+    emailJob({ kind: 'setuk', isTest: true, setuk: { subjectName: '국어' }, recipients: [setukRecipient()] })))
+})
+
 // ── 학사일정 — 대상자만 보는 항목이 목록 조회로 새지 않는가 ──────
 //
 // 예전 규칙은 "visibleToUids가 없으면 누구나"였다. 단건 조회는 막았지만 목록 조회에서는

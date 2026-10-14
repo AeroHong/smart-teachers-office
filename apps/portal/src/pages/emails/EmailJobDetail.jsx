@@ -26,9 +26,10 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Paper from '@mui/material/Paper'
 import CancelIcon from '@mui/icons-material/Cancel'
+import Collapse from '@mui/material/Collapse'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { db } from '@shared/lib/firebase'
-import { buildEmailHtml } from '@shared/lib/emailTemplate'
+import { buildEmailHtml, buildSetukEmailBody } from '@shared/lib/emailTemplate'
 import Layout from '../../components/Layout'
 
 const STATUS_LABEL = {
@@ -53,6 +54,8 @@ export default function EmailJobDetail() {
   const [job, setJob] = useState(null)
   const [notFound, setNotFound] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  // 세특 발송(kind:'setuk')은 학생마다 내용이 달라 수신자 행에서 하나씩 펼쳐 본다.
+  const [openRecipient, setOpenRecipient] = useState(null)
 
   useEffect(() => {
     if (!schoolId || !jobId) return
@@ -83,6 +86,7 @@ export default function EmailJobDetail() {
   const isScheduled = job.status === 'scheduled'
   const canCancel = isScheduled && (isAdmin || job.senderUid === user?.uid)
   const statusInfo = STATUS_LABEL[job.status] || { label: job.status, color: 'default' }
+  const isSetuk = job.kind === 'setuk'
 
   const handleCancel = async () => {
     if (!window.confirm('예약된 발송을 취소할까요?')) return
@@ -147,6 +151,20 @@ export default function EmailJobDetail() {
         </Box>
       )}
 
+      {isSetuk ? (
+        <Box sx={{ mb: 3, maxWidth: 700 }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+            세특 개별 발송 · {job.setuk?.subjectName}{job.setuk?.termLabel ? ` (${job.setuk.termLabel})` : ''}
+            {job.isTest && <Chip label="테스트 발송" size="small" sx={{ ml: 1 }} />}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            학생마다 자기 세특만 담긴 메일이 발송됩니다. 아래 표에서 "보낸 내용"을 눌러 학생별 메일을 확인할 수 있습니다.
+          </Typography>
+          {job.setuk?.commonNote && (
+            <Alert severity="info" icon={false} sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>공통 안내: {job.setuk.commonNote}</Alert>
+          )}
+        </Box>
+      ) : (
       <Box sx={{ mb: 3, maxWidth: 700 }}>
         <Typography variant="subtitle2" sx={{ mb: 0.75 }}>발송된 메일 내용</Typography>
         <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
@@ -158,6 +176,7 @@ export default function EmailJobDetail() {
           />
         </Box>
       </Box>
+      )}
 
       <Typography variant="subtitle2" sx={{ mb: 0.75 }}>받는 사람 ({total}명)</Typography>
       <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 700 }}>
@@ -167,20 +186,46 @@ export default function EmailJobDetail() {
               <TableCell>학생</TableCell>
               <TableCell>이메일</TableCell>
               <TableCell align="center">상태</TableCell>
+              {isSetuk && <TableCell align="center">내용</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
-            {(job.recipients || []).map(r => {
+            {(job.recipients || []).map((r, idx) => {
               const rs = RECIPIENT_STATUS_LABEL[r.status] || { label: r.status, color: 'default' }
-              return (
-                <TableRow key={r.workspaceUserId}>
+              const rowKey = r.recordId || r.workspaceUserId || idx
+              const isOpen = openRecipient === rowKey
+              return [
+                <TableRow key={rowKey}>
                   <TableCell>{r.grade}학년 {r.class}반 {r.number}번 {r.name}</TableCell>
                   <TableCell>{r.email}</TableCell>
                   <TableCell align="center">
                     <Chip label={r.error ? `${rs.label}: ${r.error}` : rs.label} color={rs.color} size="small" />
                   </TableCell>
-                </TableRow>
-              )
+                  {isSetuk && (
+                    <TableCell align="center">
+                      <Button size="small" onClick={() => setOpenRecipient(isOpen ? null : rowKey)}>
+                        {isOpen ? '접기' : '보낸 내용'}
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>,
+                isSetuk && (
+                  <TableRow key={`${rowKey}__content`}>
+                    <TableCell colSpan={4} sx={{ py: 0, borderBottom: isOpen ? undefined : 'none' }}>
+                      <Collapse in={isOpen} unmountOnExit>
+                        <Box
+                          component="iframe" title={`sent-setuk-${rowKey}`} sandbox=""
+                          srcDoc={buildEmailHtml(job.schoolName, buildSetukEmailBody({
+                            subjectName: job.setuk?.subjectName, termLabel: job.setuk?.termLabel,
+                            commonNote: job.setuk?.commonNote, studentName: r.name, text: r.setukText,
+                          }))}
+                          sx={{ display: 'block', width: '100%', height: 420, border: 0, my: 1 }}
+                        />
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                ),
+              ]
             })}
           </TableBody>
         </Table>

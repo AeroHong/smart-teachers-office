@@ -101,6 +101,75 @@ function buildEmailHtml(schoolName, bodyHtml) {
 </html>`
 }
 
+// ⚠ apps/shared/lib/emailTemplate.js의 buildSetukEmailBody()/buildSetukEmailText()와
+// 반드시 같은 결과를 내야 한다(발송 화면의 미리보기 = 실제 발송 메일). 손으로 복제한 것.
+function buildSetukEmailBody({ subjectName, studentName, text, commonNote, termLabel }) {
+  const noteSection = commonNote && commonNote.trim() ? `
+              <div style="background:#fff8e1;border-left:4px solid #f59e0b;padding:12px 16px;margin:0 0 18px;">
+                <div style="font-weight:700;color:#b45309;margin-bottom:4px;font-size:13px;">안내</div>
+                <div style="font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(commonNote.trim())}</div>
+              </div>` : ''
+
+  return `
+              <div style="font-size:12px;color:#64748b;margin-bottom:2px;">세특(세부능력 및 특기사항) 확인 안내${termLabel ? ` · ${escapeHtml(termLabel)}` : ''}</div>
+              <div style="font-size:20px;font-weight:700;color:#0f172a;margin-bottom:18px;">${escapeHtml(subjectName || '')}</div>
+              <p style="margin:0 0 18px;"><strong>${escapeHtml(studentName || '')}</strong> 학생의 세특 작성 내용을 안내합니다.</p>${noteSection}
+              <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:16px 18px;white-space:pre-wrap;font-size:14px;line-height:1.8;color:#1f2937;">${escapeHtml(text || '')}</div>
+              <p style="margin:18px 0 0;font-size:12px;color:#94a3b8;">내용에 대한 문의는 과목 담당 선생님께 해주세요.</p>`
+}
+
+function buildSetukEmailText({ subjectName, studentName, text, commonNote, termLabel }) {
+  return [
+    `[${subjectName || ''}] 세특(세부능력 및 특기사항) 확인 안내${termLabel ? ` · ${termLabel}` : ''}`,
+    '',
+    `${studentName || ''} 학생의 세특 작성 내용을 안내합니다.`,
+    ...(commonNote && commonNote.trim() ? ['', `[안내] ${commonNote.trim()}`] : []),
+    '',
+    text || '',
+    '',
+    '내용에 대한 문의는 과목 담당 선생님께 해주세요.',
+  ].join('\n')
+}
+
+/**
+ * 수신자 1명분의 html/text — 일반 발송은 모두 같은 본문, 세특 발송(kind:'setuk')은
+ * 수신자마다 그 학생의 세특 원문(recipients[i].setukText)으로 본문을 따로 만든다.
+ */
+function buildMessageFor(job, r, sharedHtml) {
+  if (job.kind !== 'setuk') return { html: sharedHtml, text: job.bodyText }
+  const params = {
+    subjectName: job.setuk?.subjectName,
+    termLabel: job.setuk?.termLabel,
+    commonNote: job.setuk?.commonNote,
+    studentName: r.name,
+    text: r.setukText,
+  }
+  return {
+    html: buildEmailHtml(job.schoolName, buildSetukEmailBody(params)),
+    text: buildSetukEmailText(params),
+  }
+}
+
+/**
+ * 세특 발송에 성공한 학생의 세특 원문(record)에 발송 이력을 남긴다 — 세특 발송 화면의
+ * "N회 발송 · 최근 날짜" 배지와 재발송 경고에 쓴다. 테스트 발송(교사 본인에게)은
+ * 학생에게 간 게 아니므로 남기지 않는다. 이력 기록이 실패해도 발송 자체는 이미
+ * 끝났으므로 결과에 영향을 주지 않는다.
+ */
+async function recordSetukSent(db, schoolId, jobId, job, r) {
+  if (job.kind !== 'setuk' || job.isTest || !r.checkId || !r.recordId) return
+  try {
+    await db.doc(`schools/${schoolId}/setukChecks/${r.checkId}/records/${r.recordId}`).update({
+      emailSentCount: FieldValue.increment(1),
+      lastEmailSentAt: FieldValue.serverTimestamp(),
+      lastEmailJobId: jobId,
+      lastEmailSenderName: job.senderName || '',
+    })
+  } catch (err) {
+    console.error(`[emailJobs/${jobId}] 세특 발송 이력 기록 실패(${r.recordId}):`, err.message)
+  }
+}
+
 /** 헤더의 사람 이름(한글 포함)은 RFC 2047 encoded-word로 감싸야 메일 클라이언트가 깨지지 않는다. */
 function encodeHeaderWord(text) {
   return `=?UTF-8?B?${Buffer.from(text, 'utf8').toString('base64')}?=`
@@ -177,7 +246,8 @@ exports.onEmailJobWrite = onDocumentWritten(
       return
     }
 
-    const html = buildEmailHtml(job.schoolName, job.bodyHtml)
+    const db = getFirestore()
+    const sharedHtml = job.kind === 'setuk' ? null : buildEmailHtml(job.schoolName, job.bodyHtml)
     const fromName = `${job.schoolName} · ${job.senderName}`
 
     const recipients = [...job.recipients]
@@ -188,6 +258,7 @@ exports.onEmailJobWrite = onDocumentWritten(
     for (let i = 0; i < recipients.length; i++) {
       const r = recipients[i]
       let attempt = 0
+      const { html, text } = buildMessageFor(job, r, sharedHtml)
 
       while (true) {
         try {
@@ -198,11 +269,12 @@ exports.onEmailJobWrite = onDocumentWritten(
             toName: r.name,
             subject: job.subject,
             html,
-            text: job.bodyText,
+            text,
           })
           const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } })
           recipients[i] = { ...r, status: 'sent', sentAt: Timestamp.now(), gmailMessageId: res.data.id, error: null }
           sent++
+          await recordSetukSent(db, event.params.schoolId, ref.id, job, r)
           break
         } catch (err) {
           if (isRetryable(err) && attempt < 2) {

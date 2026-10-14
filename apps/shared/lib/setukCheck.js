@@ -51,6 +51,18 @@ export async function loadItemsBySubject(schoolId, checkId, subjectName) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
+/** 학급 하나에서 한 과목의 세특 원문만 가져온다 — 세특 메일 발송 화면용. */
+export async function loadRecordsBySubject(schoolId, checkId, subjectName) {
+  const snap = await getDocs(query(recordsCol(schoolId, checkId), where('subjectName', '==', subjectName)))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+/** "1학년 3반" → 3. 학급명에 반 정보가 없으면 null. 학생 명부(students.class)와 맞출 때 쓴다. */
+export function parseClassNo(classLabel) {
+  const m = String(classLabel || '').match(/(\d+)\s*반/)
+  return m ? Number(m[1]) : null
+}
+
 /**
  * 업로드 1건을 저장한다 — 학생×과목 원문(records)과 검출된 항목(items)을 함께
  * 일괄 기록한다. Firestore 배치는 500건 제한이 있어 넉넉히 400건 단위로 나눈다

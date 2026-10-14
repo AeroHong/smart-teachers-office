@@ -56,3 +56,43 @@ export function buildEmailHtml(schoolName, bodyHtml) {
 </body>
 </html>`
 }
+
+/**
+ * 세특(세부능력 및 특기사항) 확인 메일 본문 — 학생마다 다른 내용이 들어가는 개인화 메일.
+ * 반환값은 buildEmailHtml()의 bodyHtml 자리에 넣는 "내용 부분"만이다(학교 브랜딩 틀은
+ * 다른 메일과 똑같이 buildEmailHtml이 감싼다). 구성은 ai-grading-system의 세특 안내 메일
+ * (recordDraftEmailService.buildRecordDraftEmailHTML)을 옮겨왔다 — 과목 제목 → "OOO 학생"
+ * 인사 → 공통 안내 박스(선택) → 세특 원문(pre-wrap).
+ *
+ * 세특 원문·안내문은 교사가 입력한 순수 텍스트라 모두 escapeHtml로 넣는다.
+ * ⚠ functions/emailSend.js의 buildSetukEmailBody()/buildSetukEmailText()와 반드시 같은
+ * 결과를 내야 한다(미리보기 = 실제 발송) — 한쪽을 고치면 다른 쪽도 함께 고칠 것.
+ */
+export function buildSetukEmailBody({ subjectName, studentName, text, commonNote, termLabel }) {
+  const noteSection = commonNote && commonNote.trim() ? `
+              <div style="background:#fff8e1;border-left:4px solid #f59e0b;padding:12px 16px;margin:0 0 18px;">
+                <div style="font-weight:700;color:#b45309;margin-bottom:4px;font-size:13px;">안내</div>
+                <div style="font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(commonNote.trim())}</div>
+              </div>` : ''
+
+  return `
+              <div style="font-size:12px;color:#64748b;margin-bottom:2px;">세특(세부능력 및 특기사항) 확인 안내${termLabel ? ` · ${escapeHtml(termLabel)}` : ''}</div>
+              <div style="font-size:20px;font-weight:700;color:#0f172a;margin-bottom:18px;">${escapeHtml(subjectName || '')}</div>
+              <p style="margin:0 0 18px;"><strong>${escapeHtml(studentName || '')}</strong> 학생의 세특 작성 내용을 안내합니다.</p>${noteSection}
+              <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:16px 18px;white-space:pre-wrap;font-size:14px;line-height:1.8;color:#1f2937;">${escapeHtml(text || '')}</div>
+              <p style="margin:18px 0 0;font-size:12px;color:#94a3b8;">내용에 대한 문의는 과목 담당 선생님께 해주세요.</p>`
+}
+
+/** 위 HTML 메일의 텍스트 대체본(multipart/alternative의 text/plain 파트). */
+export function buildSetukEmailText({ subjectName, studentName, text, commonNote, termLabel }) {
+  return [
+    `[${subjectName || ''}] 세특(세부능력 및 특기사항) 확인 안내${termLabel ? ` · ${termLabel}` : ''}`,
+    '',
+    `${studentName || ''} 학생의 세특 작성 내용을 안내합니다.`,
+    ...(commonNote && commonNote.trim() ? ['', `[안내] ${commonNote.trim()}`] : []),
+    '',
+    text || '',
+    '',
+    '내용에 대한 문의는 과목 담당 선생님께 해주세요.',
+  ].join('\n')
+}

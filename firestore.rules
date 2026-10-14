@@ -466,6 +466,15 @@ service cloud.firestore {
           request.resource.data.recipients.size() == request.resource.data.counts.total &&
           request.resource.data.counts.sent == 0 &&
           request.resource.data.counts.failed == 0 &&
+          // 발송 종류 — 없으면 일반 발송, 'setuk'은 세특 개별 발송(수신자마다 본문이 다름).
+          (request.resource.data.get('kind', null) == null ||
+           (request.resource.data.kind == 'setuk' &&
+            request.resource.data.setuk.subjectName is string)) &&
+          // 테스트 발송(isTest)은 이력을 남기지 않으므로, 학생에게 몰래 보내는 통로가 되지
+          // 않도록 수신자가 로그인한 본인 1명일 때만 허용한다.
+          (request.resource.data.get('isTest', false) != true ||
+           (request.resource.data.recipients.size() == 1 &&
+            request.resource.data.recipients[0].email == request.auth.token.email)) &&
           get(/databases/$(database)/documents/schools/$(schoolId)).data.get('workspaceSync', {}).get('enabled', false) == true;
 
         // 예약 취소 — 아직 발송이 시작되지 않은(status:'scheduled') 건에 한해 발신자 본인
