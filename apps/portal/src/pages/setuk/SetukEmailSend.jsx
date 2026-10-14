@@ -310,7 +310,7 @@ export default function SetukEmailSend() {
         isTest: true,
         subjectText: `[테스트] ${mailSubject.trim()}`,
       }))
-      setNotice(`${row.classLabel} ${row.number}번 ${row.name} 학생의 내용으로 ${user.email}에 테스트 메일을 보냈습니다. 받은편지함을 확인해주세요.`)
+      setNotice(`${row.classLabel} ${row.number}번 ${row.name} 학생의 내용으로 ${user.email}에 테스트 메일 발송을 요청했습니다. 진행 상황은 화면 위쪽 메일 표시에서 볼 수 있습니다.`)
     } catch (e) {
       setError('테스트 발송 요청 중 오류가 발생했습니다: ' + e.message)
     } finally {

@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import EmailJobTicker from './components/EmailJobTicker'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
 import ProtectedRoute from '@shared/components/ProtectedRoute'
@@ -220,6 +221,8 @@ export default function App() {
 
         </Routes>
       </Suspense>
+      {/* 내 메일 발송 현황 — 페이지를 옮겨도 구독이 끊기지 않도록 라우트 밖에 한 번만 둔다 */}
+      <EmailJobTicker />
     </BrowserRouter>
   )
 }
