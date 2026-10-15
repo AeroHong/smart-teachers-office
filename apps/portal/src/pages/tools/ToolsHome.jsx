@@ -50,6 +50,14 @@ const TOOLS = [
     bgColor: '#fef2f2',
   },
   {
+    icon: '🧽',
+    title: 'PDF 출력자 정보 지우기',
+    description: '나이스 출력 PDF 오른쪽 아래의 출력자 표시(학교/일시/IP/이름)를 여러 파일에서 한 번에 지워 홈페이지 게시용으로 만듭니다.',
+    path: '/tools/pdf-stamp-remover',
+    color: '#0d9488',
+    bgColor: '#ccfbf1',
+  },
+  {
     icon: '✉️',
     title: '이메일 발송',
     description: '학생 전체 또는 개별 대상에게 서식 있는 이메일을 발송합니다. 보낸 사람은 로그인한 계정 그대로 나갑니다.',

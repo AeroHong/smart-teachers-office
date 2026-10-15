@@ -97,6 +97,7 @@ const AsaChecklistAdmin      = lazy(() => import('./pages/tools/AsaChecklistAdmi
 const AsaChecklistPrincipal  = lazy(() => import('./pages/tools/AsaChecklistPrincipal'))
 const AsaChecklistForm       = lazy(() => import('./pages/tools/AsaChecklistForm'))
 const AsaChecklistFormResult = lazy(() => import('./pages/tools/AsaChecklistFormResult'))
+const PdfStampRemover       = lazy(() => import('./pages/tools/PdfStampRemover'))
 
 
 function PageLoader() {
@@ -207,6 +208,7 @@ export default function App() {
           <Route path="/tools/asa-checklist/:subjectId/process"       element={<ProtectedRoute anyUser><AsaChecklistForm /></ProtectedRoute>} />
           <Route path="/tools/asa-checklist/:subjectId/result"        element={<ProtectedRoute anyUser><AsaChecklistFormResult /></ProtectedRoute>} />
           <Route path="/tools/grade-rank"          element={<ProtectedRoute anyUser><GradeRankCalculator /></ProtectedRoute>} />
+          <Route path="/tools/pdf-stamp-remover"   element={<ProtectedRoute anyUser><PdfStampRemover /></ProtectedRoute>} />
 
           {/* ── 연수 서명부 ── */}
           <Route path="/training"              element={<ProtectedRoute anyUser><TrainingList /></ProtectedRoute>} />
