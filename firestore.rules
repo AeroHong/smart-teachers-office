@@ -1401,9 +1401,13 @@ service cloud.firestore {
       //    내가 연 뒤 다른 사람이 먼저 저장했는데 그 위에 덮어쓰는 저장을 막는다(앱은 이때 최신본에 합쳐 다시 저장한다).
       //    편성 설정(autoSetup)·마감(status)처럼 저장 묶음 밖의 필드는 revision 없이 고친다.
       //  · 마감(status == 'closed')한 고사는 다시 열기(status만 바꾸기) 말고는 못 고친다. 결시(absences)는 예외.
-      //  · 고사 삭제는 관리자 동급(isHubAdmin — 슈퍼 관리자·학교 관리자·교감)만.
+      //  · 고사 삭제는 관리자 동급(isHubAdmin — 슈퍼 관리자·학교 관리자·교감)만. 하위 문서(저장 버전 포함)는
+      //    고사 문서가 없어진 뒤(같은 batch 또는 그 뒤)에만 관리자 동급이 지운다 — 고사가 있는 동안 버전은 못 지운다.
       function examDocPath(schoolId, examId) {
         return /databases/$(database)/documents/schools/$(schoolId)/exams/$(examId);
+      }
+      function examGoneByAdmin(schoolId, examId) {
+        return isHubAdmin(schoolId) && !existsAfter(examDocPath(schoolId, examId));
       }
       function examOpen(schoolId, examId) {
         return get(examDocPath(schoolId, examId)).data.get('status', 'preparing') != 'closed';
@@ -1436,26 +1440,31 @@ service cloud.firestore {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
           allow write: if hasHubRole(schoolId, 'exam') &&
             examOpen(schoolId, examId) && examRevisionBumped(schoolId, examId);
+          allow delete: if examGoneByAdmin(schoolId, examId);
         }
 
-        // ExamCore(2026-10) 저장 버전 — 요약(versions)과 전체 데이터(versionData). 한 번 남기면 고치거나 지우지 않는다.
+        // ExamCore(2026-10) 저장 버전 — 요약(versions)과 전체 데이터(versionData). 한 번 남기면 고치지 않고,
+        // 고사를 통째로 지울 때만 함께 지운다.
         match /versions/{versionId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
           allow create: if hasHubRole(schoolId, 'exam') &&
             examOpen(schoolId, examId) && examRevisionBumped(schoolId, examId);
-          allow update, delete: if false;
+          allow update: if false;
+          allow delete: if examGoneByAdmin(schoolId, examId);
         }
         match /versionData/{versionId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
           allow create: if hasHubRole(schoolId, 'exam') &&
             examOpen(schoolId, examId) && examRevisionBumped(schoolId, examId);
-          allow update, delete: if false;
+          allow update: if false;
+          allow delete: if examGoneByAdmin(schoolId, examId);
         }
 
         // ExamCore 감독 배정(proctor/main) — 조회는 교사 전체(자기 감독을 본다), 편집은 고사 담당자(마감 전까지).
         match /proctor/{docId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
-          allow write: if hasHubRole(schoolId, 'exam') && examOpen(schoolId, examId);
+          allow create, update: if hasHubRole(schoolId, 'exam') && examOpen(schoolId, examId);
+          allow delete: if examGoneByAdmin(schoolId, examId);
         }
 
         // 결시 — 문서 ID는 examAbsenceId(workspaceUserId, subjectCode).

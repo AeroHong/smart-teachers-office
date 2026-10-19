@@ -1099,6 +1099,8 @@ ExamCore(2026-10, 고사 업무 앱 — StudentHub에서 옮김)가 저장할 �
     `seatings`·`versions`·`versionData`는 고사 문서 revision이 +1 되는 같은 transaction에서만 쓴다. `autoSetup`·`name` 등은 revision 없이.
   - `status == 'closed'`(마감)이면 `status`만 바꿔 다시 열 수 있고, 고사 문서·seatings·versions·proctor는 못 고친다. 결시는 예외.
   - 고사 만들기는 `revision` 0·마감 아님으로만. 고사 삭제는 관리자 동급(`isHubAdmin` — 슈퍼 관리자·학교 관리자·교감)만.
+  - 하위 문서(seatings·versions·versionData·proctor)는 고사 문서가 없어진 뒤(같은 batch 포함 — `existsAfter`)에만
+    관리자 동급이 지운다. ExamCore 「고사 삭제」가 고사 문서 + 하위 문서 + 사용자 로그(`exam_delete`)를 batch로 지운다.
 
 #### 2026-10-07 개편 추가분
 - `students.status`에 `deferred`(유예) 추가, `students.specialClass: true`(특수학급 — 고사는 별도실 응시).

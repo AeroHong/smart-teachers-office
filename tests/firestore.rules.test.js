@@ -1331,6 +1331,43 @@ test('고사 만들기·지우기: 만들기는 고사 담당자(revision 0·마
   await assertSucceeds(deleteDoc(e(as(ADMIN), 'e2')))
 })
 
+test('고사 통째로 지우기: 고사 문서가 없어진 뒤에만 관리자 동급이 하위 문서(버전 포함)를 지운다', async () => {
+  await seedExamCore()
+  const p = (...segs) => path('exams', 'e1', ...segs)
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, ...p('seatings', '1')), { rows: {} })
+    await setDoc(doc(db, ...p('versionData', 'v1')), { plan: [] })
+    await setDoc(doc(db, ...p('proctor', 'main')), { rev: 1 })
+    await setDoc(doc(db, ...p('absences', 'w1_1-1')), { status: 'confirmed' })
+  })
+  // 고사가 있는 동안: 관리자도 버전·학년 시트·감독을 따로 못 지운다
+  await assertFails(deleteDoc(doc(as(ADMIN), ...p('versions', 'v1'))))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...p('seatings', '1'))))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...p('proctor', 'main'))))
+  // 고사 담당자는 고사와 함께라도 못 지운다
+  const all = (db) => {
+    const b = writeBatch(db)
+    b.delete(doc(db, ...path('exams', 'e1')))
+    for (const s of [['seatings', '1'], ['versions', 'v1'], ['versionData', 'v1'], ['proctor', 'main'], ['absences', 'w1_1-1']]) b.delete(doc(db, ...p(...s)))
+    return b.commit()
+  }
+  await assertFails(all(as(C)))
+  // 관리자 동급(교감)은 한 batch로 고사와 하위 문서를 함께 지운다
+  await assertSucceeds(all(as(VP)))
+})
+
+test('고사 통째로 지우기: 고사가 먼저 지워졌으면 남은 하위 문서도 관리자 동급만 지운다', async () => {
+  await seedExamCore()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await deleteDoc(doc(ctx.firestore(), ...path('exams', 'e1')))
+  })
+  const v = (db) => doc(db, ...path('exams', 'e1', 'versions', 'v1'))
+  await assertFails(deleteDoc(v(as(C))))
+  await assertFails(deleteDoc(v(as(HM))))
+  await assertSucceeds(deleteDoc(v(as(ADMIN))))
+})
+
 test('고사: 다른 학교 관리자는 우리 학교 고사를 못 고치고 못 지운다', async () => {
   await seedExamCore()
   await env.withSecurityRulesDisabled(async (ctx) => {
