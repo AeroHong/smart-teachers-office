@@ -211,10 +211,11 @@ export function readElectives(student, year) {
   return year == null ? all : all.filter((e) => e.year === Number(year))
 }
 
-/** 화면 표시용 라벨. 예: "확률과 통계 (3반)". 학기는 칩 바깥에서 구분해 표시한다. */
+/** 화면 표시용 라벨. 예: "확률과 통계 (3반)", 선택 블록 글자 분반이면 "화학 (B)". 학기는 칩 바깥에서 구분해 표시한다. */
 export function electiveLabel(entry) {
   const e = normalizeElective(entry)
-  return e.classNo ? `${e.subjectName} (${e.classNo}반)` : e.subjectName
+  if (!e.classNo) return e.subjectName
+  return /^\d+$/.test(e.classNo) ? `${e.subjectName} (${e.classNo}반)` : `${e.subjectName} (${e.classNo})`
 }
 
 /** 학기별로 나눠 읽는다. 1·2학기 선택과목 편성이 다르기 때문. year는 readElectives와 같다. */
