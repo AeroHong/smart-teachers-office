@@ -1396,32 +1396,66 @@ service cloud.firestore {
         allow delete: if hasHubRole(schoolId, 'enrollment');
       }
 
-      // 고사 — 조회는 교사 전체(감독·담임이 명렬표와 결시를 본다), 편집은 고사 담당자.
+      // 고사(ExamCore) — 응시현황표 도구(exam-support-hck)의 보호 장치를 옮겨 왔다(2026-10).
+      //  · 저장 묶음(plan·vacancyOverrides·seatings·versions)은 revision이 정확히 1 오르는 한 transaction에서만 쓴다.
+      //    내가 연 뒤 다른 사람이 먼저 저장했는데 그 위에 덮어쓰는 저장을 막는다(앱은 이때 최신본에 합쳐 다시 저장한다).
+      //    편성 설정(autoSetup)·마감(status)처럼 저장 묶음 밖의 필드는 revision 없이 고친다.
+      //  · 마감(status == 'closed')한 고사는 다시 열기(status만 바꾸기) 말고는 못 고친다. 결시(absences)는 예외.
+      //  · 고사 삭제는 관리자 동급(isHubAdmin — 슈퍼 관리자·학교 관리자·교감)만.
+      function examDocPath(schoolId, examId) {
+        return /databases/$(database)/documents/schools/$(schoolId)/exams/$(examId);
+      }
+      function examOpen(schoolId, examId) {
+        return get(examDocPath(schoolId, examId)).data.get('status', 'preparing') != 'closed';
+      }
+      // 같은 요청(transaction·batch)에서 고사 문서의 revision이 1 올랐는가 — 하위 문서(seatings·versions)용
+      function examRevisionBumped(schoolId, examId) {
+        return getAfter(examDocPath(schoolId, examId)).data.get('revision', 0) ==
+          get(examDocPath(schoolId, examId)).data.get('revision', 0) + 1;
+      }
+
+      // 조회는 교사 전체(감독·담임이 명렬표와 결시를 본다), 편집은 고사 담당자.
       match /exams/{examId} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
-        allow write: if hasHubRole(schoolId, 'exam');
+        allow create: if hasHubRole(schoolId, 'exam') &&
+          request.resource.data.get('revision', 0) == 0 &&
+          request.resource.data.get('status', 'preparing') != 'closed';
+        allow update: if hasHubRole(schoolId, 'exam') && (
+          // 마감한 고사: 다시 열기만
+          (resource.data.get('status', 'preparing') == 'closed' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+          // 열린 고사: 저장 묶음을 건드리면 revision +1
+          (resource.data.get('status', 'preparing') != 'closed' &&
+           (!request.resource.data.diff(resource.data).affectedKeys()
+               .hasAny(['plan', 'vacancyOverrides', 'revision', 'versionCount', 'latestVersionId']) ||
+            request.resource.data.get('revision', 0) == resource.data.get('revision', 0) + 1))
+        );
+        allow delete: if isHubAdmin(schoolId);
 
         match /seatings/{grade} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
-          allow write: if hasHubRole(schoolId, 'exam');
+          allow write: if hasHubRole(schoolId, 'exam') &&
+            examOpen(schoolId, examId) && examRevisionBumped(schoolId, examId);
         }
 
         // ExamCore(2026-10) 저장 버전 — 요약(versions)과 전체 데이터(versionData). 한 번 남기면 고치거나 지우지 않는다.
         match /versions/{versionId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
-          allow create: if hasHubRole(schoolId, 'exam');
+          allow create: if hasHubRole(schoolId, 'exam') &&
+            examOpen(schoolId, examId) && examRevisionBumped(schoolId, examId);
           allow update, delete: if false;
         }
         match /versionData/{versionId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
-          allow create: if hasHubRole(schoolId, 'exam');
+          allow create: if hasHubRole(schoolId, 'exam') &&
+            examOpen(schoolId, examId) && examRevisionBumped(schoolId, examId);
           allow update, delete: if false;
         }
 
-        // ExamCore 감독 배정(proctor/main) — 조회는 교사 전체(자기 감독을 본다), 편집은 고사 담당자.
+        // ExamCore 감독 배정(proctor/main) — 조회는 교사 전체(자기 감독을 본다), 편집은 고사 담당자(마감 전까지).
         match /proctor/{docId} {
           allow read: if isSuperAdmin() || isTeacher(schoolId);
-          allow write: if hasHubRole(schoolId, 'exam');
+          allow write: if hasHubRole(schoolId, 'exam') && examOpen(schoolId, examId);
         }
 
         // 결시 — 문서 ID는 examAbsenceId(workspaceUserId, subjectCode).

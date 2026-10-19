@@ -1094,6 +1094,11 @@ ExamCore(2026-10, 고사 업무 앱 — StudentHub에서 옮김)가 저장할 �
   rev가 내가 연 뒤 바뀌었으면 저장을 막는다. 조회 교사 전체, 쓰기 고사 담당자(`exam`).
 - 접근: 고사·배정 쓰기 고사 담당자(`exam`) / 결시 생성 교사 누구나(본인 이름, reported만) / 담임은 자기 반의
   유형·사유·증빙만(필드 잠금) / 결시 담당자(`absence`)는 전부
+- 규칙이 강제하는 것(2026-10, 응시현황표 도구에서 옮김):
+  - 저장 묶음(`plan`·`vacancyOverrides`·`revision`·`versionCount`·`latestVersionId`)을 고치면 `revision`이 정확히 +1.
+    `seatings`·`versions`·`versionData`는 고사 문서 revision이 +1 되는 같은 transaction에서만 쓴다. `autoSetup`·`name` 등은 revision 없이.
+  - `status == 'closed'`(마감)이면 `status`만 바꿔 다시 열 수 있고, 고사 문서·seatings·versions·proctor는 못 고친다. 결시는 예외.
+  - 고사 만들기는 `revision` 0·마감 아님으로만. 고사 삭제는 관리자 동급(`isHubAdmin` — 슈퍼 관리자·학교 관리자·교감)만.
 
 #### 2026-10-07 개편 추가분
 - `students.status`에 `deferred`(유예) 추가, `students.specialClass: true`(특수학급 — 고사는 별도실 응시).

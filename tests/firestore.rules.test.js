@@ -25,7 +25,7 @@ import {
   assertFails, assertSucceeds, initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where,
+  collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 
 const SCHOOL = 'test-school'
@@ -1260,19 +1260,84 @@ async function seedExamCore() {
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore()
     await setDoc(doc(db, ...path('studentHubManagers', C)), { roles: ['exam'] })
+    await setDoc(doc(db, ...path('exams', 'e1')), { name: '2학기 중간', status: 'preparing', revision: 1, versionCount: 1, plan: [] })
     await setDoc(doc(db, ...path('exams', 'e1', 'versions', 'v1')), { versionNo: 1, summary: 's' })
   })
 }
 
+/** ExamCore saveExamDraft와 같은 모양의 저장 — 고사 문서 revision +1 · 학년 시트 · 버전을 한 batch로 */
+function saveBatch(db, { from = 1, to = from + 1, v = `v${to}` } = {}) {
+  const b = writeBatch(db)
+  b.update(doc(db, ...path('exams', 'e1')), { plan: [{ subject: 'x' }], revision: to, versionCount: to, latestVersionId: v })
+  b.set(doc(db, ...path('exams', 'e1', 'seatings', '2')), { rows: [] })
+  b.set(doc(db, ...path('exams', 'e1', 'versions', v)), { versionNo: to })
+  b.set(doc(db, ...path('exams', 'e1', 'versionData', v)), { plan: [] })
+  return b.commit()
+}
+
 test('고사 버전: 고사 담당자·관리자만 남기고, 아무도 고치거나 지우지 못한다', async () => {
   await seedExamCore()
-  await assertSucceeds(setDoc(doc(as(C), ...path('exams', 'e1', 'versions', 'v2')), { versionNo: 2 }))
-  await assertSucceeds(setDoc(doc(as(C), ...path('exams', 'e1', 'versionData', 'v2')), { plan: [] }))
-  await assertSucceeds(setDoc(doc(as(VP), ...path('exams', 'e1', 'versions', 'v3')), { versionNo: 3 }))
-  await assertFails(setDoc(doc(as(A), ...path('exams', 'e1', 'versions', 'v4')), { versionNo: 4 }))
+  await assertSucceeds(saveBatch(as(C)))
+  await assertSucceeds(saveBatch(as(VP), { from: 2 }))
+  await assertFails(saveBatch(as(A), { from: 3 }))
   await assertFails(updateDoc(doc(as(C), ...path('exams', 'e1', 'versions', 'v1')), { summary: 'x' }))
   await assertFails(deleteDoc(doc(as(ADMIN), ...path('exams', 'e1', 'versions', 'v1'))))
   await assertSucceeds(getDoc(doc(as(B), ...path('exams', 'e1', 'versions', 'v1'))))
+})
+
+test('고사 저장: revision이 정확히 1 올라야 한다 — 남이 먼저 저장한 뒤 덮어쓰기 차단', async () => {
+  await seedExamCore()
+  // 내가 연 revision(1)이 아니라 이미 지난 값으로 올리면 거부
+  await assertFails(saveBatch(as(C), { from: 1, to: 1 }))
+  await assertFails(saveBatch(as(C), { from: 1, to: 3 }))
+  // revision 없이 계획만 고치기 거부
+  await assertFails(updateDoc(doc(as(C), ...path('exams', 'e1')), { plan: [{ subject: 'y' }] }))
+  // 학년 시트·버전만 따로 쓰기 거부(고사 문서 revision이 같이 오르지 않음)
+  await assertFails(setDoc(doc(as(C), ...path('exams', 'e1', 'seatings', '1')), { rows: [] }))
+  await assertFails(setDoc(doc(as(C), ...path('exams', 'e1', 'versions', 'v9')), { versionNo: 9 }))
+  await assertFails(setDoc(doc(as(C), ...path('exams', 'e1', 'versionData', 'v9')), { plan: [] }))
+  // 저장 묶음 밖 필드(편성 설정·이름)는 revision 없이
+  await assertSucceeds(updateDoc(doc(as(C), ...path('exams', 'e1')), { autoSetup: { dates: [] } }))
+  await assertSucceeds(updateDoc(doc(as(C), ...path('exams', 'e1')), { name: '바뀜' }))
+})
+
+test('고사 마감: 다시 열기 말고는 고사 담당자도 못 고친다 — 결시는 예외', async () => {
+  await seedHub()
+  await seedExamCore()
+  await assertSucceeds(updateDoc(doc(as(C), ...path('exams', 'e1')), { status: 'closed' }))
+  await assertFails(saveBatch(as(C)))
+  await assertFails(saveBatch(as(ADMIN)))
+  await assertFails(updateDoc(doc(as(C), ...path('exams', 'e1')), { autoSetup: { dates: [] } }))
+  await assertFails(updateDoc(doc(as(C), ...path('exams', 'e1')), { status: 'preparing', name: 'x' }))
+  await assertFails(setDoc(doc(as(C), ...path('exams', 'e1', 'proctor', 'main')), { rev: 1 }))
+  // 결시는 마감 뒤에도 등록·확정
+  await assertSucceeds(setDoc(doc(as(B), ...path('exams', 'e1', 'absences', 'w5_2-11')),
+    { status: 'reported', reportedBy: { uid: B, name: 'B' }, year: 2026, grade: 2, classNo: 3 }))
+  // 다시 열면 저장된다
+  await assertSucceeds(updateDoc(doc(as(C), ...path('exams', 'e1')), { status: 'preparing' }))
+  await assertSucceeds(saveBatch(as(C)))
+})
+
+test('고사 만들기·지우기: 만들기는 고사 담당자(revision 0·마감 아님), 지우기는 학교 관리자·교감만', async () => {
+  await seedExamCore()
+  const e = (db, id) => doc(db, ...path('exams', id))
+  await assertSucceeds(setDoc(e(as(C), 'e2'), { name: '새 고사', plan: [], status: 'preparing' }))
+  await assertFails(setDoc(e(as(C), 'e3'), { name: 'x', revision: 5 }))
+  await assertFails(setDoc(e(as(C), 'e4'), { name: 'x', status: 'closed' }))
+  await assertFails(setDoc(e(as(A), 'e5'), { name: 'x' }))
+  await assertFails(deleteDoc(e(as(C), 'e1')))
+  await assertFails(deleteDoc(e(as(HM), 'e1')))
+  await assertSucceeds(deleteDoc(e(as(VP), 'e1')))
+  await assertSucceeds(deleteDoc(e(as(ADMIN), 'e2')))
+})
+
+test('고사: 다른 학교 관리자는 우리 학교 고사를 못 고치고 못 지운다', async () => {
+  await seedExamCore()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'users', 'other-admin'), { role: 'school_admin', schoolId: OTHER_SCHOOL })
+  })
+  await assertFails(updateDoc(doc(as('other-admin'), ...path('exams', 'e1')), { name: 'x' }))
+  await assertFails(deleteDoc(doc(as('other-admin'), ...path('exams', 'e1'))))
 })
 
 test('감독 배정: 교사 전체가 보고, 고사 담당자·관리자만 고친다(교장은 못 고친다)', async () => {
