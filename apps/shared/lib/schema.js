@@ -162,6 +162,8 @@ export const COL = {
   EXAM_PROCTOR: 'proctor',                   // exams/{id}/proctor/main
   // 선택과목 수강신청 결과(교육부 시스템) 업로드 기록 — auto-ID. 적용 결과는 students.electiveSubjects
   ELECTIVE_IMPORTS: 'electiveImports',
+  // StudentHub 선택과목 표 설정 — {year}_{grade}: { sameSemesters, semesters: {1: {order, groups}, 2: …} }
+  ELECTIVE_LAYOUTS: 'electiveLayouts',
   // StudentHub 사용자 로그 — auto-ID. 지우거나 고치지 않는다(firestore.rules). 고사 명렬표 도구의
   // activityLogs와 같은 모양(action·summary·details·uid·email·name·at)
   HUB_LOGS: 'studentHubLogs',

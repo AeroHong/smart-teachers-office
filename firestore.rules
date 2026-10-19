@@ -1494,6 +1494,11 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if hasHubRole(schoolId, 'elective');
       }
+      // StudentHub 선택과목 표 설정(학년도·학년별 열 순서·칸막이·1·2학기 같음) — {year}_{grade}
+      match /electiveLayouts/{layoutId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if hasHubRole(schoolId, 'elective');
+      }
 
       // StudentHub 담당자(역할 하나라도) 또는 관리자
       function isAnyHubManager(schoolId) {

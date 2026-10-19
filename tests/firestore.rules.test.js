@@ -1235,6 +1235,17 @@ test('학생 명단(동기화 학교): 선택과목 담당자는 선택과목 �
   await assertFails(deleteDoc(stu(as(C))))
 })
 
+test('선택과목 표 설정: 교사는 읽기만, 선택과목 담당자·관리자는 쓴다', async () => {
+  await seedStudents()
+  const lay = (db) => doc(db, ...path('electiveLayouts', '2026_3'))
+  const data = { year: 2026, grade: 3, sameSemesters: true, semesters: { 1: { order: ['화법과 작문'], groups: [] } } }
+  await assertSucceeds(setDoc(lay(as(C)), data))
+  await assertSucceeds(getDoc(lay(as(B))))
+  await assertFails(setDoc(lay(as(B)), data))
+  await assertSucceeds(setDoc(lay(as(ADMIN)), data))
+  await assertFails(setDoc(lay(as(HM)), data))
+})
+
 test('학생 명단(동기화를 쓰지 않는 학교): 교사가 예전처럼 출결 그룹 CSV로 등록한다', async () => {
   await seedStudents()
   const db = as('other-t')
