@@ -5,6 +5,7 @@ import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import { auth, db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { detectInAppBrowser, APP_NAMES, openInBrowserHint } from '@shared/lib/inAppBrowser'
+import PeriodCheckinPanel from './PeriodCheckinPanel'
 
 // 로그인 실패 코드 → 학생이 보고 바로 따라 할 수 있는 안내. 예전엔 실패를 조용히
 // 삼켜서 "눌러도 아무 일도 없다"는 신고만 들어오고 원인을 알 수 없었다(2026-10-20).
@@ -37,6 +38,7 @@ const STATE = {
   NOT_STARTED: 'not_started',
   ENDED: 'ended',
   NOTICE_REQUIRED: 'notice_required', // 미확인 공지 확인 단계
+  PERIOD_WAITING: 'period_waiting',   // 교시별 버튼 출석 대기 화면
   CHECKING: 'checking',
   SUCCESS: 'success',
   ALREADY: 'already',
@@ -157,7 +159,10 @@ export default function StudentCheckin() {
         if (!eventDoc.exists()) { setState(STATE.INVALID); return }
         const data = eventDoc.data()
 
-        if (data.type === '조회') {
+        if (data.checkinMode === 'button') {
+          // 교시별 버튼 출석: 고정 입장 QR로 들어와 대기 화면에서 교시마다 버튼으로 출석
+          if (data.qrToken !== token) { setState(STATE.INVALID); return }
+        } else if (data.type === '조회') {
           // 조회: 고정 QR 토큰 검증
           if (data.qrToken !== token) { setState(STATE.INVALID); return }
         } else {
@@ -183,9 +188,30 @@ export default function StudentCheckin() {
 
     if (!user) { setState(STATE.LOGIN_REQUIRED); return }
     if (role === 'teacher' || role === 'admin' || role === 'school_admin') { setState(STATE.TEACHER); return }
-    if (role === 'student' && studentId) { checkAndAttend() }
+    if (role === 'student' && studentId) {
+      if (event.checkinMode === 'button') enterPeriodMode()
+      else checkAndAttend()
+    }
     else { setState(STATE.NOT_IN_LIST) }
   }, [authLoading, user, role, studentId, event])
+
+  // 교시별 버튼 출석: 그룹 명단에 있는 학생만 대기 화면으로 보낸다.
+  // 학생은 자기가 속한 그룹만 읽을 수 있어서, 읽기가 거부되면 명단에 없는 것이다.
+  const enterPeriodMode = async () => {
+    setState(STATE.CHECKING)
+    try {
+      const student = await findStudentByStudentId(schoolId, studentId)
+      if (!student) { setState(STATE.NOT_IN_LIST); return }
+      const inGroup = await getDoc(doc(db, 'schools', schoolId, 'studentGroups', event.studentGroupId))
+        .then(snap => snap.exists() && (snap.data().studentIds || []).includes(studentId))
+        .catch(() => false)
+      if (!inGroup) { setState(STATE.NOT_IN_LIST); return }
+      setStudentInfo({ ...student, studentId })
+      setState(STATE.PERIOD_WAITING)
+    } catch {
+      setState(STATE.ERROR)
+    }
+  }
 
   // 메인 플로우: 공지 확인 여부 체크 후 출석 처리
   const checkAndAttend = async () => {
@@ -385,6 +411,9 @@ export default function StudentCheckin() {
           {(state === STATE.LOADING || state === STATE.CHECKING) && (
             <StatusScreen icon="⏳" message="처리 중..." />
           )}
+          {state === STATE.PERIOD_WAITING && studentInfo && (
+            <PeriodCheckinPanel schoolId={schoolId} eventId={eventId} student={studentInfo} />
+          )}
           {state === STATE.NOTICE_REQUIRED && pendingNotices[noticeIdx] && (
             <div style={{ textAlign: 'left' }}>
               {pendingNotices.length > 1 && (
@@ -405,7 +434,9 @@ export default function StudentCheckin() {
           )}
           {state === STATE.LOGIN_REQUIRED && (
             <>
-              <StatusScreen icon="🔐" message={'학교 Google 계정으로\n로그인하면 자동으로 출석됩니다.'} />
+              <StatusScreen icon="🔐" message={event?.checkinMode === 'button'
+                ? '학교 Google 계정으로 로그인하면\n출석 대기 화면이 열립니다.'
+                : '학교 Google 계정으로\n로그인하면 자동으로 출석됩니다.'} />
               {inAppBrowser && (
                 <div style={styles.warnBox}>
                   <strong>⚠️ {APP_NAMES[inAppBrowser] || '앱'} 내 브라우저에서는 Google 로그인이 차단됩니다</strong>

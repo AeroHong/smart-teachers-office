@@ -53,3 +53,24 @@ export function formatEventTime(ts) {
   const d = ts?.toDate?.() ?? new Date(ts)
   return d.toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
+
+// ── 교시별 버튼 출석(checkinMode: 'button') ─────────────────────
+// 교사 화면(PeriodSessionDashboard)과 학생 화면(PeriodCheckinPanel)이 같은 날짜 문자열·
+// 문서 ID 규칙을 써야 학생이 쓴 기록을 교사가 그대로 찾는다. firestore.rules의
+// periodLogs 문서 ID 검사도 이 형식(`날짜-p교시-학번`)을 따른다.
+export function toDateStr(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+export function periodLogId(date, period, studentId) {
+  return `${date}-p${period}-${studentId}`
+}
+
+// 진행 중인 교시 세션 — 오늘 연 것만 유효하다(전날 닫지 않은 세션은 없는 것으로 본다)
+export function activePeriodSession(event) {
+  const s = event?.periodSession
+  return s && s.date === toDateStr() ? s : null
+}

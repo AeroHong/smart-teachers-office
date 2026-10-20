@@ -1397,3 +1397,95 @@ test('감독 배정: 교사 전체가 보고, 고사 담당자·관리자만 고
   await assertFails(setDoc(d(as(HM)), { rev: 3 }))
   await assertSucceeds(getDoc(d(as(B))))
 })
+
+// ── 교시별 버튼 출석(periodLogs) ────────────────────────────────
+// 학생은 열린 교시에, 본인 학번으로, 교실 화면의 코드를 맞혀야만 출석을 쓸 수 있다.
+const STU = 'student-s'
+const STU2 = 'student-t'
+const OUTSIDER = 'student-x'
+const TODAY = '2026-10-22'
+
+async function seedPeriodEvent(session = { date: TODAY, period: 5, sessionId: 'sess1' }) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, 'users', STU), { role: 'student', schoolId: SCHOOL, studentId: '10101' })
+    await setDoc(doc(db, 'users', STU2), { role: 'student', schoolId: SCHOOL, studentId: '10102' })
+    await setDoc(doc(db, 'users', OUTSIDER), { role: 'student', schoolId: SCHOOL, studentId: '20101' })
+    await setDoc(doc(db, ...path('studentGroups', 'g1')), { name: '잔류', studentIds: ['10101', '10102'], createdBy: A })
+    await setDoc(doc(db, ...path('events', 'pe')), {
+      name: '잔류학생 지도', type: '기타', checkinMode: 'button', studentGroupId: 'g1',
+      qrToken: 'qr', createdBy: A, periodSession: session,
+    })
+    await setDoc(doc(db, ...path('events', 'pe', 'periodSessionSecrets', 'sess1')), { code: '47' })
+  })
+}
+
+async function periodCheckin(db, over = {}) {
+  const { serverTimestamp } = await import('firebase/firestore')
+  const data = {
+    studentId: '10101', studentName: '학생', grade: 1, class: 1, number: 1,
+    date: TODAY, period: 5, sessionId: 'sess1', code: '47', method: 'button',
+    checkedAt: serverTimestamp(), ...over,
+  }
+  const id = over.id ?? `${data.date}-p${data.period}-${data.studentId}`
+  delete data.id
+  return setDoc(doc(db, ...path('events', 'pe', 'periodLogs', id)), data)
+}
+
+test('교시 출석: 열린 교시에 본인 학번·맞는 코드면 학생이 쓸 수 있다', async () => {
+  await seedPeriodEvent()
+  await assertSucceeds(periodCheckin(as(STU)))
+})
+
+test('교시 출석: 코드가 틀리면 거부', async () => {
+  await seedPeriodEvent()
+  await assertFails(periodCheckin(as(STU), { code: '12' }))
+})
+
+test('교시 출석: 다른 학생 학번으로 대신 쓸 수 없다', async () => {
+  await seedPeriodEvent()
+  await assertFails(periodCheckin(as(STU), { studentId: '10102' }))
+})
+
+test('교시 출석: 그룹 명단에 없는 학생은 코드를 알아도 못 쓴다', async () => {
+  await seedPeriodEvent()
+  await assertFails(periodCheckin(as(OUTSIDER), { studentId: '20101' }))
+})
+
+test('교시 출석: 마감됐거나 다른 교시·다른 세션이면 거부', async () => {
+  await seedPeriodEvent(null)
+  await assertFails(periodCheckin(as(STU)))
+  await seedPeriodEvent()
+  await assertFails(periodCheckin(as(STU), { period: 6 }))
+  await assertFails(periodCheckin(as(STU), { sessionId: 'old' }))
+  await assertFails(periodCheckin(as(STU), { id: 'wrong-id' }))
+})
+
+test('교시 출석: 시각 조작·추가 필드·수동 출석 흉내는 거부', async () => {
+  await seedPeriodEvent()
+  const { Timestamp } = await import('firebase/firestore')
+  await assertFails(periodCheckin(as(STU), { checkedAt: Timestamp.fromMillis(0) }))
+  await assertFails(periodCheckin(as(STU), { extra: 1 }))
+  await assertFails(periodCheckin(as(STU), { method: 'manual' }))
+})
+
+test('교시 출석: 학생은 한 번 쓴 기록을 고치거나 지울 수 없고, 교사는 수동 처리한다', async () => {
+  await seedPeriodEvent()
+  await assertSucceeds(periodCheckin(as(STU)))
+  const log = (db) => doc(db, ...path('events', 'pe', 'periodLogs', `${TODAY}-p5-10101`))
+  await assertFails(periodCheckin(as(STU)))
+  await assertFails(deleteDoc(log(as(STU))))
+  await assertSucceeds(updateDoc(log(as(A)), { method: 'absent', reason: '조퇴' }))
+  await assertSucceeds(deleteDoc(log(as(A))))
+})
+
+test('교시 출석: 코드 문서는 교사만 읽고, 학생은 본인 기록만 get', async () => {
+  await seedPeriodEvent()
+  await assertFails(getDoc(doc(as(STU), ...path('events', 'pe', 'periodSessionSecrets', 'sess1'))))
+  await assertSucceeds(getDoc(doc(as(A), ...path('events', 'pe', 'periodSessionSecrets', 'sess1'))))
+  await assertSucceeds(periodCheckin(as(STU2), { studentId: '10102' }))
+  await assertFails(getDoc(doc(as(STU), ...path('events', 'pe', 'periodLogs', `${TODAY}-p5-10102`))))
+  await assertSucceeds(getDoc(doc(as(STU), ...path('events', 'pe', 'periodLogs', `${TODAY}-p5-10101`))))
+  await assertFails(getDocs(collection(as(STU), ...path('events', 'pe', 'periodLogs'))))
+  await assertSucceeds(getDocs(collection(as(A), ...path('events', 'pe', 'periodLogs'))))
+})

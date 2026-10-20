@@ -1036,6 +1036,41 @@ service cloud.firestore {
           allow write: if isSuperAdmin() || isTeacher(schoolId);
         }
 
+        // ── 교시별 버튼 출석(checkinMode: 'button') ──────────────────
+        // 교사가 교시 출석을 시작할 때 뽑는 2자리 코드. 이벤트 문서는 누구나 get할 수
+        // 있으므로 코드는 여기 따로 두고 교사만 읽는다 — 학생 기록 쓰기 규칙이 대조한다.
+        match /periodSessionSecrets/{sessionId} {
+          allow read, write: if isSuperAdmin() || isTeacher(schoolId);
+        }
+
+        // 학생은 지금 열린 교시에, 본인 학번으로, 교실 화면의 코드를 맞혀야만 한 번 쓸 수 있다
+        // (대리·원격 출석 차단). 고치기·지우기와 수동 출석·사유는 교사만.
+        function periodCheckinOk(logId) {
+          let d = request.resource.data;
+          let ev = get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)).data;
+          let s = ev.get('periodSession', null);
+          return ev.get('checkinMode', null) == 'button' && s != null &&
+            d.keys().hasOnly(['studentId', 'studentName', 'grade', 'class', 'number',
+                              'date', 'period', 'sessionId', 'code', 'method', 'checkedAt']) &&
+            d.studentId == getUserData().studentId &&
+            d.method == 'button' &&
+            d.sessionId == s.sessionId && d.date == s.date && d.period == s.period &&
+            logId == d.date + '-p' + string(d.period) + '-' + d.studentId &&
+            d.checkedAt == request.time &&
+            d.code == get(/databases/$(database)/documents/schools/$(schoolId)/events/$(eventId)/periodSessionSecrets/$(s.sessionId)).data.code &&
+            ev.get('studentGroupId', null) != null &&
+            d.studentId in get(/databases/$(database)/documents/schools/$(schoolId)/studentGroups/$(ev.studentGroupId)).data.studentIds;
+        }
+
+        match /periodLogs/{logId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          // 학생: 본인 기록 확인용 get만 (다른 학생 목록은 볼 수 없다)
+          allow get: if isStudent(schoolId) &&
+            (resource == null || resource.data.studentId == getUserData().studentId);
+          allow create: if isStudent(schoolId) && periodCheckinOk(logId);
+          allow write: if isSuperAdmin() || isTeacher(schoolId);
+        }
+
       }
 
       match /trainings/{trainingId} {

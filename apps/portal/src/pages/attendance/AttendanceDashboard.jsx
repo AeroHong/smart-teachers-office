@@ -9,6 +9,7 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
+import PeriodSessionDashboard from './PeriodSessionDashboard'
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
 const DAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토']
@@ -476,7 +477,8 @@ export default function AttendanceDashboard() {
   const luckyPoolSize = students.length > 0 ? students.length : OPEN_EVENT_LUCKY_POOL
   const [luckyNumber, setLuckyNumber] = useState(null)
   useEffect(() => {
-    if (!schoolId || !eventId || !selectedDate || luckyPoolSize < 4) { setLuckyNumber(null); return undefined }
+    // 교시별 버튼 출석에는 등수·행운번호가 없다
+    if (!schoolId || !eventId || !selectedDate || luckyPoolSize < 4 || !event || event.checkinMode === 'button') { setLuckyNumber(null); return undefined }
     let alive = true
     const ref = doc(db, 'schools', schoolId, 'events', eventId, 'luckyDraws', selectedDate)
     getDoc(ref).then(async (snap) => {
@@ -487,7 +489,7 @@ export default function AttendanceDashboard() {
       if (alive) setLuckyNumber(number)
     }).catch(() => {})
     return () => { alive = false }
-  }, [schoolId, eventId, selectedDate, luckyPoolSize])
+  }, [schoolId, eventId, selectedDate, luckyPoolSize, !!event, event?.checkinMode])
 
   // 뽑힌 번호와 같은 등수로 이미 체크인한 학생 — 아직 아무도 그 등수에 도달하지
   // 않았으면 undefined(추첨 배너가 "진행 중"으로 표시한다).
@@ -727,6 +729,10 @@ export default function AttendanceDashboard() {
 
   if (loading) return <Layout wide><p>불러오는 중...</p></Layout>
   if (!event) return null
+  // 교시별 버튼 출석은 기록 구조(periodLogs)와 화면이 따로다 — 학생 그룹 로드만 여기서 같이 쓴다
+  if (event.checkinMode === 'button') {
+    return <PeriodSessionDashboard event={event} students={students} schoolId={schoolId} />
+  }
 
   const hasGroup = students.length > 0
   const checkinUrl = `${window.location.origin}/attendance/checkin/${schoolId}/${eventId}?token=${event.qrToken}`

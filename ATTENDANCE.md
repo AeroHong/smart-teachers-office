@@ -81,14 +81,14 @@ QR 코드 기반 실시간 출결 관리 시스템.
 
 | 경로 | 컴포넌트 | 설명 |
 |------|----------|------|
-| `/attendance` | TeacherDashboard | 이벤트 목록 |
-| `/attendance/create` | EventCreate | 이벤트 생성 |
-| `/attendance/:eventId/edit` | EventEdit | 이벤트 수정 |
-| `/attendance/:eventId` | AttendanceDashboard | 출결 현황 (QR + 출석/미출석 목록) |
-| `/attendance/checkin/:schoolId/:eventId` | StudentCheckin | 학생 QR 체크인 (인증 불필요) |
+| `/attendance` | TeacherDashboard | 내 이벤트 목록 (과목별) |
+| `/attendance/events/new` | EventCreate | 이벤트 생성 |
+| `/attendance/events/:eventId/edit` | EventEdit | 이벤트 수정 |
+| `/attendance/events/:eventId` | AttendanceDashboard | 출결 현황 (버튼 출석 모드면 PeriodSessionDashboard) |
+| `/attendance/checkin/:schoolId/:eventId` | StudentCheckin | 학생 체크인 (구글 로그인) |
 | `/attendance/stats` | StatsDashboard | 통계 대시보드 |
-| `/attendance/students` | StudentList | 학생 목록 관리 |
-| `/attendance/admin` | Admin | 학생 그룹 관리 |
+| `/attendance/students` | StudentList | 학생 그룹 관리 (CSV·엑셀 업로드) |
+| `/attendance/all` | EventsOverview | 관리자용 전체 이벤트 현황 |
 
 ---
 
@@ -188,10 +188,43 @@ QR 코드 기반 실시간 출결 관리 시스템.
 ## 알려진 이슈 & TODO
 
 - [ ] 엑셀 내보내기 기능
-- [ ] 학생 일괄 업로드 (CSV/Excel)
+- [x] 학생 일괄 업로드 (CSV/Excel) — 그룹 만들기·그룹에 추가 모두 엑셀 지원
 - [ ] 출석 통계 차트 (월별/주별)
 - [ ] 알림 기능 (미출석 학생 자동 알림)
 - [ ] 다크 모드 지원
+
+---
+
+## 교시별 버튼 출석 모드 (2026-10-21)
+
+체험학습 잔류학생 지도처럼 40명 이상이 한 교실에서 여러 교시를 연달아 하는 경우용.
+이벤트 생성/수정에서 유형이 조회가 아닐 때 **출석 방식 → 교시별 버튼 출석**을 켠다 (`checkinMode: 'button'`, 학생 그룹 필수).
+
+### 흐름
+1. 학생: 입장 QR(고정 `qrToken`)을 **처음 한 번만** 찍고 구글 로그인 → 그룹 명단 확인 → **출석 대기 화면** (`PeriodCheckinPanel.jsx`)
+2. 교사: 날짜·교시 탭 선택 → **[N교시 출석 시작]** → 2자리 코드를 교실 화면에 크게 표시 (`PeriodSessionDashboard.jsx`)
+3. 학생 화면: 이벤트 문서 구독으로 즉시 버튼 활성화 → 코드 입력 + [출석] → 누른 시각(서버 시각)으로 기록
+4. 교사: [출석 마감] (자동 마감 없음). 다른 교시를 시작하면 이전 교시 세션은 교체된다
+5. 미출석자 수동 출석·사유 등록, **전체 기록** 탭에서 학생 × 날짜·교시 표 + 엑셀 다운로드
+
+지각 자동 판정은 없다 — 시각만 기록하고 교사가 사유로 처리한다. 등수·행운번호도 없다.
+
+### 데이터
+```
+events/{eventId}
+  checkinMode: 'button'
+  periodSession: { date: 'YYYY-MM-DD', period, sessionId, openedAt } | null   ← 공개 get, 코드 없음
+  /periodSessionSecrets/{sessionId}  { code, period, date }                  ← 교사만 읽기/쓰기
+  /periodLogs/{date}-p{period}-{studentId}
+    studentId, studentName, grade, class, number, date, period,
+    sessionId, code, method: 'button' | 'manual' | 'absent', reason?, checkedAt
+```
+하루 단위 `attendanceLogs`와 섞지 않는다 — StatsDashboard·TeacherDashboard 출석률에는 반영되지 않는다.
+
+### 규칙 (`periodCheckinOk`)
+학생 create는 다음을 모두 만족해야 한다: 열린 세션의 sessionId·date·period 일치, 본인 학번,
+코드 일치(secret 문서와 대조), 그룹 명단 포함, 문서 ID 형식, `checkedAt == request.time`, 정해진 필드만.
+학생은 본인 기록 get만 가능(목록 불가), 수정·삭제 불가. 테스트: `tests/firestore.rules.test.js`의 「교시 출석」.
 
 ---
 

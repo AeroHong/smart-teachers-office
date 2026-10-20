@@ -76,6 +76,7 @@ export default function EventCreate() {
       return d && !isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : ''
     })(),
     lateCheckTime: src?.lateCheckTime ?? '',
+    buttonMode: src?.checkinMode === 'button',
   })
 
   const buildInitialSchedules = (src) => {
@@ -143,6 +144,10 @@ export default function EventCreate() {
         setError('종료 시간이 시작 시간보다 늦어야 합니다.'); return
       }
     }
+    const buttonMode = form.type !== '조회' && form.buttonMode
+    if (buttonMode && !form.studentGroupId) {
+      setError('교시별 버튼 출석은 대상 학생 그룹을 선택해야 합니다.'); return
+    }
 
     setLoading(true)
     try {
@@ -162,6 +167,7 @@ export default function EventCreate() {
         createdBy: user.uid,
         createdAt: serverTimestamp(),
         lateCheckTime: (form.type === '조회' && form.lateCheckTime) ? form.lateCheckTime : null,
+        checkinMode: buttonMode ? 'button' : null,
       }
 
       const payload = isRecurring ? {
@@ -236,6 +242,20 @@ export default function EventCreate() {
             <Field label="지각 기준 시간">
               <input type="time" value={form.lateCheckTime} onChange={set('lateCheckTime')} style={styles.input} />
               <span style={styles.fieldHint}>이 시간 이후 체크인 → 지각으로 자동 표시 (비워두면 지각 판정 없음)</span>
+            </Field>
+          )}
+
+          {form.type !== '조회' && (
+            <Field label="출석 방식">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.buttonMode}
+                  onChange={e => setForm(p => ({ ...p, buttonMode: e.target.checked }))} />
+                <span>교시별 버튼 출석</span>
+              </label>
+              <span style={styles.fieldHint}>
+                학생은 QR을 처음 한 번만 찍고 대기 화면을 켜 둡니다. 교시마다 [출석 시작]을 누르면
+                학생 화면의 출석 버튼이 켜지고, 화면에 띄운 숫자코드를 입력해 출석합니다. (학생 그룹 필수)
+              </span>
             </Field>
           )}
 

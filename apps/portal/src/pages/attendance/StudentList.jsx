@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { collection, getDocs, setDoc, addDoc, doc, getDoc, where, query, deleteDoc, updateDoc } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import * as XLSX from 'xlsx'
 import Layout from '../../components/Layout'
 import StudentHistoryModal from '../../components/StudentHistoryModal'
 
@@ -117,11 +118,23 @@ export default function StudentList() {
     }
   }
 
-  const parseCSV = (text) => {
-    const lines = text.trim().split(/\r?\n/)
-    if (lines.length < 2) return { error: '데이터가 없습니다.' }
+  // 명단 표(2차원 배열) → 학생 행. CSV와 엑셀이 같은 규칙을 쓴다.
+  const parseRows = (table) => {
+    const lines = table
+      .map(row => (row || []).map(c => String(c ?? '').trim().replace(/"/g, '')))
+      .filter(row => row.some(c => c !== ''))
+    if (lines.length === 0) return { error: '데이터가 없습니다.' }
 
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+    let headers = lines[0]
+    let dataLines = lines.slice(1)
+
+    // 머리글 없이 「학년·반·번호·이름」 4열만 있는 파일 — 첫 행부터 데이터로 본다
+    const isNum = (v) => /^\d+$/.test(v)
+    if (isNum(headers[0]) && isNum(headers[1]) && isNum(headers[2]) && headers[3] && !isNum(headers[3])) {
+      headers = ['학년', '반', '번호', '성명']
+      dataLines = lines
+    }
+    if (dataLines.length === 0) return { error: '데이터가 없습니다.' }
 
     const find = (test) => headers.findIndex(test)
     const gradeCol  = find(h => h.includes('학년') && !h.includes('학년도'))
@@ -143,8 +156,7 @@ export default function StudentList() {
 
     const currentYear = new Date().getFullYear()
 
-    const rows = lines.slice(1).map(line => {
-      const cols = line.split(',').map(c => c.trim().replace(/"/g, ''))
+    const rows = dataLines.map(cols => {
       const grade = parseInt(cols[gradeCol])
       const cls   = parseInt(cols[classCol])
       const num   = parseInt(cols[numberCol])
@@ -164,26 +176,38 @@ export default function StudentList() {
     return { rows }
   }
 
-  const handleFileChange = (e) => {
+  // CSV(UTF-8) 또는 엑셀(.xlsx/.xls) 첫 시트 → parseRows 결과
+  const parseStudentFile = async (file) => {
+    if (/\.xlsx?$/i.test(file.name)) {
+      const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      if (!ws) return { error: '엑셀 시트가 비어 있습니다.' }
+      return parseRows(XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false }))
+    }
+    const text = await file.text()
+    return parseRows(text.trim().split(/\r?\n/).map(line => line.split(',')))
+  }
+
+  const handleFileChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
     setUploadResult(null)
     setParseError('')
     setPreview([])
 
-    const fileBaseName = file.name.replace(/\.csv$/i, '')
+    const fileBaseName = file.name.replace(/\.(csv|xlsx?)$/i, '')
     if (!groupName.trim()) setGroupName(fileBaseName)
 
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const result = parseCSV(event.target.result)
+    try {
+      const result = await parseStudentFile(file)
       if (result.error) {
         setParseError(result.error)
       } else {
         setPreview(result.rows)
       }
+    } catch (err) {
+      setParseError('파일을 읽지 못했습니다: ' + err.message)
     }
-    reader.readAsText(file, 'utf-8')
   }
 
   // 기존 학생 색인 — 이메일·학번(학년·반·번호, 재적)·문서 ID
@@ -399,20 +423,14 @@ export default function StudentList() {
   const handleGroupCsvAdd = (group, file) => {
     if (!file) return
     setGroupCsvAdding(prev => ({ ...prev, [group.id]: true }))
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-      try {
-        const result = parseCSV(e.target.result)
-        if (result.error) { alert('CSV 오류: ' + result.error); return }
+    parseStudentFile(file)
+      .then(async (result) => {
+        if (result.error) { alert('명단 파일 오류: ' + result.error); return }
         await addStudentsToGroup(group, result.rows)
         alert(`${result.rows.length}명 추가 완료`)
-      } catch (err) {
-        alert('CSV 추가 오류: ' + err.message)
-      } finally {
-        setGroupCsvAdding(prev => ({ ...prev, [group.id]: false }))
-      }
-    }
-    reader.readAsText(file, 'utf-8')
+      })
+      .catch(err => alert('명단 추가 오류: ' + err.message))
+      .finally(() => setGroupCsvAdding(prev => ({ ...prev, [group.id]: false })))
   }
 
   const formatDate = (createdAt) => {
@@ -510,9 +528,9 @@ export default function StudentList() {
                       )}
                       <button onClick={() => handleAddStudent(group)} style={styles.addStudentBtn}>추가</button>
                       <label style={styles.csvAddBtn}>
-                        {groupCsvAdding[group.id] ? '추가 중...' : 'CSV'}
+                        {groupCsvAdding[group.id] ? '추가 중...' : 'CSV·엑셀'}
                         <input
-                          type="file" accept=".csv" hidden
+                          type="file" accept=".csv,.xlsx,.xls" hidden
                           onChange={e => { handleGroupCsvAdd(group, e.target.files[0]); e.target.value = '' }}
                           disabled={groupCsvAdding[group.id]}
                         />
@@ -587,10 +605,10 @@ export default function StudentList() {
 
           <div style={{ marginTop: '0.75rem' }}>
             <p style={styles.uploadHint}>
-              CSV 파일 (UTF-8) — <strong>학년, 반, 번호, 성명</strong> 컬럼이 포함되면 나머지 컬럼은 무관합니다.<br />
-              학번과 이메일은 자동으로 생성됩니다.
+              엑셀(.xlsx) 또는 CSV(UTF-8) — <strong>학년, 반, 번호, 성명(이름)</strong> 컬럼이 포함되면 나머지 컬럼은 무관합니다.<br />
+              머리글 없이 학년·반·번호·이름 4열만 있어도 됩니다. 학번과 이메일은 자동으로 생성됩니다.
             </p>
-            <input type="file" accept=".csv" onChange={handleFileChange} />
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFileChange} />
           </div>
           {parseError && <p style={styles.errorMsg}>{parseError}</p>}
         </div>
