@@ -3,6 +3,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { useStudentHistory } from '../hooks/useStudentHistory'
+import { periodLabel } from '../pages/attendance/eventHelpers'
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -18,7 +19,7 @@ function getScheduleLabel(log) {
   if (!log.schedules?.length) return DAYS[dayOfWeek]
   const matching = log.schedules.filter(s => s.dayOfWeek === dayOfWeek)
   if (!matching.length) return DAYS[dayOfWeek]
-  return matching.map(s => `${DAYS[s.dayOfWeek]} ${s.period}교시`).join(', ')
+  return matching.map(s => `${DAYS[s.dayOfWeek]} ${periodLabel(s.period)}`).join(', ')
 }
 
 export default function StudentHistoryModal({ student, schoolId, onClose }) {

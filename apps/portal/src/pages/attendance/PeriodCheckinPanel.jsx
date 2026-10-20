@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { doc, getDoc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
-import { periodLogId, activePeriodSession } from './eventHelpers'
+import { periodLabel, periodLogId, activePeriodSession } from './eventHelpers'
 
 function fmtClock(ts) {
   const d = ts?.toDate?.() ?? (ts ? new Date(ts) : null)
@@ -109,18 +109,18 @@ export default function PeriodCheckinPanel({ schoolId, eventId, student }) {
       <div style={styles.box}>
         <div style={styles.icon}>{absent ? '📝' : '✅'}</div>
         <h3 style={{ ...styles.title, color: absent ? '#e65100' : '#2e7d32' }}>
-          {session.period}교시 {absent ? `${myLog.reason || '결석'} 처리됨` : '출석 완료'}
+          {periodLabel(session.period)} {absent ? `${myLog.reason || '결석'} 처리됨` : '출석 완료'}
         </h3>
         <p style={styles.msg}>{who}</p>
         {!absent && <p style={styles.time}>{fmtClock(myLog.checkedAt)}</p>}
-        <p style={styles.tip}>다음 교시 출석이 시작되면 버튼이 다시 켜집니다.</p>
+        <p style={styles.tip}>다음 출석이 시작되면 버튼이 다시 켜집니다.</p>
       </div>
     )
   }
 
   return (
     <div style={styles.box}>
-      <div style={styles.liveBadge}>● {session.period}교시 출석 진행 중</div>
+      <div style={styles.liveBadge}>● {periodLabel(session.period)} 출석 진행 중</div>
       <p style={styles.msg}>{who}</p>
       <p style={styles.label}>교실 화면의 출석 코드 2자리</p>
       <input
@@ -136,7 +136,7 @@ export default function PeriodCheckinPanel({ schoolId, eventId, student }) {
       />
       <button onClick={submit} disabled={code.length !== 2 || submitting}
         style={{ ...styles.btn, opacity: (code.length !== 2 || submitting) ? 0.5 : 1 }}>
-        {submitting ? '처리 중...' : `${session.period}교시 출석`}
+        {submitting ? '처리 중...' : `${periodLabel(session.period)} 출석`}
       </button>
       {error && <p style={styles.error}>{error}</p>}
     </div>

@@ -79,7 +79,8 @@ export default function EventsOverview() {
       .filter(e => {
         if (!q) return true
         const creator = (creatorNames[e.createdBy] || '').toLowerCase()
-        return (e.name || '').toLowerCase().includes(q) || creator.includes(q)
+        const coTeachers = (e.coTeachers || []).map(t => t.name).join(' ').toLowerCase()
+        return (e.name || '').toLowerCase().includes(q) || creator.includes(q) || coTeachers.includes(q)
       })
   }, [events, showArchived, search, creatorNames])
 
@@ -180,7 +181,10 @@ export default function EventsOverview() {
                       <h3 style={styles.eventName}>{event.name}</h3>
 
                       <div style={styles.metaRow}>
-                        <span style={styles.meta}>👤 {creatorNames[event.createdBy] || '(알 수 없음)'}</span>
+                        <span style={styles.meta}>
+                          👤 {creatorNames[event.createdBy] || '(알 수 없음)'}
+                          {event.coTeachers?.length > 0 && ` 외 ${event.coTeachers.map(t => t.name).join(', ')}`}
+                        </span>
                         {gName && <span style={styles.meta}>🧑‍🤝‍🧑 {gName}</span>}
                         {event.location && <span style={styles.meta}>📍 {event.location}</span>}
                       </div>

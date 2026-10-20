@@ -29,14 +29,30 @@ export default function TeacherDashboard() {
   // 만든 이벤트만 보여준다 — 전체 이벤트가 다 섞여 보이면 정작 본인 수업 찾기가
   // 불편하다(사용자 지적, 2026-09-09). 학교 전체 이벤트 현황은 별도의 관리자 전용
   // 화면(EventsOverview.jsx, "전체 현황")에서 확인한다.
+  //
+  // 공동 담당교사로 지정된 이벤트(coTeacherUids)도 함께 보여준다 — 두 쿼리를 따로 구독해
+  // 합친다. 공동 담당 쪽은 복합 색인 없이 쓰려고 정렬을 화면에서 한다.
   useEffect(() => {
     if (!schoolId || !user) return
-    const q = query(collection(db, 'schools', schoolId, 'events'), where('createdBy', '==', user.uid), orderBy('createdAt', 'desc'))
-    const unsub = onSnapshot(q, (snap) => {
-      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const col = collection(db, 'schools', schoolId, 'events')
+    let own = null
+    let shared = null
+    const publish = () => {
+      if (own === null || shared === null) return
+      const merged = new Map([...own, ...shared].map(e => [e.id, e]))
+      setEvents([...merged.values()].sort((a, b) =>
+        (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)))
       setLoading(false)
+    }
+    const unsubOwn = onSnapshot(query(col, where('createdBy', '==', user.uid), orderBy('createdAt', 'desc')), (snap) => {
+      own = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      publish()
     })
-    return unsub
+    const unsubShared = onSnapshot(query(col, where('coTeacherUids', 'array-contains', user.uid)), (snap) => {
+      shared = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      publish()
+    }, () => { shared = []; publish() })
+    return () => { unsubOwn(); unsubShared() }
   }, [schoolId, user])
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id)
@@ -157,6 +173,7 @@ export default function TeacherDashboard() {
                           }
                           <span style={styles.typeBadge}>{event.type}</span>
                           {event.isRecurring && <span style={styles.recurringBadge}>🔁 반복</span>}
+                          {event.createdBy !== user?.uid && <span style={styles.sharedBadge}>👥 공동 담당</span>}
                         </div>
                         <h3 style={styles.eventName}>{event.name}</h3>
                         <div style={styles.metaRow}>
@@ -192,6 +209,9 @@ export default function TeacherDashboard() {
                             </>
                           )}
                           {event.location && <DetailRow label="장소" value={event.location} />}
+                          {event.coTeachers?.length > 0 && (
+                            <DetailRow label="공동 담당" value={event.coTeachers.map(t => t.name).join(', ')} />
+                          )}
                           {event.description && <DetailRow label="설명" value={event.description} />}
                         </div>
                       )}
@@ -201,15 +221,20 @@ export default function TeacherDashboard() {
                         {isArchived ? (
                           <>
                             <button onClick={() => navigate(`/attendance/events/${event.id}`)} style={styles.detailBtn}>출결 현황</button>
-                            <button onClick={() => handleRestore(event)} style={styles.restoreBtn}>복원</button>
-                            <button onClick={() => handleDelete(event)} style={styles.deleteBtn}>삭제</button>
+                            {event.createdBy === user?.uid && <>
+                              <button onClick={() => handleRestore(event)} style={styles.restoreBtn}>복원</button>
+                              <button onClick={() => handleDelete(event)} style={styles.deleteBtn}>삭제</button>
+                            </>}
                           </>
                         ) : (
                           <>
                             <button onClick={() => navigate(`/attendance/events/${event.id}`)} style={styles.detailBtn}>출결 현황</button>
                             <button onClick={() => navigate(`/attendance/events/${event.id}/edit`)} style={styles.editBtn}>수정</button>
                             <button onClick={() => navigate('/attendance/events/new', { state: { clone: event } })} style={styles.cloneBtn}>복제</button>
-                            <button onClick={() => handleArchive(event)} style={styles.archiveBtn}>보관</button>
+                            {/* 보관·삭제는 만든 교사만 — 공동 담당교사가 누르면 모두의 목록에서 사라진다 */}
+                            {event.createdBy === user?.uid && (
+                              <button onClick={() => handleArchive(event)} style={styles.archiveBtn}>보관</button>
+                            )}
                           </>
                         )}
                       </div>
@@ -262,6 +287,7 @@ const styles = {
   badge: { padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600 },
   typeBadge: { fontSize: '0.75rem', color: '#888', padding: '0.2rem 0.4rem' },
   recurringBadge: { fontSize: '0.72rem', color: '#7b1fa2', backgroundColor: '#f3e5f5', padding: '0.2rem 0.5rem', borderRadius: '10px' },
+  sharedBadge: { fontSize: '0.72rem', color: '#1565c0', backgroundColor: '#e3f2fd', padding: '0.2rem 0.5rem', borderRadius: '10px' },
   eventName: { margin: '0 0 0.35rem', fontSize: '1rem', fontWeight: 700 },
   metaRow: { display: 'flex', gap: '0.75rem', flexWrap: 'wrap' },
   meta: { fontSize: '0.8rem', color: '#555' },

@@ -4,10 +4,11 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
+import { PERIOD_OPTIONS, periodLabel } from './eventHelpers'
+import CoTeacherPicker, { coTeacherFields } from './CoTeacherPicker'
 
 const EVENT_TYPES = ['조회', '수업', '방과후', '행사', '기타']
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
-const PERIODS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
 export default function EventEdit() {
   const { eventId } = useParams()
@@ -21,6 +22,8 @@ export default function EventEdit() {
   const [isRecurring, setIsRecurring] = useState(false)
   const [schedules, setSchedules] = useState([{ dayOfWeek: 1, period: 1, useTime: false, startTime: '09:00', endTime: '09:50' }])
   const [form, setForm] = useState(null)
+  const [coTeachers, setCoTeachers] = useState([])
+  const [ownerUid, setOwnerUid] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -42,9 +45,17 @@ export default function EventEdit() {
       const data = eventDoc.data()
       setIsRecurring(!!data.isRecurring)
       const seen = new Set()
-      setGroups([...groupsSnap.docs, ...sharedSnap.docs]
+      const groupList = [...groupsSnap.docs, ...sharedSnap.docs]
         .filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true })
-        .map(d => ({ id: d.id, ...d.data() })))
+        .map(d => ({ id: d.id, ...d.data() }))
+      // 공동 담당교사가 수정할 때는 연결된 그룹이 본인 그룹 목록에 없을 수 있다 — 선택값이 비어 보이지 않게 덧붙인다
+      if (data.studentGroupId && !seen.has(data.studentGroupId)) {
+        const g = await getDoc(doc(db, 'schools', schoolId, 'studentGroups', data.studentGroupId)).catch(() => null)
+        if (g?.exists()) groupList.push({ id: g.id, ...g.data() })
+      }
+      setGroups(groupList)
+      setOwnerUid(data.createdBy || null)
+      setCoTeachers(data.coTeachers || [])
 
       // schedules 로드
       if (data.schedules?.length > 0) {
@@ -122,10 +133,10 @@ export default function EventEdit() {
     setError('')
 
     if (isRecurring) {
-      if (schedules.length === 0) { setError('요일/교시를 하나 이상 추가하세요.'); return }
+      if (schedules.length === 0) { setError('요일·시간표 칸을 하나 이상 추가하세요.'); return }
       if (!form.recurringEndDate) { setError('반복 종료일을 입력하세요.'); return }
       const keys = schedules.map(s => `${s.dayOfWeek}-${s.period}`)
-      if (new Set(keys).size !== keys.length) { setError('같은 요일·교시가 중복되어 있습니다.'); return }
+      if (new Set(keys).size !== keys.length) { setError('같은 요일·시간표 칸이 중복되어 있습니다.'); return }
     } else {
       if (new Date(form.endTime) <= new Date(form.startTime)) {
         setError('종료 시간이 시작 시간보다 늦어야 합니다.'); return
@@ -151,6 +162,7 @@ export default function EventEdit() {
         isRecurring,
         lateCheckTime: (form.type === '조회' && form.lateCheckTime) ? form.lateCheckTime : null,
         checkinMode: buttonMode ? 'button' : null,
+        ...coTeacherFields(coTeachers),
         // 모드를 끄면 진행 중이던 교시 세션도 닫는다
         ...(!buttonMode && { periodSession: null }),
       }
@@ -271,6 +283,11 @@ export default function EventEdit() {
           </select>
         </Field>
 
+        <Field label="공동 담당교사">
+          <CoTeacherPicker schoolId={schoolId} excludeUid={ownerUid} value={coTeachers} onChange={setCoTeachers} />
+          <span style={styles.fieldHint}>지정한 교사의 대시보드에도 이 이벤트가 나타나고, 출석 시작·수동 처리·수정을 함께 할 수 있습니다.</span>
+        </Field>
+
         <Field label="장소">
           <input value={form.location} onChange={set('location')} style={styles.input} />
         </Field>
@@ -304,8 +321,8 @@ export default function EventEdit() {
                       onChange={e => updateSchedule(idx, 'period', e.target.value)}
                       style={styles.periodSelect}
                     >
-                      {PERIODS.map(p => (
-                        <option key={p} value={p}>{p}교시</option>
+                      {PERIOD_OPTIONS.map(p => (
+                        <option key={p} value={p}>{periodLabel(p)}</option>
                       ))}
                     </select>
 

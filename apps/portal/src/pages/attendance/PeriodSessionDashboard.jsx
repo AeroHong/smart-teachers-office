@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx'
 import { db } from '@shared/lib/firebase'
 import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
-import { DAYS, toDateStr, periodLogId, activePeriodSession } from './eventHelpers'
+import { DAYS, PERIOD_OPTIONS, periodLabel, toDateStr, periodLogId, activePeriodSession } from './eventHelpers'
 
 const REASON_PRESETS = ['질병결석', '조퇴', '지각', '미인정결석', '체험학습', '기타']
 const ATTENDED_METHODS = ['button', 'manual']
@@ -25,11 +25,11 @@ function fmtClock(ts) {
   return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
-// 선택한 날짜 요일에 잡힌 교시. 시간표에 그 요일이 없으면 1~7교시 전부를 보여 준다.
+// 선택한 날짜 요일에 잡힌 교시. 시간표에 그 요일이 없으면 조회~종례 전부를 보여 준다.
 function periodsForDate(event, dateStr) {
   const day = new Date(`${dateStr}T00:00:00`).getDay()
   const scheduled = (event.schedules || []).filter(s => s.dayOfWeek === day).map(s => s.period)
-  const list = scheduled.length > 0 ? scheduled : [1, 2, 3, 4, 5, 6, 7]
+  const list = scheduled.length > 0 ? scheduled : PERIOD_OPTIONS
   return [...new Set(list)].sort((a, b) => a - b)
 }
 
@@ -93,7 +93,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
 
   // ── 세션 시작/마감 ────────────────────────────────────────────
   const startSession = async () => {
-    if (session && !window.confirm(`${session.period}교시 출석이 진행 중입니다. 마감하고 ${selectedPeriod}교시 출석을 시작할까요?`)) return
+    if (session && !window.confirm(`${periodLabel(session.period)} 출석이 진행 중입니다. 마감하고 ${periodLabel(selectedPeriod)} 출석을 시작할까요?`)) return
     setBusy(true)
     setError('')
     try {
@@ -191,7 +191,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
 
   const slotLabel = (slot) => {
     const d = new Date(`${slot.date}T00:00:00`)
-    return `${d.getMonth() + 1}/${d.getDate()}(${DAYS[d.getDay()]}) ${slot.period}교시`
+    return `${d.getMonth() + 1}/${d.getDate()}(${DAYS[d.getDay()]}) ${periodLabel(slot.period)}`
   }
 
   const downloadExcel = () => {
@@ -274,7 +274,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
                 return (
                   <button key={p} onClick={() => setSelectedPeriod(p)}
                     style={{ ...styles.periodTab, ...(selectedPeriod === p ? styles.periodTabOn : {}) }}>
-                    {p}교시{live && ' ●'}
+                    {periodLabel(p)}{live && ' ●'}
                   </button>
                 )
               })}
@@ -286,7 +286,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
             <section style={{ ...styles.card, flex: '1 1 300px' }}>
               {isLiveHere ? (
                 <div style={{ textAlign: 'center' }}>
-                  <div style={styles.liveBadge}>● {selectedPeriod}교시 출석 진행 중</div>
+                  <div style={styles.liveBadge}>● {periodLabel(selectedPeriod)} 출석 진행 중</div>
                   <p style={styles.codeLabel}>출석 코드</p>
                   <div style={styles.codeBig}>{code ?? '··'}</div>
                   <p style={styles.hint}>학생 화면에 이 숫자를 입력하고 [출석]을 누릅니다.</p>
@@ -296,11 +296,11 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
               ) : (
                 <div style={{ textAlign: 'center' }}>
                   {session && (
-                    <p style={styles.hint}>지금은 {session.period}교시 출석이 진행 중입니다.</p>
+                    <p style={styles.hint}>지금은 {periodLabel(session.period)} 출석이 진행 중입니다.</p>
                   )}
                   <button onClick={startSession} disabled={busy || selectedDate !== today || students.length === 0}
                     style={{ ...styles.startBtn, opacity: (busy || selectedDate !== today) ? 0.5 : 1 }}>
-                    ▶ {selectedPeriod}교시 출석 시작
+                    ▶ {periodLabel(selectedPeriod)} 출석 시작
                   </button>
                   {selectedDate !== today && <p style={styles.hint}>지난 날짜는 기록 확인·수동 처리만 할 수 있습니다.</p>}
                 </div>

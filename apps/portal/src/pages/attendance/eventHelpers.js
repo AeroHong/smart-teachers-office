@@ -2,6 +2,16 @@
 // (진행 중 판정, 요일별 시간 문자열, 시각 포맷) — 한 곳에서만 정의한다.
 export const DAYS = ['일', '월', '화', '수', '목', '금', '토']
 
+// 시간표 칸: 0 = 조회, 1~7 = 교시, 8 = 종례. 숫자로 저장하는 건 그대로라 출석 기록 ID
+// (periodLogs `날짜-p교시-학번`)·규칙·정렬이 바뀌지 않는다. 0은 예전에도 조회 이벤트만
+// 쓰던 값이고 8은 쓰인 적이 없어(2026-10-21 운영 데이터 확인) 이름만 붙였다.
+export const PERIOD_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+export function periodLabel(p) {
+  if (p === 0) return '조회'
+  if (p === 8) return '종례'
+  return `${p}교시`
+}
+
 export function isEventActive(event) {
   const now = new Date()
   if (event.isRecurring) {
@@ -39,7 +49,7 @@ export function formatSchedules(event) {
       .slice()
       .sort((a, b) => a.dayOfWeek !== b.dayOfWeek ? a.dayOfWeek - b.dayOfWeek : a.period - b.period)
       .map(s => {
-        const base = `${DAYS[s.dayOfWeek]} ${s.period}교시`
+        const base = `${DAYS[s.dayOfWeek]} ${periodLabel(s.period)}`
         return s.startTime && s.endTime ? `${base} ${s.startTime}~${s.endTime}` : base
       })
       .join(' · ')

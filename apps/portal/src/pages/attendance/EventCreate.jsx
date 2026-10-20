@@ -4,11 +4,12 @@ import { useLocation } from 'react-router-dom'
 import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
+import { PERIOD_OPTIONS, periodLabel } from './eventHelpers'
 import QRDisplay from '../../components/QRDisplay'
+import CoTeacherPicker, { coTeacherFields } from './CoTeacherPicker'
 
 const EVENT_TYPES = ['조회', '수업', '방과후', '행사', '기타']
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
-const PERIODS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
 function buildCheckinUrl(schoolId, eventId, qrToken) {
   return `${window.location.origin}/attendance/checkin/${schoolId}/${eventId}?token=${qrToken}`
@@ -105,6 +106,8 @@ export default function EventCreate() {
   const [isRecurring, setIsRecurring] = useState(cloneSource?.isRecurring ?? false)
   const [form, setForm] = useState(() => buildInitialForm(cloneSource))
   const [schedules, setSchedules] = useState(() => buildInitialSchedules(cloneSource))
+  const [coTeachers, setCoTeachers] = useState(() =>
+    (cloneSource?.coTeachers || []).filter(t => t.uid !== user?.uid))
 
   const [loading, setLoading] = useState(false)
   const [created, setCreated] = useState(null)
@@ -135,10 +138,10 @@ export default function EventCreate() {
     setError('')
 
     if (isRecurring) {
-      if (schedules.length === 0) { setError('요일/교시를 하나 이상 추가하세요.'); return }
+      if (schedules.length === 0) { setError('요일·시간표 칸을 하나 이상 추가하세요.'); return }
       if (!form.recurringEndDate) { setError('반복 종료일을 입력하세요.'); return }
       const keys = schedules.map(s => `${s.dayOfWeek}-${s.period}`)
-      if (new Set(keys).size !== keys.length) { setError('같은 요일·교시가 중복되어 있습니다.'); return }
+      if (new Set(keys).size !== keys.length) { setError('같은 요일·시간표 칸이 중복되어 있습니다.'); return }
     } else {
       if (new Date(form.endTime) <= new Date(form.startTime)) {
         setError('종료 시간이 시작 시간보다 늦어야 합니다.'); return
@@ -168,6 +171,7 @@ export default function EventCreate() {
         createdAt: serverTimestamp(),
         lateCheckTime: (form.type === '조회' && form.lateCheckTime) ? form.lateCheckTime : null,
         checkinMode: buttonMode ? 'button' : null,
+        ...coTeacherFields(coTeachers),
       }
 
       const payload = isRecurring ? {
@@ -191,6 +195,7 @@ export default function EventCreate() {
       setForm(buildInitialForm(null))
       setSchedules([{ dayOfWeek: 1, period: 1, useTime: false, startTime: '09:00', endTime: '09:50' }])
       setIsRecurring(false)
+      setCoTeachers([])
     } catch {
       setError('이벤트 생성 중 오류가 발생했습니다.')
     } finally {
@@ -281,6 +286,11 @@ export default function EventCreate() {
             </select>
           </Field>
 
+          <Field label="공동 담당교사">
+            <CoTeacherPicker schoolId={schoolId} excludeUid={user?.uid} value={coTeachers} onChange={setCoTeachers} />
+            <span style={styles.fieldHint}>지정한 교사의 대시보드에도 이 이벤트가 나타나고, 출석 시작·수동 처리·수정을 함께 할 수 있습니다.</span>
+          </Field>
+
           <Field label="장소">
             <input value={form.location} onChange={set('location')} placeholder="예: 3-2교실" style={styles.input} />
           </Field>
@@ -318,8 +328,8 @@ export default function EventCreate() {
                         onChange={e => updateSchedule(idx, 'period', e.target.value)}
                         style={styles.periodSelect}
                       >
-                        {PERIODS.map(p => (
-                          <option key={p} value={p}>{p}교시</option>
+                        {PERIOD_OPTIONS.map(p => (
+                          <option key={p} value={p}>{periodLabel(p)}</option>
                         ))}
                       </select>
 

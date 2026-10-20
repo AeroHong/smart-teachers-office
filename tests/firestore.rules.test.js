@@ -1502,3 +1502,14 @@ test('교시 출석: 코드 문서는 교사만 읽고, 학생은 본인 기록�
   await assertFails(getDocs(collection(as(STU), ...path('events', 'pe', 'periodLogs'))))
   await assertSucceeds(getDocs(collection(as(A), ...path('events', 'pe', 'periodLogs'))))
 })
+
+test('출결 이벤트: 공동 담당교사는 coTeacherUids 조회로 이벤트를 찾고 출석 세션을 다룰 수 있다', async () => {
+  await seedPeriodEvent()
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), ...path('events', 'pe')), { coTeacherUids: [B], coTeachers: [{ uid: B, name: 'B' }] })
+  })
+  const q = (db) => query(collection(db, ...path('events')), where('coTeacherUids', 'array-contains', B))
+  const snap = await assertSucceeds(getDocs(q(as(B))))
+  assert.equal(snap.size, 1)
+  await assertSucceeds(updateDoc(doc(as(B), ...path('events', 'pe')), { periodSession: null }))
+})

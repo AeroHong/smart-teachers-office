@@ -10,6 +10,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
 import PeriodSessionDashboard from './PeriodSessionDashboard'
+import { periodLabel } from './eventHelpers'
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
 const DAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토']
@@ -275,8 +276,8 @@ function ScheduleBadges({ event }) {
         {sorted.map((s, i) => {
           const isToday = s.dayOfWeek === todayDay
           const label = s.startTime && s.endTime
-            ? `${DAYS[s.dayOfWeek]} ${s.period}교시 ${s.startTime}~${s.endTime}`
-            : `${DAYS[s.dayOfWeek]} ${s.period}교시`
+            ? `${DAYS[s.dayOfWeek]} ${periodLabel(s.period)} ${s.startTime}~${s.endTime}`
+            : `${DAYS[s.dayOfWeek]} ${periodLabel(s.period)}`
           return (
             <span key={i} style={{
               fontSize: '0.78rem',
