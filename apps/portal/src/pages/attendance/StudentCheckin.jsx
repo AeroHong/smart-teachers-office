@@ -4,6 +4,29 @@ import { doc, getDoc, setDoc, serverTimestamp, getDocs, collection, query, where
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import { auth, db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { detectInAppBrowser, APP_NAMES, openInBrowserHint } from '@shared/lib/inAppBrowser'
+
+// 로그인 실패 코드 → 학생이 보고 바로 따라 할 수 있는 안내. 예전엔 실패를 조용히
+// 삼켜서 "눌러도 아무 일도 없다"는 신고만 들어오고 원인을 알 수 없었다(2026-10-20).
+// 학생이 스스로 닫은 경우는 안내하지 않는다(null).
+function loginErrorMessage(code) {
+  switch (code) {
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+    case 'auth/user-cancelled':
+      return null
+    case 'auth/popup-blocked':
+      return '로그인 창이 차단되었습니다.\n브라우저의 팝업 차단을 해제하거나 버튼을 다시 눌러주세요.'
+    case 'auth/network-request-failed':
+    case 'auth/timeout':
+      return '네트워크 문제로 로그인하지 못했습니다.\n와이파이를 끄고 모바일 데이터(LTE/5G)로 다시 시도해 주세요.'
+    case 'auth/operation-not-supported-in-this-environment':
+    case 'auth/web-storage-unsupported':
+      return '이 브라우저에서는 로그인할 수 없습니다.\nChrome 또는 Safari로 열어 다시 시도해 주세요.'
+    default:
+      return `로그인에 실패했습니다. (${code || '알 수 없는 오류'})\n같은 문제가 계속되면 선생님께 이 화면을 보여주세요.`
+  }
+}
 
 const STATE = {
   LOADING: 'loading',
@@ -113,6 +136,9 @@ export default function StudentCheckin() {
   const navigate = useNavigate()
 
   const [state, setState] = useState(STATE.LOADING)
+  const [inAppBrowser] = useState(() => detectInAppBrowser())
+  const [loggingIn, setLoggingIn] = useState(false)
+  const [loginError, setLoginError] = useState('')
   const [event, setEvent] = useState(null)
   const [studentInfo, setStudentInfo] = useState(null)
   const [isLate, setIsLate] = useState(false)
@@ -329,7 +355,18 @@ export default function StudentCheckin() {
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider()
     provider.setCustomParameters({ prompt: 'select_account' })
-    try { await signInWithPopup(auth, provider) } catch { /* 팝업 닫기 등 무시 */ }
+    // 느린 망에서 여러 번 누르면 앞 요청이 auth/cancelled-popup-request로 취소되므로 잠근다
+    if (loggingIn) return
+    setLoggingIn(true)
+    setLoginError('')
+    try {
+      await signInWithPopup(auth, provider)
+    } catch (e) {
+      console.error('학생 로그인 실패:', e)
+      setLoginError(loginErrorMessage(e?.code) || '')
+    } finally {
+      setLoggingIn(false)
+    }
   }
 
   const eventTitle = event?.name || '출석 확인'
@@ -344,6 +381,7 @@ export default function StudentCheckin() {
         {user?.email && <p style={styles.accountLine}>👤 {user.email}</p>}
 
         <div style={styles.body}>
+          {loginError && <div style={styles.errorBox}>{loginError}</div>}
           {(state === STATE.LOADING || state === STATE.CHECKING) && (
             <StatusScreen icon="⏳" message="처리 중..." />
           )}
@@ -368,9 +406,15 @@ export default function StudentCheckin() {
           {state === STATE.LOGIN_REQUIRED && (
             <>
               <StatusScreen icon="🔐" message={'학교 Google 계정으로\n로그인하면 자동으로 출석됩니다.'} />
-              <button onClick={handleLogin} style={styles.googleBtn}>
+              {inAppBrowser && (
+                <div style={styles.warnBox}>
+                  <strong>⚠️ {APP_NAMES[inAppBrowser] || '앱'} 내 브라우저에서는 Google 로그인이 차단됩니다</strong>
+                  <div style={{ marginTop: '0.3rem' }}>{openInBrowserHint()}</div>
+                </div>
+              )}
+              <button onClick={handleLogin} disabled={loggingIn} style={{ ...styles.googleBtn, opacity: loggingIn ? 0.6 : 1 }}>
                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width={20} height={20} alt="" />
-                Google 계정으로 출석하기
+                {loggingIn ? '로그인 중...' : 'Google 계정으로 출석하기'}
               </button>
             </>
           )}
@@ -524,6 +568,16 @@ const styles = {
   eventMeta: { fontSize: '0.82rem', color: '#666', margin: '0.1rem 0' },
   accountLine: { fontSize: '0.78rem', color: '#999', margin: '0.4rem 0 0' },
   body: { marginTop: '1.5rem' },
+  warnBox: {
+    textAlign: 'left', fontSize: '0.82rem', lineHeight: 1.6, color: '#664d03',
+    backgroundColor: '#fff3cd', border: '1px solid #ffc107', borderRadius: '10px',
+    padding: '0.75rem 0.9rem', margin: '0 0 0.9rem',
+  },
+  errorBox: {
+    textAlign: 'left', fontSize: '0.85rem', lineHeight: 1.6, color: '#991b1b', whiteSpace: 'pre-line',
+    backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '10px',
+    padding: '0.75rem 0.9rem', margin: '0 0 1rem',
+  },
   statusBox: { padding: '0.5rem 0' },
   icon: { fontSize: '3rem', marginBottom: '0.75rem' },
   statusTitle: { fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem' },

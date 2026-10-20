@@ -6,29 +6,7 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import { useAuth } from '@shared/contexts/AuthContext'
-
-function detectInAppBrowser() {
-  const ua = navigator.userAgent
-  if (/KAKAOTALK/i.test(ua)) return 'kakaotalk'
-  if (/NAVER/i.test(ua)) return 'naver'
-  if (/Line\//i.test(ua)) return 'line'
-  if (/Instagram/i.test(ua)) return 'instagram'
-  if (/FB_IAB|FBAN|FBDV/i.test(ua)) return 'facebook'
-  // Android WebView
-  if (/wv\)/.test(ua) && /Android/.test(ua)) return 'webview'
-  // iOS WebView (Safari 없고 CriOS/FxiOS도 아닌 경우)
-  if (/iPhone|iPad|iPod/.test(ua) && !/Safari/.test(ua) && !/CriOS/.test(ua) && !/FxiOS/.test(ua)) return 'webview'
-  return null
-}
-
-const APP_NAMES = {
-  kakaotalk: '카카오톡',
-  naver: '네이버',
-  line: '라인',
-  instagram: '인스타그램',
-  facebook: '페이스북',
-  webview: '앱',
-}
+import { detectInAppBrowser, APP_NAMES, openInBrowserHint } from '@shared/lib/inAppBrowser'
 
 const FEATURES = [
   {
@@ -142,9 +120,7 @@ export default function Login() {
               {APP_NAMES[inAppBrowser] || '앱'} 내 브라우저에서는 Google 로그인이 차단됩니다
             </Typography>
             <Typography sx={{ fontSize: '0.82rem', color: '#664d03', mt: 0.5, lineHeight: 1.6 }}>
-              {/Android/.test(navigator.userAgent)
-                ? '오른쪽 상단 메뉴(⋮) → 다른 브라우저로 열기 → Chrome 선택 후 로그인해 주세요.'
-                : '화면 하단 또는 오른쪽 메뉴 → Safari로 열기 선택 후 로그인해 주세요.'}
+              {openInBrowserHint()}
             </Typography>
           </Box>
         </Box>
