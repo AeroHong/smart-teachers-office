@@ -5,8 +5,8 @@
 // 시작할 때마다 2자리 숫자코드를 새로 뽑아 교실 화면에만 띄운다 — 코드는 이벤트 문서(누구나
 // get 가능)가 아니라 교사만 읽는 periodSessionSecrets에 두고, 학생 기록 쓰기 규칙이 대조한다.
 // 기록은 하루 단위 attendanceLogs와 섞지 않고 periodLogs(`날짜-p교시-학번`)에 따로 쌓는다.
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   doc, getDoc, collection, onSnapshot, setDoc, updateDoc, serverTimestamp, writeBatch,
 } from 'firebase/firestore'
@@ -49,6 +49,58 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
   const [reasonDraft, setReasonDraft] = useState({})
   const [showQr, setShowQr] = useState(!session)
   const [view, setView] = useState('period') // 'period' | 'all'
+
+  // ── 전체화면(키오스크) 보기 ───────────────────────────────────
+  // 교실 앞 안드로이드 태블릿에 이 화면만 띄워 두는 용도(사용자 요청, 2026-10-21).
+  // 상단 메뉴를 숨기는 건 주소(?view=kiosk)로 기억해 새로고침해도 유지하고, 브라우저
+  // 전체화면은 사용자 터치가 있어야만 켤 수 있어 버튼으로 켠다. 켜 둔 동안은 화면이
+  // 꺼지지 않게 Wake Lock을 잡는다(지원 안 하는 브라우저는 조용히 넘어간다).
+  const [searchParams, setSearchParams] = useSearchParams()
+  const kiosk = searchParams.get('view') === 'kiosk'
+  const wentFullscreenRef = useRef(false)
+
+  const enterKiosk = async () => {
+    setSearchParams(prev => { const n = new URLSearchParams(prev); n.set('view', 'kiosk'); return n }, { replace: true })
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+        wentFullscreenRef.current = true
+      }
+    } catch { /* 전체화면을 막는 브라우저 — 메뉴만 숨긴 화면으로 쓴다 */ }
+  }
+
+  const exitKiosk = () => {
+    wentFullscreenRef.current = false
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+    setSearchParams(prev => { const n = new URLSearchParams(prev); n.delete('view'); return n }, { replace: true })
+  }
+
+  // 태블릿에서 뒤로 가기 제스처 등으로 전체화면이 풀리면 메뉴도 다시 보이게
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement && wentFullscreenRef.current) exitKiosk()
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!kiosk || !navigator.wakeLock) return undefined
+    let lock = null
+    let alive = true
+    const acquire = () => {
+      if (document.visibilityState !== 'visible') return
+      navigator.wakeLock.request('screen').then(l => { if (alive) lock = l; else l.release() }).catch(() => {})
+    }
+    acquire()
+    // 화면을 잠깐 벗어났다 돌아오면 잠금이 풀려 있으므로 다시 잡는다
+    document.addEventListener('visibilitychange', acquire)
+    return () => {
+      alive = false
+      document.removeEventListener('visibilitychange', acquire)
+      lock?.release().catch(() => {})
+    }
+  }, [kiosk])
   const [error, setError] = useState('')
 
   // 날짜를 바꿨는데 그날 시간표에 지금 교시가 없으면 첫 교시로
@@ -257,11 +309,13 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
 
   const studentLabel = (s) => `${s.grade}-${s.class}-${s.number} ${s.name}`
 
-  return (
-    <Layout wide>
+  const panelBodyStyle = { ...styles.panelBody, ...(kiosk ? styles.panelBodyKiosk : {}) }
+
+  const content = (
+    <>
       <div style={styles.header}>
         <div>
-          <button onClick={() => navigate('/attendance')} style={styles.backBtn}>← 대시보드</button>
+          {!kiosk && <button onClick={() => navigate('/attendance')} style={styles.backBtn}>← 대시보드</button>}
           <h2 style={styles.heading}>{event.name}</h2>
           <div style={styles.metaRow}>
             <span style={styles.modeBadge}>교시별 버튼 출석</span>
@@ -269,9 +323,14 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
             <span style={styles.metaText}>👥 {students.length}명</span>
           </div>
         </div>
+        <div style={styles.headerRight}>
+        {kiosk
+          ? <button onClick={exitKiosk} style={styles.secondaryBtn}>전체화면 끝내기</button>
+          : <button onClick={enterKiosk} style={styles.secondaryBtn} title="태블릿에 이 화면만 띄워 두기">⛶ 전체화면</button>}
         <div style={styles.viewToggle}>
           <button onClick={() => setView('period')} style={{ ...styles.toggleBtn, ...(view === 'period' ? styles.toggleBtnOn : {}) }}>교시별</button>
           <button onClick={() => setView('all')} style={{ ...styles.toggleBtn, ...(view === 'all' ? styles.toggleBtnOn : {}) }}>전체 기록</button>
+        </div>
         </div>
       </div>
 
@@ -338,7 +397,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
             {/* 세션 제어 */}
             <section style={styles.panel}>
               <div style={styles.cardHead}><strong>{periodLabel(selectedPeriod)} 출석</strong></div>
-              <div style={styles.panelBody}>
+              <div style={panelBodyStyle}>
               {isLiveHere ? (
                 <div style={{ textAlign: 'center' }}>
                   <div style={styles.liveBadge}>● {periodLabel(selectedPeriod)} 출석 진행 중</div>
@@ -380,7 +439,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
             {/* 출석 */}
             <section style={styles.panel}>
               <div style={styles.cardHead}><strong style={{ color: '#2e7d32' }}>✅ 출석 {attended.length}명</strong><span style={styles.metaText}>누른 순서</span></div>
-              <div style={styles.panelBody}>
+              <div style={panelBodyStyle}>
               {attended.length === 0 ? <p style={styles.empty}>아직 출석한 학생이 없습니다.</p> : attended.map(s => {
                 const l = periodLogMap[s.studentId]
                 return (
@@ -399,7 +458,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
             {/* 미출석 */}
             <section style={styles.panel}>
               <div style={styles.cardHead}><strong style={{ color: '#c62828' }}>❌ 미출석 {notAttended.length}명</strong></div>
-              <div style={styles.panelBody}>
+              <div style={panelBodyStyle}>
               {notAttended.length === 0
                 ? <p style={styles.empty}>{excused.length > 0 ? '사유 처리된 학생 말고는 모두 출석했습니다! 🎉' : '모두 출석했습니다! 🎉'}</p>
                 : notAttended.map(s => (
@@ -454,8 +513,12 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
           </div>
         </>
       )}
-    </Layout>
+    </>
   )
+
+  return kiosk
+    ? <div style={styles.kioskRoot}>{content}</div>
+    : <Layout wide>{content}</Layout>
 }
 
 const styles = {
@@ -477,6 +540,9 @@ const styles = {
   grid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1rem', alignItems: 'start' },
   panel: { background: '#fff', border: '1px solid #e0e0e0', borderRadius: '12px', padding: '1rem', minWidth: 0, display: 'flex', flexDirection: 'column', boxSizing: 'border-box' },
   panelBody: { overflowY: 'auto', maxHeight: '70vh' },
+  panelBodyKiosk: { maxHeight: 'calc(100vh - 230px)' },
+  kioskRoot: { minHeight: '100vh', boxSizing: 'border-box', padding: '16px', background: '#f5f6f8' },
+  headerRight: { display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' },
   card: { background: '#fff', border: '1px solid #e0e0e0', borderRadius: '12px', padding: '1rem', minWidth: 0 },
   cardHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' },
   liveBadge: { display: 'inline-block', fontSize: '0.85rem', fontWeight: 700, color: '#2e7d32', backgroundColor: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '20px', padding: '0.3rem 1rem' },
