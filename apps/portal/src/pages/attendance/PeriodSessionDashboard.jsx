@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  doc, getDoc, collection, onSnapshot, setDoc, deleteDoc, updateDoc, serverTimestamp,
+  doc, getDoc, collection, onSnapshot, setDoc, updateDoc, serverTimestamp, writeBatch,
 } from 'firebase/firestore'
 import * as XLSX from 'xlsx'
 import { db } from '@shared/lib/firebase'
@@ -88,7 +88,10 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
     .sort((a, b) =>
       (periodLogMap[a.studentId].checkedAt?.toMillis?.() ?? Infinity) -
       (periodLogMap[b.studentId].checkedAt?.toMillis?.() ?? Infinity))
-  const notAttended = students.filter(s => !ATTENDED_METHODS.includes(periodLogMap[s.studentId]?.method))
+  // 사유가 등록된 학생(결석·조퇴 등)은 "아직 안 온 학생" 목록에서 빼서 따로 모은다 —
+  // 종일 결석·조퇴생이 교시마다 미출석에 계속 남아 확인을 방해했다(사용자 지적, 2026-10-21)
+  const notAttended = students.filter(s => !periodLogMap[s.studentId])
+  const excused = students.filter(s => periodLogMap[s.studentId]?.method === 'absent')
   const isLiveHere = session && session.date === selectedDate && session.period === selectedPeriod
 
   // ── 세션 시작/마감 ────────────────────────────────────────────
@@ -155,9 +158,22 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
   }
 
   const removeLog = async (student) => {
+    const log = periodLogMap[student.studentId]
+    // 「이 교시부터 끝까지」로 한꺼번에 넣은 사유면 같이 넣은 뒤 교시들도 함께 지울지 묻는다
+    const linked = log?.method === 'absent' && log.fromPeriod != null
+      ? logs.filter(l => l.studentId === student.studentId && l.date === selectedDate &&
+          l.method === 'absent' && l.fromPeriod === log.fromPeriod && l.period > selectedPeriod)
+      : []
+    const alsoLinked = linked.length > 0 &&
+      window.confirm(`${periodLabel(log.fromPeriod)}부터 함께 등록한 뒤 교시(${linked.map(l => periodLabel(l.period)).join(', ')})의 「${log.reason}」도 지울까요?\n[취소]를 누르면 ${periodLabel(selectedPeriod)}만 지웁니다.`)
     setProcessingId(student.studentId)
     try {
-      await deleteDoc(logRef(student.studentId))
+      const batch = writeBatch(db)
+      batch.delete(logRef(student.studentId))
+      if (alsoLinked) {
+        linked.forEach(l => batch.delete(doc(db, 'schools', schoolId, 'events', eventId, 'periodLogs', l.id)))
+      }
+      await batch.commit()
     } catch {
       alert('취소하지 못했습니다. 다시 시도해 주세요.')
     } finally {
@@ -165,11 +181,47 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
     }
   }
 
-  const saveReason = (student) => {
+  // untilEnd: 이 교시부터 그날 시간표 마지막 칸까지 같은 사유로 (종일 결석·조퇴).
+  // 그 사이 이미 출석한 교시는 덮어쓰지 않는다.
+  const saveReason = async (student, untilEnd = false) => {
     const reason = reasonDraft[student.studentId]?.trim()
     if (!reason) return
-    writeLog(student, { method: 'absent', reason })
-    setReasonDraft(p => ({ ...p, [student.studentId]: '' }))
+    if (!untilEnd) {
+      await writeLog(student, { method: 'absent', reason })
+      setReasonDraft(p => ({ ...p, [student.studentId]: '' }))
+      return
+    }
+    const targets = periods.filter(p => p >= selectedPeriod).filter(p => {
+      const l = logs.find(x => x.studentId === student.studentId && x.date === selectedDate && x.period === p)
+      return !ATTENDED_METHODS.includes(l?.method)
+    })
+    setProcessingId(student.studentId)
+    try {
+      const batch = writeBatch(db)
+      targets.forEach(p => batch.set(
+        doc(db, 'schools', schoolId, 'events', eventId, 'periodLogs', periodLogId(selectedDate, p, student.studentId)),
+        {
+          studentId: student.studentId,
+          studentName: student.name,
+          grade: student.grade,
+          class: student.class,
+          number: student.number,
+          date: selectedDate,
+          period: p,
+          checkedAt: serverTimestamp(),
+          method: 'absent',
+          reason,
+          fromPeriod: selectedPeriod,
+        },
+      ))
+      await batch.commit()
+      setReasonDraft(p => ({ ...p, [student.studentId]: '' }))
+    } catch (err) {
+      console.error('사유 일괄 등록 실패:', err)
+      alert('저장하지 못했습니다. 다시 시도해 주세요.')
+    } finally {
+      setProcessingId(null)
+    }
   }
 
   // ── 전체 기록(학생 × 날짜·교시) ───────────────────────────────
@@ -293,7 +345,8 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
                   <p style={styles.codeLabel}>출석 코드</p>
                   <div style={styles.codeBig}>{code ?? '··'}</div>
                   <p style={styles.hint}>학생 화면에 이 숫자를 입력하고 [출석]을 누릅니다.</p>
-                  <div style={styles.countLine}>{attended.length} / {students.length}명 출석</div>
+                  <div style={styles.countLine}>{attended.length} / {students.length - excused.length}명 출석</div>
+                  {excused.length > 0 && <p style={styles.hint}>사유 처리 {excused.length}명은 대상에서 뺐습니다.</p>}
                   <button onClick={closeSession} disabled={busy} style={styles.closeBtn}>⏹ 출석 마감</button>
                 </div>
               ) : (
@@ -347,39 +400,55 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
             <section style={styles.panel}>
               <div style={styles.cardHead}><strong style={{ color: '#c62828' }}>❌ 미출석 {notAttended.length}명</strong></div>
               <div style={styles.panelBody}>
-              {notAttended.length === 0 ? <p style={styles.empty}>모두 출석했습니다! 🎉</p> : notAttended.map(s => {
-                const absentLog = periodLogMap[s.studentId]
-                return (
+              {notAttended.length === 0
+                ? <p style={styles.empty}>{excused.length > 0 ? '사유 처리된 학생 말고는 모두 출석했습니다! 🎉' : '모두 출석했습니다! 🎉'}</p>
+                : notAttended.map(s => (
                   <div key={s.studentId} style={{ ...styles.row, flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>{studentLabel(s)}</span>
                       <button onClick={() => writeLog(s, { method: 'manual' })} disabled={processingId === s.studentId} style={styles.manualBtn}>출석 처리</button>
                     </div>
-                    {absentLog ? (
-                      <div style={styles.reasonSaved}>
-                        사유: <strong>{absentLog.reason}</strong>
-                        <button onClick={() => removeLog(s)} style={styles.linkBtn}>지우기</button>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={styles.presetRow}>
-                          {REASON_PRESETS.map(r => (
-                            <button key={r} onClick={() => setReasonDraft(p => ({ ...p, [s.studentId]: r }))}
-                              style={{ ...styles.presetBtn, ...(reasonDraft[s.studentId] === r ? styles.presetBtnOn : {}) }}>{r}</button>
-                          ))}
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                          <input value={reasonDraft[s.studentId] ?? ''} placeholder="사유 직접 입력"
-                            onChange={e => setReasonDraft(p => ({ ...p, [s.studentId]: e.target.value }))}
-                            onKeyDown={e => e.key === 'Enter' && saveReason(s)}
-                            style={styles.reasonInput} />
-                          <button onClick={() => saveReason(s)} disabled={!reasonDraft[s.studentId]?.trim()} style={styles.reasonSaveBtn}>저장</button>
-                        </div>
-                      </>
-                    )}
+                    <div style={styles.presetRow}>
+                      {REASON_PRESETS.map(r => (
+                        <button key={r} onClick={() => setReasonDraft(p => ({ ...p, [s.studentId]: r }))}
+                          style={{ ...styles.presetBtn, ...(reasonDraft[s.studentId] === r ? styles.presetBtnOn : {}) }}>{r}</button>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <input value={reasonDraft[s.studentId] ?? ''} placeholder="사유 직접 입력"
+                        onChange={e => setReasonDraft(p => ({ ...p, [s.studentId]: e.target.value }))}
+                        onKeyDown={e => e.key === 'Enter' && saveReason(s)}
+                        style={styles.reasonInput} />
+                      <button onClick={() => saveReason(s)} disabled={!reasonDraft[s.studentId]?.trim() || processingId === s.studentId}
+                        style={styles.reasonSaveBtn} title={`${periodLabel(selectedPeriod)}만 적용`}>이 교시만</button>
+                      <button onClick={() => saveReason(s, true)} disabled={!reasonDraft[s.studentId]?.trim() || processingId === s.studentId}
+                        style={styles.reasonAllBtn} title="종일 결석·조퇴 — 이후 교시에도 같은 사유로 처리">
+                        {periodLabel(selectedPeriod)}부터 끝까지
+                      </button>
+                    </div>
                   </div>
-                )
-              })}
+                ))}
+
+              {excused.length > 0 && (
+                <>
+                  <div style={styles.excusedHead}>📝 사유 처리 {excused.length}명</div>
+                  {excused.map(s => {
+                    const l = periodLogMap[s.studentId]
+                    return (
+                      <div key={s.studentId} style={styles.row}>
+                        <span>{studentLabel(s)}</span>
+                        <span style={styles.rowRight}>
+                          <span style={styles.reasonSaved}>
+                            {l.reason}{l.fromPeriod != null && l.fromPeriod !== selectedPeriod && ` (${periodLabel(l.fromPeriod)}부터)`}
+                          </span>
+                          <button onClick={() => writeLog(s, { method: 'manual' })} disabled={processingId === s.studentId} style={styles.linkBtn}>출석으로</button>
+                          <button onClick={() => removeLog(s)} disabled={processingId === s.studentId} style={styles.linkBtn}>지우기</button>
+                        </span>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
               </div>
             </section>
           </div>
@@ -429,6 +498,8 @@ const styles = {
   presetBtnOn: { borderColor: '#f57c00', color: '#f57c00', background: '#fff3e0' },
   reasonInput: { flex: 1, minWidth: 0, padding: '0.35rem 0.6rem', border: '1px solid #ddd', borderRadius: '6px', fontSize: '0.82rem' },
   reasonSaveBtn: { padding: '0.35rem 0.6rem', backgroundColor: '#f57c00', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 },
+  reasonAllBtn: { padding: '0.35rem 0.6rem', backgroundColor: '#fff', color: '#e65100', border: '1px solid #f57c00', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 },
+  excusedHead: { marginTop: '1rem', padding: '0.4rem 0', borderTop: '2px solid #f0f0f0', fontSize: '0.85rem', fontWeight: 700, color: '#e65100' },
   reasonSaved: { fontSize: '0.82rem', color: '#e65100', display: 'flex', gap: '0.5rem', alignItems: 'center' },
   table: { borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: '100%' },
   th: { background: '#f5f5f5', padding: '0.45rem 0.6rem', border: '1px solid #e0e0e0', whiteSpace: 'nowrap', fontWeight: 600 },
