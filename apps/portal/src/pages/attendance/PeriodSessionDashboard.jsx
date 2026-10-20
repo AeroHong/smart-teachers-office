@@ -281,9 +281,12 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
             </div>
           </div>
 
+          {/* 기존 출결 현황(AttendanceDashboard ThreeColumnPanels)과 같은 3분할 — 제목은 고정, 내용만 칸마다 따로 스크롤 */}
           <div style={styles.grid}>
             {/* 세션 제어 */}
-            <section style={{ ...styles.card, flex: '1 1 300px' }}>
+            <section style={styles.panel}>
+              <div style={styles.cardHead}><strong>{periodLabel(selectedPeriod)} 출석</strong></div>
+              <div style={styles.panelBody}>
               {isLiveHere ? (
                 <div style={{ textAlign: 'center' }}>
                   <div style={styles.liveBadge}>● {periodLabel(selectedPeriod)} 출석 진행 중</div>
@@ -318,11 +321,13 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
                   />
                 </div>
               )}
+              </div>
             </section>
 
             {/* 출석 */}
-            <section style={{ ...styles.card, flex: '1 1 280px' }}>
-              <div style={styles.cardHead}><strong>출석 {attended.length}</strong><span style={styles.metaText}>누른 순서</span></div>
+            <section style={styles.panel}>
+              <div style={styles.cardHead}><strong style={{ color: '#2e7d32' }}>✅ 출석 {attended.length}명</strong><span style={styles.metaText}>누른 순서</span></div>
+              <div style={styles.panelBody}>
               {attended.length === 0 ? <p style={styles.empty}>아직 출석한 학생이 없습니다.</p> : attended.map(s => {
                 const l = periodLogMap[s.studentId]
                 return (
@@ -335,11 +340,13 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
                   </div>
                 )
               })}
+              </div>
             </section>
 
             {/* 미출석 */}
-            <section style={{ ...styles.card, flex: '1 1 320px' }}>
-              <div style={styles.cardHead}><strong>미출석 {notAttended.length}</strong></div>
+            <section style={styles.panel}>
+              <div style={styles.cardHead}><strong style={{ color: '#c62828' }}>❌ 미출석 {notAttended.length}명</strong></div>
+              <div style={styles.panelBody}>
               {notAttended.length === 0 ? <p style={styles.empty}>모두 출석했습니다! 🎉</p> : notAttended.map(s => {
                 const absentLog = periodLogMap[s.studentId]
                 return (
@@ -373,6 +380,7 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
                   </div>
                 )
               })}
+              </div>
             </section>
           </div>
         </>
@@ -397,7 +405,9 @@ const styles = {
   periodTabs: { display: 'flex', gap: '0.4rem', flexWrap: 'wrap' },
   periodTab: { padding: '0.45rem 0.9rem', border: '1px solid #ddd', borderRadius: '20px', background: '#fff', cursor: 'pointer', fontSize: '0.88rem' },
   periodTabOn: { background: '#1a73e8', borderColor: '#1a73e8', color: '#fff', fontWeight: 700 },
-  grid: { display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1rem', alignItems: 'start' },
+  panel: { background: '#fff', border: '1px solid #e0e0e0', borderRadius: '12px', padding: '1rem', minWidth: 0, display: 'flex', flexDirection: 'column', boxSizing: 'border-box' },
+  panelBody: { overflowY: 'auto', maxHeight: '70vh' },
   card: { background: '#fff', border: '1px solid #e0e0e0', borderRadius: '12px', padding: '1rem', minWidth: 0 },
   cardHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' },
   liveBadge: { display: 'inline-block', fontSize: '0.85rem', fontWeight: 700, color: '#2e7d32', backgroundColor: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '20px', padding: '0.3rem 1rem' },

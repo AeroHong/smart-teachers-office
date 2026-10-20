@@ -5,6 +5,7 @@ import { db } from '@shared/lib/firebase'
 import { useAuth } from '@shared/contexts/AuthContext'
 import Layout from '../../components/Layout'
 import { PERIOD_OPTIONS, periodLabel } from './eventHelpers'
+import ScheduleGrid from './ScheduleGrid'
 import QRDisplay from '../../components/QRDisplay'
 import CoTeacherPicker, { coTeacherFields } from './CoTeacherPicker'
 
@@ -308,6 +309,7 @@ export default function EventCreate() {
             <>
               {/* ── 요일별 시간표 ── */}
               <Field label="요일별 시간표 *">
+                <ScheduleGrid schedules={schedules} onChange={setSchedules} />
                 <div style={styles.scheduleList}>
                   {schedules.map((sch, idx) => (
                     <div key={idx} style={styles.scheduleRow}>
@@ -370,7 +372,7 @@ export default function EventCreate() {
                     + 요일 추가
                   </button>
                 </div>
-                <span style={styles.fieldHint}>시간 체크 시 해당 시간대에만 QR 출석 가능 (미설정 시 당일 종일 허용)</span>
+                <span style={styles.fieldHint}>위 표에서 한번에 고르고, 아래 목록에서 칸마다 시간을 정할 수 있습니다. 시간 체크 시 해당 시간대에만 QR 출석 가능 (미설정 시 당일 종일 허용)</span>
               </Field>
 
               <Field label="반복 종료일 *">
