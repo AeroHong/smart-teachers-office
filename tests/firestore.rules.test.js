@@ -989,6 +989,19 @@ test('교과서 선정: 마감 아닌 일반 수정(추천의견 등)은 미제�
   await assertSucceeds(updateDoc(tb(as(A)), { rubric: [] }))
 })
 
+test('교과서 선정: 마감 후 서식3 추천의견은 과목 대표교사가 쓸 수 있고, 일반 위원은 못 쓴다', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), ...path('textbookAdoptions', 'tb')), {
+      subjectName: '과목', status: 'closed', subjectHeadUid: A,
+      committeeUids: [A, B, C], externalMemberIds: [], submittedUids: [A, B, C],
+      recommendation: { opinions: [{ candidateId: 'c1', rank: 1, text: '' }] },
+    })
+  })
+  const rec = { opinions: [{ candidateId: 'c1', rank: 1, text: 'ㅇ 1순위로 추천함' }] }
+  await assertSucceeds(updateDoc(tb(as(A)), { recommendation: rec }))
+  await assertFails(updateDoc(tb(as(B)), { recommendation: rec }))
+})
+
 test('교과서 선정: 후보 1개(1책 1도서)는 채점 없이 대표교사가 확정할 수 있다', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), ...path('textbookAdoptions', 'one')), {
