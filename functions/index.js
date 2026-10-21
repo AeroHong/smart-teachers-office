@@ -62,6 +62,9 @@ exports.activatePreApprovedStaff = staffActivation.activatePreApprovedStaff
 const studentHub = require('./studentHub')
 exports.issueHubHandoffToken = studentHub.issueHubHandoffToken
 
+// ExamCore 감독 배정 — 컴시간 공개 시간표에서 교사별 수업 시각(수업 시간 피하기)
+exports.fetchComciganTimetable = require('./comcigan').fetchComciganTimetable
+
 // 평가 운영 계획 확정 → 교직원 관리(기본배정·과목배정) 자동 반영
 exports.syncEvaluationPlanToStaff = evaluationPlanSync.syncEvaluationPlanToStaff
 
