@@ -56,12 +56,12 @@ const SERVICES = [
     icon: '📝',
     title: '고사 업무 지원 시스템',
     description: '고사 관련 업무를 지원하는 시스템입니다.',
-    path: 'https://exam-support-kr.web.app/',
+    // ExamCore — 중간 페이지(/examcore)가 재로그인 없이 넘겨준다
+    path: '/examcore',
     color: '#d97706',
     bgColor: '#fffbeb',
     status: '시범운영중',
     statusColor: 'warning',
-    external: true,
   },
   {
     icon: '✅',

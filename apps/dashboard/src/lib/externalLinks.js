@@ -27,13 +27,14 @@ export const EXTERNAL_LINKS = [
   },
   {
     // 포털의 중간 페이지를 거쳐 재로그인 없이 StudentHub로 넘어간다(apps/shared/lib/studentHub.js)
-    label: '학적·고사 관리',
+    label: '학적 관리',
     href: portalLink('/studenthub'),
-    hint: '전입·전출 · 응시현황표 · 결시',
+    hint: '전입·전출 · 선택과목',
   },
   {
+    // ExamCore도 같은 중간 페이지 방식(/examcore)
     label: '고사 업무 지원',
-    href: 'https://exam-support-kr.web.app/',
-    hint: '별도 앱',
+    href: portalLink('/examcore'),
+    hint: '응시현황표 · 감독 · 결시',
   },
 ]

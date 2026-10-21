@@ -49,7 +49,7 @@ const FEATURES = [
     color: '#dc2626',
     bg: '#fef2f2',
     title: '고사 업무 지원',
-    badge: 'exam-support-kr.web.app',
+    badge: 'smart-examcore.web.app',
     points: [
       '고사 시간표 자동 편성 & 편집',
       '감독관 배정 및 교환 신청',
