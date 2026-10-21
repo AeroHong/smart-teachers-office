@@ -109,11 +109,24 @@ function parseSchool(d, keys) {
   }
   const periods = (d.일과시간 || []).map((s) => /^(\d+)\((\d{1,2}:\d{2})\)/.exec(String(s))).filter(Boolean)
     .map((m) => ({ period: Number(m[1]), start: m[2].padStart(5, '0') }))
-  const teachers = [...lessons].sort((a, b) => a[0] - b[0]).map(([t, list]) => ({
-    name: String(names[t]),
-    lessons: list.map(([day, p, g, c]) => [day, p, g, c]),
-    subjects: [...new Set(list.map((x) => subjects?.[x[4]]).filter(Boolean))],
+  // 담임[학년-1][반-1] = 그 반 담임의 교사 번호(255·0 = 없음)
+  const homeroom = new Map()
+  ;(d.담임 || []).forEach((row, gi) => (row || []).forEach((t, ci) => {
+    if (t > 0 && t < 255 && names[t] && ci < (d.학급수?.[gi + 1] ?? 0)) homeroom.set(t, `${gi + 1}-${ci + 1}`)
   }))
+  // 가린 이름은 겹칠 수 있어(같은 앞 두 글자) 교사 번호(no = 교사 목록 순서, 컴시간 교사용 화면의 번호)로 구분한다
+  const teachers = []
+  for (let t = 1; t < names.length; t++) {
+    if (!names[t]) continue
+    const list = lessons.get(t) || []
+    teachers.push({
+      no: t,
+      name: String(names[t]),
+      homeroom: homeroom.get(t) || null,
+      lessons: list.map(([day, p, g, c]) => [day, p, g, c]),
+      subjects: [...new Set(list.map((x) => subjects?.[x[4]]).filter(Boolean))],
+    })
+  }
   return { periods, teachers }
 }
 
