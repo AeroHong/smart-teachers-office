@@ -16,7 +16,8 @@ import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
 import { DAYS, PERIOD_OPTIONS, periodLabel, toDateStr, periodLogId, activePeriodSession } from './eventHelpers'
 
-const REASON_PRESETS = ['질병결석', '조퇴', '지각', '미인정결석', '체험학습', '기타']
+// 지각은 결석 사유가 아니라 「출석 + late」로 따로 처리한다(출석 행 [지각], 미출석 행 [지각 출석])
+const REASON_PRESETS = ['질병결석', '조퇴', '미인정결석', '체험학습', '기타']
 const ATTENDED_METHODS = ['button', 'manual']
 
 function fmtClock(ts) {
@@ -243,14 +244,26 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
       setReasonDraft(p => ({ ...p, [student.studentId]: '' }))
       return
     }
-    const targets = periods.filter(p => p >= selectedPeriod).filter(p => {
-      const l = logs.find(x => x.studentId === student.studentId && x.date === selectedDate && x.period === p)
-      return !ATTENDED_METHODS.includes(l?.method)
-    })
     setProcessingId(student.studentId)
     try {
       const batch = writeBatch(db)
-      targets.forEach(p => batch.set(
+      addReasonFrom(batch, student, reason, selectedPeriod)
+      await batch.commit()
+      setReasonDraft(p => ({ ...p, [student.studentId]: '' }))
+    } catch (err) {
+      console.error('사유 일괄 등록 실패:', err)
+      alert('저장하지 못했습니다. 다시 시도해 주세요.')
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  // fromP 칸부터 그날 끝까지 같은 사유를 batch에 담는다. 이미 출석한 칸은 건너뛴다.
+  const addReasonFrom = (batch, student, reason, fromP) => {
+    periods.filter(p => p >= fromP).forEach(p => {
+      const l = logs.find(x => x.studentId === student.studentId && x.date === selectedDate && x.period === p)
+      if (ATTENDED_METHODS.includes(l?.method)) return
+      batch.set(
         doc(db, 'schools', schoolId, 'events', eventId, 'periodLogs', periodLogId(selectedDate, p, student.studentId)),
         {
           studentId: student.studentId,
@@ -263,13 +276,46 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
           checkedAt: serverTimestamp(),
           method: 'absent',
           reason,
-          fromPeriod: selectedPeriod,
+          fromPeriod: fromP,
         },
-      ))
+      )
+    })
+  }
+
+  // ── 지각·출석 후 조퇴 (출석 기록에 표시만 덧붙인다) ─────────────
+  // 지각은 출석의 한 형태라 결석 사유로 넣으면 출석 인원에서 빠지고 누른 시각도 사라졌다
+  // (사용자 확인 요청 — 「조회 지각 → 1교시 출석 → 2교시 조퇴」, 2026-10-22).
+  const toggleLate = async (student) => {
+    const l = periodLogMap[student.studentId]
+    setProcessingId(student.studentId)
+    try {
+      await updateDoc(logRef(student.studentId), { late: !l.late })
+    } catch {
+      alert('저장하지 못했습니다. 다시 시도해 주세요.')
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  // 이 교시는 출석으로 두고 earlyLeave 표시, 다음 칸부터 끝까지 「조퇴」. 다시 누르면 되돌린다.
+  const toggleEarlyLeave = async (student) => {
+    const l = periodLogMap[student.studentId]
+    const nextP = periods.find(p => p > selectedPeriod)
+    setProcessingId(student.studentId)
+    try {
+      const batch = writeBatch(db)
+      if (l.earlyLeave) {
+        batch.update(logRef(student.studentId), { earlyLeave: false })
+        logs.filter(x => x.studentId === student.studentId && x.date === selectedDate &&
+            x.method === 'absent' && x.reason === '조퇴' && x.fromPeriod === nextP)
+          .forEach(x => batch.delete(doc(db, 'schools', schoolId, 'events', eventId, 'periodLogs', x.id)))
+      } else {
+        batch.update(logRef(student.studentId), { earlyLeave: true })
+        if (nextP != null) addReasonFrom(batch, student, '조퇴', nextP)
+      }
       await batch.commit()
-      setReasonDraft(p => ({ ...p, [student.studentId]: '' }))
     } catch (err) {
-      console.error('사유 일괄 등록 실패:', err)
+      console.error('조퇴 처리 실패:', err)
       alert('저장하지 못했습니다. 다시 시도해 주세요.')
     } finally {
       setProcessingId(null)
@@ -289,21 +335,53 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
     const l = logs.find(x => x.studentId === studentId && x.date === slot.date && x.period === slot.period)
     if (!l) return ''
     if (l.method === 'absent') return l.reason || '결석'
+    const notes = [l.late && '지각', l.earlyLeave && '조퇴', l.method === 'manual' && '교사'].filter(Boolean)
     const t = fmtClock(l.checkedAt).slice(0, 5)
-    return l.method === 'manual' ? `${t} (교사)` : t
+    return notes.length ? `${t} (${notes.join('·')})` : t
   }
 
-  const slotLabel = (slot) => {
-    const d = new Date(`${slot.date}T00:00:00`)
-    return `${d.getMonth() + 1}/${d.getDate()}(${DAYS[d.getDay()]}) ${periodLabel(slot.period)}`
+  // ── 날짜(요일)별 시트 ─────────────────────────────────────────
+  // 전체 기록을 날짜마다 한 장씩 본다 — 화면은 시트 탭, 엑셀은 날짜별 시트(사용자 요청, 2026-10-22).
+  // 열은 그날 요일 시간표 칸 + 시간표 밖이라도 기록이 있는 칸.
+  const recordDates = useMemo(() => [...new Set(slots.map(x => x.date))], [slots])
+  const [sheetDate, setSheetDate] = useState(null)
+  const activeSheet = recordDates.includes(sheetDate)
+    ? sheetDate
+    : (recordDates.includes(today) ? today : recordDates[recordDates.length - 1])
+
+  const periodsOfSheet = (date) => {
+    const day = new Date(`${date}T00:00:00`).getDay()
+    const scheduled = (event.schedules || []).filter(x => x.dayOfWeek === day).map(x => x.period)
+    const logged = slots.filter(x => x.date === date).map(x => x.period)
+    return [...new Set([...scheduled, ...logged])].sort((a, b) => a - b)
+  }
+
+  const sheetLabel = (date) => {
+    const d = new Date(`${date}T00:00:00`)
+    return `${d.getMonth() + 1}/${d.getDate()}(${DAYS[d.getDay()]})`
+  }
+
+  // 교시별 요약: 출석(지각 포함) / 대상(사유 처리 제외)
+  const periodSummary = (date, period) => {
+    const day = logs.filter(l => l.date === date && l.period === period)
+    const present = day.filter(l => ATTENDED_METHODS.includes(l.method)).length
+    const excusedCount = day.filter(l => l.method === 'absent').length
+    return `${present}/${students.length - excusedCount}`
   }
 
   const downloadExcel = () => {
-    const header = ['학년', '반', '번호', '이름', ...slots.map(slotLabel)]
-    const rows = students.map(s => [s.grade, s.class, s.number, s.name, ...slots.map(slot => cellText(s.studentId, slot))])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '출석')
+    recordDates.forEach(date => {
+      const cols = periodsOfSheet(date)
+      const header = ['학년', '반', '번호', '이름', ...cols.map(periodLabel)]
+      const rows = students.map(st => [st.grade, st.class, st.number, st.name,
+        ...cols.map(period => cellText(st.studentId, { date, period }))])
+      const summary = ['', '', '', '출석/대상', ...cols.map(period => periodSummary(date, period))]
+      const ws = XLSX.utils.aoa_to_sheet([header, ...rows, [], summary])
+      ws['!cols'] = [{ wch: 5 }, { wch: 4 }, { wch: 5 }, { wch: 10 }, ...cols.map(() => ({ wch: 14 }))]
+      // 시트 이름에는 / 를 쓸 수 없다
+      XLSX.utils.book_append_sheet(wb, ws, sheetLabel(date).replace('/', '-'))
+    })
     XLSX.writeFile(wb, `${event.name}_교시별출석_${today}.xlsx`)
   }
 
@@ -343,36 +421,52 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
         <section style={styles.card}>
           <div style={styles.cardHead}>
             <strong>전체 기록</strong>
-            <button onClick={downloadExcel} style={styles.secondaryBtn} disabled={slots.length === 0}>⬇ 엑셀 다운로드</button>
+            <button onClick={downloadExcel} style={styles.secondaryBtn} disabled={recordDates.length === 0}>⬇ 엑셀 다운로드 (날짜별 시트)</button>
           </div>
-          {slots.length === 0 ? <p style={styles.empty}>아직 기록이 없습니다.</p> : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>학생</th>
-                    {slots.map(slot => <th key={`${slot.date}-${slot.period}`} style={styles.th}>{slotLabel(slot)}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map(s => (
-                    <tr key={s.studentId}>
-                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{studentLabel(s)}</td>
-                      {slots.map(slot => {
-                        const text = cellText(s.studentId, slot)
-                        const isAbsent = text && !/^\d/.test(text)
-                        return (
-                          <td key={`${slot.date}-${slot.period}`}
-                            style={{ ...styles.td, color: isAbsent ? '#e65100' : '#333', background: text ? undefined : '#fafafa' }}>
-                            {text || '–'}
-                          </td>
-                        )
-                      })}
+          {recordDates.length === 0 ? <p style={styles.empty}>아직 기록이 없습니다.</p> : (
+            <>
+              <div style={styles.sheetTabs}>
+                {recordDates.map(date => (
+                  <button key={date} onClick={() => setSheetDate(date)}
+                    style={{ ...styles.sheetTab, ...(date === activeSheet ? styles.sheetTabOn : {}) }}>
+                    {sheetLabel(date)}
+                  </button>
+                ))}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>학생</th>
+                      {periodsOfSheet(activeSheet).map(period => <th key={period} style={styles.th}>{periodLabel(period)}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {students.map(st => (
+                      <tr key={st.studentId}>
+                        <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{studentLabel(st)}</td>
+                        {periodsOfSheet(activeSheet).map(period => {
+                          const text = cellText(st.studentId, { date: activeSheet, period })
+                          const isAbsent = text && (!/^\d/.test(text) || /지각|조퇴/.test(text))
+                          return (
+                            <td key={period}
+                              style={{ ...styles.td, color: isAbsent ? '#e65100' : '#333', background: text ? undefined : '#fafafa' }}>
+                              {text || '–'}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                    <tr>
+                      <td style={{ ...styles.td, ...styles.summaryCell }}>출석/대상</td>
+                      {periodsOfSheet(activeSheet).map(period => (
+                        <td key={period} style={{ ...styles.td, ...styles.summaryCell }}>{periodSummary(activeSheet, period)}</td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </section>
       ) : (
@@ -447,6 +541,13 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
                     <span>{studentLabel(s)}</span>
                     <span style={styles.rowRight}>
                       <span style={styles.time}>{fmtClock(l.checkedAt)}{l.method === 'manual' && ' (교사)'}</span>
+                      {l.late && <span style={styles.noteBadge}>지각</span>}
+                      {l.earlyLeave && <span style={styles.noteBadge}>조퇴</span>}
+                      <button onClick={() => toggleLate(s)} disabled={processingId === s.studentId}
+                        style={{ ...styles.tagBtn, ...(l.late ? styles.tagBtnOn : {}) }} title="지각 표시/해제">지각</button>
+                      <button onClick={() => toggleEarlyLeave(s)} disabled={processingId === s.studentId}
+                        style={{ ...styles.tagBtn, ...(l.earlyLeave ? styles.tagBtnOn : {}) }}
+                        title="이 교시는 출석, 다음 칸부터 끝까지 조퇴로 처리(다시 누르면 되돌림)">조퇴</button>
                       <button onClick={() => removeLog(s)} disabled={processingId === s.studentId} style={styles.linkBtn}>취소</button>
                     </span>
                   </div>
@@ -465,7 +566,10 @@ export default function PeriodSessionDashboard({ event, students, schoolId }) {
                   <div key={s.studentId} style={{ ...styles.row, flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>{studentLabel(s)}</span>
-                      <button onClick={() => writeLog(s, { method: 'manual' })} disabled={processingId === s.studentId} style={styles.manualBtn}>출석 처리</button>
+                      <span style={styles.rowRight}>
+                        <button onClick={() => writeLog(s, { method: 'manual' })} disabled={processingId === s.studentId} style={styles.manualBtn}>출석 처리</button>
+                        <button onClick={() => writeLog(s, { method: 'manual', late: true })} disabled={processingId === s.studentId} style={styles.lateBtn}>지각 출석</button>
+                      </span>
                     </div>
                     <div style={styles.presetRow}>
                       {REASON_PRESETS.map(r => (
@@ -564,9 +668,17 @@ const styles = {
   presetBtnOn: { borderColor: '#f57c00', color: '#f57c00', background: '#fff3e0' },
   reasonInput: { flex: 1, minWidth: 0, padding: '0.35rem 0.6rem', border: '1px solid #ddd', borderRadius: '6px', fontSize: '0.82rem' },
   reasonSaveBtn: { padding: '0.35rem 0.6rem', backgroundColor: '#f57c00', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 },
+  noteBadge: { fontSize: '0.72rem', fontWeight: 700, color: '#e65100', background: '#fff3e0', border: '1px solid #ffcc80', borderRadius: '8px', padding: '0.05rem 0.4rem' },
+  tagBtn: { fontSize: '0.72rem', padding: '0.15rem 0.45rem', border: '1px solid #ddd', background: '#fff', color: '#888', borderRadius: '10px', cursor: 'pointer' },
+  tagBtnOn: { borderColor: '#f57c00', color: '#e65100', background: '#fff3e0', fontWeight: 700 },
+  lateBtn: { padding: '0.3rem 0.6rem', background: '#fff3e0', color: '#e65100', border: '1px solid #ffcc80', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 },
   reasonAllBtn: { padding: '0.35rem 0.6rem', backgroundColor: '#fff', color: '#e65100', border: '1px solid #f57c00', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 },
   excusedHead: { marginTop: '1rem', padding: '0.4rem 0', borderTop: '2px solid #f0f0f0', fontSize: '0.85rem', fontWeight: 700, color: '#e65100' },
   reasonSaved: { fontSize: '0.82rem', color: '#e65100', display: 'flex', gap: '0.5rem', alignItems: 'center' },
+  sheetTabs: { display: 'flex', gap: '0.25rem', flexWrap: 'wrap', borderBottom: '2px solid #1a73e8', marginBottom: '0.6rem' },
+  sheetTab: { padding: '0.4rem 0.9rem', border: '1px solid #ddd', borderBottom: 'none', borderRadius: '8px 8px 0 0', background: '#f5f5f5', cursor: 'pointer', fontSize: '0.85rem', color: '#555' },
+  sheetTabOn: { background: '#1a73e8', borderColor: '#1a73e8', color: '#fff', fontWeight: 700 },
+  summaryCell: { background: '#f5f5f5', fontWeight: 700 },
   table: { borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: '100%' },
   th: { background: '#f5f5f5', padding: '0.45rem 0.6rem', border: '1px solid #e0e0e0', whiteSpace: 'nowrap', fontWeight: 600 },
   td: { padding: '0.4rem 0.6rem', border: '1px solid #eee', textAlign: 'center', fontVariantNumeric: 'tabular-nums' },

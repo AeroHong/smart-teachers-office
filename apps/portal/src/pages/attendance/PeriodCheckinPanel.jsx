@@ -105,11 +105,13 @@ export default function PeriodCheckinPanel({ schoolId, eventId, student }) {
 
   if (myLog) {
     const absent = myLog.method === 'absent'
+    // 지각은 결석이 아니라 출석의 한 형태 — 출석 완료로 보이되 색으로 구분한다
+    const late = !absent && myLog.late
     return (
       <div style={styles.box}>
         <div style={styles.icon}>{absent ? '📝' : '✅'}</div>
-        <h3 style={{ ...styles.title, color: absent ? '#e65100' : '#2e7d32' }}>
-          {periodLabel(session.period)} {absent ? `${myLog.reason || '결석'} 처리됨` : '출석 완료'}
+        <h3 style={{ ...styles.title, color: absent || late ? '#e65100' : '#2e7d32' }}>
+          {periodLabel(session.period)} {absent ? `${myLog.reason || '결석'} 처리됨` : late ? '출석 완료 (지각)' : '출석 완료'}
         </h3>
         <p style={styles.msg}>{who}</p>
         {!absent && <p style={styles.time}>{fmtClock(myLog.checkedAt)}</p>}

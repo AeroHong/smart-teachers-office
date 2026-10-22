@@ -219,7 +219,11 @@ QR 코드 기반 실시간 출결 관리 시스템.
 4. 교사: [출석 마감] (자동 마감 없음). 다른 교시를 시작하면 이전 교시 세션은 교체된다
 5. 미출석자 수동 출석·사유 등록, **전체 기록** 탭에서 학생 × 날짜·교시 표 + 엑셀 다운로드
 
-지각 자동 판정은 없다 — 시각만 기록하고 교사가 사유로 처리한다. 등수·행운번호도 없다.
+지각 자동 판정은 없다 — 시각만 기록하고 교사가 표시한다. 등수·행운번호도 없다.
+
+**지각·조퇴 (2026-10-22)**: 지각은 결석 사유가 아니라 **출석 + `late`** — 출석 행 [지각] 토글, 미출석 행 [지각 출석].
+출석 후 나간 경우는 출석 행 [조퇴] → 이 교시 `earlyLeave` + 다음 칸부터 끝까지 「조퇴」(다시 누르면 되돌림).
+수업 전에 나간 경우는 미출석에서 「조퇴」 → 「N교시부터 끝까지」. 엑셀 칸 예: `08:12 (지각)`, `10:05 (조퇴)`, `조퇴`.
 
 ### 데이터
 ```
@@ -229,7 +233,8 @@ events/{eventId}
   /periodSessionSecrets/{sessionId}  { code, period, date }                  ← 교사만 읽기/쓰기
   /periodLogs/{date}-p{period}-{studentId}
     studentId, studentName, grade, class, number, date, period,
-    sessionId, code, method: 'button' | 'manual' | 'absent', reason?, checkedAt
+    sessionId, code, method: 'button' | 'manual' | 'absent', reason?, checkedAt,
+    late?(지각 — 출석의 한 형태), earlyLeave?(이 교시 출석 후 조퇴), fromPeriod?(사유 일괄 등록 시작 칸)
 ```
 하루 단위 `attendanceLogs`와 섞지 않는다 — StatsDashboard·TeacherDashboard 출석률에는 반영되지 않는다.
 
