@@ -1,3 +1,6 @@
+> **보관(2026-10-23)** — 2026-07-31 시점 스냅숏. 여전히 유효한 미완 항목은 [ROADMAP.md](../../ROADMAP.md)로 옮김
+> 보관 문서 색인: [README.md](./README.md)
+
 # 선유고 스마트 교무실 - 다음 작업 계획
 
 ## 작업 완료 현황 (2026-07-31)
@@ -585,8 +588,8 @@ match /officeLayouts/{layoutId} {
 
 ## 참고 문서
 
-- [전체 DB 구조](./DB_STRUCTURE.md)
-- [관리자 페이지 구조](./ADMIN_STRUCTURE.md)
+- [전체 DB 구조](../../DB_STRUCTURE.md)
+- [관리자 페이지 구조](../../ADMIN_STRUCTURE.md)
 - [Phase 1A-B 완료 보고서](./MIGRATION_COMPLETE.md)
 
 ---

@@ -1,3 +1,6 @@
+> **보관(2026-10-23)** — 완료(P0~P6, 2026-08-24~27). 반영 커밋 2d7a316·e53ae15·9283f5b·3680fc0·4adcd5e·3af3cd2·77dff8d·08799f0·8ea1201. 현재 스키마: [DB_STRUCTURE.md](../../DB_STRUCTURE.md)
+> 보관 문서 색인: [README.md](./README.md)
+
 # 채널 — 업무 중심 재편 논의
 
 > 작성일: 2026-08-24
@@ -10,7 +13,7 @@
 > **업무 분석 데이터는 별도로 작성하지 않기로 했다 (2026-08-24).** 쿨메신저 반년치
 > 분석(2,473건)이 그 역할을 이미 했다 — 어떤 업무가 반복되는지, 어떤 성격의 안내가 오가는지,
 > 무엇이 낭비인지가 실데이터로 나왔다. 양식을 채워 만드는 자료보다 실제로 오간 말이 낫다.
-> 관련 문서: [DB_STRUCTURE.md](./DB_STRUCTURE.md) `#schools/{schoolId}/channels/{channelId}` 절,
+> 관련 문서: [DB_STRUCTURE.md](../../DB_STRUCTURE.md) `#schools/{schoolId}/channels/{channelId}` 절,
 > [PLAN_messenger.md](./PLAN_messenger.md), [PLAN_dashboardElectron.md](./PLAN_dashboardElectron.md)
 
 ---

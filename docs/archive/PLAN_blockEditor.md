@@ -1,3 +1,6 @@
+> **보관(2026-10-23)** — 대체됨 — 블록 편집은 캔버스 편집기(CanvasEditor.jsx)로 구현됨. [PLAN_canvasBlocks.md](./PLAN_canvasBlocks.md), 커밋 ee126e3
+> 보관 문서 색인: [README.md](./README.md)
+
 # 블록 편집기 — 추후 작업
 
 > 상태: 계획만. 착수 전 아래 "판단이 필요한 것"부터 정할 것.

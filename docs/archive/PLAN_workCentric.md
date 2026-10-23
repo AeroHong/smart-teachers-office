@@ -1,3 +1,6 @@
+> **보관(2026-10-23)** — 핵심 완료(업무 글 year·ownerUids 52626ce, 총괄 뷰 ab98e6f). 남은 항목은 [ROADMAP.md](../../ROADMAP.md)
+> 보관 문서 색인: [README.md](./README.md)
+
 # 업무 중심 구조 전환 — Slack 설계 메모 검토
 
 > 작성일: 2026-08-21

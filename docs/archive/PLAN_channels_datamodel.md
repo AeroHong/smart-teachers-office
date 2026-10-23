@@ -1,10 +1,13 @@
+> **보관(2026-10-23)** — 완료. 확정된 스키마·규칙은 [DB_STRUCTURE.md](../../DB_STRUCTURE.md)와 firestore.rules가 기준
+> 보관 문서 색인: [README.md](./README.md)
+
 # 채널 데이터 모델 설계 (P0 산출물)
 
 > 작성일: 2026-08-24
 > 상태: **설계안. 코드 변경 없음.** [PLAN_channels.md](./PLAN_channels.md)에서 확정된 결정
 > (비공개 채널, 메시지+Canvas, DM=2인 채널, 공지 전용 채널)을 실제 스키마와 보안 규칙으로
 > 옮긴 것이다. P1~P7 구현 시 이 문서를 기준으로 삼는다.
-> 구현이 끝나면 확정된 내용을 [DB_STRUCTURE.md](./DB_STRUCTURE.md)로 옮긴다.
+> 구현이 끝나면 확정된 내용을 [DB_STRUCTURE.md](../../DB_STRUCTURE.md)로 옮긴다.
 
 ---
 

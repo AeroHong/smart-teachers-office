@@ -1,3 +1,6 @@
+> **보관(2026-10-23)** — 2026-06-10 보안 점검 보고서(원래 errormassage/). 조치 완료 — c4b5bac
+> 보관 문서 색인: [README.md](./README.md)
+
 # 스마트 교무실 보안 점검 보고서
 
 - **대상 시스템**: 스마트 교무실 (https://smart-school-kr.web.app)

@@ -1,7 +1,14 @@
 # 스마트 교무실 — 보안 설계 및 운영 가이드
 
-> 작성일: 2026-05-21  
-> compact 재시작 후 참조용
+> 작성일: 2026-05-21 · 상태 갱신: 2026-10-23
+> **1~3절의 설계는 구현 완료**(608f390, 2026-05-21). "작업 예정"이라고 적힌 절 제목은 당시 표현이다.
+> 이후 바뀐 것:
+> - 사전 등록 교직원 첫 로그인 자동 활성화(5f3689f), 미접속 구성원 로그인 없이 활성화(b5972d0)
+> - 학생은 `studentRegistrations` 색인으로 자동 등록(36265e0)
+> - 소속·직군을 커스텀 클레임으로 토큰에 심음(88d03dd, `syncUserClaims`/`refreshMyClaims`)
+> - Firestore Rules 강화 + HTTP 보안 헤더(c4b5bac) — 당시 점검 보고서는 [docs/archive/security-report_20260610.md](./docs/archive/security-report_20260610.md)
+> - 교내망에서 `firebaseapp.com` 차단 → authDomain을 접속한 `.web.app` 호스트로(2a9efec)
+> - `schoolDomains` 컬렉션은 완전히 없어지지 않고 get 전용으로 남아 있다(`firestore.rules`)
 
 ---
 
@@ -60,7 +67,7 @@ SchoolSetup 화면
 
 ---
 
-## 3. 기술 구현 계획 (compact 후 작업 예정)
+## 3. 기술 구현 계획 (구현 완료 — 608f390)
 
 ### AuthContext.jsx 변경
 - `lookupSchoolByEmail()` 함수 제거
@@ -160,9 +167,9 @@ SchoolSetup 화면
 
 ---
 
-## 7. 보완 필요 기능 (compact 후 작업 예정)
+## 7. 보완 필요 기능 (당시 목록 — 남은 것은 [ROADMAP.md](./ROADMAP.md))
 
-1. **홈 화면 "승인 대기 N명" 배지** — 관리자가 놓치지 않도록
-2. **preApproved 이메일 일괄 업로드** — 초기 도입 시 교사 명부 한 번에 등록
-3. **퇴직 처리 기능** — 관리자가 특정 계정을 비활성화(rejected)할 수 있는 UI
-4. **승인/거절 이메일 알림** — Cloud Functions 활용 (선택사항)
+1. ~~**홈 화면 "승인 대기 N명" 배지**~~ — 완료(관리자 메뉴 계정 관리 배지)
+2. ~~**preApproved 이메일 일괄 업로드**~~ — 완료(CSV 일괄 업로드, 9aba6e9)
+3. ~~**퇴직 처리 기능**~~ — 완료(계정 관리에서 rejected 처리·구성원 삭제, a89dc56)
+4. **승인/거절 이메일 알림** — 미구현 (선택사항)

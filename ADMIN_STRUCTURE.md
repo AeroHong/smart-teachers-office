@@ -1,4 +1,6 @@
-# 선유고 스마트 교무실 - 관리자 페이지 구조
+# 스마트 교무실 - 관리자 페이지 구조
+
+> 2026-10-23 갱신: 탭 목록을 `AdminLayout.jsx`의 `MENU_ITEMS` 기준으로 맞췄다. 컬렉션 필드는 [DB_STRUCTURE.md](./DB_STRUCTURE.md)가 기준이다.
 
 ## 관리자 페이지 개요
 
@@ -43,8 +45,8 @@
 
 #### 탭 구성
 1. **승인 대기** - role: `pending` 계정 승인/거부
-2. **교직원 목록** - role: `teacher`, `admin`, `school_admin`, `principal`
-3. **학생 목록** - role: `student`
+2. **구성원 목록** - 교직원·학생, 역할 변경. 교직원은 staffType으로 **강사** 구분, 한 번도 접속 안 한 구성원도 로그인 없이 활성화 가능(b5972d0)
+3. **사전 등록** - `preApproved` 명단 — 첫 로그인 시 승인 없이 활성화
 4. **Workspace 동기화** - Google Workspace 학생 자동 동기화 설정
 
 #### 주요 기능
@@ -137,7 +139,7 @@
 ---
 
 ### 4. 교직원 관리 (`/admin/staff`)
-**파일**: `AdminStaff.jsx` (2개 탭)
+**파일**: `AdminStaff.jsx` (3개 탭 — 기본 배정 · 과목 배정 · 표시 순서)
 
 #### 탭 구성
 1. **기본 정보** (`AdminStaffBasic.jsx`)
@@ -145,8 +147,11 @@
    - 연도별 관리 (teacherAssignments)
 
 2. **과목 배정** (`AdminStaffSubjects.jsx`)
-   - 학기별 담당 과목 배정
+   - 학기별 담당 과목 배정, 시수 표시
    - 연도별, 학기별 필터링
+
+3. **표시 순서** (`AdminRosterOrder.jsx`)
+   - 업무 메신저 구성원 화면의 조직도(사무실/교과/부서) 하위 그룹 순서를 드래그로 지정(35ef5d3)
 
 #### 주요 기능 (기본 정보 탭)
 - 교직원 목록 조회 (users 컬렉션 + role 필터)
@@ -258,7 +263,42 @@
 
 ---
 
-### 7. 분할점수 기준 (`/admin/asa-cutoffs`)
+### 7. 학사일정 (`/admin/academic-calendar`)
+**파일**: `AdminAcademicCalendar.jsx`
+
+**기능**: 학교 구글 캘린더 연결 설정과 동기화 — 업무 메신저 학사일정 화면에 표시된다.
+동기화는 Cloud Function `syncAcademicCalendar`(정기)·`runAcademicCalendarSyncNow`(수동). 공휴일과 채널 마감일도 같은 화면에 합쳐진다.
+
+---
+
+### 8. 대시보드 모듈 (`/admin/dashboard-modules`)
+**파일**: `AdminDashboardModules.jsx`
+
+**기능**: 업무 메신저에 어떤 모듈(보강·호출 등)을 누구에게 보일지 지정. 로직은 `apps/shared/lib/dashboardModules.js`
+
+---
+
+### 9. 평가계획 담당자 (`/admin/evaluation-plan-managers`)
+**파일**: `AdminEvalPlanManagers.jsx`
+
+**기능**: 평가 운영 계획(`/evalplan`) 전체 현황을 볼 수 있는 업무 담당자 지정
+
+---
+
+### 10. 교과서 선정 (`/admin/textbook-subjects`)
+**파일**: `AdminTextbookSubjects.jsx`, `AdminTextbookBulkImport.jsx`
+
+**기능**: 검·인정도서 선정 건(과목·후보·위원·대표교사) 등록, 엑셀/붙여넣기 일괄 등록. 로직은 `apps/shared/lib/textbookAdoption.js`
+
+### 11. 교과부장 지정 (`/admin/textbook-dept-heads`)
+**파일**: `AdminTextbookDeptHeads.jsx` — 교과군별 교과부장(선정 건 확인 권한) 지정
+
+### 12. 인정도서 목록 (`/admin/textbook-catalog`)
+**파일**: `AdminTextbookCatalog.jsx` — 공식 인정도서 목록 가져오기(3c95f8b). 로직은 `apps/shared/lib/textbookCatalog.js`
+
+---
+
+### 13. 분할점수 기준 (`/admin/asa-cutoffs`)
 **경로**: `/admin/asa-cutoffs` (리다이렉트: `/tools/asa-support/cutoffs`)
 
 **기능**: 성취평가제 분할점수 기준 관리
@@ -267,7 +307,7 @@
 
 ---
 
-### 8. ASA 체크리스트 (`/admin/asa-checklist`)
+### 14. ASA 체크리스트 (`/admin/asa-checklist`)
 **경로**: `/admin/asa-checklist` (리다이렉트: `/tools/asa-checklist/admin`)
 
 **기능**: 성취평가제 운영 체크리스트 과목 관리
@@ -276,7 +316,7 @@
 
 ---
 
-### 9. 연수 명단 (`/admin/training-presets`)
+### 15. 연수 명단 (`/admin/training-presets`)
 **경로**: `/admin/training-presets` (리다이렉트: `/training/presets`)
 
 **기능**: 연수 참가자 명단 프리셋 관리
@@ -295,16 +335,9 @@
 - 탭 네비게이션 (MUI Tabs)
 - 승인 대기 배지 (Badge)
 
-**메뉴 항목** (MENU_ITEMS):
-1. 홈
-2. 계정 관리 (pending count badge)
-3. **과목 관리** (NEW, 교직원 관리 앞으로 이동)
-4. 교직원 관리
-5. 학생 관리
-6. 공간 관리
-7. 분할점수 기준
-8. ASA 체크리스트
-9. 연수 명단
+**메뉴 항목** (MENU_ITEMS): 홈 · 계정 관리(pending 배지) · 과목 관리 · 교직원 관리 · 학생 관리 · 공간 관리 · 학사일정 · 대시보드 모듈 · 평가계획 담당자 · 교과서 선정 · 교과부장 지정 · 인정도서 목록 · 분할점수 기준 · ASA 체크리스트 · 연수 명단
+
+> 업무 메신저 쪽 관리자 화면: `/admin/desktop` (`apps/dashboard/src/pages/AdminDesktop.jsx`) — 데스크톱 앱 설치 현황, 전체/개별 업데이트 확인 강제(aeb3af3, 5be9ea2)
 
 ### useTableSort 훅
 **파일**: `@shared/hooks/useTableSort.js`
@@ -371,47 +404,9 @@ users (계정)
 
 ---
 
-## 주요 개선 사항 (Phase 1B)
-
-### 1. Admin.jsx 리팩토링
-**Before**: 1,776줄 단일 파일
-**After**: 6개 모듈 (평균 370줄)
-
-**분리된 파일**:
-- AdminLayout.jsx (레이아웃)
-- AdminHome.jsx (대시보드)
-- AdminAccounts.jsx (계정 관리 4탭)
-- AdminStaff.jsx (교직원 관리 2탭)
-- AdminStudents.jsx (학생 관리)
-- AdminSpaces.jsx (공간 관리 3탭)
-
-### 2. 과목 관리 페이지 추가 (Phase 1B)
-**파일**: AdminSubjects.jsx (1019줄)
-
-**핵심 기능**:
-- 교육청 배당표 Excel 파싱 (merged cell 처리)
-- 간편 업로드 Excel 파싱
-- ImportModal 2단계 업로드 (미리보기 → 저장)
-- Excel 다운로드
-- 입학년도별 필터링
-- 테이블 정렬
-
-### 3. 자리 배치 확정 기능 (현재 작업)
-**위치**: OfficeLayoutEditor.jsx
-
-**변경사항**:
-- `confirmed` 필드 추가 (boolean)
-- "배치 완료 확정" 버튼 추가
-- AdminHome에서 confirmed: false인 사무실 경고 표시
-
-### 4. 메뉴 순서 조정 (현재 작업)
-**이유**: 과목 관리 → 교직원 관리 → 학생 관리 순서로 작업해야 일관성 유지
-
-**변경**:
-```diff
-- 홈 > 계정 관리 > 교직원 관리 > 학생 관리 > 과목 관리 > 공간 관리
-+ 홈 > 계정 관리 > 과목 관리 > 교직원 관리 > 학생 관리 > 공간 관리
-```
+## 이력
+2026-07-30~31 Admin.jsx(1,776줄)를 위 모듈들로 분리한 Phase 1B 리팩토링과 과목 관리·자리 배치 확정 추가의 경과는
+[docs/archive/PLAN_adminRefactor_final.md](./docs/archive/PLAN_adminRefactor_final.md), [docs/archive/MIGRATION_COMPLETE.md](./docs/archive/MIGRATION_COMPLETE.md) 참고.
 
 ---
 
@@ -438,37 +433,13 @@ users (계정)
 ---
 
 ## 향후 개선 과제
-
-### 1. 과목 관리 통합
-- [ ] teacherSubjects 과목 선택 시 subjects 컬렉션 참조
-- [ ] students.electiveSubjects 과목 선택 시 subjects 컬렉션 참조
-- [ ] 과목 삭제 시 참조 확인 (외래키 체크)
-
-### 2. Excel 업로드 개선
-- [ ] 교육청 배당표 오류 처리 강화
-- [ ] 업로드 중 진행률 표시
-- [ ] 파일 검증 (최대 크기, 형식 확인)
-
-### 3. 자리 배치 UX 개선
-- [ ] Undo/Redo 기능
-- [ ] 배치 템플릿 저장
-- [ ] 사무실 이미지 배경 (평면도 업로드)
-
-### 4. 대시보드 개선
-- [ ] 실시간 통계 그래프
-- [ ] 작업 진행률 시각화
-- [ ] 빠른 작업 바로가기
-
-### 5. 권한 세분화
-- [ ] 부서별 관리자 권한
-- [ ] 학년부장 권한 (해당 학년만 관리)
-- [ ] 교무부장 권한 (전체 관리)
+[ROADMAP.md](./ROADMAP.md)의 "관리자" 절로 옮겼다.
 
 ---
 
 ## 참고 문서
 
 - [전체 DB 구조](./DB_STRUCTURE.md)
-- [Phase 1A-B 완료 보고서](./MIGRATION_COMPLETE.md)
+- [보안·가입 승인 설계](./SECURITY.md)
 - [보강 신청 시스템](./SUBSTITUTE.md)
 - [스마트 출결 시스템](./ATTENDANCE.md)

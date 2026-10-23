@@ -1,3 +1,6 @@
+> **보관(2026-10-23)** — 대체됨 — 쿨메신저 대체는 업무 대시보드의 채널·DM·Electron 앱으로 구현됨. [PLAN_channels.md](./PLAN_channels.md)
+> 보관 문서 색인: [README.md](./README.md)
+
 # 교내 메신저 — 쿨메신저 대체 검토
 
 > 작성일: 2026-07-30
