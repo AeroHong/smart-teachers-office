@@ -97,7 +97,7 @@ const CARD_FILTERS = {
 
 const UNASSIGNED = '__unassigned__'
 // 임시: 학운위 제출 자료를 전 과목 마감 전에도 확인용으로 열 수 있게 한다(확인 후 false로).
-const REPORT_PREVIEW_UNLOCKED = true
+const REPORT_PREVIEW_UNLOCKED = false
 const FILTER_KEY = 'textbookDashboardFilters'
 function readSavedFilters() {
   try { return JSON.parse(sessionStorage.getItem(FILTER_KEY) || '{}') || {} } catch { return {} }
