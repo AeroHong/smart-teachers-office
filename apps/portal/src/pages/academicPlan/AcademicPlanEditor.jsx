@@ -13,29 +13,70 @@ import Alert from '@mui/material/Alert'
 import Snackbar from '@mui/material/Snackbar'
 import CircularProgress from '@mui/material/CircularProgress'
 import TextField from '@mui/material/TextField'
+import Checkbox from '@mui/material/Checkbox'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import FullscreenIcon from '@mui/icons-material/Fullscreen'
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
 import HistoryIcon from '@mui/icons-material/History'
 import PrintIcon from '@mui/icons-material/Print'
 import EventAvailableIcon from '@mui/icons-material/EventAvailable'
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
-import VerifiedIcon from '@mui/icons-material/Verified'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { functions } from '@shared/lib/firebase'
-import { buildWeekRows, computeStats, rowsForSemester, shiftEvent, yearRange } from '@shared/lib/academicPlan'
-import Layout from '../../components/Layout'
+import {
+  GRADES, SCHOOL_WEEKDAYS, addConfirmation, buildWeekRows, computeStats, isEventLocked,
+  isTrayEvent, markFrameEvents, placeTrayEvent, planStage, relockEvents, rowsForSemester, sameWeekdayNextYear, shiftEvent, unscheduleEvent,
+  yearRange,
+} from '@shared/lib/academicPlan'
 import PlanGrid from './PlanGrid'
 import PlanStatsPanel from './PlanStatsPanel'
 import EventDialog from './EventDialog'
 import VersionDrawer from './VersionDrawer'
+import TrayPanel from './TrayPanel'
+import DeptColorDialog from './DeptColorDialog'
 import useStaffDirectory from './useStaffDirectory'
 import {
-  confirmPlan, loadVersionData, renamePlan, savePlan, subscribePlan, subscribePlans, subscribeYear, unconfirmPlan,
+  confirmPlan, loadVersionData, renamePlan, saveDeptColors, savePlan, setActivePlan, subscribePlan, subscribePlans, subscribeYear,
+  unconfirmPlan,
 } from './planRepo'
 import { downloadPlanPdf, printPlan } from './academicPlanPrint'
+import { downloadPlanXlsx } from './academicPlanXlsx'
 import { ACCENT } from './planUi'
+import StageBar from './StageBar'
+import PlanFilter, { EMPTY_FILTER, makeEventFilter } from './PlanFilter'
+
+/** 세부·확정 단계에서 전일행사를 넣거나 옮기면 줄어드는 실수업일 칸 — [{sem, grade, weekday, from, to}] */
+function actualDrops(before, after) {
+  const out = []
+  for (const sem of [1, 2]) for (const g of GRADES) {
+    const a = before.grades[g][sem].actual
+    const b = after.grades[g][sem].actual
+    a.forEach((v, i) => { if (b[i] < v) out.push({ sem, grade: g, weekday: i, from: v, to: b[i] }) })
+  }
+  return out
+}
 
 const SAVE_DELAY = 1200
+const PAGE_BG = '#eef2f6'
+const PANEL = { bgcolor: '#fff', border: '1px solid #cbd5e1', borderRadius: 2, p: 1.25 }
+
+/** 이 브라우저에만 기억하는 화면 설정(일요일 보기·패널 접기) */
+function useLocalFlag(key, initial) {
+  const [v, setV] = useState(() => {
+    try { const x = localStorage.getItem(key); return x === null ? initial : x === '1' } catch { return initial }
+  })
+  const set = (next) => {
+    setV(next)
+    try { localStorage.setItem(key, next ? '1' : '0') } catch { /* 저장 못 해도 화면은 그대로 */ }
+  }
+  return [v, set]
+}
 
 export default function AcademicPlanEditor() {
   const { planId } = useParams()
@@ -57,8 +98,16 @@ export default function AcademicPlanEditor() {
   const [printAnchor, setPrintAnchor] = useState(null)
   const [busy, setBusy] = useState('')
   const [nameEdit, setNameEdit] = useState(null)
+  const [colorOpen, setColorOpen] = useState(false)
+  const [filter, setFilter] = useState(EMPTY_FILTER)
+  const [hintDate, setHintDate] = useState(null) // 작년 날짜가 있는 카드를 끄는 동안 '작년 이맘때' 칸
+  const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement))
+  const [showSunday, setShowSunday] = useLocalFlag('academicPlan.showSunday', false)
+  const [statsOpen, setStatsOpen] = useLocalFlag('academicPlan.statsOpen', true)
 
   // 저장 기준점 — 연 때의 저장본과 revision. 다른 사람이 먼저 저장했으면 savePlan이 이 위에 합친다
+  const rootRef = useRef(null)
+  const scrollRef = useRef(null) // 표 스크롤 상자 — 화면에서 움직이는 건 이것뿐
   const baseRef = useRef(null)
   const baseRevRef = useRef(0)
   const draftRef = useRef(null)
@@ -68,7 +117,7 @@ export default function AcademicPlanEditor() {
   draftRef.current = draft
   dirtyRef.current = dirty
 
-  const { departments } = useStaffDirectory(schoolId, plan?.year)
+  const { departments: staffDepts } = useStaffDirectory(schoolId, plan?.year)
   const canAdmin = isAdmin || isSuperAdmin
   const canEdit = Boolean(plan) && (canAdmin || (yearDoc?.editorUids || []).includes(user?.uid))
 
@@ -102,7 +151,7 @@ export default function AcademicPlanEditor() {
     try {
       const r = await savePlan({
         schoolId, planId, by, base: baseRef.current, mine, baseRevision: baseRevRef.current,
-        action: opts.action, summary: opts.summary,
+        action: opts.action, summary: opts.summary, extra: opts.extra,
       })
       baseRef.current = r.data
       baseRevRef.current = r.revision
@@ -114,8 +163,10 @@ export default function AcademicPlanEditor() {
         timerRef.current = setTimeout(() => runSave(), SAVE_DELAY)
       }
       if (r.merged) setToast(r.conflicts.length ? `다른 선생님 수정과 합쳤습니다 — ${r.conflicts.join(' ')}` : '다른 선생님 수정과 합쳐 저장했습니다.')
+      return r
     } catch (e) {
       setError(`저장하지 못했습니다: ${e.message}`)
+      return null
     } finally {
       savingRef.current = false
       setSaving(false)
@@ -123,6 +174,49 @@ export default function AcademicPlanEditor() {
   }, [schoolId, planId, by])
 
   useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  /**
+   * 화면은 창 높이에 고정하고 표만 스크롤한다. 표 밖(머리글·양쪽 패널)에서 굴린 휠도 표로 넘긴다.
+   * 단, 양쪽 패널이 내용이 길어 스스로 더 굴러갈 수 있을 때는 그 패널을 먼저 굴린다.
+   */
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return undefined
+    const onWheel = (e) => {
+      const sc = scrollRef.current
+      if (!sc || e.ctrlKey || sc.contains(e.target)) return
+      for (let el = e.target; el && el !== root; el = el.parentElement) {
+        if (!/(auto|scroll)/.test(getComputedStyle(el).overflowY) || el.scrollHeight <= el.clientHeight + 1) continue
+        const canUp = el.scrollTop > 0
+        const canDown = el.scrollTop + el.clientHeight < el.scrollHeight - 1
+        if ((e.deltaY < 0 && canUp) || (e.deltaY > 0 && canDown)) return
+      }
+      e.preventDefault()
+      const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? sc.clientHeight : 1 // 줄·페이지 단위 휠
+      sc.scrollBy({ top: e.deltaY * k, left: e.deltaX * k })
+    }
+    root.addEventListener('wheel', onWheel, { passive: false })
+    return () => root.removeEventListener('wheel', onWheel)
+  }, [plan === undefined || plan === null]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 전체 화면 — Esc로 나가도 버튼 모양이 따라오게 fullscreenchange를 듣는다
+  useEffect(() => {
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.()
+    else document.documentElement.requestFullscreen?.().catch(() => setToast('이 브라우저에서는 전체 화면을 쓸 수 없습니다.'))
+  }
+
+  // 새 창 탭 제목
+  useEffect(() => {
+    if (!plan) return
+    const prev = document.title
+    document.title = `${plan.year} ${plan.name} · 학사일정`
+    return () => { document.title = prev }
+  }, [plan?.year, plan?.name]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const change = (fn) => {
     if (!canEdit) return
@@ -136,18 +230,89 @@ export default function AcademicPlanEditor() {
   const stats = useMemo(() => (view ? computeStats(view) : null), [view])
   const rows = useMemo(() => (view ? rowsForSemester(buildWeekRows(view), semester) : []), [view, semester])
 
-  const saveEvent = (ev) => {
+  const stage = planStage(plan)
+  const lockedOf = (id) => {
+    const ev = draft?.events.find((e) => e.id === id)
+    return Boolean(ev && isEventLocked(ev, stage))
+  }
+  const lockedToast = () => setToast(stage === 'final' ? '확정된 학사일정입니다. 고치려면 관리자가 그 일정을 잠금 해제해야 합니다.' : '주요 일정은 잠겨 있습니다. 관리자가 잠금 해제해야 고칠 수 있습니다.')
+
+  /**
+   * 세부·확정 단계에서 전일행사가 새로 생기거나 날짜가 바뀌면 실수업일이 줄어든다 — 막지 않고 알린다.
+   * 사용자가 취소하면 false
+   */
+  const confirmFullDayImpact = (nextEvents) => {
+    if (stage === 'frame') return true
+    const drops = actualDrops(stats, computeStats({ ...view, events: nextEvents }))
+    if (!drops.length) return true
+    const lines = drops.slice(0, 8).map((d) => `${d.sem}학기 ${d.grade}학년 ${SCHOOL_WEEKDAYS[d.weekday]} ${d.from}→${d.to}${d.to < 16 ? ' (16회 미만!)' : ''}`)
+    return window.confirm(`이 변경으로 실수업일이 줄어듭니다.\n\n${lines.join('\n')}${drops.length > 8 ? `\n외 ${drops.length - 8}칸` : ''}\n\n그래도 저장할까요?`)
+  }
+
+  const saveEvent = (input) => {
+    if (lockedOf(input.id)) { lockedToast(); return }
+    const isNew = !draft.events.some((e) => e.id === input.id)
+    // 최종 확정 뒤 새 일정은 관리자만, 잠금 해제 상태로 들어가 재확정해야 새 판에 담긴다
+    if (isNew && stage === 'final' && !canAdmin) { lockedToast(); return }
+    const ev = isNew && stage === 'final' ? { ...input, unlocked: true } : input
+    const nextEvents = draft.events.some((e) => e.id === ev.id) ? draft.events.map((e) => (e.id === ev.id ? ev : e)) : [...draft.events, ev]
+    if (!confirmFullDayImpact(nextEvents)) return
     change((d) => ({ ...d, events: d.events.some((e) => e.id === ev.id) ? d.events.map((e) => (e.id === ev.id ? ev : e)) : [...d.events, ev] }))
     setDialog(null)
   }
   const deleteEvent = (id) => {
+    if (lockedOf(id)) { lockedToast(); return }
     change((d) => ({ ...d, events: d.events.filter((e) => e.id !== id) }))
     setDialog(null)
+  }
+  // 관리자 — 확정 뒤 이 일정만 잠금 해제(수정 기록에 '잠금 해제'로 남는다)
+  const unlockEvent = (id) => {
+    change((d) => ({ ...d, events: d.events.map((e) => (e.id === id ? { ...e, unlocked: true } : e)) }))
+    setDialog((x) => (x?.event?.id === id ? { event: { ...x.event, unlocked: true } } : x))
   }
   const moveEvent = (id, toDate) => {
     const { start, end } = yearRange(plan.year)
     if (toDate < start || toDate > end) return
-    change((d) => ({ ...d, events: d.events.map((e) => (e.id === id && e.date !== toDate ? shiftEvent(e, toDate) : e)) }))
+    setHintDate(null)
+    if (lockedOf(id)) { lockedToast(); return }
+    const moved = draft.events.map((e) => {
+      if (e.id !== id || e.date === toDate) return e
+      return isTrayEvent(e) ? placeTrayEvent(e, toDate) : shiftEvent(e, toDate)
+    })
+    if (!confirmFullDayImpact(moved)) return
+    change((d) => ({
+      ...d,
+      events: d.events.map((e) => {
+        if (e.id !== id || e.date === toDate) return e
+        return isTrayEvent(e) ? placeTrayEvent(e, toDate) : shiftEvent(e, toDate)
+      }),
+    }))
+  }
+  // 표의 일정을 보관함으로 — 날짜를 비운다
+  const unschedule = (id) => {
+    if (lockedOf(id)) { lockedToast(); return }
+    change((d) => ({ ...d, events: d.events.map((e) => (e.id === id && !isTrayEvent(e) ? unscheduleEvent(e) : e)) }))
+  }
+
+  /**
+   * 표의 일정을 한꺼번에 보관함 카드로(학기 또는 학년도 전체). 잠긴 일정과 날짜에 묶인 공휴일·요일 교체는 남긴다.
+   * 한 번의 저장 = 수정 기록 한 줄이라 '이 버전으로 복구'로 바로 되돌릴 수 있다.
+   */
+  const unscheduleAll = (sem) => {
+    const inSem = (k) => !sem || (sem === 1 ? Number(k.slice(5, 7)) >= 3 && Number(k.slice(5, 7)) <= 7 : Number(k.slice(5, 7)) >= 8 || Number(k.slice(5, 7)) <= 2)
+    // 보기 필터를 켰으면 보이는 일정만
+    const visible = makeEventFilter(filter)
+    const targets = draft.events.filter((e) => !isTrayEvent(e) && !isEventLocked(e, stage) && e.kind !== '공휴일' && e.kind !== '요일교체'
+      && inSem(e.date) && (!visible || visible(e)))
+    if (!targets.length) { setToast('카드로 옮길 일정이 없습니다.'); return }
+    const kept = draft.events.filter((e) => !isTrayEvent(e) && !targets.includes(e) && inSem(e.date) && (!visible || visible(e))).length
+    if (!window.confirm(`${sem ? `${sem}학기` : '학년도 전체'}${visible ? ' (보기 필터에 보이는 것만)' : ''} 일정 ${targets.length}건을 보관함 카드로 옮깁니다.${kept ? `
+(잠긴 일정·공휴일·요일 교체 ${kept}건은 그대로 둡니다)` : ''}
+
+수정 기록의 '이 버전으로 복구'로 되돌릴 수 있습니다. 진행할까요?`)) return
+    const ids = new Set(targets.map((e) => e.id))
+    change((d) => ({ ...d, events: d.events.map((e) => (ids.has(e.id) ? unscheduleEvent(e) : e)) }))
+    setToast(`일정 ${targets.length}건을 카드로 옮겼습니다.`)
   }
 
   const loadHolidays = async () => {
@@ -170,10 +335,60 @@ export default function AcademicPlanEditor() {
     setHistoryOpen(false)
   }
 
-  const doConfirm = async () => {
-    if (!window.confirm(`'${plan.name}'을(를) ${plan.year}학년도 확정 학사일정으로 지정할까요? 같은 학년도의 다른 확정본은 초안으로 돌아갑니다.`)) return
-    setBusy('confirm')
-    try { await confirmPlan({ schoolId, plan, plans, by }); setToast('확정했습니다.') } catch (e) { setError(e.message) } finally { setBusy('') }
+  // ── 단계 진행(관리자) — 일정 변경과 단계·확정 판을 한 번의 저장(새 버전)으로 ─────────────
+  const confirmations = plan?.confirmations || []
+  const nextNo = (st) => confirmations.filter((c) => c.stage === st).length + 1
+  const stageSave = ({ events, summary, stage: nextStage, confirmStage }) => runSave({
+    mine: { ...draftRef.current, events },
+    action: 'confirm',
+    summary,
+    extra: ({ versionNo, server }) => ({
+      ...(nextStage ? { stage: nextStage } : {}),
+      ...(confirmStage ? { confirmations: addConfirmation(server.confirmations || [], { stage: confirmStage, versionNo, at: Date.now(), by }) } : {}),
+    }),
+  })
+  const busyGuard = () => {
+    if (dirty || saving) { setError('저장이 끝난 뒤에 다시 눌러 주세요.'); return false }
+    return true
+  }
+
+  const doConfirmFrame = async () => {
+    if (!busyGuard()) return
+    if (!window.confirm(`주요 일정을 확정합니다.\n\n· 개학·방학·고사·휴업·요일 교체·전일행사 일정이 잠깁니다(관리자가 일정별로 잠금 해제 가능).\n· 부장 선생님들은 이 초안에 세부 일정을 채웁니다.\n· 같은 학년도의 다른 초안은 목록에서 '보관'으로 표시됩니다.\n\n진행할까요?`)) return
+    setBusy('stage')
+    try {
+      const r = await stageSave({ events: markFrameEvents(draftRef.current.events), summary: `주요 일정 확정 ${nextNo('frame')}판`, stage: 'detail', confirmStage: 'frame' })
+      if (r) { await setActivePlan(schoolId, plan.year, planId); setToast('주요 일정을 확정했습니다. 이제 세부 일정을 넣을 수 있습니다.') }
+    } finally { setBusy('') }
+  }
+
+  // 잠금 해제했던 일정을 고친 뒤 — 같은 단계를 새 판으로, 이전 판은 '변경됨'
+  const doReconfirm = async () => {
+    if (!busyGuard()) return
+    const st = stage === 'final' ? 'final' : 'frame'
+    const label = st === 'final' ? '확정' : '주요 일정 확정'
+    if (!window.confirm(`잠금 해제한 일정을 다시 잠그고 ${label} ${nextNo(st)}판으로 기록합니다. 이전 판은 '변경됨'으로 표시됩니다. 진행할까요?`)) return
+    setBusy('stage')
+    try {
+      const r = await stageSave({ events: relockEvents(draftRef.current.events), summary: `${label} ${nextNo(st)}판 (재확정)`, confirmStage: st })
+      if (r) setToast(`${label} ${nextNo(st)}판으로 기록했습니다.`)
+    } finally { setBusy('') }
+  }
+
+  const doConfirmFinal = async () => {
+    if (!busyGuard()) return
+    if (!window.confirm(`'${plan.name}'을(를) ${plan.year}학년도 학사일정으로 최종 확정합니다. 모든 일정이 잠기고, 같은 학년도의 다른 확정본은 초안으로 돌아갑니다. 진행할까요?`)) return
+    setBusy('stage')
+    try {
+      const r = await stageSave({ events: relockEvents(draftRef.current.events), summary: `최종 확정 ${nextNo('final')}판`, stage: 'final', confirmStage: 'final' })
+      if (r) { await confirmPlan({ schoolId, plan, plans, by }); setToast('최종 확정했습니다.') }
+    } catch (e) { setError(e.message) } finally { setBusy('') }
+  }
+
+  const doUnconfirm = async () => {
+    if (!window.confirm('최종 확정을 풀고 세부 일정 단계로 돌아갑니다. 확정 판 기록은 남습니다. 진행할까요?')) return
+    setBusy('stage')
+    try { await unconfirmPlan({ schoolId, plan }); setToast('세부 일정 단계로 돌아갔습니다.') } catch (e) { setError(e.message) } finally { setBusy('') }
   }
 
   const doPublish = async () => {
@@ -188,39 +403,59 @@ export default function AcademicPlanEditor() {
     } finally { setBusy('') }
   }
 
+  const exportXlsx = () => {
+    setPrintAnchor(null)
+    downloadPlanXlsx(view, schoolName).catch((e) => setError(`엑셀을 만들지 못했습니다: ${e.message}`))
+  }
+
   const print = (sems, pdf) => {
     setPrintAnchor(null)
     if (pdf) downloadPlanPdf(view, schoolName, sems).catch((e) => setError(e.message))
     else if (!printPlan(view, schoolName, sems)) setError('팝업이 차단되어 인쇄 창을 열지 못했습니다.')
   }
 
-  if (plan === undefined) return <Layout wide><Box sx={{ p: 6, textAlign: 'center' }}><CircularProgress /></Box></Layout>
-  if (plan === null) return <Layout wide><Alert severity="error" sx={{ m: 3 }}>학사일정 초안을 찾을 수 없습니다.</Alert></Layout>
+  if (plan === undefined) return <Box sx={{ p: 6, textAlign: 'center' }}><CircularProgress /></Box>
+  if (plan === null) return <Alert severity="error" sx={{ m: 3 }}>학사일정 초안을 찾을 수 없습니다.</Alert>
+
+  // 목록에서 새 창으로 열렸으면 창을 닫고, 주소로 바로 들어왔으면 목록으로
+  const goList = () => {
+    if (window.opener && !window.opener.closed) window.close()
+    else navigate(`/academic-plan?year=${plan.year}`)
+  }
 
   const status = saving ? '저장 중…' : dirty ? '저장 대기' : '저장됨'
+  const deptColors = yearDoc?.deptColors || {}
+  // 부서 목록 = 교직원 배정의 부서 + 일정에 적힌 부서(손으로 적은 것 포함)
+  const departments = [...new Set([...staffDepts, ...(view.events || []).map((e) => e.dept).filter(Boolean)])]
+    .sort((a, b) => a.localeCompare(b, 'ko'))
+  // 보기 필터 — 표·보관함에만. 수업일수(stats)는 전체 일정 기준 그대로
+  const pass = makeEventFilter(filter)
+  const shownView = pass ? { ...view, events: (view.events || []).filter(pass) } : view
+  const hiddenCount = pass ? (view.events || []).length - shownView.events.length : 0
 
   return (
-    <Layout wide>
-      <Box sx={{ p: { xs: 1.5, md: 3 }, display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box ref={rootRef} sx={{ height: '100vh', overflow: 'hidden', bgcolor: PAGE_BG }}>
+      {/* 새 창 전용 화면 — 포털 상단바·사이드바 없이. 왼쪽 수업일수 · 가운데 표 · 오른쪽 일정 카드 */}
+      <Box sx={{ px: { xs: 1, md: 2 }, py: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25, maxWidth: 1920, mx: 'auto', height: '100%', boxSizing: 'border-box' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(`/academic-plan?year=${plan.year}`)} size="small">목록</Button>
+          <Button startIcon={<ArrowBackIcon />} onClick={goList} size="small">목록</Button>
           {nameEdit !== null ? (
             <TextField size="small" autoFocus value={nameEdit} onChange={(e) => setNameEdit(e.target.value)}
               onBlur={async () => { if (nameEdit.trim() && nameEdit !== plan.name) await renamePlan(schoolId, planId, nameEdit.trim()); setNameEdit(null) }}
               onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setNameEdit(null) }} />
           ) : (
-            <Typography variant="h5" sx={{ fontWeight: 800, cursor: canEdit ? 'text' : 'default' }}
+            <Typography variant="h6" sx={{ fontWeight: 800, cursor: canEdit ? 'text' : 'default' }}
               onClick={() => canEdit && setNameEdit(plan.name)}>
               {plan.year}학년도 · {plan.name}
             </Typography>
           )}
-          {plan.status === 'confirmed'
-            ? <Chip icon={<VerifiedIcon />} label="확정" color="success" size="small" />
-            : <Chip label="초안" size="small" />}
           {canEdit
             ? <Typography variant="caption" sx={{ color: dirty || saving ? '#b45309' : 'text.secondary' }}>{status}</Typography>
             : <Chip label="읽기 전용" size="small" variant="outlined" />}
           <Box sx={{ flex: 1 }} />
+          <Button size="small" startIcon={fullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />} onClick={toggleFullscreen}>
+            {fullscreen ? '전체 화면 끄기' : '전체 화면'}
+          </Button>
           {canEdit && (
             <Button size="small" startIcon={<EventAvailableIcon />} onClick={loadHolidays} disabled={busy === 'holidays'}>
               공휴일 불러오기
@@ -234,18 +469,18 @@ export default function AcademicPlanEditor() {
             <MenuItem onClick={() => print([2])}>2학기 인쇄 (A4 1장)</MenuItem>
             <MenuItem onClick={() => print([1, 2])}>두 학기 모두 인쇄</MenuItem>
             <MenuItem onClick={() => print([1, 2], true)}>PDF로 저장</MenuItem>
+            <MenuItem onClick={exportXlsx}>엑셀로 내려받기 (.xlsx)</MenuItem>
           </Menu>
-          {canAdmin && (plan.status === 'confirmed' ? (
-            <>
-              <Button size="small" variant="contained" disableElevation startIcon={<CloudUploadIcon />} onClick={doPublish} disabled={busy === 'publish'} sx={{ bgcolor: ACCENT }}>
-                구글 캘린더 반영
-              </Button>
-              <Button size="small" onClick={() => unconfirmPlan({ schoolId, plan })}>확정 해제</Button>
-            </>
-          ) : (
-            <Button size="small" variant="outlined" startIcon={<VerifiedIcon />} onClick={doConfirm} disabled={busy === 'confirm'}>확정</Button>
-          ))}
+          {canAdmin && stage === 'final' && (
+            <Button size="small" variant="contained" disableElevation startIcon={<CloudUploadIcon />} onClick={doPublish} disabled={busy === 'publish'} sx={{ bgcolor: ACCENT }}>
+              구글 캘린더 반영
+            </Button>
+          )}
         </Box>
+
+        <StageBar stage={stage} confirmations={confirmations} canAdmin={canAdmin} busy={busy === 'stage'}
+          unlockedCount={(view.events || []).filter((e) => e.unlocked).length}
+          onConfirmFrame={doConfirmFrame} onConfirmFinal={doConfirmFinal} onReconfirm={doReconfirm} onUnconfirm={doUnconfirm} />
 
         {!canEdit && (
           <Alert severity="info">이 학년도 학사일정은 부장교사(편집자)와 관리자가 고칠 수 있습니다. 지금은 보기만 할 수 있습니다.</Alert>
@@ -257,36 +492,85 @@ export default function AcademicPlanEditor() {
         )}
         {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
-        <Tabs value={semester ?? 0} onChange={(_, v) => setSemester(v || null)} sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36 } }}>
-          <Tab value={1} label="1학기 (3~7월)" />
-          <Tab value={2} label="2학기 (8~2월)" />
-          <Tab value={0} label="전체" />
-        </Tabs>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Tabs value={semester ?? 0} onChange={(_, v) => setSemester(v || null)} sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, fontWeight: 700 } }}>
+            <Tab value={1} label="1학기 (3~7월)" />
+            <Tab value={2} label="2학기 (8~2월)" />
+            <Tab value={0} label="전체" />
+          </Tabs>
+          <PlanFilter value={filter} onChange={setFilter} departments={departments} deptColors={deptColors} hiddenCount={hiddenCount} />
+          <Box sx={{ flex: 1 }} />
+          <FormControlLabel sx={{ mr: 0 }} label={<Typography variant="body2">일요일 보기</Typography>}
+            control={<Checkbox size="small" checked={showSunday} onChange={(e) => setShowSunday(e.target.checked)} />} />
+        </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.5fr) minmax(0, 1fr)' }, gap: 2, alignItems: 'start' }}>
-          <Box sx={{ overflowX: 'auto' }}>
-            <Box sx={{ minWidth: 760 }}>
-              <PlanGrid plan={view} rows={rows} canEdit={canEdit}
-                onCellClick={(date) => setDialog({ event: { date } })}
-                onEventClick={(ev) => setDialog({ event: ev })}
-                onMove={moveEvent} />
+        {/* 남은 높이를 세 칸이 나눠 쓴다 — 가운데 표만 스크롤 */}
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', flex: 1, minHeight: 0 }}>
+          {/* 왼쪽 — 수업일수(접기 가능, 스크롤해도 고정) */}
+          {statsOpen ? (
+            <Box sx={{ ...PANEL, width: 340, flexShrink: 0, maxHeight: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                <Typography sx={{ fontWeight: 800, flex: 1 }}>수업일수</Typography>
+                <Tooltip title="수업일수 접기"><IconButton size="small" onClick={() => setStatsOpen(false)}><ChevronLeftIcon fontSize="small" /></IconButton></Tooltip>
+              </Box>
+              <PlanStatsPanel stats={stats} semester={semester} />
+            </Box>
+          ) : (
+            <Tooltip title="수업일수 펼치기" placement="right">
+              <Box onClick={() => setStatsOpen(true)}
+                sx={{ ...PANEL, p: 0.5, width: 30, flexShrink: 0, cursor: 'pointer', textAlign: 'center',
+                  '&:hover': { bgcolor: '#f0fdfa' } }}>
+                <ChevronRightIcon fontSize="small" />
+                <Typography sx={{ writingMode: 'vertical-rl', fontSize: '0.8rem', fontWeight: 800, mx: 'auto', py: 1 }}>수업일수</Typography>
+                {stats.warnings.some((w) => !semester || w.semester === semester) && <Box sx={{ color: '#b91c1c', fontWeight: 900 }}>!</Box>}
+              </Box>
+            </Tooltip>
+          )}
+
+          {/* 가운데 — 학사일정 표 */}
+          {/* 이 상자가 스크롤 상자 — 표 머리글(sticky)은 이 상자 위쪽에 붙는다 */}
+          <Box ref={scrollRef} sx={{ flex: 1, minWidth: 0, height: '100%', overflow: 'auto', borderRadius: 1 }}>
+            <Box>
+              <Box sx={{ minWidth: 760 }}>
+                <PlanGrid plan={view} events={shownView.events} rows={rows} hintDate={hintDate} canEdit={canEdit} showSunday={showSunday} deptColors={deptColors}
+                  isLocked={(ev) => isEventLocked(ev, stage)}
+                  onCellClick={(date) => setDialog({ event: { date } })}
+                  onEventClick={(ev) => setDialog({ event: ev })}
+                  onMove={moveEvent} />
+              </Box>
             </Box>
             {canEdit && (
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-                빈 곳을 누르면 그날 일정을 등록하고, 일정을 끌어서 다른 날로 옮길 수 있습니다. 고친 내용은 자동 저장되고 수정 기록에 남습니다.
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1, pb: 1 }}>
+                빈 곳을 누르면 그날 일정을 등록하고, 일정을 끌어서 다른 날이나 오른쪽 보관함으로 옮길 수 있습니다. 고친 내용은 자동 저장되고 수정 기록에 남습니다.
               </Typography>
             )}
           </Box>
-          <Box sx={{ position: { xl: 'sticky' }, top: { xl: 16 } }}>
-            <PlanStatsPanel stats={stats} semester={semester} />
+
+          {/* 오른쪽 — 일정 카드 보관함 · 부서 색 */}
+          <Box sx={{ ...PANEL, width: 250, flexShrink: 0, maxHeight: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
+            <TrayPanel events={shownView.events} canEdit={canEdit} deptColors={deptColors}
+              onAdd={() => setDialog({ event: { date: '' } })}
+              onEdit={(ev) => setDialog({ event: ev })}
+              onUnschedule={unschedule}
+              semester={semester} onUnscheduleAll={unscheduleAll}
+              onCardDrag={(ev) => setHintDate(ev ? sameWeekdayNextYear(ev.prevDate) : null)}
+              onEditColors={() => setColorOpen(true)} />
           </Box>
         </Box>
       </Box>
 
-      <EventDialog open={Boolean(dialog)} event={dialog?.event} departments={departments} readOnly={!canEdit}
+      <EventDialog open={Boolean(dialog)} event={dialog?.event} departments={departments}
+        readOnly={!canEdit || Boolean(dialog?.event?.id && isEventLocked(dialog.event, stage))}
+        locked={Boolean(dialog?.event?.id && isEventLocked(dialog.event, stage))}
+        canUnlock={canAdmin} onUnlock={unlockEvent}
+        stage={stage} restrictKinds={stage !== 'frame' && !canAdmin}
         onClose={() => setDialog(null)} onSave={saveEvent} onDelete={deleteEvent} />
+      <DeptColorDialog open={colorOpen} departments={departments} value={deptColors} onClose={() => setColorOpen(false)}
+        onSave={async (colors) => {
+          try { await saveDeptColors(schoolId, plan.year, colors); setColorOpen(false) } catch (e) { setError(`부서 색을 저장하지 못했습니다: ${e.message}`) }
+        }} />
       <VersionDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} schoolId={schoolId} plan={plan} canEdit={canEdit} onRestore={restore} />
       <Snackbar open={Boolean(toast)} autoHideDuration={5000} onClose={() => setToast('')} message={toast} />
-    </Layout>
+    </Box>
   )
 }

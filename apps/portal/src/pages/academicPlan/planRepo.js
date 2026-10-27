@@ -38,6 +38,11 @@ export async function saveYear(schoolId, year, data) {
   await setDoc(yearRef(schoolId, year), { ...plain(data), updatedAt: serverTimestamp() }, { merge: true })
 }
 
+/** 부서 색 — 편집자도 이 필드만 고칠 수 있다(규칙) */
+export async function saveDeptColors(schoolId, year, deptColors) {
+  await updateDoc(yearRef(schoolId, year), { deptColors: plain(deptColors), updatedAt: serverTimestamp() })
+}
+
 /**
  * 새 초안. 일정을 들고 시작하면(복제) 첫 저장 전이라도 내용이 남도록 revision 0으로 바로 쓴다 — 버전 v1은 첫 저장 때.
  * @returns {Promise<string>} planId
@@ -61,8 +66,9 @@ export async function renamePlan(schoolId, planId, name) {
 }
 
 /**
- * @param {{ schoolId, planId, base, mine, baseRevision, action?, summary?, by: {uid, name} }} o
+ * @param {{ schoolId, planId, base, mine, baseRevision, action?, summary?, by: {uid, name}, extra? }} o
  *   base: 내가 연 저장본 {events, holidays}, mine: 지금 화면 상태, baseRevision: 연 때의 revision
+ *   extra: ({ versionNo, server }) => 초안 문서에 같이 쓸 필드(단계·확정 판 — 관리자). 있으면 일정이 그대로여도 버전을 남긴다
  * @returns {Promise<{ saved, data, revision, conflicts: string[], merged: boolean, summary: string }>}
  */
 export async function savePlan(o) {
@@ -82,11 +88,12 @@ export async function savePlan(o) {
     const lines = describeDiff(diffEvents(latest.events, next.events))
     const holidaysChanged = JSON.stringify(latest.holidays) !== JSON.stringify(next.holidays)
     if (holidaysChanged) lines.push(`공휴일 목록 갱신 (${next.holidays.length}일)`)
-    if (!lines.length) {
+    if (!lines.length && !o.extra) {
       return { saved: false, data: latest, revision, conflicts: m.conflicts, merged, summary: '변경 없음' }
     }
-    const auto = lines.length === 1 ? lines[0] : `${lines[0]} 외 ${lines.length - 1}건`
-    const summary = o.summary ? `${o.summary} — ${auto}` : auto
+    const auto = !lines.length ? '' : lines.length === 1 ? lines[0] : `${lines[0]} 외 ${lines.length - 1}건`
+    const summary = o.summary ? (auto ? `${o.summary} — ${auto}` : o.summary) : auto
+    const extra = o.extra ? plain(o.extra({ versionNo: n + 1, server })) : {}
 
     const vRef = doc(sub(o.schoolId, o.planId, COL.EXAM_VERSIONS))
     tx.set(vRef, {
@@ -100,6 +107,7 @@ export async function savePlan(o) {
       revision: revision + 1,
       versionCount: n + 1,
       latestVersionId: vRef.id,
+      ...extra,
       updatedBy: o.by,
       updatedAt: serverTimestamp(),
     })
@@ -124,16 +132,24 @@ export async function loadVersionData(schoolId, planId, versionId) {
 export async function confirmPlan({ schoolId, plan, plans, by }) {
   const b = writeBatch(db)
   for (const p of plans) {
-    if (p.id !== plan.id && p.status === 'confirmed') b.update(planRef(schoolId, p.id), { status: 'draft', confirmedAt: null, confirmedBy: null })
+    if (p.id !== plan.id && p.status === 'confirmed') b.update(planRef(schoolId, p.id), { status: 'draft', confirmedAt: null, confirmedBy: null, stage: 'detail' })
   }
   b.update(planRef(schoolId, plan.id), { status: 'confirmed', confirmedAt: serverTimestamp(), confirmedBy: by })
   b.set(yearRef(schoolId, plan.year), { confirmedPlanId: plan.id, updatedAt: serverTimestamp() }, { merge: true })
   await b.commit()
 }
 
+/**
+ * 같은 학년도에서 이 초안 하나로 진행(주요 일정 확정) — 학년도 설정에 기록, 나머지 초안은 목록에서 '보관'으로 보인다.
+ */
+export async function setActivePlan(schoolId, year, planId) {
+  await setDoc(yearRef(schoolId, year), { activePlanId: planId, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+/** 최종 확정 해제 — 세부 일정 단계로(확정 판 기록은 남긴다) */
 export async function unconfirmPlan({ schoolId, plan }) {
   const b = writeBatch(db)
-  b.update(planRef(schoolId, plan.id), { status: 'draft', confirmedAt: null, confirmedBy: null })
+  b.update(planRef(schoolId, plan.id), { status: 'draft', confirmedAt: null, confirmedBy: null, stage: 'detail' })
   b.set(yearRef(schoolId, plan.year), { confirmedPlanId: null, updatedAt: serverTimestamp() }, { merge: true })
   await b.commit()
 }

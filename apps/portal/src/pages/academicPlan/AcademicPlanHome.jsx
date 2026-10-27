@@ -23,7 +23,7 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { db } from '@shared/lib/firebase'
 import { COL, currentYearSemester, schoolPath } from '@shared/lib/schema'
-import { MIN_WEEKDAY_DAYS, computeStats, rollEventsToNextYear } from '@shared/lib/academicPlan'
+import { MIN_WEEKDAY_DAYS, STAGE_LABEL, computeStats, eventsToCards, planStage, rollEventsToNextYear } from '@shared/lib/academicPlan'
 import Layout from '../../components/Layout'
 import useStaffDirectory from './useStaffDirectory'
 import { createPlan, deletePlan, saveYear, subscribePlans, subscribeYear } from './planRepo'
@@ -94,11 +94,15 @@ export default function AcademicPlanHome() {
     return () => { u1(); u2() }
   }, [schoolId, year])
 
-  // 지난 학년도 확정본 — 새 초안을 같은 요일로 옮겨 시작할 수 있게
+  // 지난 학년도 학사일정 — 확정본, 없으면 가장 최근에 고친 초안. 새 초안을 카드로·같은 요일로 시작할 수 있게
   useEffect(() => {
     if (!schoolId) return
     getDocs(query(collection(db, ...schoolPath(schoolId, COL.ACADEMIC_PLANS)), where('year', '==', year - 1)))
-      .then((s) => setPrevConfirmed(s.docs.map((d) => ({ id: d.id, ...d.data() })).find((p) => p.status === 'confirmed') || null))
+      .then((s) => {
+        const list = s.docs.map((d) => ({ id: d.id, ...d.data() }))
+        const latest = [...list].sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0))[0]
+        setPrevConfirmed(list.find((p) => p.status === 'confirmed') || latest || null)
+      })
       .catch(() => setPrevConfirmed(null))
   }, [schoolId, year])
 
@@ -111,30 +115,44 @@ export default function AcademicPlanHome() {
   }
 
   const openNew = () => {
-    setNewForm({ name: nextName(plans || []), source: prevConfirmed ? 'prev' : plans?.length ? 'copy' : 'blank', copyId: plans?.[0]?.id || '' })
+    // 지난 학년도 학사일정이 있으면 기본은 '카드로 시작' — 날짜는 새로 정하고, 내용은 그대로 가져온다
+    setNewForm({ name: nextName(plans || []), source: prevConfirmed ? 'cards' : plans?.length ? 'copy' : 'blank', copyId: plans?.[0]?.id || '' })
     setNewOpen(true)
   }
 
   const create = async () => {
     setCreating(true)
+    // 편집 화면은 새 창 — 팝업 차단을 피하려고 클릭 시점에 창부터 연다
+    const win = window.open('', '_blank')
     try {
       let events = []
       let holidays = []
       let basedOn = null
       if (newForm.source === 'copy') {
         const src = plans.find((p) => p.id === newForm.copyId)
-        events = src?.events || []
+        // 복제본은 주요 일정 단계부터 — 잠금 표시(frame·unlocked)는 버린다
+        events = (src?.events || []).map(({ frame, unlocked, ...e }) => e) // eslint-disable-line no-unused-vars
         holidays = src?.holidays || []
         basedOn = src?.id || null
+      } else if (newForm.source === 'cards' && prevConfirmed) {
+        events = eventsToCards(prevConfirmed.events)
+        basedOn = prevConfirmed.id
       } else if (newForm.source === 'prev' && prevConfirmed) {
         events = rollEventsToNextYear(prevConfirmed.events, year)
         basedOn = prevConfirmed.id
       }
       const id = await createPlan({ schoolId, year, name: newForm.name.trim() || nextName(plans), events, holidays, basedOn, by })
-      navigate(`/academic-plan/${id}`)
+      if (win) win.location.href = `/academic-plan/${id}`
+      else navigate(`/academic-plan/${id}`)
     } catch (e) {
+      win?.close()
       setError(`초안을 만들지 못했습니다: ${e.message}`)
     } finally { setCreating(false) }
+  }
+
+  // 같은 초안은 이미 열린 창을 다시 쓴다
+  const openEditor = (id) => {
+    if (!window.open(`/academic-plan/${id}`, `academic-plan-${id}`)) navigate(`/academic-plan/${id}`)
   }
 
   const remove = async (p) => {
@@ -181,17 +199,24 @@ export default function AcademicPlanHome() {
           yearDoc && <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>아직 초안이 없습니다.</Typography>
         ) : plans.map((p) => {
           const s = summaries[p.id]
+          const st = planStage(p)
+          // 주요 일정을 확정해 한 초안으로 진행 중이면 나머지 초안은 '보관'(지우지는 않는다)
+          const archived = Boolean(yearDoc?.activePlanId) && yearDoc.activePlanId !== p.id && st === 'frame'
           return (
-            <Box key={p.id} onClick={() => navigate(`/academic-plan/${p.id}`)}
+            <Box key={p.id} onClick={() => openEditor(p.id)}
               sx={{
                 border: `1px solid ${p.status === 'confirmed' ? ACCENT : '#e2e8f0'}`, bgcolor: p.status === 'confirmed' ? ACCENT_BG : '#fff',
                 borderRadius: 2, p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap',
+                opacity: archived ? 0.55 : 1,
                 '&:hover': { boxShadow: '0 2px 8px rgba(15,23,42,0.08)' },
               }}>
               <Box sx={{ flex: 1, minWidth: 220 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography sx={{ fontWeight: 800 }}>{p.name}</Typography>
-                  {p.status === 'confirmed' && <Chip size="small" color="success" icon={<VerifiedIcon />} label="확정" />}
+                  {st === 'final'
+                    ? <Chip size="small" color="success" icon={<VerifiedIcon />} label="확정" />
+                    : <Chip size="small" variant={st === 'detail' ? 'filled' : 'outlined'} color={st === 'detail' ? 'primary' : 'default'}
+                        label={archived ? '보관' : STAGE_LABEL[st]} />}
                 </Box>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   일정 {(p.events || []).length}건 · v{p.versionCount || 0} · {p.updatedBy?.name || p.createdByName} {fmt(p.updatedAt)}
@@ -215,8 +240,17 @@ export default function AcademicPlanHome() {
             <FormControlLabel value="blank" control={<Radio />} label="빈 초안으로 시작" />
             {plans?.length > 0 && <FormControlLabel value="copy" control={<Radio />} label="다른 초안을 복제" />}
             {prevConfirmed && (
+              <FormControlLabel value="cards" control={<Radio />}
+                label={`${year - 1}학년도 일정을 보관함 카드로 넣고 시작 — 날짜는 표에 끌어 놓아 정함`} />
+            )}
+            {prevConfirmed && (
               <FormControlLabel value="prev" control={<Radio />}
-                label={`${year - 1}학년도 확정본을 같은 요일로 옮겨 시작 (공휴일·요일 교체 제외)`} />
+                label={`${year - 1}학년도 일정을 같은 요일로 옮겨 시작 (공휴일·요일 교체 제외)`} />
+            )}
+            {prevConfirmed && (
+              <Typography variant="caption" sx={{ color: 'text.secondary', ml: 4 }}>
+                가져올 학사일정: {prevConfirmed.name}{prevConfirmed.status === 'confirmed' ? ' (확정본)' : ' (확정본이 없어 가장 최근 초안)'}
+              </Typography>
             )}
           </RadioGroup>
           {newForm.source === 'copy' && (

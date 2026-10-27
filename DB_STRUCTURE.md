@@ -845,10 +845,12 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 
 **필드:** (쓰기: `apps/portal/src/pages/academicPlan/planRepo.js` `saveYear`·`confirmPlan`)
 - `editorUids` (string[]) — 편집자. 학년도를 시작할 때 직함(`teacherAssignments.positionLabel`)에 '부장'이 든 교직원을 자동으로 넣고, 관리자가 더하고 뺀다
-- `confirmedPlanId` (string | null) — 확정 초안
+- `confirmedPlanId` (string | null) — 최종 확정 초안
+- `activePlanId` (string) — 주요 일정을 확정해 진행 중인 초안(`setActivePlan`). 같은 학년도의 나머지 주요 일정 단계 초안은 목록에서 '보관'
+- `deptColors` ({ 부서: 색 키 }) — 관련 부서 색(`planUi.js` `DEPT_PALETTE`의 키). '일반' 일정 칩 색. 같은 학년도 모든 초안 공통
 - `updatedAt`
 
-**접근 권한:** Read - 소속 교직원 / Write - 학교 관리자
+**접근 권한:** Read - 소속 교직원 / Write - 학교 관리자 / Update - 그 학년도 editorUids는 `deptColors`(·`updatedAt`)만
 
 #### `/schools/{schoolId}/academicPlans/{planId}`
 학사일정 초안(학년도당 여러 개, auto-ID). 일정은 한 문서의 배열 — 복제·비교·스냅숏·충돌 보호를 문서 하나 단위로 하려고
@@ -856,17 +858,21 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 
 **필드:** (쓰기: `planRepo.js` `createPlan`·`savePlan`)
 - `year` (number, 바꿀 수 없음), `name`, `status` (`'draft'` | `'confirmed'`), `basedOn` (복제 원본 id | null)
+- `stage` (`'frame'` 주요 일정 | `'detail'` 세부 일정 | `'final'` 확정, 없으면 frame — `planStage()`), 관리자만
+- `confirmations` ([{no, stage('frame'|'final'), versionNo, at(ms), by, superseded?}]) — 확정 판 기록. 재확정하면 같은 단계의 이전 판에 superseded(화면 '변경됨'), 관리자만
 - `holidays` ([{date, name}]) — `fetchKoreanHolidays`로 불러온 공휴일
-- `events` ([event]) — `{ id, date, endDate?, title, kind, grades[], dept?, fullDay, examType?, weekdaySwap?, activities[{type,hours,grades}], note? }`.
+- `events` ([event]) — `{ id, date, endDate?, title, kind, grades[], dept?, fullDay, examType?, weekdaySwap?, activities[{type,hours,grades}], note?, frame?, unlocked?, spanDays?, prevDate? }`.
   kind: 일반·개학·방학식·종업식·졸업식·정기고사·재량휴업·공휴일·요일교체 (정의는 academicPlan.js 머리 주석)
+  - `date: ''` = 보관함 카드(날짜 미정). 계산·인쇄·캘린더 반영에서 빠진다. `spanDays` 기간 일수(놓을 때 endDate로), `prevDate` 지난 학년도 날짜(카드로 가져온 경우)
+  - `frame: true` = 주요 일정 확정 때 잠긴 일정(유형이 FRAME_KINDS이거나 전일행사), `unlocked: true` = 관리자가 잠금 해제(재확정하면 지워짐). 잠금은 화면에서만 지키고 규칙으로 막지는 않는다
 - `revision`, `versionCount`, `latestVersionId`, `updatedBy {uid,name}`, `updatedAt`, `createdBy`, `createdByName`, `createdAt`
 - `confirmedAt`, `confirmedBy`, `publishedAt`, `publishedBy` (관리자)
 
-**하위:** `versions/{id}` `{ versionNo, action('save'|'restore'), summary, details[], by, at }` · `versionData/{같은 id}` `{ events, holidays }`
+**하위:** `versions/{id}` `{ versionNo, action('save'|'restore'|'confirm'), summary, details[], by, at }` · `versionData/{같은 id}` `{ events, holidays }`
 
 **접근 권한:** Read - 소속 교직원(초안 포함) / Create·Update - 관리자 또는 그 학년도 editorUids.
 저장 묶음(events·holidays·revision·버전 포인터)은 revision이 정확히 1 오르는 transaction에서만, versions·versionData도 그 transaction에서만 생성(ExamCore와 같은 방식).
-확정 필드(status·confirmed*·published*)는 관리자만 / Delete - 관리자, 초안은 만든 사람
+확정 필드(status·confirmed*·published*·stage·confirmations)는 관리자만 / Delete - 관리자, 초안은 만든 사람
 
 ---
 

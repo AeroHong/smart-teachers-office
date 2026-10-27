@@ -338,8 +338,110 @@ export function rollEventsToNextYear(events, nextYear) {
   const { start, end } = yearRange(nextYear)
   return (events || [])
     .filter((ev) => ev.kind !== '공휴일' && ev.kind !== '요일교체')
-    .map((ev) => shiftEvent(ev, addDays(ev.date, 364)))
-    .filter((ev) => ev.date >= start && ev.date <= end)
+    .map((ev) => (isTrayEvent(ev) ? ev : shiftEvent(ev, addDays(ev.date, 364))))
+    .filter((ev) => isTrayEvent(ev) || (ev.date >= start && ev.date <= end))
+}
+
+// ── 단계(주요 일정 → 세부 → 확정) ─────────────────────────────────────────
+// 1) 주요 일정(frame): 초안 여러 개로 큰 일정(수업일수를 정하는 일정)만 잡고 비교한다.
+// 2) 세부(detail): 관리자가 주요 일정을 확정하면 그때의 큰 일정에 frame 표시가 붙어 잠긴다(화면 잠금 + 수정 기록 —
+//    서버 규칙으로 막지는 않는다). 부장들은 일반 일정·시수를 채운다. 전일행사는 넣을 수 있되 실수업일 경고.
+// 3) 확정(final): 모든 일정이 잠긴다.
+// 확정 뒤 바꿔야 하면 관리자가 그 일정만 잠금 해제(unlocked) → 고친 뒤 재확정하면 새 판(no+1)이 되고 이전 판은 '변경됨'.
+
+/** 주요 일정이 되는 유형 — 이 유형이거나 전일행사면 주요 일정 확정 때 잠긴다 */
+export const FRAME_KINDS = ['개학', '방학식', '종업식', '졸업식', '정기고사', '재량휴업', '공휴일', '요일교체']
+export const STAGES = ['frame', 'detail', 'final']
+export const STAGE_LABEL = { frame: '주요 일정', detail: '세부 일정', final: '확정' }
+
+export const isFrameCandidate = (ev) => !isTrayEvent(ev) && (FRAME_KINDS.includes(ev.kind) || Boolean(ev.fullDay))
+
+/** 초안의 단계 — 예전 확정본(status confirmed)은 final */
+export function planStage(plan) {
+  if (plan?.status === 'confirmed') return 'final'
+  return STAGES.includes(plan?.stage) ? plan.stage : 'frame'
+}
+
+/** 이 단계에서 화면에서 잠긴 일정인가 */
+export function isEventLocked(ev, stage) {
+  if (isTrayEvent(ev) || ev.unlocked) return false
+  if (stage === 'final') return true
+  if (stage === 'detail') return Boolean(ev.frame)
+  return false
+}
+
+/** 주요 일정 확정 — 큰 일정에 frame 표시, 잠금 해제 표시는 지운다 */
+export function markFrameEvents(events = []) {
+  return events.map((ev) => {
+    const { unlocked, ...rest } = ev // eslint-disable-line no-unused-vars
+    if (isFrameCandidate(rest)) return { ...rest, frame: true }
+    return rest
+  })
+}
+
+/** 재확정 — 잠금 해제했던 일정을 다시 잠근다(frame 표시는 그대로) */
+export function relockEvents(events = []) {
+  return events.map((ev) => {
+    if (!ev.unlocked) return ev
+    const { unlocked, ...rest } = ev // eslint-disable-line no-unused-vars
+    return rest
+  })
+}
+
+/**
+ * 확정 판 기록에 새 판을 더한다 — 같은 단계의 이전 판은 superseded(변경됨).
+ * @returns [{no, stage, versionNo, at, by, superseded?}]
+ */
+export function addConfirmation(list = [], { stage, versionNo, at, by }) {
+  const prev = list.map((c) => (c.stage === stage && !c.superseded ? { ...c, superseded: true } : c))
+  const no = list.filter((c) => c.stage === stage).length + 1
+  return [...prev, { no, stage, versionNo, at, by }]
+}
+
+/** 지금 유효한 판(단계별 마지막) */
+export function currentConfirmation(list = [], stage) {
+  return [...list].reverse().find((c) => c.stage === stage && !c.superseded) || null
+}
+
+// ── 일정 카드 보관함 ─────────────────────────────────────────────────
+// 날짜가 없는 일정(date '')은 '보관함 카드'다. 계산·인쇄·캘린더 반영은 날짜 있는 일정만 보므로 그대로 빠진다.
+// 기간 일정을 보관함으로 빼면 일수(spanDays)를 기억했다가 다시 놓을 때 그 기간으로 되살린다.
+
+export const isTrayEvent = (ev) => !isDateKey(ev?.date)
+
+/** 보관함 카드를 그 날짜에 놓는다 */
+export function placeTrayEvent(ev, date) {
+  const { spanDays, ...rest } = ev
+  const next = { ...rest, date }
+  delete next.endDate
+  if (Number(spanDays) > 1) next.endDate = addDays(date, Number(spanDays) - 1)
+  return next
+}
+
+/**
+ * 지난 학년도 일정을 새 학년도 보관함 카드로 — 날짜는 비우고 작년 날짜(prevDate)를 남긴다.
+ * 날짜에 묶인 공휴일·요일 교체는 빼고, 잠금 표시(frame·unlocked)는 버린다.
+ */
+export function eventsToCards(events = []) {
+  return events
+    .filter((ev) => ev.kind !== '공휴일' && ev.kind !== '요일교체')
+    .map((ev) => {
+      const { frame, unlocked, ...rest } = ev // eslint-disable-line no-unused-vars
+      return isTrayEvent(rest) ? rest : { ...unscheduleEvent(rest), prevDate: rest.date }
+    })
+}
+
+/** 작년 날짜와 같은 요일인 올해 날짜(52주 뒤) — 카드를 끌 때 표에 '작년 이맘때'로 표시 */
+export const sameWeekdayNextYear = (prevDate) => (isDateKey(prevDate) ? addDays(prevDate, 364) : null)
+
+/** 날짜 있는 일정을 보관함으로 뺀다 */
+export function unscheduleEvent(ev) {
+  const days = eventDates(ev).length
+  const { endDate, ...rest } = ev // eslint-disable-line no-unused-vars
+  const next = { ...rest, date: '' }
+  if (days > 1) next.spanDays = days
+  else delete next.spanDays
+  return next
 }
 
 /** 일정 표시 제목: 창체 시수 + 제목 + 대상 학년. 구글 캘린더·인쇄가 같은 형식을 쓴다. */
@@ -365,20 +467,33 @@ export function diffEvents(before = [], after = []) {
     const p = a.get(id)
     if (!p) continue
     if (p.date !== e.date || (p.endDate || null) !== (e.endDate || null)) out.moved.push({ before: p, after: e })
-    const fields = ['title', 'kind', 'grades', 'dept', 'fullDay', 'examType', 'weekdaySwap', 'activities', 'note']
+    const fields = Object.keys(FIELD_LABEL)
       .filter((f) => JSON.stringify(p[f] ?? null) !== JSON.stringify(e[f] ?? null))
     if (fields.length) out.changed.push({ before: p, after: e, fields })
   }
   return out
 }
 
+/** 수정 기록에 쓰는 필드 이름 — 여기 있는 필드가 바뀌어야 '수정'으로 잡힌다 */
+const FIELD_LABEL = {
+  title: '이름', kind: '유형', grades: '대상 학년', dept: '관련 부서', fullDay: '전일행사', examType: '고사 구분',
+  weekdaySwap: '요일 교체', activities: '시수', note: '메모', spanDays: '기간', frame: '주요 일정', unlocked: '잠금',
+}
+
 /** diffEvents 결과를 사람이 읽는 줄로 */
 export function describeDiff(diff) {
+  const at = (k) => (isDateKey(k) ? shortLabel(k) : '보관함')
   const lines = []
-  for (const e of diff.added) lines.push(`${shortLabel(e.date)} '${e.title}' 추가`)
-  for (const e of diff.removed) lines.push(`${shortLabel(e.date)} '${e.title}' 삭제`)
-  for (const { before, after } of diff.moved) lines.push(`'${after.title}' ${shortLabel(before.date)} → ${shortLabel(after.date)} 이동`)
-  for (const { after, fields } of diff.changed) lines.push(`${shortLabel(after.date)} '${after.title}' 수정 (${fields.join(', ')})`)
+  for (const e of diff.added) lines.push(`${at(e.date)} '${e.title}' 추가`)
+  for (const e of diff.removed) lines.push(`${at(e.date)} '${e.title}' 삭제`)
+  for (const { before, after } of diff.moved) lines.push(`'${after.title}' ${at(before.date)} → ${at(after.date)} 이동`)
+  for (const { before, after, fields } of diff.changed) {
+    // 잠금 해제·다시 잠금은 따로 한 줄(관리자 조치라 눈에 띄게)
+    if (fields.includes('unlocked')) lines.push(`${at(after.date)} '${after.title}' ${after.unlocked ? '잠금 해제' : '다시 잠금'}`)
+    // 주요 일정 표시는 확정 요약 한 줄로 충분하고, 보관함을 오가며 바뀐 기간은 '이동' 줄에 들어 있다
+    const rest = fields.filter((f) => f !== 'unlocked' && f !== 'frame' && !(f === 'spanDays' && before.date !== after.date))
+    if (rest.length) lines.push(`${at(after.date)} '${after.title}' 수정 (${rest.map((f) => FIELD_LABEL[f]).join(', ')})`)
+  }
   return lines
 }
 

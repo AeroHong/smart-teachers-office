@@ -1554,6 +1554,20 @@ test('학사일정: 편집자 명단(학년도 설정)은 학교 관리자만 �
   await assertSucceeds(updateDoc(doc(as(ADMIN), ...path('academicPlanYears', '2027')), { editorUids: [A, B] }))
 })
 
+test('학사일정: 단계(stage)·확정 판(confirmations)은 관리자만 바꾼다', async () => {
+  await seedAcademicPlan()
+  await assertFails(savePlanBatch(as(A), { extra: { stage: 'detail' } }))
+  await assertFails(savePlanBatch(as(A), { extra: { confirmations: [{ no: 1, stage: 'frame' }] } }))
+  await assertSucceeds(savePlanBatch(as(ADMIN), { extra: { stage: 'detail', confirmations: [{ no: 1, stage: 'frame' }] } }))
+})
+
+test('학사일정: 부서 색은 편집자도 고치지만, 같이 편집자 명단을 바꾸면 거부', async () => {
+  await seedAcademicPlan()
+  await assertSucceeds(updateDoc(doc(as(A), ...path('academicPlanYears', '2027')), { deptColors: { 교무부: 'teal' } }))
+  await assertFails(updateDoc(doc(as(A), ...path('academicPlanYears', '2027')), { deptColors: { 교무부: 'pink' }, editorUids: [A, B] }))
+  await assertFails(updateDoc(doc(as(B), ...path('academicPlanYears', '2027')), { deptColors: { 교무부: 'pink' } }))
+})
+
 test('학사일정 저장: 편집자·관리자만, revision이 정확히 1 올라야 한다', async () => {
   await seedAcademicPlan()
   await assertFails(savePlanBatch(as(B)))

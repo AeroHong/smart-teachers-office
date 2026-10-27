@@ -2,17 +2,43 @@
 export const ACCENT = '#0f766e'
 export const ACCENT_BG = '#f0fdfa'
 
-/** 일정 유형별 칩 색 — 인쇄(academicPlanPrint.js)도 같은 값을 쓴다 */
+/**
+ * 일정 유형별 칩 색 — 인쇄(academicPlanPrint.js)도 같은 값을 쓴다.
+ * 배경(흰 칸)·칸 선과 확실히 구분되게 채도를 올리고 테두리(bd)를 둔다.
+ */
 export const KIND_STYLE = {
-  일반: { bg: '#f1f5f9', fg: '#334155' },
-  개학: { bg: '#dbeafe', fg: '#1d4ed8' },
-  방학식: { bg: '#dbeafe', fg: '#1d4ed8' },
-  종업식: { bg: '#dbeafe', fg: '#1d4ed8' },
-  졸업식: { bg: '#dbeafe', fg: '#1d4ed8' },
-  정기고사: { bg: '#fef3c7', fg: '#92400e' },
-  재량휴업: { bg: '#fee2e2', fg: '#b91c1c' },
-  공휴일: { bg: '#fee2e2', fg: '#b91c1c' },
-  요일교체: { bg: '#ede9fe', fg: '#6d28d9' },
+  일반: { bg: '#e2e8f0', fg: '#0f172a', bd: '#94a3b8' },
+  개학: { bg: '#bfdbfe', fg: '#1e3a8a', bd: '#3b82f6' },
+  방학식: { bg: '#bfdbfe', fg: '#1e3a8a', bd: '#3b82f6' },
+  종업식: { bg: '#bfdbfe', fg: '#1e3a8a', bd: '#3b82f6' },
+  졸업식: { bg: '#bfdbfe', fg: '#1e3a8a', bd: '#3b82f6' },
+  정기고사: { bg: '#fde68a', fg: '#713f12', bd: '#d97706' },
+  재량휴업: { bg: '#fecaca', fg: '#7f1d1d', bd: '#ef4444' },
+  공휴일: { bg: '#fecaca', fg: '#7f1d1d', bd: '#ef4444' },
+  요일교체: { bg: '#ddd6fe', fg: '#4c1d95', bd: '#8b5cf6' },
+}
+
+/**
+ * 관련 부서 색 — 학년도 설정(academicPlanYears.deptColors: { 부서: 키 })에 키로 저장.
+ * '일반' 일정만 부서 색을 입는다(개학·고사·휴업 등 유형 색이 더 중요).
+ */
+export const DEPT_PALETTE = {
+  teal: { name: '청록', bg: '#ccfbf1', fg: '#134e4a', bd: '#14b8a6' },
+  green: { name: '초록', bg: '#dcfce7', fg: '#14532d', bd: '#22c55e' },
+  lime: { name: '연두', bg: '#ecfccb', fg: '#365314', bd: '#84cc16' },
+  orange: { name: '주황', bg: '#ffedd5', fg: '#7c2d12', bd: '#f97316' },
+  pink: { name: '분홍', bg: '#fce7f3', fg: '#831843', bd: '#ec4899' },
+  purple: { name: '보라', bg: '#f3e8ff', fg: '#581c87', bd: '#a855f7' },
+  sky: { name: '하늘', bg: '#e0f2fe', fg: '#0c4a6e', bd: '#0ea5e9' },
+  indigo: { name: '남색', bg: '#e0e7ff', fg: '#312e81', bd: '#6366f1' },
+  brown: { name: '갈색', bg: '#f1e7dd', fg: '#5b3a1e', bd: '#a16207' },
+  gray: { name: '회색', bg: '#e5e7eb', fg: '#1f2937', bd: '#6b7280' },
+}
+
+/** 일정 한 건의 칩 색 — 일반 일정은 부서 색이 있으면 부서 색 */
+export function eventStyle(ev, deptColors) {
+  if ((ev.kind || '일반') === '일반' && ev.dept && DEPT_PALETTE[deptColors?.[ev.dept]]) return DEPT_PALETTE[deptColors[ev.dept]]
+  return KIND_STYLE[ev.kind] || KIND_STYLE.일반
 }
 
 export const KIND_HELP = {

@@ -1460,6 +1460,9 @@ service cloud.firestore {
       match /academicPlanYears/{year} {
         allow read: if isSuperAdmin() || isTeacher(schoolId);
         allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        // 부서 색(deptColors)은 그 학년도 편집자도 — 다른 필드(편집자 명단·확정)는 건드리지 못한다
+        allow update: if isAcademicPlanEditor(schoolId, year) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deptColors', 'updatedAt']);
       }
 
       match /academicPlans/{planId} {
@@ -1473,7 +1476,7 @@ service cloud.firestore {
           request.resource.data.year == resource.data.year &&
           request.resource.data.createdBy == resource.data.createdBy &&
           // 확정 관련 필드는 관리자만
-          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'confirmedAt', 'confirmedBy', 'publishedAt']) ||
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'confirmedAt', 'confirmedBy', 'publishedAt', 'stage', 'confirmations']) ||
            isSuperAdmin() || isSchoolAdmin(schoolId)) &&
           // 저장 묶음을 건드리면 revision +1
           (!request.resource.data.diff(resource.data).affectedKeys()

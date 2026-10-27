@@ -9,7 +9,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   addDays, buildWeekRows, classifyDay, computeStats, describeDiff, diffEvents, eventDisplayTitle,
-  makeContext, mondayIndex, rollEventsToNextYear, rowsForSemester, semesterRanges, shiftEvent,
+  isTrayEvent, makeContext, mondayIndex, placeTrayEvent, rollEventsToNextYear, rowsForSemester, semesterRanges, shiftEvent,
+  unscheduleEvent, eventsToCards, sameWeekdayNextYear, addConfirmation, currentConfirmation, isEventLocked, markFrameEvents, planStage, relockEvents,
 } from './academicPlan.js'
 import { plan2026 } from './academicPlan.fixture2026.js'
 
@@ -125,4 +126,86 @@ test('동시 편집 병합 — 서로 다른 일정은 둘 다 반영, 같은 �
   const byId = Object.fromEntries(r.events.map((x) => [x.id, x.date]))
   assert.deepEqual(byId, { a: '2027-03-03', b: '2027-04-09', x: '2027-07-01', n: '2027-06-01' })
   assert.equal(r.conflicts.length, 1)
+})
+
+test('보관함 카드 — 계산에서 빠지고, 놓으면 기간을 되살린다', () => {
+  const span = { id: 's', date: '2026-03-09', endDate: '2026-03-13', title: '상담주간', kind: '일반', grades: [], activities: [] }
+  const card = unscheduleEvent(span)
+  assert.equal(card.date, '')
+  assert.equal(card.endDate, undefined)
+  assert.equal(card.spanDays, 5)
+  assert.ok(isTrayEvent(card))
+  const placed = placeTrayEvent(card, '2026-04-06')
+  assert.equal(placed.endDate, '2026-04-10')
+  assert.equal(placed.spanDays, undefined)
+  assert.equal(placeTrayEvent({ id: 'x', date: '', title: 'a' }, '2026-04-06').endDate, undefined)
+
+  const plan = { year: 2026, holidays: [], events: [
+    { id: 'o', date: '2026-03-03', title: '개학', kind: '개학', grades: [], activities: [] },
+    { id: 'b', date: '2026-07-16', title: '방학식', kind: '방학식', grades: [], activities: [] },
+    { ...card, kind: '정기고사', examType: '중간', activities: [{ type: '자율', hours: 5, grades: [] }] },
+  ] }
+  const s = computeStats(plan).grades[1][1]
+  assert.equal(s.exams.reduce((a, b) => a + b, 0), 0)
+  assert.equal(s.activities.자율, 0)
+  assert.deepEqual(describeDiff(diffEvents([span], [card])), ["'상담주간' 3/9(월) → 보관함 이동"])
+  assert.deepEqual(rollEventsToNextYear([card], 2027), [card])
+})
+
+test('단계 — 주요 일정 확정 때 큰 일정·전일행사가 잠기고, 잠금 해제한 일정만 고칠 수 있다', () => {
+  const events = [
+    { id: 'o', date: '2026-03-03', kind: '개학', title: '개학' },
+    { id: 'x', date: '2026-04-22', kind: '정기고사', title: '중간고사' },
+    { id: 'f', date: '2026-05-14', kind: '일반', title: '스포츠한마당', fullDay: true },
+    { id: 'n', date: '2026-04-08', kind: '일반', title: '교직원회의' },
+    { id: 't', date: '', kind: '정기고사', title: '보관 카드' },
+  ]
+  assert.equal(planStage({}), 'frame')
+  assert.equal(planStage({ stage: 'detail' }), 'detail')
+  assert.equal(planStage({ stage: 'detail', status: 'confirmed' }), 'final')
+
+  const framed = markFrameEvents(events)
+  assert.deepEqual(framed.filter((e) => e.frame).map((e) => e.id), ['o', 'x', 'f'])
+  assert.equal(framed.some((e) => isEventLocked(e, 'frame')), false)
+  assert.deepEqual(framed.filter((e) => isEventLocked(e, 'detail')).map((e) => e.id), ['o', 'x', 'f'])
+  assert.deepEqual(framed.filter((e) => isEventLocked(e, 'final')).map((e) => e.id), ['o', 'x', 'f', 'n'])
+
+  const opened = framed.map((e) => (e.id === 'x' ? { ...e, unlocked: true } : e))
+  assert.equal(isEventLocked(opened.find((e) => e.id === 'x'), 'detail'), false)
+  const relocked = relockEvents(opened)
+  assert.equal(isEventLocked(relocked.find((e) => e.id === 'x'), 'detail'), true)
+  assert.equal(relocked.find((e) => e.id === 'x').frame, true)
+})
+
+test('확정 판 — 다시 확정하면 새 판, 이전 판은 변경됨', () => {
+  let list = addConfirmation([], { stage: 'frame', versionNo: 3, at: 1, by: { uid: 'a' } })
+  list = addConfirmation(list, { stage: 'frame', versionNo: 7, at: 2, by: { uid: 'a' } })
+  list = addConfirmation(list, { stage: 'final', versionNo: 12, at: 3, by: { uid: 'a' } })
+  assert.deepEqual(list.map((c) => [c.stage, c.no, Boolean(c.superseded)]), [['frame', 1, true], ['frame', 2, false], ['final', 1, false]])
+  assert.equal(currentConfirmation(list, 'frame').versionNo, 7)
+  assert.equal(currentConfirmation(list, 'final').no, 1)
+})
+
+test('수정 기록 — 잠금 해제·다시 잠금, 필드 이름은 한글', () => {
+  const x = { id: 'x', date: '2026-04-22', title: '중간고사', kind: '정기고사', frame: true }
+  assert.deepEqual(describeDiff(diffEvents([x], [{ ...x, unlocked: true }])), ["4/22(수) '중간고사' 잠금 해제"])
+  assert.deepEqual(describeDiff(diffEvents([{ ...x, unlocked: true }], [{ ...x, title: '1학기 중간고사' }])),
+    ["4/22(수) '1학기 중간고사' 다시 잠금", "4/22(수) '1학기 중간고사' 수정 (이름)"])
+})
+
+test('지난 학년도 일정을 카드로 — 공휴일·요일교체 빼고, 작년 날짜를 남긴다', () => {
+  const cards = eventsToCards([
+    { id: 'a', date: '2026-05-14', title: '스포츠한마당', kind: '일반', fullDay: true, frame: true },
+    { id: 'b', date: '2026-03-09', endDate: '2026-03-13', title: '상담주간', kind: '일반' },
+    { id: 'h', date: '2026-05-25', title: '대체공휴일', kind: '공휴일' },
+    { id: 's', date: '2026-05-13', title: '목요일 수업', kind: '요일교체', weekdaySwap: 3 },
+    { id: 't', date: '', title: '보관 카드', kind: '일반' },
+  ])
+  assert.deepEqual(cards.map((c) => c.id), ['a', 'b', 't'])
+  assert.equal(cards[0].date, '')
+  assert.equal(cards[0].prevDate, '2026-05-14')
+  assert.equal(cards[0].frame, undefined)
+  assert.equal(cards[1].spanDays, 5)
+  assert.equal(sameWeekdayNextYear('2026-05-14'), '2027-05-13')
+  assert.equal(mondayIndex(sameWeekdayNextYear('2026-05-14')), mondayIndex('2026-05-14'))
 })
