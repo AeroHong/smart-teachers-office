@@ -142,6 +142,8 @@ export default function AcademicPlanHome() {
         basedOn = prevConfirmed.id
       }
       const id = await createPlan({ schoolId, year, name: newForm.name.trim() || nextName(plans), events, holidays, basedOn, by })
+      // 편집은 새 창에서 — 이 창(목록)의 입력 창은 닫아 둔다. 안 닫으면 편집 창에서 '목록'으로 돌아왔을 때 입력 창이 그대로 보인다
+      setNewOpen(false)
       if (win) win.location.href = `/academic-plan/${id}`
       else navigate(`/academic-plan/${id}`)
     } catch (e) {
