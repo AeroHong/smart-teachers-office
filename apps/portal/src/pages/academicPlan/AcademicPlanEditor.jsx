@@ -20,6 +20,9 @@ import Tooltip from '@mui/material/Tooltip'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import FullscreenIcon from '@mui/icons-material/Fullscreen'
+import ShareIcon from '@mui/icons-material/Share'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import Popover from '@mui/material/Popover'
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
 import HistoryIcon from '@mui/icons-material/History'
 import PrintIcon from '@mui/icons-material/Print'
@@ -30,7 +33,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { functions } from '@shared/lib/firebase'
 import {
-  GRADES, SCHOOL_WEEKDAYS, addConfirmation, buildWeekRows, computeStats, isEventLocked,
+  GRADES, SCHOOL_WEEKDAYS, addConfirmation, addDays, buildWeekRows, diffEvents, mondayIndex, computeStats, importPrevCards, isEventLocked, mergeDeptColors,
   isTrayEvent, markFrameEvents, placeTrayEvent, planStage, relockEvents, rowsForSemester, sameWeekdayNextYear, shiftEvent, unscheduleEvent,
   yearRange,
 } from '@shared/lib/academicPlan'
@@ -42,13 +45,14 @@ import TrayPanel from './TrayPanel'
 import DeptColorDialog from './DeptColorDialog'
 import useStaffDirectory from './useStaffDirectory'
 import {
-  confirmPlan, loadVersionData, renamePlan, saveDeptColors, savePlan, setActivePlan, subscribePlan, subscribePlans, subscribeYear,
+  confirmPlan, loadChangesSince, loadPrevYear, loadVersionData, renamePlan, saveDeptColors, savePlan, setActivePlan, subscribePlan, subscribePlans, subscribeYear,
   unconfirmPlan,
 } from './planRepo'
 import { downloadPlanPdf, printPlan } from './academicPlanPrint'
 import { downloadPlanXlsx } from './academicPlanXlsx'
 import { ACCENT } from './planUi'
 import StageBar from './StageBar'
+import ChangesSinceBanner from './ChangesSinceBanner'
 import PlanFilter, { EMPTY_FILTER, makeEventFilter } from './PlanFilter'
 
 /** 세부·확정 단계에서 전일행사를 넣거나 옮기면 줄어드는 실수업일 칸 — [{sem, grade, weekday, from, to}] */
@@ -100,7 +104,10 @@ export default function AcademicPlanEditor() {
   const [nameEdit, setNameEdit] = useState(null)
   const [colorOpen, setColorOpen] = useState(false)
   const [filter, setFilter] = useState(EMPTY_FILTER)
-  const [hintDate, setHintDate] = useState(null) // 작년 날짜가 있는 카드를 끄는 동안 '작년 이맘때' 칸
+  const [hintDate, setHintDate] = useState(null)
+  const [shareAnchor, setShareAnchor] = useState(null)
+  const [sinceChanges, setSinceChanges] = useState(null) // 마지막으로 본 뒤 남이 바꾼 것
+  const [copied, setCopied] = useState(false) // 작년 날짜가 있는 카드를 끄는 동안 '작년 이맘때' 칸
   const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement))
   const [showSunday, setShowSunday] = useLocalFlag('academicPlan.showSunday', false)
   const [statsOpen, setStatsOpen] = useLocalFlag('academicPlan.statsOpen', true)
@@ -205,6 +212,51 @@ export default function AcademicPlanEditor() {
     document.addEventListener('fullscreenchange', onChange)
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
+  /**
+   * 마지막으로 본 뒤 다른 사람이 바꾼 것 — 이 브라우저에 초안별로 마지막으로 본 기록 번호를 기억한다.
+   * 처음 열 때 한 번만 확인. 화면을 떠날 때(창 닫기·탭 숨김) 지금 번호를 '본 것'으로 기록한다.
+   */
+  const seenKey = `academicPlan.seen.${planId}`
+  const readSeen = () => { try { return Number(localStorage.getItem(seenKey)) || 0 } catch { return 0 } }
+  const writeSeen = (n) => { try { if (n) localStorage.setItem(seenKey, String(n)) } catch { /* 저장 못 하면 다음에 다시 알림 */ } }
+  const versionCountRef = useRef(0)
+  versionCountRef.current = plan?.versionCount || 0
+  const checkedRef = useRef(false)
+  useEffect(() => {
+    if (!plan || checkedRef.current || !schoolId || !user?.uid) return
+    checkedRef.current = true
+    const seen = readSeen()
+    if (!seen) { writeSeen(plan.versionCount || 0); return } // 처음 여는 초안 — 알릴 것 없음
+    if ((plan.versionCount || 0) <= seen) return
+    loadChangesSince(schoolId, planId, seen).then(({ versions, baseEvents }) => {
+      const others = versions.filter((v) => v.by?.uid !== user.uid)
+      if (!others.length) { writeSeen(plan.versionCount || 0); return }
+      const cur = plan.events || []
+      const diff = baseEvents ? diffEvents(baseEvents, cur) : null
+      const changedIds = new Set(diff ? [...diff.added, ...diff.moved.map((m) => m.after), ...diff.changed.map((c) => c.after)].map((e) => e.id) : [])
+      setSinceChanges({ versions: others, changedIds, changedCount: changedIds.size, removed: diff ? diff.removed.map((e) => e.title || '(이름 없음)') : [] })
+    }).catch(() => { /* 알림만 못 띄움 */ })
+  }, [plan, schoolId, planId, user?.uid]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const leave = () => { if (document.visibilityState === 'hidden') writeSeen(versionCountRef.current) }
+    const unload = () => writeSeen(versionCountRef.current)
+    document.addEventListener('visibilitychange', leave)
+    window.addEventListener('beforeunload', unload)
+    return () => { document.removeEventListener('visibilitychange', leave); window.removeEventListener('beforeunload', unload); unload() }
+  }, [planId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const dismissChanges = () => { setSinceChanges(null); writeSeen(versionCountRef.current) }
+
+  // 공유 링크 — 지금 접속한 주소(교내망은 .web.app 호스트)로. 받은 사람은 로그인 뒤 이 화면으로 돌아온다(ProtectedRoute → Login)
+  const shareUrl = `${window.location.origin}/academic-plan/${planId}`
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      setCopied(true)
+    } catch {
+      setCopied(false) // 복사가 막힌 브라우저 — 창의 주소를 직접 복사
+    }
+  }
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) document.exitFullscreen?.()
     else document.documentElement.requestFullscreen?.().catch(() => setToast('이 브라우저에서는 전체 화면을 쓸 수 없습니다.'))
@@ -228,7 +280,19 @@ export default function AcademicPlanEditor() {
 
   const view = useMemo(() => (plan && draft ? { ...plan, ...draft } : null), [plan, draft])
   const stats = useMemo(() => (view ? computeStats(view) : null), [view])
-  const rows = useMemo(() => (view ? rowsForSemester(buildWeekRows(view), semester) : []), [view, semester])
+  const rows = useMemo(() => {
+    if (!view) return []
+    const all = buildWeekRows(view)
+    // 주요 일정 단계의 2학기는 1학기 방학식이 있는 주부터 — 방학 기간과 2학기 개학을 한 화면에서 맞춘다
+    if (semester === 2 && planStage(plan) === 'frame') {
+      const end1 = (view.events || []).filter((e) => e.kind === '방학식' && /^\d{4}-0[3-8]-/.test(e.date || '')).map((e) => e.date).sort()[0]
+      if (end1) {
+        const from = addDays(end1, -mondayIndex(end1))
+        return all.filter((r) => r.month >= 8 || r.month <= 2 || (r.month === 7 && r.monday >= from))
+      }
+    }
+    return rowsForSemester(all, semester)
+  }, [view, semester, plan])
 
   const stage = planStage(plan)
   const lockedOf = (id) => {
@@ -313,6 +377,32 @@ export default function AcademicPlanEditor() {
     const ids = new Set(targets.map((e) => e.id))
     change((d) => ({ ...d, events: d.events.map((e) => (ids.has(e.id) ? unscheduleEvent(e) : e)) }))
     setToast(`일정 ${targets.length}건을 카드로 옮겼습니다.`)
+  }
+
+  /**
+   * 지난 학년도 일정을 보관함 카드로 더하고(이미 있는 것은 건너뜀), 부서 색은 비어 있는 부서만 채운다.
+   * 일정은 저장 한 번 = 수정 기록 한 줄이라 '이 버전으로 복구'로 되돌릴 수 있다.
+   */
+  const loadPrevCards = async () => {
+    setBusy('prev')
+    try {
+      const prev = await loadPrevYear(schoolId, plan.year)
+      if (!prev.plan) { setToast(`${plan.year - 1}학년도 학사일정이 없습니다.`); return }
+      const { cards, skipped } = importPrevCards(draft.events, prev.plan.events)
+      const colors = mergeDeptColors(yearDoc?.deptColors, prev.deptColors)
+      if (!cards.length && !colors.added) { setToast(`이미 모두 불러왔습니다${skipped ? ` (${skipped}건 건너뜀)` : ''}.`); return }
+      const src = `${plan.year - 1}학년도 '${prev.plan.name}'${prev.plan.status === 'confirmed' ? '(확정본)' : '(가장 최근 초안)'}`
+      const msg = [
+        cards.length && `일정 ${cards.length}건을 보관함 카드로 넣습니다${skipped ? ` (이미 있는 ${skipped}건 제외)` : ''}.`,
+        colors.added && `부서 색 ${colors.added}개를 가져옵니다(이미 정한 색은 그대로).`,
+      ].filter(Boolean).join('\n')
+      if (!window.confirm(`${src}에서 불러옵니다.\n\n${msg}\n\n진행할까요?`)) return
+      if (cards.length) change((d) => ({ ...d, events: [...d.events, ...cards] }))
+      if (colors.added) await saveDeptColors(schoolId, plan.year, colors.colors)
+      setToast([cards.length && `카드 ${cards.length}건`, colors.added && `부서 색 ${colors.added}개`].filter(Boolean).join(' · ') + '을 불러왔습니다.')
+    } catch (e) {
+      setError(`지난 학년도를 불러오지 못했습니다: ${e.message}`)
+    } finally { setBusy('') }
   }
 
   const loadHolidays = async () => {
@@ -453,6 +543,24 @@ export default function AcademicPlanEditor() {
             ? <Typography variant="caption" sx={{ color: dirty || saving ? '#b45309' : 'text.secondary' }}>{status}</Typography>
             : <Chip label="읽기 전용" size="small" variant="outlined" />}
           <Box sx={{ flex: 1 }} />
+          <Button size="small" startIcon={<ShareIcon />} onClick={(e) => { setShareAnchor(e.currentTarget); copyShareLink() }}>공유</Button>
+          <Popover open={Boolean(shareAnchor)} anchorEl={shareAnchor} onClose={() => { setShareAnchor(null); setCopied(false) }}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+            <Box sx={{ p: 1.5, width: 400, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Typography sx={{ fontWeight: 800, fontSize: '0.92rem' }}>이 학사일정 링크</Typography>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <TextField size="small" fullWidth value={shareUrl} InputProps={{ readOnly: true }} onFocus={(e) => e.target.select()} />
+                <Button size="small" variant="contained" disableElevation startIcon={<ContentCopyIcon />} onClick={copyShareLink} sx={{ bgcolor: ACCENT, flexShrink: 0 }}>
+                  {copied ? '복사됨' : '복사'}
+                </Button>
+              </Box>
+              <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
+                메신저로 보내면 받은 선생님이 학교 계정으로 로그인한 뒤 이 화면으로 바로 들어옵니다.
+                편집은 이 학년도 편집자(부장)와 관리자만 할 수 있고, 다른 교직원은 보기만 합니다.
+                {(yearDoc?.editorUids || []).length ? ` 지금 편집자 ${(yearDoc.editorUids || []).length}명.` : ''}
+              </Typography>
+            </Box>
+          </Popover>
           <Button size="small" startIcon={fullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />} onClick={toggleFullscreen}>
             {fullscreen ? '전체 화면 끄기' : '전체 화면'}
           </Button>
@@ -491,6 +599,7 @@ export default function AcademicPlanEditor() {
           </Alert>
         )}
         {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+        {sinceChanges && <ChangesSinceBanner changes={sinceChanges} onDismiss={dismissChanges} />}
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Tabs value={semester ?? 0} onChange={(_, v) => setSemester(v || null)} sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, fontWeight: 700 } }}>
@@ -532,7 +641,7 @@ export default function AcademicPlanEditor() {
           <Box ref={scrollRef} sx={{ flex: 1, minWidth: 0, height: '100%', overflow: 'auto', borderRadius: 1 }}>
             <Box>
               <Box sx={{ minWidth: 760 }}>
-                <PlanGrid plan={view} events={shownView.events} rows={rows} hintDate={hintDate} canEdit={canEdit} showSunday={showSunday} deptColors={deptColors}
+                <PlanGrid plan={view} events={shownView.events} rows={rows} hintDate={hintDate} changedIds={sinceChanges?.changedIds} canEdit={canEdit} showSunday={showSunday} deptColors={deptColors}
                   isLocked={(ev) => isEventLocked(ev, stage)}
                   onCellClick={(date) => setDialog({ event: { date } })}
                   onEventClick={(ev) => setDialog({ event: ev })}
@@ -553,6 +662,7 @@ export default function AcademicPlanEditor() {
               onEdit={(ev) => setDialog({ event: ev })}
               onUnschedule={unschedule}
               semester={semester} onUnscheduleAll={unscheduleAll}
+              prevYear={plan.year - 1} onLoadPrev={loadPrevCards} loadingPrev={busy === 'prev'}
               onCardDrag={(ev) => setHintDate(ev ? sameWeekdayNextYear(ev.prevDate) : null)}
               onEditColors={() => setColorOpen(true)} />
           </Box>

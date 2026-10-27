@@ -3,7 +3,7 @@
 //   수업일수 시트: 학년 × 요일 표(수업·실수업·정기고사·전일행사·중간-기말, 자율·동아리)
 //   일정 목록 시트: 일정 한 줄씩(구글 캘린더 업로드 시트처럼) — 보관함 카드는 날짜 빈칸
 import {
-  GRADES, SCHOOL_WEEKDAYS, WEEK_LABELS, buildWeekRows, classifyDay, computeStats, eventDisplayTitle,
+  GRADES, SCHOOL_WEEKDAYS, WEEK_LABELS, buildWeekRows, classifyDay, computeStats, eventDisplayTitle, isNoProgress,
   indexEventsByDate, isTrayEvent, makeContext, rowsForSemester,
 } from '@shared/lib/academicPlan'
 
@@ -79,7 +79,7 @@ function addStatsSheet(wb, plan) {
   const stats = computeStats(plan)
   ws.columns = [{ width: 16 }, ...GRADES.flatMap(() => Array(6).fill({ width: 6 }))]
   const ITEMS = [
-    ['schoolDays', '수업일수'], ['actual', '실수업일수'], ['exams', '정기고사일수'], ['fullDays', '전일행사일수'], ['between', '중간-기말 사이'],
+    ['schoolDays', '수업일수'], ['actual', '실수업일수'], ['exams', '정기고사일수'], ['fullDays', '전일행사일수'], ['noProgress', '진도 없는 날'], ['beforeMid', '개학-중간 사이'], ['between', '중간-기말 사이'],
   ]
   for (const sem of [1, 2, 'year']) {
     const title = ws.addRow([sem === 'year' ? '연간 합계' : `${sem}학기`])
@@ -109,7 +109,8 @@ function addStatsSheet(wb, plan) {
     }
     ws.addRow([])
   }
-  ws.addRow(['실수업일수 = 수업일수 − (정기고사일수 + 전일행사일수). 중간-기말 사이 = 마지막 중간고사 다음 날 ~ 첫 기말고사 전날의 실수업일수.'])
+  ws.addRow(['실수업일수 = 수업일수 − (정기고사일수 + 전일행사일수). 진도 없는 날 = 학력평가·모의고사 등(출결상 수업일로는 인정).'])
+  ws.addRow(['개학-중간 사이 = 개학 ~ 첫 중간고사 전날, 중간-기말 사이 = 마지막 중간고사 다음 날 ~ 첫 기말고사 전날의 실수업일에서 진도 없는 날을 뺀 날.'])
 }
 
 function addListSheet(wb, plan) {
@@ -119,7 +120,7 @@ function addListSheet(wb, plan) {
     { header: '요일', key: 'dow', width: 6 }, { header: '일정', key: 'title', width: 36 },
     { header: '표시 제목', key: 'display', width: 44 }, { header: '유형', key: 'kind', width: 10 },
     { header: '대상 학년', key: 'grades', width: 10 }, { header: '관련 부서', key: 'dept', width: 16 },
-    { header: '전일행사', key: 'fullDay', width: 9 }, { header: '자율(h)', key: 'auto', width: 8 },
+    { header: '전일행사', key: 'fullDay', width: 9 }, { header: '진도 없음', key: 'noProgress', width: 9 }, { header: '자율(h)', key: 'auto', width: 8 },
     { header: '동아리(h)', key: 'club', width: 9 }, { header: '메모', key: 'note', width: 30 },
   ]
   const sorted = [...(plan.events || [])].sort((a, b) => {
@@ -140,6 +141,7 @@ function addListSheet(wb, plan) {
       grades: ev.grades?.length && ev.grades.length < 3 ? ev.grades.join(',') : '전체',
       dept: ev.dept || '',
       fullDay: ev.fullDay ? 'O' : '',
+      noProgress: ev.kind === '일반' && !ev.fullDay && isNoProgress(ev) ? 'O' : '',
       auto: hours(ev, '자율'),
       club: hours(ev, '동아리'),
       note: ev.note || '',

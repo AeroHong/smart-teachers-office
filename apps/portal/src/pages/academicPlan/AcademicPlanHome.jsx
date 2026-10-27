@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { getDocs, query, where, collection } from 'firebase/firestore'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -21,12 +20,13 @@ import AddIcon from '@mui/icons-material/Add'
 import VerifiedIcon from '@mui/icons-material/Verified'
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
 import { useAuth } from '@shared/contexts/AuthContext'
-import { db } from '@shared/lib/firebase'
-import { COL, currentYearSemester, schoolPath } from '@shared/lib/schema'
-import { MIN_WEEKDAY_DAYS, STAGE_LABEL, computeStats, eventsToCards, planStage, rollEventsToNextYear } from '@shared/lib/academicPlan'
+import { currentYearSemester } from '@shared/lib/schema'
+import {
+  MIN_WEEKDAY_DAYS, STAGE_LABEL, computeStats, eventsToCards, mergeDeptColors, planStage, rollEventsToNextYear,
+} from '@shared/lib/academicPlan'
 import Layout from '../../components/Layout'
 import useStaffDirectory from './useStaffDirectory'
-import { createPlan, deletePlan, saveYear, subscribePlans, subscribeYear } from './planRepo'
+import { createPlan, deletePlan, loadPrevYear, saveDeptColors, saveYear, subscribePlans, subscribeYear } from './planRepo'
 import { ACCENT, ACCENT_BG } from './planUi'
 
 const fmt = (ts) => (ts?.toDate ? ts.toDate().toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
@@ -84,6 +84,7 @@ export default function AcademicPlanHome() {
   const [newForm, setNewForm] = useState({ name: '', source: 'blank', copyId: '' })
   const [creating, setCreating] = useState(false)
   const [prevConfirmed, setPrevConfirmed] = useState(null)
+  const [prevColors, setPrevColors] = useState({})
   const { staff, loading: staffLoading, refetch: refetchStaff } = useStaffDirectory(schoolId, year)
 
   useEffect(() => {
@@ -97,13 +98,9 @@ export default function AcademicPlanHome() {
   // 지난 학년도 학사일정 — 확정본, 없으면 가장 최근에 고친 초안. 새 초안을 카드로·같은 요일로 시작할 수 있게
   useEffect(() => {
     if (!schoolId) return
-    getDocs(query(collection(db, ...schoolPath(schoolId, COL.ACADEMIC_PLANS)), where('year', '==', year - 1)))
-      .then((s) => {
-        const list = s.docs.map((d) => ({ id: d.id, ...d.data() }))
-        const latest = [...list].sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0))[0]
-        setPrevConfirmed(list.find((p) => p.status === 'confirmed') || latest || null)
-      })
-      .catch(() => setPrevConfirmed(null))
+    loadPrevYear(schoolId, year)
+      .then((r) => { setPrevConfirmed(r.plan); setPrevColors(r.deptColors) })
+      .catch(() => { setPrevConfirmed(null); setPrevColors({}) })
   }, [schoolId, year])
 
   const canEdit = canAdmin || (yearDoc?.editorUids || []).includes(user?.uid)
@@ -142,6 +139,11 @@ export default function AcademicPlanHome() {
         basedOn = prevConfirmed.id
       }
       const id = await createPlan({ schoolId, year, name: newForm.name.trim() || nextName(plans), events, holidays, basedOn, by })
+      // 지난 학년도에서 시작했으면 부서 색도 — 이미 정한 색은 그대로, 빈 부서만
+      if ((newForm.source === 'cards' || newForm.source === 'prev') && Object.keys(prevColors).length) {
+        const m = mergeDeptColors(yearDoc?.deptColors, prevColors)
+        if (m.added) await saveDeptColors(schoolId, year, m.colors).catch(() => {})
+      }
       // 편집은 새 창에서 — 이 창(목록)의 입력 창은 닫아 둔다. 안 닫으면 편집 창에서 '목록'으로 돌아왔을 때 입력 창이 그대로 보인다
       setNewOpen(false)
       if (win) win.location.href = `/academic-plan/${id}`

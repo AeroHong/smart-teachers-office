@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import {
   addDays, buildWeekRows, classifyDay, computeStats, describeDiff, diffEvents, eventDisplayTitle,
   isTrayEvent, makeContext, mondayIndex, placeTrayEvent, rollEventsToNextYear, rowsForSemester, semesterRanges, shiftEvent,
-  unscheduleEvent, eventsToCards, sameWeekdayNextYear, addConfirmation, currentConfirmation, isEventLocked, markFrameEvents, planStage, relockEvents,
+  unscheduleEvent, isNoProgress, eventsToCards, importPrevCards, mergeDeptColors, sameWeekdayNextYear, addConfirmation, currentConfirmation, isEventLocked, markFrameEvents, planStage, relockEvents,
 } from './academicPlan.js'
 import { plan2026 } from './academicPlan.fixture2026.js'
 
@@ -208,4 +208,50 @@ test('지난 학년도 일정을 카드로 — 공휴일·요일교체 빼고, �
   assert.equal(cards[1].spanDays, 5)
   assert.equal(sameWeekdayNextYear('2026-05-14'), '2027-05-13')
   assert.equal(mondayIndex(sameWeekdayNextYear('2026-05-14')), mondayIndex('2026-05-14'))
+})
+
+test('지난 학년도 불러오기 — 이미 있는 일정은 건너뛰고, 부서 색은 빈 부서만 채운다', () => {
+  const prev = [
+    { id: 'a', date: '2026-05-14', title: '스포츠한마당', kind: '일반' },
+    { id: 'b', date: '2026-06-01', title: '건강검진', kind: '일반' },
+  ]
+  const cur = [{ id: 'a', date: '', title: '스포츠한마당', kind: '일반', prevDate: '2026-05-14' }]
+  const r = importPrevCards(cur, prev)
+  assert.deepEqual(r.cards.map((c) => [c.id, c.prevDate]), [['b', '2026-06-01']])
+  assert.equal(r.skipped, 1)
+
+  const m = mergeDeptColors({ 교무기획부: 'teal' }, { 교무기획부: 'pink', 과학정보부: 'lime' })
+  assert.deepEqual(m.colors, { 교무기획부: 'teal', 과학정보부: 'lime' })
+  assert.equal(m.added, 1)
+  assert.deepEqual(mergeDeptColors(undefined, undefined), { colors: {}, added: 0 })
+})
+
+test('개학~중간고사 실수업일 — 2026 엑셀 원본 기준', async () => {
+  const st = computeStats(plan2026)
+  // 1학기: 3/3(시업식 전일행사) ~ 4/21, 2학기: 8/14 ~ 10/5 (8/17·10/5 대체공휴일, 9/24·25 추석 빠짐)
+  for (const g of [1, 2, 3]) assert.deepEqual(st.grades[g][1].beforeMid, [7, 7, 7, 7, 7])
+  for (const g of [1, 2, 3]) assert.deepEqual(st.grades[g][2].beforeMid, [6, 7, 6, 7, 6])
+  assert.equal(st.grades[1].year.total.beforeMid, 67)
+})
+
+test('진도 없는 날 — 학력평가·모의고사는 실수업일엔 그대로, 시험 사이 일수에서만 뺀다', () => {
+  const base = plan2026.events
+  const mock = (extra) => ({ id: `m${Math.random()}`, date: '2026-03-24', title: '전국연합학력평가', kind: '일반', grades: [], fullDay: false, activities: [], ...extra })
+  const before = computeStats(plan2026)
+  const after = computeStats({ ...plan2026, events: [...base, mock()] })
+  for (const g of [1, 2, 3]) {
+    assert.deepEqual(after.grades[g][1].actual, before.grades[g][1].actual) // 나이스 출결상 수업일 그대로
+    assert.equal(after.grades[g][1].beforeMid[1], before.grades[g][1].beforeMid[1] - 1) // 3/24(화)
+    assert.equal(after.grades[g][1].noProgress[1], 1)
+  }
+  // 대상 학년만
+  const only3 = computeStats({ ...plan2026, events: [...base, mock({ grades: [3] })] })
+  assert.equal(only3.grades[1][1].beforeMid[1], before.grades[1][1].beforeMid[1])
+  assert.equal(only3.grades[3][1].beforeMid[1], before.grades[3][1].beforeMid[1] - 1)
+  // 직접 끄면 셈, 제목에 없어도 켜면 뺌
+  assert.equal(isNoProgress({ title: '전국연합학력평가', noProgress: false }), false)
+  assert.equal(isNoProgress({ title: '진로적성검사', noProgress: true }), true)
+  assert.equal(isNoProgress({ title: '대학수능모의평가' }), true)
+  const off = computeStats({ ...plan2026, events: [...base, mock({ noProgress: false })] })
+  assert.deepEqual(off.grades[1][1].beforeMid, before.grades[1][1].beforeMid)
 })

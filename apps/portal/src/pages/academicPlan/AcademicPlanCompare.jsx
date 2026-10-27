@@ -17,7 +17,7 @@ import { subscribePlans } from './planRepo'
 const th = { border: '1px solid #e2e8f0', bgcolor: '#f8fafc', px: 0.75, py: 0.5, fontSize: '0.75rem', fontWeight: 700, textAlign: 'center' }
 const td = { border: '1px solid #e2e8f0', px: 0.75, py: 0.5, fontSize: '0.8rem', textAlign: 'center', whiteSpace: 'nowrap' }
 
-const ROWS = [['schoolDays', '수업일'], ['actual', '실수업일'], ['exams', '정기고사'], ['fullDays', '전일행사'], ['between', '중간-기말']]
+const ROWS = [['schoolDays', '수업일'], ['actual', '실수업일'], ['exams', '정기고사'], ['fullDays', '전일행사'], ['beforeMid', '개학-중간'], ['between', '중간-기말']]
 
 /** A → B 값. 다르면 'a → b'로 강조 */
 function Cell({ a, b, warn }) {

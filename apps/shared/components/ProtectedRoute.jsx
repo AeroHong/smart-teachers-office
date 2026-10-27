@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import CircularProgress from '@mui/material/CircularProgress'
 import Box from '@mui/material/Box'
 import { useAuth } from '@shared/contexts/AuthContext'
@@ -13,6 +13,7 @@ export default function ProtectedRoute({
   principalAllowed = false,  // 교감도 접근 가능한 페이지
 }) {
   const { user, role, isSuperAdmin, loading, needsSchoolSetup } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -22,7 +23,8 @@ export default function ProtectedRoute({
     )
   }
 
-  if (!user) return <Navigate to="/login" replace />
+  // 로그인 뒤 원래 가려던 곳으로(공유 링크로 들어온 경우) — Login이 state.from을 읽는다
+  if (!user) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
 
   // 학교 미설정 → 학교 선택/등록 페이지
   if (needsSchoolSetup) return <Navigate to="/school-setup" replace />

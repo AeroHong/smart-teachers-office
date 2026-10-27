@@ -12,8 +12,11 @@ const DETAIL_ROWS = [
   { key: 'actual', label: '실', warn: true },
   { key: 'exams', label: '고사' },
   { key: 'fullDays', label: '전일' },
-  { key: 'between', label: '중-기' },
+  { key: 'noProgress', label: '진도×' },
 ]
+// 기본 표: 수업·실수업 / 시험 사이 표: 개학~중간·중간~기말(둘 다 실수업일 기준)
+const MAIN_PAIR = [{ key: 'schoolDays', label: '수업', muted: true }, { key: 'actual', label: '실', warn: true, strong: true }]
+const EXAM_PAIR = [{ key: 'beforeMid', label: '개학~중간' }, { key: 'between', label: '중간~기말' }]
 const DETAIL_KEY = 'academicPlan.statsDetail'
 
 const LINE = '#cbd5e1'
@@ -23,8 +26,8 @@ const LOW = { bgcolor: '#fee2e2', color: '#b91c1c', fontWeight: 800 }
 
 const isLow = (sem, s, v) => sem !== 'year' && v < MIN_WEEKDAY_DAYS && s.total.schoolDays > 0
 
-/** 요일 × 학년(수업·실수업) — 좁은 왼쪽 패널용 세로 표. 학년 머리글에 자율·동아리 시수 */
-function CompactTable({ stats, sem }) {
+/** 요일 × 학년(두 값씩) — 좁은 왼쪽 패널용 세로 표. withActivities면 학년 머리글에 자율·동아리 시수 */
+function CompactTable({ stats, sem, pair = MAIN_PAIR, withActivities = true }) {
   return (
     <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%' }}>
       <thead>
@@ -35,13 +38,15 @@ function CompactTable({ stats, sem }) {
             return (
               <Box component="th" key={g} sx={th} colSpan={2}>
                 {g}학년
-                <Box sx={{ fontSize: '0.64rem', fontWeight: 600, color: '#475569' }}>자{a.자율}·동{a.동아리}</Box>
+                {withActivities && <Box sx={{ fontSize: '0.64rem', fontWeight: 600, color: '#475569' }}>자{a.자율}·동{a.동아리}</Box>}
               </Box>
             )
           })}
         </tr>
         <tr>
-          {GRADES.map((g) => ['수업', '실'].map((l) => <Box component="th" key={`${g}${l}`} sx={{ ...th, fontWeight: 700 }}>{l}</Box>))}
+          {GRADES.map((g) => pair.map((c) => (
+            <Box component="th" key={`${g}${c.key}`} sx={{ ...th, fontWeight: 700, whiteSpace: 'normal', fontSize: c.label.length > 2 ? '0.6rem' : th.fontSize, lineHeight: 1.15 }}>{c.label}</Box>
+          )))}
         </tr>
       </thead>
       <tbody>
@@ -52,13 +57,16 @@ function CompactTable({ stats, sem }) {
               <Box component="th" sx={th}>{w}</Box>
               {GRADES.map((g) => {
                 const s = stats.grades[g][sem]
-                const sd = total ? s.total.schoolDays : s.schoolDays[i]
-                const ac = total ? s.total.actual : s.actual[i]
                 const t = total ? { fontWeight: 800, bgcolor: '#f1f5f9' } : {}
-                return [
-                  <Box component="td" key={`${g}s`} sx={{ ...td, ...t, color: '#475569' }}>{sd}</Box>,
-                  <Box component="td" key={`${g}a`} sx={{ ...td, ...t, fontWeight: 800, ...(!total && isLow(sem, s, ac) ? LOW : {}) }}>{ac}</Box>,
-                ]
+                return pair.map((c) => {
+                  const v = total ? s.total[c.key] : s[c.key][i]
+                  return (
+                    <Box component="td" key={`${g}${c.key}`}
+                      sx={{ ...td, ...t, ...(c.muted ? { color: '#475569' } : {}), ...(c.strong ? { fontWeight: 800 } : {}), ...(!total && c.warn && isLow(sem, s, v) ? LOW : {}) }}>
+                      {v}
+                    </Box>
+                  )
+                })
               })}
             </tr>
           )
@@ -146,6 +154,12 @@ export default function PlanStatsPanel({ stats, semester }) {
             )}
           </Box>
           <CompactTable stats={stats} sem={sem} />
+          {sem !== 'year' && (
+            <Box sx={{ mt: 0.75 }}>
+              <Typography sx={{ fontSize: '0.74rem', fontWeight: 800, color: '#334155', mb: 0.25 }}>시험 사이 진도 나가는 날</Typography>
+              <CompactTable stats={stats} sem={sem} pair={EXAM_PAIR} withActivities={false} />
+            </Box>
+          )}
           {detail && (
             <Box sx={{ mt: 0.75 }}>
               <DetailTable stats={stats} sem={sem} grade={grade} />
@@ -155,7 +169,7 @@ export default function PlanStatsPanel({ stats, semester }) {
       ))}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <Button size="small" onClick={toggleDetail} sx={{ px: 0.5 }}>
-          {detail ? '정기고사·전일행사·중간-기말 접기' : '정기고사·전일행사·중간-기말 보기'}
+          {detail ? '정기고사·전일행사·진도 없는 날 접기' : '정기고사·전일행사·진도 없는 날 보기'}
         </Button>
         {detail && (
           <ToggleButtonGroup size="small" exclusive value={grade} onChange={(_, v) => v && setGrade(v)}>
@@ -164,7 +178,8 @@ export default function PlanStatsPanel({ stats, semester }) {
         )}
       </Box>
       <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
-        실 = 실수업일수 = 수업일수 − (정기고사 + 전일행사). 중-기 = 마지막 중간고사 다음 날 ~ 첫 기말고사 전날의 실수업일수.
+        실 = 실수업일수 = 수업일수 − (정기고사 + 전일행사). 개학~중간 = 개학 ~ 첫 중간고사 전날, 중간~기말 = 마지막 중간고사 다음 날 ~ 첫 기말고사 전날의
+        실제로 진도 나가는 날(실수업일에서 학력평가·모의고사 등 진도× 일정이 있는 날을 뺌 — 출결상 수업일로는 인정).
         자·동 = 자율·동아리 시수(시간). 토·일요일 행사는 수업일에 넣지 않습니다.
       </Typography>
     </Box>

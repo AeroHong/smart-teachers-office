@@ -5,7 +5,7 @@
  * 규칙(firestore.rules academicPlans)은 revision이 정확히 1 오르지 않는 저장과 버전 단독 쓰기를 거부한다.
  */
 import {
-  collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
+  collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, runTransaction,
   serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
@@ -36,6 +36,23 @@ export function subscribePlan(schoolId, planId, cb, onError) {
 /** 학년도 설정 — 관리자만(규칙). 편집자 명단·확정 초안 */
 export async function saveYear(schoolId, year, data) {
   await setDoc(yearRef(schoolId, year), { ...plain(data), updatedAt: serverTimestamp() }, { merge: true })
+}
+
+/**
+ * 지난 학년도 — 학사일정(확정본, 없으면 가장 최근에 고친 초안)과 부서 색.
+ * @returns {Promise<{ plan: object|null, deptColors: object }>}
+ */
+export async function loadPrevYear(schoolId, year) {
+  const [plansSnap, yearSnap] = await Promise.all([
+    getDocs(query(plansCol(schoolId), where('year', '==', year - 1))),
+    getDoc(yearRef(schoolId, year - 1)),
+  ])
+  const list = plansSnap.docs.map(withId)
+  const latest = [...list].sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0))[0]
+  return {
+    plan: list.find((p) => p.status === 'confirmed') || latest || null,
+    deptColors: (yearSnap.exists() && yearSnap.data().deptColors) || {},
+  }
 }
 
 /** 부서 색 — 편집자도 이 필드만 고칠 수 있다(규칙) */
@@ -118,6 +135,26 @@ export async function savePlan(o) {
 export async function listVersions(schoolId, planId) {
   const snap = await getDocs(query(sub(schoolId, planId, COL.EXAM_VERSIONS), orderBy('versionNo', 'desc')))
   return snap.docs.map((d) => ({ id: d.id, ...d.data(), at: d.data().at?.toDate?.() }))
+}
+
+/**
+ * 이 브라우저가 마지막으로 본 기록(seenNo) 뒤의 수정 기록과, 그때의 일정 스냅숏.
+ * 자동 저장마다 기록이 생기므로 전체를 읽지 않고 seenNo 다음부터만(최대 300건) 읽는다.
+ * @returns {Promise<{ versions: object[], baseEvents: object[]|null }>}
+ */
+export async function loadChangesSince(schoolId, planId, seenNo) {
+  const vcol = sub(schoolId, planId, COL.EXAM_VERSIONS)
+  const [after, baseSnap] = await Promise.all([
+    getDocs(query(vcol, where('versionNo', '>', seenNo), orderBy('versionNo'), limit(300))),
+    getDocs(query(vcol, where('versionNo', '==', seenNo), limit(1))),
+  ])
+  const versions = after.docs.map((d) => ({ id: d.id, ...d.data(), at: d.data().at?.toDate?.() }))
+  let baseEvents = null
+  if (!baseSnap.empty) {
+    const data = await getDoc(doc(sub(schoolId, planId, COL.EXAM_VERSION_DATA), baseSnap.docs[0].id))
+    if (data.exists()) baseEvents = data.data().events || []
+  }
+  return { versions, baseEvents }
 }
 
 export async function loadVersionData(schoolId, planId, versionId) {

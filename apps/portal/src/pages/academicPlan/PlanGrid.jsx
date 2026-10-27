@@ -3,7 +3,7 @@ import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import LockIcon from '@mui/icons-material/Lock'
 import {
-  GRADES, WEEK_LABELS, addDays, classifyDay, daysBetween, eventDisplayTitle, indexEventsByDate, makeContext,
+  GRADES, WEEK_LABELS, addDays, classifyDay, daysBetween, eventDisplayTitle, indexEventsByDate, isNoProgress, makeContext,
 } from '@shared/lib/academicPlan'
 import { eventStyle } from './planUi'
 
@@ -97,7 +97,11 @@ const td = { border: `1px solid ${LINE}`, verticalAlign: 'top', p: 0 }
  * 칸 안은 [날짜 | 일정] 두 칸 — 일정은 줄이 바뀌어도 날짜 오른쪽 칸 안에서 이어진다.
  * hintDate: 작년 날짜가 있는 카드를 끄는 동안 '작년 이맘때(같은 요일)' 칸을 점선으로 표시.
  */
-export default function PlanGrid({ plan, events, rows, canEdit, showSunday, deptColors, hintDate, isLocked = () => false, onCellClick, onEventClick, onMove }) {
+export default function PlanGrid({
+  plan, events, rows, canEdit, showSunday, deptColors, hintDate, changedIds, isLocked = () => false, onCellClick, onEventClick, onMove,
+}) {
+  // 마지막으로 본 뒤 다른 사람이 바꾼 일정 — 주황 테두리
+  const changedRing = (ev) => (changedIds?.has(ev.id) ? { boxShadow: '0 0 0 2px #f97316', position: 'relative' } : {})
   const ctx = useMemo(() => makeContext(plan), [plan])
   // 칸 배경(공휴일·방학)은 전체 일정(plan)으로, 칩은 보기 필터를 거친 events로
   const shown = events || plan.events
@@ -204,7 +208,7 @@ export default function PlanGrid({ plan, events, rows, canEdit, showSunday, dept
     },
     onClick: (e) => { e.stopPropagation(); onEventClick(ev) },
   })
-  const tipOf = (ev) => `${eventDisplayTitle(ev)}${ev.endDate ? ` (${ev.date.slice(5).replace('-', '/')}~${ev.endDate.slice(5).replace('-', '/')})` : ''}${ev.dept ? ` · ${ev.dept}` : ''}${ev.fullDay ? ' · 전일행사' : ''}${ev.note ? ` · ${ev.note}` : ''}`
+  const tipOf = (ev) => `${eventDisplayTitle(ev)}${ev.kind === '일반' && !ev.fullDay && isNoProgress(ev) ? ' · 진도 없음' : ''}${ev.endDate ? ` (${ev.date.slice(5).replace('-', '/')}~${ev.endDate.slice(5).replace('-', '/')})` : ''}${ev.dept ? ` · ${ev.dept}` : ''}${ev.fullDay ? ' · 전일행사' : ''}${ev.note ? ` · ${ev.note}` : ''}`
 
   const renderEvent = (ev, k) => {
     const ks = eventStyle(ev, deptColors)
@@ -216,6 +220,7 @@ export default function PlanGrid({ plan, events, rows, canEdit, showSunday, dept
             fontSize: '0.72rem', lineHeight: 1.35, fontWeight: ev.fullDay || ev.kind !== '일반' ? 800 : 600,
             cursor: canEdit && !isLocked(ev) ? 'grab' : 'pointer', wordBreak: 'keep-all', overflowWrap: 'anywhere',
             borderLeft: ev.fullDay ? `4px solid ${ks.fg}` : `1px solid ${ks.bd}`,
+            ...changedRing(ev),
           }}>
           {isLocked(ev) && <Lock />}
           <ActivityBadges activities={ev.activities} />
@@ -245,6 +250,7 @@ export default function PlanGrid({ plan, events, rows, canEdit, showSunday, dept
             px: head ? 0.5 : 0, fontSize: '0.72rem', fontWeight: ev.fullDay || ev.kind !== '일반' ? 800 : 600,
             lineHeight: `${SPAN_H - 2}px`, whiteSpace: 'nowrap', cursor: canEdit && !isLocked(ev) ? 'grab' : 'pointer',
             '&:hover': { filter: 'brightness(0.95)' },
+            ...(changedIds?.has(ev.id) ? { boxShadow: 'inset 0 0 0 2px #f97316' } : {}),
           }}>
           {head && isLocked(ev) && <Lock />}
           {head && `${ev.title || ''}${gradeSuffix(ev.grades)}`}

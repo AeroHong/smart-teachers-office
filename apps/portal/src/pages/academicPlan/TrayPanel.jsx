@@ -6,6 +6,7 @@ import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
 import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined'
 import MoveDownIcon from '@mui/icons-material/MoveDown'
+import HistoryEduIcon from '@mui/icons-material/HistoryEdu'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import { eventDisplayTitle, isTrayEvent, shortLabel } from '@shared/lib/academicPlan'
@@ -17,7 +18,10 @@ import { ActivityBadges, DRAG_TYPE, dragPayload, gradeSuffix, readDrag } from '.
  * 날짜 없는 일정(date '')을 카드로 미리 만들어 두고, 격자의 날짜 칸으로 끌어 놓으면 그날로 정해진다.
  * 격자의 일정을 여기로 끌어 놓으면 날짜를 비우고 보관함으로 돌아온다(기간 일정은 일수를 기억).
  */
-export default function TrayPanel({ events, canEdit, deptColors, semester, onAdd, onEdit, onUnschedule, onUnscheduleAll, onEditColors, onCardDrag }) {
+export default function TrayPanel({
+  events, canEdit, deptColors, semester, prevYear, loadingPrev,
+  onAdd, onEdit, onUnschedule, onUnscheduleAll, onEditColors, onCardDrag, onLoadPrev,
+}) {
   const [over, setOver] = useState(false)
   const [allAnchor, setAllAnchor] = useState(null)
   const cards = (events || []).filter(isTrayEvent)
@@ -32,6 +36,10 @@ export default function TrayPanel({ events, canEdit, deptColors, semester, onAdd
         </Box>
         {canEdit && (
           <>
+            <Button size="small" fullWidth startIcon={<HistoryEduIcon />} onClick={onLoadPrev} disabled={loadingPrev}
+              sx={{ justifyContent: 'flex-start', color: 'text.secondary' }}>
+              {prevYear}학년도 일정·부서 색 불러오기
+            </Button>
             <Button size="small" fullWidth startIcon={<MoveDownIcon />} onClick={(e) => setAllAnchor(e.currentTarget)}
               sx={{ mb: 0.75, justifyContent: 'flex-start', color: 'text.secondary' }}>
               표의 일정을 한꺼번에 카드로

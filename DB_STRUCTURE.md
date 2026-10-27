@@ -861,9 +861,10 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - `stage` (`'frame'` 주요 일정 | `'detail'` 세부 일정 | `'final'` 확정, 없으면 frame — `planStage()`), 관리자만
 - `confirmations` ([{no, stage('frame'|'final'), versionNo, at(ms), by, superseded?}]) — 확정 판 기록. 재확정하면 같은 단계의 이전 판에 superseded(화면 '변경됨'), 관리자만
 - `holidays` ([{date, name}]) — `fetchKoreanHolidays`로 불러온 공휴일
-- `events` ([event]) — `{ id, date, endDate?, title, kind, grades[], dept?, fullDay, examType?, weekdaySwap?, activities[{type,hours,grades}], note?, frame?, unlocked?, spanDays?, prevDate? }`.
+- `events` ([event]) — `{ id, date, endDate?, title, kind, grades[], dept?, fullDay, examType?, weekdaySwap?, activities[{type,hours,grades}], note?, frame?, unlocked?, spanDays?, prevDate?, noProgress? }`.
   kind: 일반·개학·방학식·종업식·졸업식·정기고사·재량휴업·공휴일·요일교체 (정의는 academicPlan.js 머리 주석)
   - `date: ''` = 보관함 카드(날짜 미정). 계산·인쇄·캘린더 반영에서 빠진다. `spanDays` 기간 일수(놓을 때 endDate로), `prevDate` 지난 학년도 날짜(카드로 가져온 경우)
+  - `noProgress` (boolean) = 진도 없는 날(학력평가·모의고사 등). 없으면 제목으로 판단(`isNoProgress`). 실수업일엔 그대로, 개학~중간·중간~기말 일수에서만 뺀다
   - `frame: true` = 주요 일정 확정 때 잠긴 일정(유형이 FRAME_KINDS이거나 전일행사), `unlocked: true` = 관리자가 잠금 해제(재확정하면 지워짐). 잠금은 화면에서만 지키고 규칙으로 막지는 않는다
 - `revision`, `versionCount`, `latestVersionId`, `updatedBy {uid,name}`, `updatedAt`, `createdBy`, `createdByName`, `createdAt`
 - `confirmedAt`, `confirmedBy`, `publishedAt`, `publishedBy` (관리자)

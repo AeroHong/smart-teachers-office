@@ -16,7 +16,7 @@ import Alert from '@mui/material/Alert'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import AddIcon from '@mui/icons-material/Add'
 import {
-  ACTIVITY_TYPES, EVENT_KINDS, GRADES, SCHOOL_WEEKDAYS, isDateKey, mondayIndex, shortLabel,
+  ACTIVITY_TYPES, EVENT_KINDS, GRADES, NO_PROGRESS_RE, SCHOOL_WEEKDAYS, isDateKey, mondayIndex, shortLabel,
 } from '@shared/lib/academicPlan'
 import { DEFAULT_FULL_DAY, KIND_HELP } from './planUi'
 
@@ -99,6 +99,8 @@ export default function EventDialog({
     if (!tray && f.endDate && f.endDate > f.date && f.kind !== '요일교체') ev.endDate = f.endDate
     if (tray && Number(f.spanDays) > 1) ev.spanDays = Math.min(60, Math.round(Number(f.spanDays)))
     if (f.dept) ev.dept = f.dept
+    // 진도 없음은 직접 바꾼 경우에만 저장 — 안 바꿨으면 제목(학력평가·모의고사 등)으로 판단
+    if (typeof f.noProgress === 'boolean') ev.noProgress = f.noProgress
     if (f.note?.trim()) ev.note = f.note.trim()
     if (f.kind === '정기고사') ev.examType = f.examType
     if (f.kind === '요일교체') ev.weekdaySwap = Number(f.weekdaySwap)
@@ -170,6 +172,19 @@ export default function EventDialog({
               label="전일행사" />
           )}
         </Box>
+        {f.kind === '일반' && !f.fullDay && (
+          <FormControlLabel disabled={readOnly} sx={{ mt: -1 }}
+            control={<Checkbox size="small"
+              checked={typeof f.noProgress === 'boolean' ? f.noProgress : NO_PROGRESS_RE.test(f.title || '')}
+              onChange={(e) => set({ noProgress: e.target.checked })} />}
+            label={(
+              <Typography variant="body2">
+                진도 없음 <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>
+                  — 학력평가·모의고사처럼 출결상 수업일이지만 진도를 못 나가는 날. 시험 사이 일수에서만 뺍니다
+                </Typography>
+              </Typography>
+            )} />
+        )}
 
         <Box>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
@@ -62,6 +62,10 @@ const FEATURES = [
 export default function Login() {
   const { user, role, isSuperAdmin, needsSchoolSetup, loading, login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // 공유 링크 등으로 들어왔다가 로그인하러 온 경우 돌아갈 곳 — 같은 사이트 안 경로만
+  const from = location.state?.from
+  const back = typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') && !from.startsWith('/login') ? from : null
   const [inAppBrowser, setInAppBrowser] = useState(null)
 
   useEffect(() => {
@@ -72,13 +76,13 @@ export default function Login() {
     if (loading) return
     if (!user) return
     if (isSuperAdmin) {
-      navigate('/super-admin', { replace: true })
+      navigate(back || '/super-admin', { replace: true })
     } else if (needsSchoolSetup) {
       navigate('/school-setup', { replace: true })
     } else if (role && role !== 'pending') {
-      navigate('/', { replace: true })
+      navigate(back || '/', { replace: true })
     }
-  }, [user, role, isSuperAdmin, needsSchoolSetup, loading])
+  }, [user, role, isSuperAdmin, needsSchoolSetup, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogin = async () => {
     try {

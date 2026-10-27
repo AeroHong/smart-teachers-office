@@ -169,6 +169,13 @@ export function semesterRanges(plan, grade) {
  * @returns {{semester, holiday, closure, schoolDay, weekday, exam, fullDay, vacation}}
  *   weekday: 수업일로 셀 요일 0~4(요일교체 반영), 수업일이 아니면 null
  */
+/**
+ * 진도 없는 날 — 학력평가·모의고사처럼 나이스 출결상 시간표 수업은 인정되지만(실수업일에 그대로 셈) 진도를 못 나가는 날.
+ * 시험 사이 일수(개학~중간·중간~기말)에서만 뺀다. 일정에 noProgress(true/false)를 직접 정하지 않았으면 제목으로 판단.
+ */
+export const NO_PROGRESS_RE = /학력평가|모의평가|모의고사/
+export const isNoProgress = (ev) => (typeof ev?.noProgress === 'boolean' ? ev.noProgress : NO_PROGRESS_RE.test(ev?.title || ''))
+
 export function classifyDay(ctx, grade, key) {
   const { ranges, holidays, byDate } = ctx
   const r = ranges[grade]
@@ -187,7 +194,8 @@ export function classifyDay(ctx, grade, key) {
   const examEv = evs.find((ev) => ev.kind === '정기고사')
   const exam = schoolDay && examEv ? (examEv.examType || '정기') : null
   const fullDay = schoolDay && !exam && evs.some((ev) => ev.fullDay)
-  return { semester, holiday, closure, schoolDay, weekday, exam, fullDay, vacation: semester === null }
+  const noProgress = schoolDay && !exam && !fullDay && evs.some(isNoProgress)
+  return { semester, holiday, closure, schoolDay, weekday, exam, fullDay, noProgress, vacation: semester === null }
 }
 
 export function makeContext(plan) {
@@ -202,11 +210,14 @@ const zero5 = () => [0, 0, 0, 0, 0]
 const sum = (a) => a.reduce((s, x) => s + x, 0)
 
 function emptySemesterStats() {
-  return { schoolDays: zero5(), exams: zero5(), fullDays: zero5(), actual: zero5(), between: zero5(), activities: { 자율: 0, 동아리: 0 } }
+  return {
+    schoolDays: zero5(), exams: zero5(), fullDays: zero5(), actual: zero5(), noProgress: zero5(),
+    beforeMid: zero5(), between: zero5(), activities: { 자율: 0, 동아리: 0 },
+  }
 }
 
 function addInto(t, s) {
-  for (const f of ['schoolDays', 'exams', 'fullDays', 'actual', 'between']) for (let i = 0; i < 5; i++) t[f][i] += s[f][i]
+  for (const f of ['schoolDays', 'exams', 'fullDays', 'actual', 'noProgress', 'beforeMid', 'between']) for (let i = 0; i < 5; i++) t[f][i] += s[f][i]
   for (const a of ACTIVITY_TYPES) t.activities[a] += s.activities[a]
 }
 
@@ -215,7 +226,7 @@ function totals(s) {
     ...s,
     total: {
       schoolDays: sum(s.schoolDays), exams: sum(s.exams), fullDays: sum(s.fullDays),
-      actual: sum(s.actual), between: sum(s.between),
+      actual: sum(s.actual), noProgress: sum(s.noProgress), beforeMid: sum(s.beforeMid), between: sum(s.between),
       activities: s.activities.자율 + s.activities.동아리,
     },
   }
@@ -235,6 +246,7 @@ export function computeStats(plan) {
       if (!rg || !rg.end) continue
       const s = sem[no]
       const days = dateRange(rg.start, rg.end)
+      let firstMid = null
       let lastMid = null
       let firstFinal = null
       for (const k of days) {
@@ -243,17 +255,22 @@ export function computeStats(plan) {
         s.schoolDays[d.weekday]++
         if (d.exam) {
           s.exams[d.weekday]++
-          if (d.exam === '중간') lastMid = k
+          if (d.exam === '중간') { if (!firstMid) firstMid = k; lastMid = k }
           if (d.exam === '기말' && !firstFinal) firstFinal = k
         } else if (d.fullDay) s.fullDays[d.weekday]++
+        else if (d.noProgress) s.noProgress[d.weekday]++
       }
       for (let i = 0; i < 5; i++) s.actual[i] = s.schoolDays[i] - s.exams[i] - s.fullDays[i]
-      if (lastMid && firstFinal && lastMid < firstFinal) {
-        for (const k of dateRange(addDays(lastMid, 1), addDays(firstFinal, -1))) {
+      // 시험 사이 진도 나가는 날(정기고사·전일행사·진도 없는 날 제외): 개학 ~ 첫 중간고사 전날, 마지막 중간고사 다음 날 ~ 첫 기말고사 전날
+      const countActual = (from, to, into) => {
+        if (from > to) return
+        for (const k of dateRange(from, to)) {
           const d = classifyDay(ctx, g, k)
-          if (d.schoolDay && !d.exam && !d.fullDay) s.between[d.weekday]++
+          if (d.schoolDay && !d.exam && !d.fullDay && !d.noProgress) into[d.weekday]++
         }
       }
+      if (firstMid) countActual(rg.start, addDays(firstMid, -1), s.beforeMid)
+      if (lastMid && firstFinal && lastMid < firstFinal) countActual(addDays(lastMid, 1), addDays(firstFinal, -1), s.between)
       for (const ev of plan?.events || []) {
         if (!isDateKey(ev.date) || ev.date < rg.start || ev.date > rg.end) continue
         for (const a of ev.activities || []) {
@@ -431,6 +448,27 @@ export function eventsToCards(events = []) {
     })
 }
 
+/**
+ * 이미 만든 초안에 지난 학년도 일정을 카드로 더한다 — 같은 id가 이미 있으면(전에 불러왔거나 같은 요일로 옮겨 시작) 건너뛴다.
+ * @returns {{ cards, skipped }}
+ */
+export function importPrevCards(currentEvents = [], prevEvents = []) {
+  const have = new Set(currentEvents.map((e) => e.id))
+  const all = eventsToCards(prevEvents)
+  const cards = all.filter((c) => !have.has(c.id))
+  return { cards, skipped: all.length - cards.length }
+}
+
+/** 부서 색 가져오기 — 이미 색이 있는 부서는 그대로, 비어 있는 부서만 지난 학년도 색으로 */
+export function mergeDeptColors(current = {}, prev = {}) {
+  const out = { ...(current || {}) }
+  let added = 0
+  for (const [dept, key] of Object.entries(prev || {})) {
+    if (!out[dept]) { out[dept] = key; added++ }
+  }
+  return { colors: out, added }
+}
+
 /** 작년 날짜와 같은 요일인 올해 날짜(52주 뒤) — 카드를 끌 때 표에 '작년 이맘때'로 표시 */
 export const sameWeekdayNextYear = (prevDate) => (isDateKey(prevDate) ? addDays(prevDate, 364) : null)
 
@@ -477,7 +515,7 @@ export function diffEvents(before = [], after = []) {
 /** 수정 기록에 쓰는 필드 이름 — 여기 있는 필드가 바뀌어야 '수정'으로 잡힌다 */
 const FIELD_LABEL = {
   title: '이름', kind: '유형', grades: '대상 학년', dept: '관련 부서', fullDay: '전일행사', examType: '고사 구분',
-  weekdaySwap: '요일 교체', activities: '시수', note: '메모', spanDays: '기간', frame: '주요 일정', unlocked: '잠금',
+  weekdaySwap: '요일 교체', activities: '시수', note: '메모', spanDays: '기간', noProgress: '진도 없음', frame: '주요 일정', unlocked: '잠금',
 }
 
 /** diffEvents 결과를 사람이 읽는 줄로 */

@@ -33,7 +33,7 @@ const STYLE = `<style>
 </style>`
 
 const STAT_ROWS = [
-  ['schoolDays', '수업일수'], ['actual', '실수업일수'], ['exams', '정기고사일수'], ['fullDays', '전일행사일수'], ['between', '중간-기말 사이'],
+  ['schoolDays', '수업일수'], ['actual', '실수업일수'], ['exams', '정기고사일수'], ['fullDays', '전일행사일수'], ['beforeMid', '개학-중간 사이'], ['between', '중간-기말 사이'],
 ]
 
 function semesterSheet(plan, schoolName, sem, stats) {
@@ -93,6 +93,7 @@ function semesterSheet(plan, schoolName, sem, stats) {
   <table class="stat"><thead>${statHead}</thead><tbody>${statBody}</tbody></table>
   <div class="notes">
     * 실수업일수: 수업일수 − (정기고사일수 + 전일행사일수) · 밑줄: 요일별 실수업일 16회 미만<br>
+    * 개학-중간·중간-기말 사이: 실수업일 중 학력평가·모의고사 등 진도 없는 날을 뺀 날(출결상 수업일로는 인정)<br>
     ${fullDayNames.length ? `* 전일행사: ${esc(fullDayNames.join(', '))}` : ''}
   </div>
 </div>`
