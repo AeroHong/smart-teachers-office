@@ -481,7 +481,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
           <table style={table.table}>
             <thead style={table.thead}>
               <tr>
-                <th style={table.th}>
+                <th style={{ ...table.th, ...table.fit }}>
                   <Checkbox
                     size="small"
                     sx={{ p: 0.25 }}
@@ -492,15 +492,16 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                     inputProps={{ 'aria-label': '전체 선택' }}
                   />
                 </th>
-                <SortableTh label="이름" sortKey="name" sort={sort} onSort={toggleSort} />
-                <SortableTh label="직함" sortKey="positionLabel" sort={sort} onSort={toggleSort} />
+                {/* 짧은 값 칸은 fit, 부서·담당 교과·업무만 남는 폭을 나눠 갖고 길면 줄바꿈 */}
+                <SortableTh label="이름" sortKey="name" sort={sort} onSort={toggleSort} fit />
+                <SortableTh label="직함" sortKey="positionLabel" sort={sort} onSort={toggleSort} fit />
                 <SortableTh label="부서" sortKey="department" sort={sort} onSort={toggleSort} />
                 <SortableTh label="담당 교과" sortKey="subject" sort={sort} onSort={toggleSort} />
-                <SortableTh label="담임" sortKey="homeroom" sort={sort} onSort={toggleSort} />
-                <SortableTh label="사무실" sortKey="office" sort={sort} onSort={toggleSort} />
+                <SortableTh label="담임" sortKey="homeroom" sort={sort} onSort={toggleSort} fit />
+                <SortableTh label="사무실" sortKey="office" sort={sort} onSort={toggleSort} fit />
                 <SortableTh label="업무" sortKey="duty" sort={sort} onSort={toggleSort} />
-                <SortableTh label="내선번호" sortKey="extension" sort={sort} onSort={toggleSort} />
-                <th style={table.th}>수정</th>
+                <SortableTh label="내선번호" sortKey="extension" sort={sort} onSort={toggleSort} fit />
+                <th style={{ ...table.th, ...table.fit }}>수정</th>
               </tr>
               <tr>
                 <th style={table.th} />
@@ -544,7 +545,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                 const a = row.assignment
                 return (
                   <tr key={row.uid} style={table.tr}>
-                    <td style={table.td}>
+                    <td style={{ ...table.td, ...table.fit }}>
                       <Checkbox
                         size="small"
                         sx={{ p: 0.25 }}
@@ -554,7 +555,7 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                         inputProps={{ 'aria-label': `${row.name} 선택` }}
                       />
                     </td>
-                    <td style={table.td}>
+                    <td style={{ ...table.td, ...table.fit }}>
                       {row.name || '—'}
                       {row.departed && (
                         <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
@@ -562,17 +563,17 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
                         </Typography>
                       )}
                     </td>
-                    <td style={table.td}>{a?.positionLabel || '—'}</td>
+                    <td style={{ ...table.td, ...table.fit }}>{a?.positionLabel || '—'}</td>
                     <td style={table.td}>{a?.department || '—'}</td>
                     <td style={table.td}>{a?.subject || '—'}</td>
-                    <td style={table.td}>
+                    <td style={{ ...table.td, ...table.fit }}>
                       {a?.isHomeroom ? `${a.homeroomGrade || ''}학년 ${a.homeroomClassNo || ''}반` : '—'}
                       {a?.isSubHomeroom && a.subHomeroomGrade ? ` (부담임 ${a.subHomeroomGrade}-${a.subHomeroomClassNo || ''})` : ''}
                     </td>
-                    <td style={table.td}>{a?.office || '—'}</td>
+                    <td style={{ ...table.td, ...table.fit }}>{a?.office || '—'}</td>
                     <td style={table.td}>{a?.duty || '—'}</td>
-                    <td style={table.td}>{a?.extension || '—'}</td>
-                    <td style={table.td}>
+                    <td style={{ ...table.td, ...table.fit }}>{a?.extension || '—'}</td>
+                    <td style={{ ...table.td, ...table.fit }}>
                       <RowActions>
                         <EditAction
                           onClick={() => openAssignmentModal(row)}
@@ -907,17 +908,18 @@ export default function AdminStaffBasic({ schoolId, assignmentYear }) {
   )
 }
 
+// 칸 폭에 맞춰 늘고 줄되, 내용이 짧은 칸에서도 입력할 수 있을 만큼은 남긴다
 const filterInputStyle = {
-  width: '100%', boxSizing: 'border-box', padding: '0.25rem 0.4rem', fontSize: '0.78rem',
+  width: '100%', minWidth: '5rem', boxSizing: 'border-box', padding: '0.25rem 0.4rem', fontSize: '0.78rem',
   border: '1px solid #d1d5db', borderRadius: '4px', fontWeight: 400, color: '#111827',
 }
 
-/** 정렬 가능한 헤더 칸 — 누르면 오름차순/내림차순을 오간다. */
-function SortableTh({ label, sortKey, sort, onSort }) {
+/** 정렬 가능한 헤더 칸 — 누르면 오름차순/내림차순을 오간다. fit이면 내용만큼만 차지한다. */
+function SortableTh({ label, sortKey, sort, onSort, fit = false }) {
   const active = sort.key === sortKey
   return (
     <th
-      style={{ ...table.th, cursor: 'pointer', userSelect: 'none' }}
+      style={{ ...table.th, ...(fit ? table.fit : {}), cursor: 'pointer', userSelect: 'none' }}
       onClick={() => onSort(sortKey)}
     >
       {label}
@@ -933,6 +935,7 @@ function FilterInput({ value, onChange }) {
   return (
     <input
       type="text"
+      size={1}
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder="검색"

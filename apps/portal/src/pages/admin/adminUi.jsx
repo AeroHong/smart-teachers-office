@@ -90,6 +90,8 @@ export const table = {
   tr: { borderBottom: '1px solid #f3f4f6' },
   td: { padding: '0.4rem 0.75rem', color: '#111827', verticalAlign: 'middle' },
   tdMuted: { padding: '0.4rem 0.75rem', color: '#6b7280', fontSize: '0.82rem', verticalAlign: 'middle' },
+  // th/td에 덧붙여 쓴다 — 내용만큼만 차지하는 칸. 남는 폭은 fit이 아닌 칸이 나눠 가진다
+  fit: { width: '1%', whiteSpace: 'nowrap' },
 }
 
 /** 알약형 필터 탭 + 개수 배지. AdminSubjects에서 쓰던 것을 공용으로 옮겼다. */

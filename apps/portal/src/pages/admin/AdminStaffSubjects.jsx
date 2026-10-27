@@ -609,17 +609,17 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
           <table style={table.table}>
             <thead style={table.thead}>
               <tr>
-                <th style={table.th}>교사명</th>
+                <th style={{ ...table.th, ...table.fit }}>교사명</th>
                 <th style={table.th}>1학기 과목</th>
                 <th style={table.th}>2학기 과목</th>
-                <th style={table.th}>작업</th>
+                <th style={{ ...table.th, ...table.fit }}>작업</th>
               </tr>
             </thead>
             <tbody>
               {subjectAssignments.map(assignment => {
                 return (
                   <tr key={assignment.id} style={table.tr}>
-                    <td style={table.td}>{assignment.teacherName}</td>
+                    <td style={{ ...table.td, ...table.fit }}>{assignment.teacherName}</td>
                     <td style={table.td}>
                       {(assignment.semester1Subjects || []).length > 0 ? (
                         <Box>
@@ -642,7 +642,7 @@ export default function AdminStaffSubjects({ schoolId, assignmentYear }) {
                         <Typography variant="body2" color="text.secondary">—</Typography>
                       )}
                     </td>
-                    <td style={table.td}>
+                    <td style={{ ...table.td, ...table.fit }}>
                       <RowActions>
                         <EditAction
                           onClick={() => openEditDialog(assignment)}
