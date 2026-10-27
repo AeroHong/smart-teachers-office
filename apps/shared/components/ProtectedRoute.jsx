@@ -11,6 +11,7 @@ export default function ProtectedRoute({
   superAdminOnly = false,
   studentAllowed = false,
   principalAllowed = false,  // 교감도 접근 가능한 페이지
+  superAdminRedirect = null, // 슈퍼 어드민이 오면 대신 보낼 곳 (학교 소속이 없어 학교 화면이 비는 페이지)
 }) {
   const { user, role, isSuperAdmin, loading, needsSchoolSetup } = useAuth()
   const location = useLocation()
@@ -28,6 +29,9 @@ export default function ProtectedRoute({
 
   // 학교 미설정 → 학교 선택/등록 페이지
   if (needsSchoolSetup) return <Navigate to="/school-setup" replace />
+
+  // 슈퍼 어드민은 학교 소속이 없다 — 학교 홈 같은 화면 대신 시스템 관리 화면으로
+  if (isSuperAdmin && superAdminRedirect) return <Navigate to={superAdminRedirect} replace />
 
   // 슈퍼 어드민 전용
   if (superAdminOnly) {

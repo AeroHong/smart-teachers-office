@@ -125,7 +125,7 @@ export default function App() {
           <Route path="/attendance/checkin/:schoolId/:eventId" element={<StudentCheckin />} />
 
           {/* ── 포털 (로그인만 하면 접근) ── */}
-          <Route path="/" element={<ProtectedRoute anyUser><Home /></ProtectedRoute>} />
+          <Route path="/" element={<ProtectedRoute anyUser superAdminRedirect="/super-admin"><Home /></ProtectedRoute>} />
           <Route path="/messenger" element={<ProtectedRoute anyUser><Messenger /></ProtectedRoute>} />
 
           {/* ── 보강신청 (로그인만 하면 접근) ── */}
