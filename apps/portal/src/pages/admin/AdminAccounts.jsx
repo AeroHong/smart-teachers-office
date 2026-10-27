@@ -386,23 +386,24 @@ export default function AdminAccounts() {
         pendingList.length === 0 ? (
           <Typography color="text.secondary">승인 대기 중인 계정이 없습니다.</Typography>
         ) : (
+          <div style={styles.tableWrap}>
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>이름</th>
-                <th style={styles.th}>이메일</th>
-                <th style={styles.th}>신청일</th>
+                <th style={{ ...styles.th, ...styles.fit }}>이름</th>
+                <th style={{ ...styles.th, ...styles.fit }}>이메일</th>
+                <th style={{ ...styles.th, ...styles.fit }}>신청일</th>
                 <th style={styles.th}>승인</th>
               </tr>
             </thead>
             <tbody>
               {pendingList.map(u => (
                 <tr key={u.id}>
-                  <td style={styles.td}>{u.name || '—'}</td>
-                  <td style={styles.td}>{u.email}</td>
-                  <td style={styles.td}>{u.createdAt?.toDate().toLocaleDateString('ko-KR') || '—'}</td>
+                  <td style={{ ...styles.td, ...styles.fit }}>{u.name || '—'}</td>
+                  <td style={{ ...styles.td, ...styles.fit }}>{u.email}</td>
+                  <td style={{ ...styles.td, ...styles.fit }}>{u.createdAt?.toDate().toLocaleDateString('ko-KR') || '—'}</td>
                   <td style={styles.td}>
-                    <RowActions>
+                    <RowActions wrap>
                       <TextAction onClick={() => approve(u.id, 'teacher', '교사')}>교사 승인</TextAction>
                       <TextAction onClick={() => approve(u.id, 'teacher', '강사')}>강사 승인</TextAction>
                       <TextAction onClick={() => approve(u.id, 'teacher', '교직원')}>교직원 승인</TextAction>
@@ -414,6 +415,7 @@ export default function AdminAccounts() {
               ))}
             </tbody>
           </table>
+          </div>
         )
       ) : tab === 1 ? (
         /* ── 구성원 목록 탭 ── */
@@ -441,15 +443,16 @@ export default function AdminAccounts() {
               {memberMsg}
             </Alert>
           )}
+          <div style={styles.tableWrap}>
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>이름</th>
-                <th style={styles.th}>이메일</th>
-                <th style={styles.th}>구분</th>
-                <th style={styles.th}>시스템 역할</th>
+                <th style={{ ...styles.th, ...styles.fit }}>이름</th>
+                <th style={{ ...styles.th, ...styles.fit }}>이메일</th>
+                <th style={{ ...styles.th, ...styles.fit }}>구분</th>
+                <th style={{ ...styles.th, ...styles.fit }}>시스템 역할</th>
                 <th style={styles.th}>역할 변경</th>
-                <th style={styles.th}>삭제</th>
+                <th style={{ ...styles.th, ...styles.fit }}>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -458,14 +461,14 @@ export default function AdminAccounts() {
                 const isPreOnly = !!u._preOnly
                 return (
                   <tr key={u.id} style={isPreOnly ? { opacity: 0.7, backgroundColor: '#fafafa' } : {}}>
-                    <td style={styles.td}>
+                    <td style={{ ...styles.td, ...styles.fit }}>
                       {u.name || '—'}
                       {!isPreOnly && (
                         <EditAction onClick={() => editName(u.id, u.name || '')} title="이름 수정" />
                       )}
                     </td>
-                    <td style={styles.td}>{u.email}</td>
-                    <td style={styles.td}>
+                    <td style={{ ...styles.td, ...styles.fit }}>{u.email}</td>
+                    <td style={{ ...styles.td, ...styles.fit }}>
                       <select
                         value={u.staffType || ''}
                         onChange={e => e.target.value && changeStaffType(u, e.target.value)}
@@ -478,7 +481,7 @@ export default function AdminAccounts() {
                         {STAFF_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </td>
-                    <td style={styles.td}>
+                    <td style={{ ...styles.td, ...styles.fit }}>
                       {isPreOnly ? (
                         <span style={{ ...styles.roleBadge, backgroundColor: '#fef9c3', color: '#92400e' }}>
                           미접속
@@ -503,7 +506,7 @@ export default function AdminAccounts() {
                           </RowActions>
                         )
                       ) : (
-                        <RowActions>
+                        <RowActions wrap>
                           {u.role !== 'teacher' && (
                             <TextAction onClick={() => changeRole(u.id, 'teacher')}>교사로</TextAction>
                           )}
@@ -519,7 +522,7 @@ export default function AdminAccounts() {
                         </RowActions>
                       )}
                     </td>
-                    <td style={styles.td}>
+                    <td style={{ ...styles.td, ...styles.fit }}>
                       <DeleteAction onClick={() => removeMember(u)} title="구성원 제거" />
                     </td>
                   </tr>
@@ -527,6 +530,7 @@ export default function AdminAccounts() {
               })}
             </tbody>
           </table>
+          </div>
           </Box>
         )
       ) : tab === 2 ? (
@@ -594,28 +598,30 @@ export default function AdminAccounts() {
           {preApproved.length === 0 ? (
             <Typography color="text.secondary">사전 등록된 계정이 없습니다.</Typography>
           ) : (
+            <div style={styles.tableWrap}>
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>이름</th>
-                  <th style={styles.th}>이메일</th>
+                  <th style={{ ...styles.th, ...styles.fit }}>이름</th>
+                  <th style={{ ...styles.th, ...styles.fit }}>이메일</th>
                   <th style={styles.th}>구분</th>
-                  <th style={styles.th}>삭제</th>
+                  <th style={{ ...styles.th, ...styles.fit }}>삭제</th>
                 </tr>
               </thead>
               <tbody>
                 {preApproved.map(p => (
                   <tr key={p.id}>
-                    <td style={styles.td}>{p.name}</td>
-                    <td style={styles.td}>{p.email}</td>
+                    <td style={{ ...styles.td, ...styles.fit }}>{p.name}</td>
+                    <td style={{ ...styles.td, ...styles.fit }}>{p.email}</td>
                     <td style={styles.td}>{p.staffType}</td>
-                    <td style={styles.td}>
+                    <td style={{ ...styles.td, ...styles.fit }}>
                       <DeleteAction onClick={() => handleDeletePreApproved(p.id, p.name)} />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </Box>
       ) : tab === 3 ? (
@@ -695,8 +701,12 @@ export default function AdminAccounts() {
 
 const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '0.6rem 0.8rem', backgroundColor: '#f0f0f0', fontSize: '0.85rem', fontWeight: 600 },
-  td: { padding: '0.6rem 0.8rem', borderBottom: '1px solid #eee', fontSize: '0.9rem', verticalAlign: 'middle' },
+  th: { textAlign: 'left', padding: '0.5rem 0.6rem', backgroundColor: '#f0f0f0', fontSize: '0.85rem', fontWeight: 600, whiteSpace: 'nowrap' },
+  td: { padding: '0.45rem 0.6rem', borderBottom: '1px solid #eee', fontSize: '0.9rem', verticalAlign: 'middle' },
+  // 내용만큼만 차지하는 칸(이름·이메일·구분·역할·삭제) — 남는 폭은 버튼 칸이 가져가고,
+  // 버튼 칸은 좁아지면 줄바꿈된다. 그래도 넘치면 표 바깥 상자가 가로 스크롤한다.
+  fit: { width: '1%', whiteSpace: 'nowrap' },
+  tableWrap: { overflowX: 'auto' },
   roleBadge: { display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600 },
   select: { padding: '0.25rem 0.5rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.84rem', cursor: 'pointer', outline: 'none' },
   muted: { color: '#aaa', fontSize: '0.82rem' },

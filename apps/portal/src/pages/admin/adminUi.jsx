@@ -18,10 +18,16 @@ import Tooltip from '@mui/material/Tooltip'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 
-/** 표 한 행의 액션들을 담는 컨테이너. 줄바꿈 없이 오른쪽에 모아 둔다. */
-export function RowActions({ children }) {
+/**
+ * 표 한 행의 액션들을 담는 컨테이너. 줄바꿈 없이 오른쪽에 모아 둔다.
+ * @param {boolean} wrap 버튼이 여럿이라 표를 옆으로 밀어낼 때 — 칸이 좁으면 다음 줄로 넘긴다
+ */
+export function RowActions({ children, wrap = false }) {
   return (
-    <Box sx={{ display: 'flex', gap: 0.25, alignItems: 'center', whiteSpace: 'nowrap' }}>
+    <Box sx={{
+      display: 'flex', gap: wrap ? 0.5 : 0.25, alignItems: 'center',
+      flexWrap: wrap ? 'wrap' : 'nowrap', whiteSpace: 'nowrap',
+    }}>
       {children}
     </Box>
   )
