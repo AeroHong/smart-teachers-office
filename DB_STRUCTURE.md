@@ -870,6 +870,8 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - `confirmedAt`, `confirmedBy`, `publishedAt`, `publishedBy` (관리자)
 
 **하위:** `versions/{id}` `{ versionNo, action('save'|'restore'|'confirm'), summary, details[], by, at }` · `versionData/{같은 id}` `{ events, holidays }`
+· `viewers/{uid}` `{ uid, name, photoURL, lastSeen(ms) }` — 지금 보고 있는 사람(2분마다 갱신, 5분 지나면 화면에서 뺌, 떠나면 삭제). 자기 문서만 쓰기
+· `comments/{id}` `{ text(≤2000), by{uid,name,photoURL}, createdAt, updatedAt? }` — 의견. 교직원 누구나 쓰고, 고치기는 쓴 사람(text만), 지우기는 쓴 사람·관리자
 
 **접근 권한:** Read - 소속 교직원(초안 포함) / Create·Update - 관리자 또는 그 학년도 editorUids.
 저장 묶음(events·holidays·revision·버전 포인터)은 revision이 정확히 1 오르는 transaction에서만, versions·versionData도 그 transaction에서만 생성(ExamCore와 같은 방식).

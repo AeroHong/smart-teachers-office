@@ -1561,6 +1561,26 @@ test('학사일정: 단계(stage)·확정 판(confirmations)은 관리자만 바
   await assertSucceeds(savePlanBatch(as(ADMIN), { extra: { stage: 'detail', confirmations: [{ no: 1, stage: 'frame' }] } }))
 })
 
+test('학사일정: 접속 표시(viewers)는 자기 것만, 의견은 쓴 사람만 고친다', async () => {
+  await seedAcademicPlan()
+  const viewer = (who, uid) => doc(as(who), ...path('academicPlans', 'p1', 'viewers', uid))
+  await assertSucceeds(setDoc(viewer(B, B), { name: 'B', lastSeen: 1 }))
+  await assertFails(setDoc(viewer(B, A), { name: 'A', lastSeen: 1 }))
+  await assertSucceeds(getDocs(collection(as(A), ...path('academicPlans', 'p1', 'viewers'))))
+  await assertFails(deleteDoc(viewer(A, B)))
+  await assertSucceeds(deleteDoc(viewer(B, B)))
+
+  const c = (who) => doc(as(who), ...path('academicPlans', 'p1', 'comments', 'c1'))
+  await assertFails(setDoc(c(B), { text: '가', by: { uid: A, name: 'A' } }))
+  await assertSucceeds(setDoc(c(B), { text: '5/14는 비 오면 연기', by: { uid: B, name: 'B' } }))
+  await assertSucceeds(getDoc(c(A)))
+  await assertFails(updateDoc(c(A), { text: '고침' }))
+  await assertSucceeds(updateDoc(c(B), { text: '5/14 우천 시 5/21' }))
+  await assertFails(updateDoc(c(B), { by: { uid: A, name: 'A' } }))
+  await assertFails(deleteDoc(c(A)))
+  await assertSucceeds(deleteDoc(c(ADMIN)))
+})
+
 test('학사일정: 부서 색은 편집자도 고치지만, 같이 편집자 명단을 바꾸면 거부', async () => {
   await seedAcademicPlan()
   await assertSucceeds(updateDoc(doc(as(A), ...path('academicPlanYears', '2027')), { deptColors: { 교무부: 'teal' } }))

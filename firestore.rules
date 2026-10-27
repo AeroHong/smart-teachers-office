@@ -1505,6 +1505,28 @@ service cloud.firestore {
             (!existsAfter(academicPlanPath(schoolId, planId)) &&
              get(academicPlanPath(schoolId, planId)).data.createdBy == request.auth.uid);
         }
+
+        // 지금 이 초안을 보고 있는 사람(공동 편집 표시) — 읽기 전용 교직원 포함, 자기 문서만 쓰고 지운다.
+        // 초안을 지울 때(같은 batch에서 초안이 없어지면)는 만든 사람·관리자가 함께 지운다
+        match /viewers/{uid} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create, update: if (isSuperAdmin() || isTeacher(schoolId)) && request.auth.uid == uid;
+          allow delete: if request.auth.uid == uid || isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            !existsAfter(academicPlanPath(schoolId, planId));
+        }
+
+        // 의견 — 교직원 누구나 쓰고, 고치기는 쓴 사람만(글만), 지우기는 쓴 사람·관리자
+        match /comments/{commentId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if (isSuperAdmin() || isTeacher(schoolId)) &&
+            request.resource.data.by.uid == request.auth.uid &&
+            request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;
+          allow update: if resource.data.by.uid == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt']) &&
+            request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;
+          allow delete: if resource.data.by.uid == request.auth.uid || isSuperAdmin() || isSchoolAdmin(schoolId) ||
+            !existsAfter(academicPlanPath(schoolId, planId));
+        }
       }
 
       // 고사(ExamCore) — 응시현황표 도구(exam-support-hck)의 보호 장치를 옮겨 왔다(2026-10).

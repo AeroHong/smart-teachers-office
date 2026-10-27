@@ -5,7 +5,7 @@
  * 규칙(firestore.rules academicPlans)은 revision이 정확히 1 오르지 않는 저장과 버전 단독 쓰기를 거부한다.
  */
 import {
-  collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, runTransaction,
+  addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, runTransaction,
   serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
@@ -191,6 +191,38 @@ export async function unconfirmPlan({ schoolId, plan }) {
   await b.commit()
 }
 
+// ── 지금 보고 있는 사람 · 의견 ──────────────────────────────────────
+// viewers/{uid}: 화면을 보고 있는 동안 2분마다 lastSeen을 갱신하고, 떠나면 지운다. 5분 넘게 갱신이 없으면 화면에서 뺀다.
+// 이 학사일정 화면을 연 사람끼리만 구독하므로 읽기는 (보는 사람 수)² / 2분 정도 — 몇 명이 함께 볼 때만 생긴다.
+export const PRESENCE_BEAT_MS = 2 * 60 * 1000
+export const PRESENCE_STALE_MS = 5 * 60 * 1000
+
+export async function beatPresence(schoolId, planId, me) {
+  await setDoc(doc(sub(schoolId, planId, 'viewers'), me.uid), {
+    uid: me.uid, name: me.name || '', photoURL: me.photoURL || null, lastSeen: Date.now(),
+  })
+}
+export async function leavePresence(schoolId, planId, uid) {
+  await deleteDoc(doc(sub(schoolId, planId, 'viewers'), uid))
+}
+export function subscribeViewers(schoolId, planId, cb) {
+  return onSnapshot(sub(schoolId, planId, 'viewers'), (s) => cb(s.docs.map((d) => d.data())), () => cb([]))
+}
+
+export function subscribeComments(schoolId, planId, cb, onError) {
+  return onSnapshot(query(sub(schoolId, planId, 'comments'), orderBy('createdAt'), limit(300)),
+    (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.(), updatedAt: d.data().updatedAt?.toDate?.() }))), onError)
+}
+export async function addComment(schoolId, planId, text, by) {
+  await addDoc(sub(schoolId, planId, 'comments'), { text, by: plain(by), createdAt: serverTimestamp() })
+}
+export async function updateComment(schoolId, planId, id, text) {
+  await updateDoc(doc(sub(schoolId, planId, 'comments'), id), { text, updatedAt: serverTimestamp() })
+}
+export async function deleteComment(schoolId, planId, id) {
+  await deleteDoc(doc(sub(schoolId, planId, 'comments'), id))
+}
+
 const BATCH_MAX = 450
 
 /**
@@ -198,7 +230,7 @@ const BATCH_MAX = 450
  * 기록이 아주 많으면 남은 것은 관리자만 이어서 지울 수 있다.
  */
 export async function deletePlan(schoolId, planId) {
-  const snaps = await Promise.all([COL.EXAM_VERSIONS, COL.EXAM_VERSION_DATA].map((n) => getDocs(sub(schoolId, planId, n))))
+  const snaps = await Promise.all([COL.EXAM_VERSIONS, COL.EXAM_VERSION_DATA, 'comments', 'viewers'].map((n) => getDocs(sub(schoolId, planId, n))))
   const refs = snaps.flatMap((s) => s.docs.map((d) => d.ref))
   const first = writeBatch(db)
   first.delete(planRef(schoolId, planId))

@@ -23,6 +23,11 @@ import FullscreenIcon from '@mui/icons-material/Fullscreen'
 import ShareIcon from '@mui/icons-material/Share'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import Popover from '@mui/material/Popover'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import SaveAsIcon from '@mui/icons-material/SaveAs'
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
 import HistoryIcon from '@mui/icons-material/History'
 import PrintIcon from '@mui/icons-material/Print'
@@ -45,7 +50,7 @@ import TrayPanel from './TrayPanel'
 import DeptColorDialog from './DeptColorDialog'
 import useStaffDirectory from './useStaffDirectory'
 import {
-  confirmPlan, loadChangesSince, loadPrevYear, loadVersionData, renamePlan, saveDeptColors, savePlan, setActivePlan, subscribePlan, subscribePlans, subscribeYear,
+  confirmPlan, createPlan, loadChangesSince, loadPrevYear, loadVersionData, renamePlan, saveDeptColors, savePlan, setActivePlan, subscribePlan, subscribePlans, subscribeYear,
   unconfirmPlan,
 } from './planRepo'
 import { downloadPlanPdf, printPlan } from './academicPlanPrint'
@@ -53,6 +58,8 @@ import { downloadPlanXlsx } from './academicPlanXlsx'
 import { ACCENT } from './planUi'
 import StageBar from './StageBar'
 import ChangesSinceBanner from './ChangesSinceBanner'
+import PresenceAvatars from './PresenceAvatars'
+import CommentsPanel from './CommentsPanel'
 import PlanFilter, { EMPTY_FILTER, makeEventFilter } from './PlanFilter'
 
 /** 세부·확정 단계에서 전일행사를 넣거나 옮기면 줄어드는 실수업일 칸 — [{sem, grade, weekday, from, to}] */
@@ -85,8 +92,9 @@ function useLocalFlag(key, initial) {
 export default function AcademicPlanEditor() {
   const { planId } = useParams()
   const navigate = useNavigate()
-  const { user, userName, schoolId, schoolName, isAdmin, isSuperAdmin } = useAuth()
+  const { user, userName, photoURL, schoolId, schoolName, isAdmin, isSuperAdmin } = useAuth()
   const by = useMemo(() => ({ uid: user?.uid, name: userName || user?.email || '' }), [user, userName])
+  const me = useMemo(() => ({ ...by, photoURL: photoURL || user?.photoURL || null }), [by, photoURL, user])
 
   const [plan, setPlan] = useState(undefined) // 서버 문서
   const [yearDoc, setYearDoc] = useState(null)
@@ -106,6 +114,7 @@ export default function AcademicPlanEditor() {
   const [filter, setFilter] = useState(EMPTY_FILTER)
   const [hintDate, setHintDate] = useState(null)
   const [shareAnchor, setShareAnchor] = useState(null)
+  const [saveAs, setSaveAs] = useState(null) // { name } — 새 안으로 저장
   const [sinceChanges, setSinceChanges] = useState(null) // 마지막으로 본 뒤 남이 바꾼 것
   const [copied, setCopied] = useState(false) // 작년 날짜가 있는 카드를 끄는 동안 '작년 이맘때' 칸
   const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement))
@@ -493,6 +502,34 @@ export default function AcademicPlanEditor() {
     } finally { setBusy('') }
   }
 
+  /**
+   * 지금 화면 상태를 새 초안으로 — 원래 안은 그대로 두고 갈래를 나눠 작업한다.
+   * 새 안은 주요 일정 단계부터(잠금 표시 frame·unlocked는 버림), 새 창으로 연다(팝업 차단을 피해 창부터 연다).
+   */
+  const openSaveAs = () => {
+    const used = new Set(plans.map((p) => p.name))
+    let name = `${plan.name} (2)`
+    for (let i = 2; used.has(name); i++) name = `${plan.name} (${i})`
+    setSaveAs({ name })
+  }
+  const doSaveAs = async () => {
+    const name = saveAs.name.trim()
+    if (!name) return
+    const win = window.open('', '_blank')
+    setBusy('saveAs')
+    try {
+      const events = (draftRef.current?.events || []).map(({ frame, unlocked, ...e }) => e) // eslint-disable-line no-unused-vars
+      const id = await createPlan({ schoolId, year: plan.year, name, events, holidays: draftRef.current?.holidays || [], basedOn: planId, by })
+      setSaveAs(null)
+      if (win) win.location.href = `/academic-plan/${id}`
+      else navigate(`/academic-plan/${id}`)
+      setToast(`'${name}'(으)로 저장했습니다. 새 창에서 이어서 작업하세요.`)
+    } catch (e) {
+      win?.close()
+      setError(`새 안으로 저장하지 못했습니다: ${e.message}`)
+    } finally { setBusy('') }
+  }
+
   const exportXlsx = () => {
     setPrintAnchor(null)
     downloadPlanXlsx(view, schoolName).catch((e) => setError(`엑셀을 만들지 못했습니다: ${e.message}`))
@@ -543,6 +580,7 @@ export default function AcademicPlanEditor() {
             ? <Typography variant="caption" sx={{ color: dirty || saving ? '#b45309' : 'text.secondary' }}>{status}</Typography>
             : <Chip label="읽기 전용" size="small" variant="outlined" />}
           <Box sx={{ flex: 1 }} />
+          <PresenceAvatars schoolId={schoolId} planId={planId} me={me} />
           <Button size="small" startIcon={<ShareIcon />} onClick={(e) => { setShareAnchor(e.currentTarget); copyShareLink() }}>공유</Button>
           <Popover open={Boolean(shareAnchor)} anchorEl={shareAnchor} onClose={() => { setShareAnchor(null); setCopied(false) }}
             anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
@@ -570,6 +608,7 @@ export default function AcademicPlanEditor() {
             </Button>
           )}
           <Button size="small" startIcon={<HistoryIcon />} onClick={() => setHistoryOpen(true)}>수정 기록</Button>
+          {canEdit && <Button size="small" startIcon={<SaveAsIcon />} onClick={openSaveAs}>새 안으로 저장</Button>}
           <Button size="small" startIcon={<CompareArrowsIcon />} onClick={() => navigate(`/academic-plan/compare?year=${plan.year}&a=${planId}`)}>비교</Button>
           <Button size="small" startIcon={<PrintIcon />} onClick={(e) => setPrintAnchor(e.currentTarget)}>인쇄</Button>
           <Menu anchorEl={printAnchor} open={Boolean(printAnchor)} onClose={() => setPrintAnchor(null)}>
@@ -623,6 +662,9 @@ export default function AcademicPlanEditor() {
                 <Tooltip title="수업일수 접기"><IconButton size="small" onClick={() => setStatsOpen(false)}><ChevronLeftIcon fontSize="small" /></IconButton></Tooltip>
               </Box>
               <PlanStatsPanel stats={stats} semester={semester} />
+              <Box sx={{ borderTop: '1px solid #e2e8f0', mt: 1.5, pt: 1.25 }}>
+                <CommentsPanel schoolId={schoolId} planId={planId} me={me} canAdmin={canAdmin} />
+              </Box>
             </Box>
           ) : (
             <Tooltip title="수업일수 펼치기" placement="right">
@@ -675,6 +717,21 @@ export default function AcademicPlanEditor() {
         canUnlock={canAdmin} onUnlock={unlockEvent}
         stage={stage} restrictKinds={stage !== 'frame' && !canAdmin}
         onClose={() => setDialog(null)} onSave={saveEvent} onDelete={deleteEvent} />
+      <Dialog open={Boolean(saveAs)} onClose={() => setSaveAs(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>새 안으로 저장</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: '8px !important' }}>
+          <TextField label="새 안 이름" autoFocus value={saveAs?.name || ''} onChange={(e) => setSaveAs({ name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') doSaveAs() }} />
+          <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
+            지금 화면의 일정·공휴일·보관함 카드를 그대로 복사해 새 초안을 만들고 새 창으로 엽니다.
+            '{plan.name}'은(는) 그대로 남습니다. 새 안은 주요 일정 단계부터 시작합니다.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setSaveAs(null)}>취소</Button>
+          <Button variant="contained" disableElevation onClick={doSaveAs} disabled={busy === 'saveAs' || !saveAs?.name?.trim()}>저장하고 열기</Button>
+        </DialogActions>
+      </Dialog>
       <DeptColorDialog open={colorOpen} departments={departments} value={deptColors} onClose={() => setColorOpen(false)}
         onSave={async (colors) => {
           try { await saveDeptColors(schoolId, plan.year, colors); setColorOpen(false) } catch (e) { setError(`부서 색을 저장하지 못했습니다: ${e.message}`) }
