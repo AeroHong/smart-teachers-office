@@ -70,7 +70,8 @@ export default function EventDialog({ open, event, departments = [], onClose, on
   const setActivity = (i, patch) => set({ activities: f.activities.map((a, j) => (j === i ? { ...a, ...patch } : a)) })
 
   const save = () => {
-    if (!f.title.trim()) return setErr('일정 이름을 입력하세요.')
+    // 시수만 있는 날(엑셀의 '동아리2h' 칸)은 이름 없이도 된다
+    if (!f.title.trim() && !(f.activities || []).some((a) => Number(a.hours) > 0)) return setErr('일정 이름을 입력하세요.')
     if (!isDateKey(f.date)) return setErr('날짜를 확인하세요.')
     if (f.endDate && (!isDateKey(f.endDate) || f.endDate < f.date)) return setErr('끝나는 날짜는 시작일과 같거나 뒤여야 합니다.')
     if (f.kind === '요일교체' && mondayIndex(f.date) > 4) return setErr('요일 교체는 평일에만 등록할 수 있습니다.')

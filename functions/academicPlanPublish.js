@@ -72,14 +72,8 @@ async function loadCaller(db, request, schoolId) {
   }
 }
 
-exports.fetchKoreanHolidays = onCall({ region: REGION }, async (request) => {
-  const { from, to, schoolId } = request.data || {}
-  if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
-  if (!isDateKey(from) || !isDateKey(to) || from > to) throw new HttpsError('invalid-argument', '기간(from, to)이 올바르지 않습니다.')
-  if (schoolId) {
-    const caller = await loadCaller(getFirestore(), request, schoolId)
-    if (!caller.staff) throw new HttpsError('permission-denied', '교직원만 사용할 수 있습니다.')
-  }
+/** 기간 안의 대한민국 공휴일 [{date, name}] — fetchKoreanHolidays와 일회성 가져오기 스크립트가 같이 쓴다 */
+async function listKoreanHolidays(from, to) {
   const calendar = await getCalendarClient()
   const res = await calendar.events.list({
     calendarId: HOLIDAY_CALENDAR_ID,
@@ -97,8 +91,19 @@ exports.fetchKoreanHolidays = onCall({ region: REGION }, async (request) => {
       if (k >= from && k <= to && !map.has(k)) map.set(k, ev.summary || '공휴일')
     }
   }
-  const holidays = [...map.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, name]) => ({ date, name }))
-  return { holidays }
+  return [...map.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, name]) => ({ date, name }))
+}
+exports.listKoreanHolidays = listKoreanHolidays
+
+exports.fetchKoreanHolidays = onCall({ region: REGION }, async (request) => {
+  const { from, to, schoolId } = request.data || {}
+  if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.')
+  if (!isDateKey(from) || !isDateKey(to) || from > to) throw new HttpsError('invalid-argument', '기간(from, to)이 올바르지 않습니다.')
+  if (schoolId) {
+    const caller = await loadCaller(getFirestore(), request, schoolId)
+    if (!caller.staff) throw new HttpsError('permission-denied', '교직원만 사용할 수 있습니다.')
+  }
+  return { holidays: await listKoreanHolidays(from, to) }
 })
 
 exports.publishAcademicPlan = onCall({ region: REGION, timeoutSeconds: 300 }, async (request) => {
