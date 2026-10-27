@@ -22,7 +22,7 @@
   ├─ 연수     trainings/{id}/signatures · trainingPresets
   ├─ 호출     callRequests
   ├─ 업무     requests/{id}/{completions,comments} · channels · personalNotices
-  ├─ 대시보드 academicCalendar · dashboardModules
+  ├─ 대시보드 academicCalendar · dashboardModules · academicPlanYears · academicPlans(학사일정 제작)
   ├─ 성취평가 asaSubjects · asaSubmissions · asaResults · asaCutoffs ·
   │           asaNeisImports · asaPrincipalSignature · minAchievementResults
   └─ 평가계획 evaluationPlans · evaluationPlanManagers
@@ -832,8 +832,41 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - `title` (string), `type` (string)
 - `date` (Date), `endDate` (Date | null)
 - `authorUid` (string), `createdAt`, `updatedAt` (timestamp)
+- `source` (`'manual'` | `'googleCalendar'` | `'holiday'` | `'request'`) — 동기화 함수는 자기 source 문서만 다룬다
+- `googleEventId` (구글 동기화분), `audience` (`'all'` | `'limited'`) + `audienceUids` — **audience가 없으면 목록 쿼리가 막힌다**
+- `requestId`, `channelId`, `channelName`, `closed` (업무 마감일 미러, `functions/requestCalendarSync.js`)
 
-**접근 권한:** Read - 슈퍼 어드민, 소속 교사 / Write - 슈퍼 어드민, 학교 관리자
+**접근 권한:** Read - 슈퍼 어드민, audience 'all'이거나 audienceUids에 든 교직원 / Write - 슈퍼 어드민, 학교 관리자
+
+---
+
+#### `/schools/{schoolId}/academicPlanYears/{year}`
+학사일정 제작 도구(포털 `/academic-plan`)의 학년도 설정. **문서 ID = 학년도 문자열**(`'2027'`)
+
+**필드:** (쓰기: `apps/portal/src/pages/academicPlan/planRepo.js` `saveYear`·`confirmPlan`)
+- `editorUids` (string[]) — 편집자. 학년도를 시작할 때 직함(`teacherAssignments.positionLabel`)에 '부장'이 든 교직원을 자동으로 넣고, 관리자가 더하고 뺀다
+- `confirmedPlanId` (string | null) — 확정 초안
+- `updatedAt`
+
+**접근 권한:** Read - 소속 교직원 / Write - 학교 관리자
+
+#### `/schools/{schoolId}/academicPlans/{planId}`
+학사일정 초안(학년도당 여러 개, auto-ID). 일정은 한 문서의 배열 — 복제·비교·스냅숏·충돌 보호를 문서 하나 단위로 하려고
+(연 200건 안팎이라 1MB 한도에 여유). 계산은 `apps/shared/lib/academicPlan.js` 한 곳
+
+**필드:** (쓰기: `planRepo.js` `createPlan`·`savePlan`)
+- `year` (number, 바꿀 수 없음), `name`, `status` (`'draft'` | `'confirmed'`), `basedOn` (복제 원본 id | null)
+- `holidays` ([{date, name}]) — `fetchKoreanHolidays`로 불러온 공휴일
+- `events` ([event]) — `{ id, date, endDate?, title, kind, grades[], dept?, fullDay, examType?, weekdaySwap?, activities[{type,hours,grades}], note? }`.
+  kind: 일반·개학·방학식·종업식·졸업식·정기고사·재량휴업·공휴일·요일교체 (정의는 academicPlan.js 머리 주석)
+- `revision`, `versionCount`, `latestVersionId`, `updatedBy {uid,name}`, `updatedAt`, `createdBy`, `createdByName`, `createdAt`
+- `confirmedAt`, `confirmedBy`, `publishedAt`, `publishedBy` (관리자)
+
+**하위:** `versions/{id}` `{ versionNo, action('save'|'restore'), summary, details[], by, at }` · `versionData/{같은 id}` `{ events, holidays }`
+
+**접근 권한:** Read - 소속 교직원(초안 포함) / Create·Update - 관리자 또는 그 학년도 editorUids.
+저장 묶음(events·holidays·revision·버전 포인터)은 revision이 정확히 1 오르는 transaction에서만, versions·versionData도 그 transaction에서만 생성(ExamCore와 같은 방식).
+확정 필드(status·confirmed*·published*)는 관리자만 / Delete - 관리자, 초안은 만든 사람
 
 ---
 

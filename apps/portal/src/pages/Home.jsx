@@ -93,6 +93,16 @@ const SERVICES = [
     status: '시범운영중',
     statusColor: 'warning',
   },
+  {
+    icon: '🗓️',
+    title: '학사일정 만들기',
+    description: '부장교사들이 함께 학사일정을 짜고, 학년·요일별 수업일수를 자동으로 계산합니다. 초안을 비교해 확정하면 구글 캘린더로 보냅니다.',
+    path: '/academic-plan',
+    color: '#0369a1',
+    bgColor: '#f0f9ff',
+    status: '시범운영중',
+    statusColor: 'warning',
+  },
 ]
 
 // ── 개발 로그 ──────────────────────────────────────────────

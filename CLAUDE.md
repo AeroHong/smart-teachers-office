@@ -28,6 +28,7 @@ StudentHub(학적·고사)·ExamCore(고사 업무)는 **별도 저장소의 앱
 | `/evalplan/*` | 교수학습 및 평가 운영 계획 제출·현황 | — |
 | `/setuk/*` | 생기부 세특 점검 + 과목별 학생 메일 발송 | `pages/setuk/data/README.md` |
 | `/textbook/*` | 검·인정도서 선정(채점·서식1~3·학운위 자료) | — |
+| `/academic-plan/*` | 학사일정 만들기 — 초안 협업 편집·수업일수 자동 계산·초안 비교·확정·A4 인쇄·구글 캘린더 반영 | DB_STRUCTURE.md `academicPlans` |
 | `/emails/*` | 교사 → 학생 이메일 발송(Gmail API 도메인 위임, 예약 발송) | — |
 | `/tools/*` | 도구모음 — 성취평가제 체크리스트, ASA-support, 최소성취수준, 내신등급 계산기, QR 안내문, PDF 출력자 정보 지우기 | — |
 | `/admin/*` | 학교 관리자 — 계정·교직원·학생·과목·공간·학사일정·검인정 설정 등 | [ADMIN_STRUCTURE.md](./ADMIN_STRUCTURE.md) |

@@ -40,6 +40,11 @@ const TextbookEvaluate         = lazy(() => import('./pages/textbook/TextbookEva
 const TextbookDetail           = lazy(() => import('./pages/textbook/TextbookDetail'))
 const TextbookManagerDashboard = lazy(() => import('./pages/textbook/TextbookManagerDashboard'))
 
+// 학사일정 만들기 - lazy load
+const AcademicPlanHome    = lazy(() => import('./pages/academicPlan/AcademicPlanHome'))
+const AcademicPlanEditor  = lazy(() => import('./pages/academicPlan/AcademicPlanEditor'))
+const AcademicPlanCompare = lazy(() => import('./pages/academicPlan/AcademicPlanCompare'))
+
 // 생기부 세특 점검 도구 - lazy load
 const SetukUpload         = lazy(() => import('./pages/setuk/SetukUpload'))
 const SetukCheckDetail    = lazy(() => import('./pages/setuk/SetukCheckDetail'))
@@ -140,6 +145,11 @@ export default function App() {
           <Route path="/textbook/all"                    element={<ProtectedRoute anyUser><TextbookManagerDashboard /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId"             element={<ProtectedRoute anyUser><TextbookDetail /></ProtectedRoute>} />
           <Route path="/textbook/:adoptionId/evaluate"    element={<ProtectedRoute anyUser><TextbookEvaluate /></ProtectedRoute>} />
+
+          {/* ── 학사일정 만들기 (읽기는 교직원 전체, 편집은 학년도 편집자·관리자 — 컴포넌트와 규칙에서 판정) ── */}
+          <Route path="/academic-plan"          element={<ProtectedRoute anyUser><AcademicPlanHome /></ProtectedRoute>} />
+          <Route path="/academic-plan/compare"  element={<ProtectedRoute anyUser><AcademicPlanCompare /></ProtectedRoute>} />
+          <Route path="/academic-plan/:planId"  element={<ProtectedRoute anyUser><AcademicPlanEditor /></ProtectedRoute>} />
 
           <Route path="/setuk"                        element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
           {/* 로그인 없이도 링크만으로 바로 볼 수 있어야 하는 사용법 안내 — 의도적으로 ProtectedRoute로 감싸지 않음 */}

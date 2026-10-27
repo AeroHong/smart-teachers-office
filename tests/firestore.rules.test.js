@@ -1513,3 +1513,88 @@ test('출결 이벤트: 공동 담당교사는 coTeacherUids 조회로 이벤트
   assert.equal(snap.size, 1)
   await assertSucceeds(updateDoc(doc(as(B), ...path('events', 'pe')), { periodSession: null }))
 })
+
+// ── 학사일정 제작 도구(2026-10) ──────────────────────────────────
+// A: 2027 학년도 편집자(부장) / B: 편집자 아님 / ADMIN: 학교 관리자
+async function seedAcademicPlan() {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, ...path('academicPlanYears', '2027')), { editorUids: [A], confirmedPlanId: null })
+    await setDoc(doc(db, ...path('academicPlans', 'p1')), {
+      year: 2027, name: '초안 A', status: 'draft', events: [], holidays: [],
+      revision: 1, versionCount: 1, latestVersionId: 'v1', createdBy: A,
+    })
+    await setDoc(doc(db, ...path('academicPlans', 'p1', 'versions', 'v1')), { versionNo: 1 })
+  })
+}
+
+/** planRepo.savePlan과 같은 모양 — 초안 revision +1 · 요약 · 스냅숏을 한 batch로 */
+function savePlanBatch(db, { from = 1, to = from + 1, v = `v${to}`, extra = {} } = {}) {
+  const b = writeBatch(db)
+  b.update(doc(db, ...path('academicPlans', 'p1')), {
+    events: [{ id: 'e1', date: '2027-03-02', title: '개학', kind: '개학' }],
+    revision: to, versionCount: to, latestVersionId: v, ...extra,
+  })
+  b.set(doc(db, ...path('academicPlans', 'p1', 'versions', v)), { versionNo: to })
+  b.set(doc(db, ...path('academicPlans', 'p1', 'versionData', v)), { events: [] })
+  return b.commit()
+}
+
+test('학사일정: 교직원 전체가 초안과 수정 기록을 읽는다', async () => {
+  await seedAcademicPlan()
+  await assertSucceeds(getDoc(doc(as(B), ...path('academicPlans', 'p1'))))
+  await assertSucceeds(getDocs(query(collection(as(B), ...path('academicPlans')), where('year', '==', 2027))))
+  await assertSucceeds(getDoc(doc(as(B), ...path('academicPlans', 'p1', 'versions', 'v1'))))
+  await assertFails(getDoc(doc(as(SUPER), ...path('academicPlans', 'p1'))))
+})
+
+test('학사일정: 편집자 명단(학년도 설정)은 학교 관리자만 고친다', async () => {
+  await seedAcademicPlan()
+  await assertFails(updateDoc(doc(as(A), ...path('academicPlanYears', '2027')), { editorUids: [A, B] }))
+  await assertSucceeds(updateDoc(doc(as(ADMIN), ...path('academicPlanYears', '2027')), { editorUids: [A, B] }))
+})
+
+test('학사일정 저장: 편집자·관리자만, revision이 정확히 1 올라야 한다', async () => {
+  await seedAcademicPlan()
+  await assertFails(savePlanBatch(as(B)))
+  await assertFails(savePlanBatch(as(A), { from: 1, to: 1 }))
+  await assertFails(savePlanBatch(as(A), { from: 1, to: 3 }))
+  await assertSucceeds(savePlanBatch(as(A)))
+  await assertSucceeds(savePlanBatch(as(ADMIN), { from: 2 }))
+  // revision 없이 일정만 고치기, 버전만 따로 쓰기 거부
+  await assertFails(updateDoc(doc(as(A), ...path('academicPlans', 'p1')), { events: [] }))
+  await assertFails(setDoc(doc(as(A), ...path('academicPlans', 'p1', 'versions', 'v9')), { versionNo: 9 }))
+  // 이름은 revision 없이
+  await assertSucceeds(updateDoc(doc(as(A), ...path('academicPlans', 'p1')), { name: '초안 B' }))
+  // 수정 기록은 아무도 고치지 못한다
+  await assertFails(updateDoc(doc(as(ADMIN), ...path('academicPlans', 'p1', 'versions', 'v1')), { versionNo: 0 }))
+})
+
+test('학사일정 확정: 편집자는 못 하고 관리자만', async () => {
+  await seedAcademicPlan()
+  await assertFails(updateDoc(doc(as(A), ...path('academicPlans', 'p1')), { status: 'confirmed' }))
+  await assertSucceeds(updateDoc(doc(as(ADMIN), ...path('academicPlans', 'p1')), { status: 'confirmed', confirmedBy: ADMIN }))
+  await assertFails(updateDoc(doc(as(A), ...path('academicPlans', 'p1')), { year: 2028 }))
+})
+
+test('학사일정 초안 만들기: 그 학년도 편집자만, revision 0·초안 상태로', async () => {
+  await seedAcademicPlan()
+  const plan = (over) => ({ year: 2027, name: '초안 C', status: 'draft', events: [], holidays: [], revision: 0, createdBy: A, ...over })
+  await assertSucceeds(setDoc(doc(as(A), ...path('academicPlans', 'p2')), plan()))
+  await assertFails(setDoc(doc(as(B), ...path('academicPlans', 'p3')), plan({ createdBy: B })))
+  await assertFails(setDoc(doc(as(A), ...path('academicPlans', 'p4')), plan({ status: 'confirmed' })))
+  await assertFails(setDoc(doc(as(A), ...path('academicPlans', 'p5')), plan({ year: 2028 }))) // 2028 편집자 아님
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...path('academicPlans', 'p6')), plan({ year: 2028, createdBy: ADMIN })))
+})
+
+test('학사일정 지우기: 초안은 만든 사람이 기록까지 한 batch로, 남의 초안은 못 지운다', async () => {
+  await seedAcademicPlan()
+  await assertFails(deleteDoc(doc(as(B), ...path('academicPlans', 'p1'))))
+  // 초안이 있는 동안 기록만 지우기 거부
+  await assertFails(deleteDoc(doc(as(A), ...path('academicPlans', 'p1', 'versions', 'v1'))))
+  const db = as(A)
+  const b = writeBatch(db)
+  b.delete(doc(db, ...path('academicPlans', 'p1')))
+  b.delete(doc(db, ...path('academicPlans', 'p1', 'versions', 'v1')))
+  await assertSucceeds(b.commit())
+})

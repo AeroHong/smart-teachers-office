@@ -83,6 +83,10 @@ export const COL = {
   // 대시보드 — 일정/모듈 노출 제어
   // (전체 공지는 REQUESTS의 kind='notice'로 통합됐다)
   ACADEMIC_CALENDAR: 'academicCalendar',    // 학사일정 (관리자 작성)
+  // 학사일정 제작 도구(2026-10) — 학년도 설정 {year}: { editorUids[], confirmedPlanId } / 초안 auto-ID
+  // 초안 하위에 versions(요약)·versionData(스냅숏) — EXAM_VERSIONS와 같은 이름을 쓴다. 계산은 academicPlan.js
+  ACADEMIC_PLAN_YEARS: 'academicPlanYears',
+  ACADEMIC_PLANS: 'academicPlans',
   COVER_TEMPLATES: 'coverTemplates',        // 캔버스 표지 템플릿 라이브러리 (관리자 작성)
   DASHBOARD_MODULES: 'dashboardModules',    // 위젯 노출 제어 (enabled + visibility)
 

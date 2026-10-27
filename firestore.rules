@@ -1431,6 +1431,79 @@ service cloud.firestore {
         allow delete: if hasHubRole(schoolId, 'enrollment');
       }
 
+      // 학사일정 제작 도구(2026-10) — 초안(academicPlans)을 학년도별로 여러 개 두고 하나를 확정한다.
+      //  · 읽기는 교직원 전체(초안 포함 — 부장회의에서 같이 본다)
+      //  · 학년도 설정(academicPlanYears/{year}: 편집자 명단·확정 초안)은 학교 관리자만 쓴다
+      //  · 초안 편집은 관리자 또는 그 학년도 editorUids(직함에 '부장'이 든 교직원을 앱이 자동으로 채움)
+      //  · 저장 묶음(events·holidays·revision·버전 포인터)은 revision이 정확히 1 오르는 transaction에서만 —
+      //    ExamCore와 같은 덮어쓰기 방지. 확정(status·confirmed*)은 관리자만
+      function academicPlanYearDoc(schoolId, year) {
+        return get(/databases/$(database)/documents/schools/$(schoolId)/academicPlanYears/$(string(year)));
+      }
+      function isAcademicPlanEditor(schoolId, year) {
+        return isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (isTeacher(schoolId) &&
+           exists(/databases/$(database)/documents/schools/$(schoolId)/academicPlanYears/$(string(year))) &&
+           request.auth.uid in academicPlanYearDoc(schoolId, year).data.get('editorUids', []));
+      }
+      function academicPlanPath(schoolId, planId) {
+        return /databases/$(database)/documents/schools/$(schoolId)/academicPlans/$(planId);
+      }
+      function academicPlanRevisionBumped(schoolId, planId) {
+        return getAfter(academicPlanPath(schoolId, planId)).data.get('revision', 0) ==
+          get(academicPlanPath(schoolId, planId)).data.get('revision', 0) + 1;
+      }
+      function academicPlanGoneByAdmin(schoolId, planId) {
+        return (isSuperAdmin() || isSchoolAdmin(schoolId)) && !existsAfter(academicPlanPath(schoolId, planId));
+      }
+
+      match /academicPlanYears/{year} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
+
+      match /academicPlans/{planId} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow create: if isAcademicPlanEditor(schoolId, request.resource.data.year) &&
+          request.resource.data.year is int &&
+          request.resource.data.get('revision', 0) == 0 &&
+          request.resource.data.get('status', 'draft') == 'draft' &&
+          request.resource.data.createdBy == request.auth.uid;
+        allow update: if isAcademicPlanEditor(schoolId, resource.data.year) &&
+          request.resource.data.year == resource.data.year &&
+          request.resource.data.createdBy == resource.data.createdBy &&
+          // 확정 관련 필드는 관리자만
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'confirmedAt', 'confirmedBy', 'publishedAt']) ||
+           isSuperAdmin() || isSchoolAdmin(schoolId)) &&
+          // 저장 묶음을 건드리면 revision +1
+          (!request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['events', 'holidays', 'revision', 'versionCount', 'latestVersionId']) ||
+           request.resource.data.get('revision', 0) == resource.data.get('revision', 0) + 1);
+        // 확정본은 관리자만, 초안은 만든 사람도 지운다
+        allow delete: if isSuperAdmin() || isSchoolAdmin(schoolId) ||
+          (resource.data.createdBy == request.auth.uid && resource.data.get('status', 'draft') == 'draft');
+
+        // 수정 기록(versions: 요약, versionData: 전체 스냅숏) — 저장과 같은 transaction에서만 남기고 고치지 않는다
+        match /versions/{versionId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if isAcademicPlanEditor(schoolId, get(academicPlanPath(schoolId, planId)).data.year) &&
+            academicPlanRevisionBumped(schoolId, planId);
+          allow update: if false;
+          allow delete: if academicPlanGoneByAdmin(schoolId, planId) ||
+            (!existsAfter(academicPlanPath(schoolId, planId)) &&
+             get(academicPlanPath(schoolId, planId)).data.createdBy == request.auth.uid);
+        }
+        match /versionData/{versionId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if isAcademicPlanEditor(schoolId, get(academicPlanPath(schoolId, planId)).data.year) &&
+            academicPlanRevisionBumped(schoolId, planId);
+          allow update: if false;
+          allow delete: if academicPlanGoneByAdmin(schoolId, planId) ||
+            (!existsAfter(academicPlanPath(schoolId, planId)) &&
+             get(academicPlanPath(schoolId, planId)).data.createdBy == request.auth.uid);
+        }
+      }
+
       // 고사(ExamCore) — 응시현황표 도구(exam-support-hck)의 보호 장치를 옮겨 왔다(2026-10).
       //  · 저장 묶음(plan·vacancyOverrides·seatings·versions)은 revision이 정확히 1 오르는 한 transaction에서만 쓴다.
       //    내가 연 뒤 다른 사람이 먼저 저장했는데 그 위에 덮어쓰는 저장을 막는다(앱은 이때 최신본에 합쳐 다시 저장한다).

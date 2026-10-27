@@ -22,6 +22,11 @@ const { syncAcademicCalendar, runAcademicCalendarSyncNow } = require('./academic
 exports.syncAcademicCalendar = syncAcademicCalendar
 exports.runAcademicCalendarSyncNow = runAcademicCalendarSyncNow
 
+// 학사일정 제작 도구 — 공휴일 조회, 확정본을 학교 구글 캘린더에 반영
+const academicPlanPublish = require('./academicPlanPublish')
+exports.fetchKoreanHolidays = academicPlanPublish.fetchKoreanHolidays
+exports.publishAcademicPlan = academicPlanPublish.publishAcademicPlan
+
 const callSystem = require('./callSystem')
 exports.generatePairingCode = callSystem.generatePairingCode
 exports.claimKioskDevice = callSystem.claimKioskDevice

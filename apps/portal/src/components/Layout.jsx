@@ -76,6 +76,16 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    key: 'academic-plan',
+    label: '학사일정 만들기',
+    icon: '🗓️',
+    prefix: '/academic-plan',
+    items: [
+      { label: '초안 목록', path: '/academic-plan', icon: '◈', exact: true },
+      { label: '초안 비교', path: '/academic-plan/compare', icon: '◈' },
+    ],
+  },
+  {
     key: 'training',
     label: '연수 서명부',
     icon: '✍️',

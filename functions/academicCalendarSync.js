@@ -212,3 +212,8 @@ exports.runAcademicCalendarSyncNow = onCall(
     }
   }
 )
+
+// 학사일정 제작 도구(academicPlanPublish.js)가 공휴일 조회와 반영 직후 동기화에 같이 쓴다
+exports.getCalendarClient = getCalendarClient
+exports.HOLIDAY_CALENDAR_ID = HOLIDAY_CALENDAR_ID
+exports.syncSchoolCalendar = syncSchoolCalendar
