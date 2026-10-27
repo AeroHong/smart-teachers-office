@@ -202,20 +202,21 @@ export default function AdminAccounts() {
   }
 
   // 미접속(사전 등록만 된) 구성원을 로그인 없이 바로 활성화 — 강사처럼 접속이 드문 분들용
-  const activateOne = async (u, staffType) => {
+  // 구분은 목록에 보이는 현재 구분 그대로 옮긴다
+  const activateOne = async (u) => {
     const run = httpsCallable(functions, 'activatePreApprovedStaff')
-    const { data } = await run({ schoolId, email: u.email, staffType: staffType || u.staffType || '교사' })
+    const { data } = await run({ schoolId, email: u.email, staffType: u.staffType || '교사' })
     return { ...u, id: data.uid, staffType: data.staffType, role: u.role || 'teacher', _preOnly: false }
   }
 
-  const activateMembers = async (targets, staffType) => {
+  const activateMembers = async (targets) => {
     if (targets.length === 0) return
     setMemberMsg('')
     setActivating(prev => new Set([...prev, ...targets.map(t => t.id)]))
     const failed = []
     for (const u of targets) {
       try {
-        const activated = await activateOne(u, staffType)
+        const activated = await activateOne(u)
         setTeacherList(prev => prev.map(t => t.id === u.id ? activated : t))
       } catch (err) {
         console.error('활성화 실패:', u.email, err)
@@ -230,14 +231,17 @@ export default function AdminAccounts() {
       : `✅ ${ok}명 활성화 완료`)
   }
 
-  const activateAllPreOnlyAsLecturer = () => {
+  const activateAllPreOnly = () => {
     const targets = teacherList.filter(u => u._preOnly)
+    // 구분별로 묶어 보여준다 — 지금 구분 그대로 활성화되므로, 잘못된 구분이 있으면 취소하고 먼저 고칠 수 있게
+    const byType = {}
+    for (const u of targets) (byType[u.staffType || '교사'] ||= []).push(u.name || u.email)
     if (!window.confirm(
-      `미접속 구성원 ${targets.length}명을 강사로 활성화하시겠습니까?\n\n`
-      + targets.map(u => u.name || u.email).join(', ')
-      + '\n\n로그인하지 않아도 각종 도구에 바로 나타납니다. 권한은 교사와 같습니다.'
+      `미접속 구성원 ${targets.length}명을 현재 구분 그대로 활성화하시겠습니까?\n\n`
+      + Object.entries(byType).map(([type, names]) => `[${type}] ${names.join(', ')}`).join('\n')
+      + '\n\n로그인하지 않아도 각종 도구에 바로 나타납니다.'
     )) return
-    activateMembers(targets, '강사')
+    activateMembers(targets)
   }
 
   const removeMember = async (u) => {
@@ -425,10 +429,10 @@ export default function AdminAccounts() {
               <Button
                 size="small"
                 variant="outlined"
-                onClick={activateAllPreOnlyAsLecturer}
+                onClick={activateAllPreOnly}
                 disabled={activating.size > 0}
               >
-                미접속 구성원 모두 강사로 활성화
+                미접속 구성원 모두 활성화 (현재 구분 그대로)
               </Button>
             </Box>
           )}
