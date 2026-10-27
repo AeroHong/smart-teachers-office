@@ -239,7 +239,7 @@ export default function PlanGrid({ plan, events, rows, canEdit, showSunday, dept
             position: 'relative', zIndex: head ? 2 : 1, height: SPAN_H, boxSizing: 'border-box',
             bgcolor: ks.bg, color: ks.fg, borderTop: edge, borderBottom: edge,
             borderLeft: joinLeft ? 'none' : edge, borderRight: joinRight ? 'none' : edge,
-            ml: joinLeft ? `-${SPAN_BLEED + DATE_W + DATE_GAP}px` : 0, mr: joinRight ? `-${SPAN_BLEED}px` : 0,
+            ml: joinLeft ? `-${SPAN_BLEED}px` : 0, mr: joinRight ? `-${SPAN_BLEED}px` : 0,
             borderTopLeftRadius: joinLeft ? 0 : 4, borderBottomLeftRadius: joinLeft ? 0 : 4,
             borderTopRightRadius: joinRight ? 0 : 4, borderBottomRightRadius: joinRight ? 0 : 4,
             px: head ? 0.5 : 0, fontSize: '0.72rem', fontWeight: ev.fullDay || ev.kind !== '일반' ? 800 : 600,
@@ -349,25 +349,44 @@ export default function PlanGrid({ plan, events, rows, canEdit, showSunday, dept
                     onDragOver={canEdit ? (e) => { e.preventDefault(); if (over !== k) setOver(k) } : undefined}
                     onDragLeave={canEdit ? () => setOver((o) => (o === k ? null : o)) : undefined}
                     onDrop={canEdit ? (e) => handleDrop(e, k) : undefined}>
-                    {/* [날짜 | 일정] — 높이는 내용만큼(일정 없는 주는 낮게). 띠 줄이 맨 위라 옆 칸 띠와 높이가 맞는다 */}
-                    <Box sx={{ minHeight: 26, px: 0.5, py: 0.25, display: 'grid', gridTemplateColumns: `${DATE_W}px minmax(0, 1fr)`, columnGap: `${DATE_GAP}px`, alignItems: 'start' }}>
+                    {/*
+                      [날짜 | 일정] — 높이는 내용만큼(일정 없는 주는 낮게). 일반 일정은 날짜 오른쪽 칸에서 이어진다.
+                      기간 일정 띠는 날짜 줄 바로 아래에 칸 전체 폭으로 — 띠 이름이 다음 칸 날짜 숫자와 겹치지 않고,
+                      날짜 줄(한 줄 고정) 다음이라 옆 칸 띠와 높이가 맞는다.
+                    */}
+                    <Box sx={{ minHeight: 26, px: 0.5, py: 0.25, display: 'grid', gridTemplateColumns: `${DATE_W}px minmax(0, 1fr)`, columnGap: `${DATE_GAP}px`, rowGap: '3px', alignItems: 'start' }}>
                       <Box component="span" sx={{
-                        position: 'relative', zIndex: 3, fontSize: '0.82rem', fontWeight: 800, lineHeight: `${SPAN_H}px`,
+                        fontSize: '0.82rem', fontWeight: 800, lineHeight: `${SPAN_H}px`,
                         color: st.holiday || di === 6 ? '#dc2626' : di === 5 ? '#2563eb' : st.vacation ? '#94a3b8' : '#0f172a',
                       }}>{Number(k.slice(8))}</Box>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3, minWidth: 0 }}>
-                        {covered && spans.map((ev) => (covers(ev, k)
-                          ? renderSpan(ev, k, {
-                            head: k === ev.date || rowFirst,
-                            joinLeft: k !== ev.date && !rowFirst,
-                            joinRight: k !== ev.endDate && !rowLast,
-                          })
-                          : <Box key={ev.id} sx={{ height: SPAN_H }} />))}
-                        {st.holiday && (
-                          <Box sx={{ fontSize: '0.72rem', fontWeight: 700, color: '#dc2626', lineHeight: `${SPAN_H}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{st.holiday}</Box>
-                        )}
-                        {evs.map((ev) => renderEvent(ev, k))}
-                      </Box>
+                      {covered ? (
+                        <>
+                          <Box sx={{ minWidth: 0, height: SPAN_H, fontSize: '0.72rem', fontWeight: 700, color: '#dc2626', lineHeight: `${SPAN_H}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {st.holiday || ''}
+                          </Box>
+                          <Box sx={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                            {spans.map((ev) => (covers(ev, k)
+                              ? renderSpan(ev, k, {
+                                head: k === ev.date || rowFirst,
+                                joinLeft: k !== ev.date && !rowFirst,
+                                joinRight: k !== ev.endDate && !rowLast,
+                              })
+                              : <Box key={ev.id} sx={{ height: SPAN_H }} />))}
+                          </Box>
+                          {evs.length > 0 && (
+                            <Box sx={{ gridColumn: 2, display: 'flex', flexDirection: 'column', gap: 0.3, minWidth: 0 }}>
+                              {evs.map((ev) => renderEvent(ev, k))}
+                            </Box>
+                          )}
+                        </>
+                      ) : (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3, minWidth: 0 }}>
+                          {st.holiday && (
+                            <Box sx={{ fontSize: '0.72rem', fontWeight: 700, color: '#dc2626', lineHeight: `${SPAN_H}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{st.holiday}</Box>
+                          )}
+                          {evs.map((ev) => renderEvent(ev, k))}
+                        </Box>
+                      )}
                     </Box>
                   </Box>
                 )
