@@ -148,6 +148,9 @@ export default function EventDialog({
         {!f.date && <Alert severity="info" sx={{ py: 0 }}>날짜가 없으면 오른쪽 '일정 카드' 보관함에 들어갑니다. 카드를 표의 날짜 칸으로 끌어 놓으면 날짜가 정해집니다.</Alert>}
         {isWeekend && <Alert severity="info" sx={{ py: 0 }}>토·일요일 일정은 표시만 되고 수업일수에는 들어가지 않습니다.</Alert>}
 
+        {f.kind === '정기고사' && f.date && f.endDate > f.date && (
+          <Alert severity="info" sx={{ py: 0 }}>정기고사는 날마다 따로 들어갑니다(주말·공휴일 제외) — 시험일을 하루씩 옮기기 쉽게.</Alert>
+        )}
         {f.kind === '정기고사' && (
           <TextField select label="고사 구분" value={f.examType} onChange={(e) => set({ examType: e.target.value })} sx={{ width: 160 }} disabled={readOnly}>
             <MenuItem value="중간">중간고사</MenuItem>

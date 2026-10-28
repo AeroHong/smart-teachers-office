@@ -411,7 +411,8 @@ export function neisRowsToEvents(rows = [], makeId = (i) => `neis${i}`) {
     // 이어지는 날인지 — 사이에 낀 날이 모두 토·일이면 이어진 것으로 본다
     const lastDay = prev ? prev.endDate || prev.date : null
     let joined = false
-    if (prev && k.kind !== '공휴일' && k.kind !== '요일교체') {
+    // 정기고사는 합치지 않는다 — 시험일을 하루씩 앞뒤로 옮기며 편성하기 쉽게(splitExamEvent 참고)
+    if (prev && !['공휴일', '요일교체', '정기고사'].includes(k.kind)) {
       let d = addDays(lastDay, 1)
       while (d < r.date && isGap(d)) d = addDays(d, 1)
       joined = d === r.date
@@ -508,6 +509,23 @@ export function currentConfirmation(list = [], stage) {
 export const isTrayEvent = (ev) => !isDateKey(ev?.date)
 
 /** 보관함 카드를 그 날짜에 놓는다 */
+/**
+ * 정기고사 기간 일정 → 날마다 하나씩(주말·공휴일은 건너뜀). 시험일을 하루씩 옮기며 편성하기 쉽게 한다.
+ * 첫날은 원래 id를 그대로 쓴다. 정기고사가 아니거나 하루짜리면 [ev] 그대로.
+ * @param plan 공휴일을 알기 위한 초안(holidays·공휴일 일정)
+ */
+export function splitExamEvent(ev, plan) {
+  if (ev.kind !== '정기고사' || !isDateKey(ev.date) || !isDateKey(ev.endDate) || ev.endDate <= ev.date) return [ev]
+  const off = holidayMap(plan)
+  const { endDate, ...base } = ev
+  const out = []
+  for (let d = ev.date; d <= endDate; d = addDays(d, 1)) {
+    if (mondayIndex(d) > 4 || off.has(d)) continue
+    out.push({ ...base, id: out.length ? `${ev.id}_${d.replace(/-/g, '')}` : ev.id, date: d })
+  }
+  return out.length ? out : [{ ...base }]
+}
+
 export function placeTrayEvent(ev, date) {
   const { spanDays, ...rest } = ev
   const next = { ...rest, date }

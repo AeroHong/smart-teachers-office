@@ -39,7 +39,7 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { functions } from '@shared/lib/firebase'
 import {
   GRADES, SCHOOL_WEEKDAYS, addConfirmation, addDays, buildWeekRows, diffEvents, mondayIndex, computeStats, importPrevCards, isEventLocked, mergeDeptColors,
-  isTrayEvent, markFrameEvents, placeTrayEvent, planStage, relockEvents, rowsForSemester, sameWeekdayNextYear, shiftEvent, unscheduleEvent,
+  isTrayEvent, markFrameEvents, placeTrayEvent, planStage, relockEvents, rowsForSemester, sameWeekdayNextYear, shiftEvent, splitExamEvent, unscheduleEvent,
   yearRange,
 } from '@shared/lib/academicPlan'
 import PlanGrid from './PlanGrid'
@@ -328,9 +328,14 @@ export default function AcademicPlanEditor() {
     // 최종 확정 뒤 새 일정은 관리자만, 잠금 해제 상태로 들어가 재확정해야 새 판에 담긴다
     if (isNew && stage === 'final' && !canAdmin) { lockedToast(); return }
     const ev = isNew && stage === 'final' ? { ...input, unlocked: true } : input
-    const nextEvents = draft.events.some((e) => e.id === ev.id) ? draft.events.map((e) => (e.id === ev.id ? ev : e)) : [...draft.events, ev]
-    if (!confirmFullDayImpact(nextEvents)) return
-    change((d) => ({ ...d, events: d.events.some((e) => e.id === ev.id) ? d.events.map((e) => (e.id === ev.id ? ev : e)) : [...d.events, ev] }))
+    // 정기고사 기간은 날마다 따로 넣는다 — 시험일을 하루씩 옮기며 편성하기 쉽게
+    const parts = splitExamEvent(ev, draft)
+    const put = (events) => {
+      const i = events.findIndex((e) => e.id === ev.id)
+      return i < 0 ? [...events, ...parts] : [...events.slice(0, i), ...parts, ...events.slice(i + 1)]
+    }
+    if (!confirmFullDayImpact(put(draft.events))) return
+    change((d) => ({ ...d, events: put(d.events) }))
     setDialog(null)
   }
   const deleteEvent = (id) => {
@@ -348,18 +353,13 @@ export default function AcademicPlanEditor() {
     if (toDate < start || toDate > end) return
     setHintDate(null)
     if (lockedOf(id)) { lockedToast(); return }
-    const moved = draft.events.map((e) => {
-      if (e.id !== id || e.date === toDate) return e
-      return isTrayEvent(e) ? placeTrayEvent(e, toDate) : shiftEvent(e, toDate)
+    // 보관함의 여러 날짜 시험 카드는 놓을 때 날마다 따로 나눈다
+    const move = (events) => events.flatMap((e) => {
+      if (e.id !== id || e.date === toDate) return [e]
+      return isTrayEvent(e) ? splitExamEvent(placeTrayEvent(e, toDate), draft) : [shiftEvent(e, toDate)]
     })
-    if (!confirmFullDayImpact(moved)) return
-    change((d) => ({
-      ...d,
-      events: d.events.map((e) => {
-        if (e.id !== id || e.date === toDate) return e
-        return isTrayEvent(e) ? placeTrayEvent(e, toDate) : shiftEvent(e, toDate)
-      }),
-    }))
+    if (!confirmFullDayImpact(move(draft.events))) return
+    change((d) => ({ ...d, events: move(d.events) }))
   }
   // 표의 일정을 보관함으로 — 날짜를 비운다
   const unschedule = (id) => {

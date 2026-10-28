@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import {
   addDays, buildWeekRows, classifyDay, computeStats, describeDiff, diffEvents, eventDisplayTitle,
   isTrayEvent, makeContext, mondayIndex, placeTrayEvent, rollEventsToNextYear, rowsForSemester, semesterRanges, shiftEvent,
-  unscheduleEvent, isNoProgress, eventsToCards, neisRowsToEvents, importPrevCards, mergeDeptColors, sameWeekdayNextYear, addConfirmation, currentConfirmation, isEventLocked, markFrameEvents, planStage, relockEvents,
+  unscheduleEvent, isNoProgress, eventsToCards, neisRowsToEvents, splitExamEvent, importPrevCards, mergeDeptColors, sameWeekdayNextYear, addConfirmation, currentConfirmation, isEventLocked, markFrameEvents, planStage, relockEvents,
 } from './academicPlan.js'
 import { plan2026 } from './academicPlan.fixture2026.js'
 
@@ -280,16 +280,33 @@ test('나이스 학사일정 행 → 일정', () => {
   const evs = neisRowsToEvents(rows)
   const by = (t) => evs.find((e) => e.title === t)
   // 여름방학 뒤 개학이 없으면 다음 수업일(7/21)을 2학기 개학으로 넣는다
-  assert.equal(evs.length, 10)
+  assert.equal(evs.length, 11)
   assert.deepEqual([by('2학기 개학').kind, by('2학기 개학').date], ['개학', '2026-07-21'])
   assert.equal(by('3·1절').kind, '공휴일')
   assert.deepEqual([by('입학식').kind, by('입학식').grades, by('시업식').grades], ['개학', [1], [2, 3]])
   assert.deepEqual([by('학생 상담주간').date, by('학생 상담주간').endDate], ['2026-03-13', '2026-03-17'])
-  assert.deepEqual([by('1학기 중간고사').kind, by('1학기 중간고사').examType, by('1학기 중간고사').endDate], ['정기고사', '중간', '2026-04-28'])
+  // 정기고사는 날마다 따로
+  assert.deepEqual(evs.filter((e) => e.title === '1학기 중간고사').map((e) => [e.kind, e.examType, e.date, e.endDate]),
+    [['정기고사', '중간', '2026-04-27', undefined], ['정기고사', '중간', '2026-04-28', undefined]])
   assert.equal(by('재량휴업일').kind, '재량휴업')
   assert.deepEqual([by('요일 변동(월)').kind, by('요일 변동(월)').weekdaySwap], ['요일교체', 0])
   assert.deepEqual([by('수학여행').fullDay, by('수학여행').grades], [true, [2]])
   assert.equal(by('방학식').fullDay, true)
   assert.equal(by('토요휴업일'), undefined)
   assert.equal(by('여름방학'), undefined)
+})
+
+test('정기고사 기간 → 날마다 하나씩(주말·공휴일 건너뜀)', () => {
+  const plan = { holidays: [{ date: '2026-10-09', name: '한글날' }], events: [] }
+  const exam = { id: 'm', kind: '정기고사', examType: '중간', title: '중간고사', date: '2026-10-07', endDate: '2026-10-13', grades: [] }
+  const parts = splitExamEvent(exam, plan)
+  assert.deepEqual(parts.map((e) => e.date), ['2026-10-07', '2026-10-08', '2026-10-12', '2026-10-13'])
+  assert.equal(parts[0].id, 'm')
+  assert.equal(new Set(parts.map((e) => e.id)).size, 4)
+  assert.ok(parts.every((e) => !e.endDate && e.examType === '중간'))
+  assert.deepEqual(splitExamEvent({ ...exam, endDate: undefined }, plan), [{ ...exam, endDate: undefined }])
+  assert.deepEqual(splitExamEvent({ ...exam, kind: '일반' }, plan).length, 1)
+  // 나이스 가져오기도 시험은 합치지 않는다
+  const rows = ['2026-04-24', '2026-04-27'].map((date) => ({ date, name: '중간고사', grades: [1, 2, 3], off: '' }))
+  assert.equal(neisRowsToEvents(rows).length, 2)
 })
