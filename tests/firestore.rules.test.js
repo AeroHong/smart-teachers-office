@@ -1632,3 +1632,168 @@ test('학사일정 지우기: 초안은 만든 사람이 기록까지 한 batch�
   b.delete(doc(db, ...path('academicPlans', 'p1', 'versions', 'v1')))
   await assertSucceeds(b.commit())
 })
+
+// ── 업무분장 만들기(2026-10) ──────────────────────────────────────
+// A: 2027 학년도 편집자(인사자문위원) / B: 편집자 아님 / ADMIN: 학교 관리자 / PRIN: 교감(편집자 명단에 없어도 관리자)
+const PRIN = 'principal-u'
+const dp = (...segs) => path('dutyPlanYears', '2027', ...segs)
+async function seedDutyPlan() {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, 'users', PRIN), { role: 'principal', schoolId: SCHOOL })
+    await setDoc(doc(db, ...dp()), { editorUids: [A], wish: { open: false } })
+    const plan = (over) => ({
+      year: 2027, name: '업무분장안', kind: 'cards', stage: 'draft', shared: false,
+      departments: [], duties: [], homerooms: [], subjectHeads: [], staffPool: [],
+      revision: 1, versionCount: 1, latestVersionId: 'v1', createdBy: A, ...over,
+    })
+    await setDoc(doc(db, ...dp('plans', 'draft1')), plan())
+    await setDoc(doc(db, ...dp('plans', 'review1')), plan({ stage: 'review', shared: true }))
+    await setDoc(doc(db, ...dp('plans', 'final1')), plan({ stage: 'confirmed', shared: true }))
+    await setDoc(doc(db, ...dp('plans', 'draft1', 'versions', 'v1')), { versionNo: 1 })
+    await setDoc(doc(db, ...path('dutyCatalog', 'k1')), { title: '고사1', holderUids: [A], holders: [{ year: 2026, uid: A }] })
+  })
+}
+
+/** dutyPlanRepo.savePlan과 같은 모양 — revision +1 · 요약 · 스냅숏을 한 batch로 */
+function saveDutyBatch(db, planId, { from = 1, to = from + 1, v = `v${to}`, extra = {} } = {}) {
+  const b = writeBatch(db)
+  b.update(doc(db, ...dp('plans', planId)), {
+    duties: [{ id: 'd1', title: '고사1' }], revision: to, versionCount: to, latestVersionId: v, ...extra,
+  })
+  b.set(doc(db, ...dp('plans', planId, 'versions', v)), { versionNo: to })
+  b.set(doc(db, ...dp('plans', planId, 'versionData', v)), { duties: [] })
+  return b.commit()
+}
+
+test('업무분장: 1차 초안은 편집자·관리자만, 공람·확정본은 교직원 누구나 읽는다', async () => {
+  await seedDutyPlan()
+  await assertSucceeds(getDoc(doc(as(A), ...dp('plans', 'draft1'))))
+  await assertSucceeds(getDoc(doc(as(PRIN), ...dp('plans', 'draft1'))))
+  await assertFails(getDoc(doc(as(B), ...dp('plans', 'draft1'))))
+  await assertSucceeds(getDoc(doc(as(B), ...dp('plans', 'review1'))))
+  await assertSucceeds(getDoc(doc(as(B), ...dp('plans', 'final1'))))
+  await assertFails(getDoc(doc(as(SUPER, {}), ...dp('plans', 'final1')))) // 다른 학교 교사
+})
+
+test('업무분장 [쿼리]: 비편집자는 shared 조건을 붙여야 목록이 뜨고, 편집자는 조건 없이 본다', async () => {
+  await seedDutyPlan()
+  const col = (who) => collection(as(who), ...dp('plans'))
+  await assertFails(getDocs(col(B)))
+  const shared = await assertSucceeds(getDocs(query(col(B), where('shared', '==', true))))
+  assert.equal(shared.size, 2)
+  const all = await assertSucceeds(getDocs(col(A)))
+  assert.equal(all.size, 3)
+  await assertSucceeds(getDocs(col(PRIN)))
+})
+
+test('업무분장: 수정 기록은 편집자만 본다 — 공람 중이라도 1차 때 기록이 섞여 있다', async () => {
+  await seedDutyPlan()
+  await assertSucceeds(getDoc(doc(as(A), ...dp('plans', 'draft1', 'versions', 'v1'))))
+  await assertFails(getDocs(collection(as(B), ...dp('plans', 'review1', 'versions'))))
+})
+
+test('업무분장 저장: 편집자만, revision +1, 확정본은 관리자만 고친다', async () => {
+  await seedDutyPlan()
+  await assertFails(saveDutyBatch(as(B), 'draft1'))
+  await assertFails(saveDutyBatch(as(A), 'draft1', { to: 3 }))
+  await assertSucceeds(saveDutyBatch(as(A), 'draft1'))
+  await assertSucceeds(saveDutyBatch(as(A), 'review1'))
+  await assertFails(saveDutyBatch(as(A), 'final1'))
+  await assertSucceeds(saveDutyBatch(as(PRIN), 'final1'))
+  await assertFails(updateDoc(doc(as(A), ...dp('plans', 'draft1')), { duties: [] })) // revision 없이
+  await assertSucceeds(updateDoc(doc(as(A), ...dp('plans', 'draft1')), { name: '업무분장안 2' }))
+})
+
+test('업무분장 단계: 관리자만 바꾸고, shared는 단계와 늘 맞아야 한다', async () => {
+  await seedDutyPlan()
+  const ref = (who) => doc(as(who), ...dp('plans', 'draft1'))
+  await assertFails(updateDoc(ref(A), { stage: 'review', shared: true }))
+  await assertFails(updateDoc(ref(ADMIN), { stage: 'review' })) // shared를 같이 안 켜면 거부
+  await assertFails(updateDoc(ref(ADMIN), { shared: true })) // 1차 초안을 공개로 돌리기 거부
+  await assertSucceeds(updateDoc(ref(PRIN), { stage: 'review', shared: true }))
+})
+
+test('업무분장 만들기: 편집자는 1차 초안으로만, 확정본 들여오기는 관리자만', async () => {
+  await seedDutyPlan()
+  const plan = (over) => ({ year: 2027, name: '새 안', kind: 'cards', stage: 'draft', shared: false, duties: [], revision: 0, createdBy: A, ...over })
+  await assertSucceeds(setDoc(doc(as(A), ...dp('plans', 'n1')), plan()))
+  await assertFails(setDoc(doc(as(B), ...dp('plans', 'n2')), plan({ createdBy: B })))
+  await assertFails(setDoc(doc(as(A), ...dp('plans', 'n3')), plan({ stage: 'confirmed', shared: true })))
+  await assertFails(setDoc(doc(as(A), ...dp('plans', 'n4')), plan({ year: 2028 }))) // 경로와 다른 학년도
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...dp('plans', 'n5')), plan({ stage: 'confirmed', shared: true, createdBy: ADMIN })))
+})
+
+test('업무분장 의견: 편집자는 언제나, 교직원은 2차 공람 중에만', async () => {
+  await seedDutyPlan()
+  const c = (who, planId, id) => doc(as(who), ...dp('plans', planId, 'comments', id))
+  const body = (uid) => ({ text: '이 업무는 나누면 좋겠습니다', by: { uid, name: uid } })
+  await assertSucceeds(setDoc(c(A, 'draft1', 'c1'), body(A)))
+  await assertFails(setDoc(c(B, 'draft1', 'c2'), body(B)))
+  await assertSucceeds(setDoc(c(B, 'review1', 'c3'), body(B)))
+  await assertFails(setDoc(c(B, 'final1', 'c4'), body(B)))
+  await assertFails(getDocs(collection(as(B), ...dp('plans', 'draft1', 'comments'))))
+  await assertSucceeds(getDocs(collection(as(B), ...dp('plans', 'review1', 'comments'))))
+})
+
+test('업무분장 접속 표시: 읽을 수 있는 편성안에서 자기 것만', async () => {
+  await seedDutyPlan()
+  await assertFails(setDoc(doc(as(B), ...dp('plans', 'draft1', 'viewers', B)), { lastSeen: 1 }))
+  await assertSucceeds(setDoc(doc(as(B), ...dp('plans', 'review1', 'viewers', B)), { lastSeen: 1 }))
+  await assertFails(setDoc(doc(as(B), ...dp('plans', 'review1', 'viewers', A)), { lastSeen: 1 }))
+})
+
+test('업무분장 학년도 설정: 편집자 명단은 관리자, 편집자는 희망원 기간·학급 수만', async () => {
+  await seedDutyPlan()
+  await assertFails(updateDoc(doc(as(A), ...dp()), { editorUids: [A, B] }))
+  await assertSucceeds(updateDoc(doc(as(A), ...dp()), { wish: { open: true, deadline: null } }))
+  await assertFails(updateDoc(doc(as(B), ...dp()), { wish: { open: true } }))
+  await assertSucceeds(updateDoc(doc(as(PRIN), ...dp()), { editorUids: [A, B] }))
+})
+
+test('업무분장 희망원: 기간 중 본인만 쓰고, 본인과 편집자만 본다', async () => {
+  await seedDutyPlan()
+  const w = (who, uid) => doc(as(who), ...dp('wishes', uid))
+  const body = (uid) => ({ year: 2027, uid, choices: [{ rank: 1, dutyKey: 'k1' }] })
+  await assertFails(setDoc(w(B, B), body(B))) // 기간 아님
+  await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), ...dp()), { wish: { open: true, deadline: null } }))
+  await assertSucceeds(setDoc(w(B, B), body(B)))
+  await assertFails(setDoc(w(B, C), body(C)))
+  await assertFails(getDoc(w(C, B)))
+  await assertSucceeds(getDoc(w(A, B)))
+  await assertSucceeds(getDocs(collection(as(A), ...dp('wishes'))))
+  await assertFails(getDocs(collection(as(B), ...dp('wishes'))))
+  // 마감이 지나면 못 고친다
+  await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), ...dp()), { wish: { open: true, deadline: new Date('2020-01-01') } }))
+  await assertFails(setDoc(w(B, B), body(B)))
+})
+
+test('업무 안내·인수인계: 전·현 담당자는 안내를 고치고 노트를 쓴다, 다른 교사는 읽기만', async () => {
+  await seedDutyPlan()
+  const k = (who) => doc(as(who), ...path('dutyCatalog', 'k1'))
+  await assertSucceeds(getDoc(k(B)))
+  await assertSucceeds(updateDoc(k(A), { guide: { overview: '정기고사 정담당' } }))
+  await assertFails(updateDoc(k(A), { holderUids: [A, B] }))
+  await assertFails(updateDoc(k(B), { guide: { overview: '내 마음대로' } }))
+  const n = (who, id) => doc(as(who), ...path('dutyCatalog', 'k1', 'notes', id))
+  const note = (uid) => ({ year: 2026, kind: '인수인계', text: '시감표는 3주 전에', by: { uid, name: uid } })
+  await assertSucceeds(setDoc(n(A, 'n1'), note(A)))
+  await assertFails(setDoc(n(B, 'n2'), note(B)))
+  await assertSucceeds(setDoc(n(ADMIN, 'n3'), note(ADMIN)))
+  await assertSucceeds(getDoc(n(B, 'n1')))
+  await assertFails(updateDoc(n(B, 'n1'), { text: '고침' }))
+  await assertSucceeds(updateDoc(n(A, 'n1'), { text: '시감표는 4주 전에' }))
+  await assertSucceeds(deleteDoc(n(ADMIN, 'n1')))
+})
+
+test('업무분장 지우기: 1차 초안은 만든 사람이 기록까지 한 batch로', async () => {
+  await seedDutyPlan()
+  await assertFails(deleteDoc(doc(as(B), ...dp('plans', 'draft1'))))
+  await assertFails(deleteDoc(doc(as(A), ...dp('plans', 'draft1', 'versions', 'v1'))))
+  await assertFails(deleteDoc(doc(as(A), ...dp('plans', 'review1'))))
+  const db = as(A)
+  const b = writeBatch(db)
+  b.delete(doc(db, ...dp('plans', 'draft1')))
+  b.delete(doc(db, ...dp('plans', 'draft1', 'versions', 'v1')))
+  await assertSucceeds(b.commit())
+})

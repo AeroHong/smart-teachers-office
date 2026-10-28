@@ -3,14 +3,16 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import { addComment, deleteComment, subscribeComments, updateComment } from './planRepo'
+import * as planRepo from './planRepo'
 
 const fmt = (d) => (d ? d.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '방금')
 
 /**
  * 이 초안에 대한 의견 — 교직원 누구나 쓰고, 내 글만 고치고 지운다(다른 사람 글은 읽기만, 관리자는 지우기 가능).
  */
-export default function CommentsPanel({ schoolId, planId, me, canAdmin }) {
+export default function CommentsPanel({ schoolId, planId, me, canAdmin, repo = planRepo, canWrite = true, placeholder = '이 학사일정에 대한 의견을 남겨 주세요 (Ctrl+Enter로 등록)', accent = '#0f766e' }) {
+  // repo: 다른 모듈(업무분장)이 같은 모양의 함수 묶음을 넘긴다. canWrite false면 읽기만(공람이 끝난 확정본 등)
+  const { addComment, deleteComment, subscribeComments, updateComment } = repo
   const [items, setItems] = useState(null)
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(null) // { id, text }
@@ -76,12 +78,16 @@ export default function CommentsPanel({ schoolId, planId, me, canAdmin }) {
         })}
         <div ref={endRef} />
       </Box>
-      <TextField size="small" fullWidth multiline minRows={2} placeholder="이 학사일정에 대한 의견을 남겨 주세요 (Ctrl+Enter로 등록)"
-        value={text} onChange={(e) => setText(e.target.value)} inputProps={{ maxLength: 2000 }}
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit() }} />
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Button size="small" variant="contained" disableElevation onClick={submit} disabled={busy || !text.trim()} sx={{ bgcolor: '#0f766e' }}>등록</Button>
-      </Box>
+      {canWrite && (
+        <>
+          <TextField size="small" fullWidth multiline minRows={2} placeholder={placeholder}
+            value={text} onChange={(e) => setText(e.target.value)} inputProps={{ maxLength: 2000 }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit() }} />
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button size="small" variant="contained" disableElevation onClick={submit} disabled={busy || !text.trim()} sx={{ bgcolor: accent }}>등록</Button>
+          </Box>
+        </>
+      )}
       {error && <Typography variant="caption" sx={{ color: 'error.main' }}>{error}</Typography>}
     </Box>
   )

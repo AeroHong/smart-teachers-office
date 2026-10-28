@@ -23,6 +23,7 @@
   ├─ 호출     callRequests
   ├─ 업무     requests/{id}/{completions,comments} · channels · personalNotices
   ├─ 대시보드 academicCalendar · dashboardModules · academicPlanYears · academicPlans(학사일정 제작)
+  ├─ 업무분장 dutyPlanYears/{year}/{plans,wishes} · dutyCatalog/{dutyKey}/notes
   ├─ 성취평가 asaSubjects · asaSubmissions · asaResults · asaCutoffs ·
   │           asaNeisImports · asaPrincipalSignature · minAchievementResults
   └─ 평가계획 evaluationPlans · evaluationPlanManagers
@@ -877,6 +878,63 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 **접근 권한:** Read - 소속 교직원(초안 포함) / Create·Update - 관리자 또는 그 학년도 editorUids.
 저장 묶음(events·holidays·revision·버전 포인터)은 revision이 정확히 1 오르는 transaction에서만, versions·versionData도 그 transaction에서만 생성(ExamCore와 같은 방식).
 확정 필드(status·confirmed*·published*·stage·confirmations)는 관리자만 / Delete - 관리자, 초안은 만든 사람
+
+---
+
+#### `/schools/{schoolId}/dutyPlanYears/{year}`
+업무분장 만들기(포털 `/duty-plan`)의 학년도 설정. **문서 ID = 학년도 문자열**(`'2027'`). 편성안·희망원은 이 문서의 하위에 둔다 —
+규칙이 경로의 학년도로 편집자를 판정해야 목록 조회가 통과하기 때문(문서 필드로 `get()`하면 쿼리 안전성을 증명할 수 없다)
+
+**필드:** (쓰기: `apps/portal/src/pages/dutyPlan/dutyPlanRepo.js` `saveYear`·`setPlanStage`)
+- `editorUids` (string[]) — 편집자. 학년도를 시작할 때 직함에 '교무'+'부장'이 든 교직원을 자동으로 넣고, 관리자가 인사자문위원을 더한다
+- `editorRoles` ({ uid: '교무기획부장' | '인사자문위원' | '기타' }) — 화면 표시용
+- `cardsPlanId` — 3차 확정한 업무분장안(희망원 기준) / `confirmedPlanId` — 3차 확정한 최종 업무분장(인원 배치안 또는 hwpx로 들여온 확정본)
+- `classCounts` ({ 학년: 학급 수 }), `specialClasses` ({ 학년: true }) — 담임 격자
+- `wish` ({ open, deadline(timestamp|null), sourcePlanId }) — 희망원 받는 기간(3단계에서 사용)
+- `updatedAt`
+
+**접근 권한:** Read - 소속 교직원 / Write - 업무분장 관리자(슈퍼·학교 관리자·교감·교장) / Update - 그 학년도 편집자는 `wish`·`classCounts`·`specialClasses`만
+
+#### `/schools/{schoolId}/dutyPlanYears/{year}/plans/{planId}`
+편성안(학년도당 여러 개, auto-ID). 한 문서 = 편성 전체(부서 10·카드 60 안팎이라 1MB 한도에 여유). 계산은 `apps/shared/lib/dutyPlan.js` 한 곳
+
+**필드:** (쓰기: `dutyPlanRepo.js` `createPlan`·`savePlan`·`setPlanStage`)
+- `year` (number, 바꿀 수 없음, 경로와 같아야 함), `name`, `kind` (`'cards'` 업무분장안 | `'assign'` 인원 배치안), `basedOn`
+- `stage` (`'draft'` 1차 초안 | `'review'` 2차 공람 | `'confirmed'` 3차 확정), `shared` (boolean — review·confirmed면 true, 규칙이 stage와 맞는지 본다)
+- `confirmations` ([{ stage, versionNo, at(ms), by, note }]) — 단계 결정 기록(인사자문위원회 결정일 등), `confirmedAt`, `confirmedBy`
+- 저장 묶음 — `departments` [{ id, name, category('교무행정지원'|'교육활동'), order }]
+  · `duties` [{ id, dutyKey, deptId(''=보관함), order, title, slotLabel('1'|'특수'|'교육실무사(교무)'…), roleType('부장'|'기획'|'일반'),
+    staffKind('교사'|그 밖의 직군 이름), tasks[], note, pairKey?, prevKeys?, assigneeUid|null, assigneeName }]
+  · `homerooms` [{ grade, classNo(number|'특수'), homeroomUid, homeroomName, subHomeroomUid, subHomeroomName }]
+  · `subjectHeads` [{ group, uid, name, note }] · `staffPool` [{ uid|null, name, subject, flag? }]
+  - `assigneeName`·`homeroomName` 등 이름은 배치할 때의 표시값을 함께 저장한다(일반 교직원이 users를 읽지 않고 보게). uid가 없으면 이름 자리(전입 예정 등)
+  - `dutyKey` — 해를 넘어 이어지는 업무 키. 복제하면 카드 id는 새로, dutyKey는 그대로(`clonePlanData`)
+- `revision`, `versionCount`, `latestVersionId`, `updatedBy {uid,name}`, `updatedAt`, `createdBy`, `createdByName`, `createdAt`, `importedFrom?`
+
+**하위:** `versions/{id}` · `versionData/{같은 id}`(저장 묶음 스냅숏) · `viewers/{uid}` · `comments/{id}` — 모양은 academicPlans와 같다
+
+**접근 권한:** Read - 편집자(관리자 포함), 그 밖의 교직원은 `shared == true`만(목록은 `where('shared','==',true)`로 조회해야 통과)
+/ Create - 편집자, 1차 초안으로만(다른 단계로 만들기는 관리자 — hwpx 확정본 들여오기) / Update - 편집자, 저장 묶음은 revision +1,
+확정본의 저장 묶음과 단계 필드(stage·shared·confirmations·confirmed*·kind)는 관리자만 / Delete - 관리자, 1차 초안은 만든 사람
+· versions·versionData Read는 편집자만 · 의견 Create는 편집자, 교직원은 `stage == 'review'`일 때만
+
+#### `/schools/{schoolId}/dutyPlanYears/{year}/wishes/{uid}`
+업무분장 희망원(3단계에서 화면 추가). `{ year, uid, choices[{rank, dutyKey, title}], homeroom, homeroomGrade?, keepCurrent, note, submittedAt }`
+
+**접근 권한:** Read - 본인·그 학년도 편집자 / Create·Update - 본인, `wish.open`이고 마감 전 / Delete - 관리자
+
+#### `/schools/{schoolId}/dutyCatalog/{dutyKey}`
+해를 넘어 이어지는 업무 — 업무 안내와 역대 담당자. 확정할 때(`recordHolders`) 카드마다 만들거나 갱신한다
+
+**필드:**
+- `title`, `deptName`, `lastYear` — 가장 최근 확정본의 이름·부서
+- `holders` ([{ year, uid|null, name }]), `holderUids` (string[]) — 전·현 담당자(규칙이 안내·노트 쓰기 권한에 쓴다)
+- `guide` ({ overview, monthly[{month, text}], tips, links[{label, url}] }), `updatedBy`, `updatedAt`
+
+**하위:** `notes/{id}` `{ year, kind('인수인계'|'메모'), text(≤5000), by{uid,name}, createdAt, updatedAt? }`
+
+**접근 권한:** Read - 소속 교직원 / Write - 업무분장 관리자 / Update - 전·현 담당자(holderUids)는 `guide`만
+· notes Create - 관리자·전·현 담당자(by.uid == 나), Update - 쓴 사람(text·kind), Delete - 쓴 사람·관리자
 
 ---
 

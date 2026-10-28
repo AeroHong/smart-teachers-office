@@ -86,6 +86,15 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    key: 'duty-plan',
+    label: '업무분장',
+    icon: '🗂️',
+    prefix: '/duty-plan',
+    items: [
+      { label: '업무분장 보기', path: '/duty-plan', icon: '◈', exact: true },
+    ],
+  },
+  {
     key: 'training',
     label: '연수 서명부',
     icon: '✍️',

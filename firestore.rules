@@ -1529,6 +1529,143 @@ service cloud.firestore {
         }
       }
 
+      // 업무분장 만들기(2026-10) — 학년도 설정 dutyPlanYears/{year} 아래에 편성안(plans)과 희망원(wishes)을 둔다.
+      // 학년도를 경로에 둔 것은 편집자 판정(그 학년도 editorUids)을 경로 변수로 하려는 것 — 문서 필드(resource.data.year)로
+      // get()을 부르면 목록 조회에서 쿼리 안전성을 증명할 수 없다.
+      //  · 업무분장 관리자 = 슈퍼·학교 관리자·교감·교장. 편집자 = 관리자 + 그 학년도 editorUids(교무기획부장·인사자문위원)
+      //  · 편성안 읽기: 편집자, 그 밖의 교직원은 shared == true(2차 공람·3차 확정)만 — 1차 초안은 인사 정보라 비공개.
+      //    비편집자 목록 조회는 where('shared', '==', true)를 붙여야 통과한다
+      //  · 단계(stage·shared·confirmations)는 관리자만(인사자문위원회 결정을 관리자가 기록). shared는 단계와 늘 맞아야 한다
+      //  · 저장 묶음은 revision이 정확히 1 오르는 transaction에서만(academicPlans와 같은 덮어쓰기 방지). 확정본은 관리자만 고친다
+      function isDutyAdmin(schoolId) {
+        return isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId) || isHeadmaster(schoolId);
+      }
+      function dutyYearPath(schoolId, year) {
+        return /databases/$(database)/documents/schools/$(schoolId)/dutyPlanYears/$(year);
+      }
+      function isDutyPlanEditor(schoolId, year) {
+        return isDutyAdmin(schoolId) ||
+          (isTeacher(schoolId) && exists(dutyYearPath(schoolId, year)) &&
+           request.auth.uid in get(dutyYearPath(schoolId, year)).data.get('editorUids', []));
+      }
+      function dutyPlanPath(schoolId, year, planId) {
+        return /databases/$(database)/documents/schools/$(schoolId)/dutyPlanYears/$(year)/plans/$(planId);
+      }
+      function dutyPlanReadable(schoolId, year, planId) {
+        return isDutyPlanEditor(schoolId, year) ||
+          (isTeacher(schoolId) && get(dutyPlanPath(schoolId, year, planId)).data.get('shared', false) == true);
+      }
+      function dutyPlanRevisionBumped(schoolId, year, planId) {
+        return getAfter(dutyPlanPath(schoolId, year, planId)).data.get('revision', 0) ==
+          get(dutyPlanPath(schoolId, year, planId)).data.get('revision', 0) + 1;
+      }
+      function dutyPlanGone(schoolId, year, planId) {
+        return !existsAfter(dutyPlanPath(schoolId, year, planId));
+      }
+      // shared는 단계에서 정해진다 — 따로 켜고 끌 수 없다
+      function dutySharedMatchesStage(d) {
+        return d.get('shared', false) == (d.get('stage', 'draft') in ['review', 'confirmed']);
+      }
+
+      match /dutyPlanYears/{year} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isDutyAdmin(schoolId);
+        // 편집자는 희망원 기간·학급 수만
+        allow update: if isDutyPlanEditor(schoolId, year) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['wish', 'classCounts', 'specialClasses', 'updatedAt']);
+
+        match /plans/{planId} {
+          allow read: if isDutyPlanEditor(schoolId, year) ||
+            (isTeacher(schoolId) && resource.data.get('shared', false) == true);
+          // 새 편성안은 1차 초안으로 시작한다. 지난 확정본을 들여오는 것(hwpx 가져오기)은 관리자만 다른 단계로 만든다
+          allow create: if isDutyPlanEditor(schoolId, year) &&
+            string(request.resource.data.year) == year &&
+            request.resource.data.get('revision', 0) == 0 &&
+            request.resource.data.createdBy == request.auth.uid &&
+            dutySharedMatchesStage(request.resource.data) &&
+            (request.resource.data.get('stage', 'draft') == 'draft' || isDutyAdmin(schoolId));
+          allow update: if isDutyPlanEditor(schoolId, year) &&
+            request.resource.data.year == resource.data.year &&
+            request.resource.data.createdBy == resource.data.createdBy &&
+            dutySharedMatchesStage(request.resource.data) &&
+            (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['stage', 'shared', 'confirmations', 'confirmedAt', 'confirmedBy', 'kind']) ||
+             isDutyAdmin(schoolId)) &&
+            (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['departments', 'duties', 'looseTasks', 'homerooms', 'subjectHeads', 'staffPool', 'headNotes', 'revision', 'versionCount', 'latestVersionId']) ||
+             (request.resource.data.get('revision', 0) == resource.data.get('revision', 0) + 1 &&
+              (resource.data.get('stage', 'draft') != 'confirmed' || isDutyAdmin(schoolId))));
+          allow delete: if isDutyAdmin(schoolId) ||
+            (resource.data.createdBy == request.auth.uid && resource.data.get('stage', 'draft') == 'draft');
+
+          // 수정 기록 — 편집자만 본다(1차 초안 때의 기록이 섞여 있다). 저장과 같은 transaction에서만 남기고 고치지 않는다.
+          // 편성안을 지울 때(같은 batch에서 편성안이 없어지면) 함께 지운다
+          match /versions/{versionId} {
+            allow read: if isDutyPlanEditor(schoolId, year);
+            allow create: if isDutyPlanEditor(schoolId, year) && dutyPlanRevisionBumped(schoolId, year, planId);
+            allow update: if false;
+            allow delete: if isDutyPlanEditor(schoolId, year) && dutyPlanGone(schoolId, year, planId);
+          }
+          match /versionData/{versionId} {
+            allow read: if isDutyPlanEditor(schoolId, year);
+            allow create: if isDutyPlanEditor(schoolId, year) && dutyPlanRevisionBumped(schoolId, year, planId);
+            allow update: if false;
+            allow delete: if isDutyPlanEditor(schoolId, year) && dutyPlanGone(schoolId, year, planId);
+          }
+          // 지금 보고 있는 사람 — 이 편성안을 읽을 수 있는 사람끼리
+          match /viewers/{uid} {
+            allow read: if dutyPlanReadable(schoolId, year, planId);
+            allow create, update: if request.auth.uid == uid && dutyPlanReadable(schoolId, year, planId);
+            allow delete: if request.auth.uid == uid || isDutyAdmin(schoolId) || dutyPlanGone(schoolId, year, planId);
+          }
+          // 의견 — 편집자는 언제나, 교직원은 2차 공람 중에만 쓴다
+          match /comments/{commentId} {
+            allow read: if dutyPlanReadable(schoolId, year, planId);
+            allow create: if request.resource.data.by.uid == request.auth.uid &&
+              request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000 &&
+              (isDutyPlanEditor(schoolId, year) ||
+               (isTeacher(schoolId) && get(dutyPlanPath(schoolId, year, planId)).data.get('stage', 'draft') == 'review'));
+            allow update: if resource.data.by.uid == request.auth.uid &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt']) &&
+              request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;
+            allow delete: if resource.data.by.uid == request.auth.uid || isDutyAdmin(schoolId) || dutyPlanGone(schoolId, year, planId);
+          }
+        }
+
+        // 업무분장 희망원 — 본인과 그 학년도 편집자만 본다. 쓰기는 본인, 희망원 기간(wish.open, 마감 전)에만
+        match /wishes/{uid} {
+          allow read: if request.auth.uid == uid || isDutyPlanEditor(schoolId, year);
+          allow create, update: if request.auth.uid == uid && isTeacher(schoolId) &&
+            request.resource.data.uid == uid && string(request.resource.data.year) == year &&
+            get(dutyYearPath(schoolId, year)).data.get('wish', {}).get('open', false) == true &&
+            (get(dutyYearPath(schoolId, year)).data.get('wish', {}).get('deadline', null) == null ||
+             request.time < get(dutyYearPath(schoolId, year)).data.wish.deadline);
+          allow delete: if isDutyAdmin(schoolId);
+        }
+      }
+
+      // 해를 넘어 이어지는 업무 내용 카드(카드 key) — 업무 안내와 인수인계 노트. 카드를 다른 줄로 옮겨도 기록이 따라간다. 교직원 누구나 읽는다(희망원 쓸 때도 본다).
+      // 문서는 관리자가 확정 때 만들고(담당자 기록 holders·holderUids 포함), 안내(guide)는 전·현 담당자(holderUids)도 고친다.
+      // 노트는 전·현 담당자와 관리자가 쓰고, 고치기는 쓴 사람, 지우기는 쓴 사람·관리자
+      match /dutyCatalog/{dutyKey} {
+        allow read: if isSuperAdmin() || isTeacher(schoolId);
+        allow write: if isDutyAdmin(schoolId);
+        allow update: if isTeacher(schoolId) && request.auth.uid in resource.data.get('holderUids', []) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guide', 'updatedAt', 'updatedBy']);
+
+        match /notes/{noteId} {
+          allow read: if isSuperAdmin() || isTeacher(schoolId);
+          allow create: if request.resource.data.by.uid == request.auth.uid &&
+            request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 5000 &&
+            (isDutyAdmin(schoolId) ||
+             (isTeacher(schoolId) && request.auth.uid in get(/databases/$(database)/documents/schools/$(schoolId)/dutyCatalog/$(dutyKey)).data.get('holderUids', [])));
+          allow update: if resource.data.by.uid == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'kind', 'updatedAt']) &&
+            request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 5000;
+          allow delete: if resource.data.by.uid == request.auth.uid || isDutyAdmin(schoolId);
+        }
+      }
+
       // 고사(ExamCore) — 응시현황표 도구(exam-support-hck)의 보호 장치를 옮겨 왔다(2026-10).
       //  · 저장 묶음(plan·vacancyOverrides·seatings·versions)은 revision이 정확히 1 오르는 한 transaction에서만 쓴다.
       //    내가 연 뒤 다른 사람이 먼저 저장했는데 그 위에 덮어쓰는 저장을 막는다(앱은 이때 최신본에 합쳐 다시 저장한다).

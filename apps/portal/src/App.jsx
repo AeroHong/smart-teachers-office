@@ -45,6 +45,11 @@ const AcademicPlanHome    = lazy(() => import('./pages/academicPlan/AcademicPlan
 const AcademicPlanEditor  = lazy(() => import('./pages/academicPlan/AcademicPlanEditor'))
 const AcademicPlanCompare = lazy(() => import('./pages/academicPlan/AcademicPlanCompare'))
 
+// 업무분장 만들기 - lazy load
+const DutyPlanHome = lazy(() => import('./pages/dutyPlan/DutyPlanHome'))
+const DutyPlanPage = lazy(() => import('./pages/dutyPlan/DutyPlanPage'))
+const DutyWishPage = lazy(() => import('./pages/dutyPlan/DutyWishPage'))
+
 // 생기부 세특 점검 도구 - lazy load
 const SetukUpload         = lazy(() => import('./pages/setuk/SetukUpload'))
 const SetukCheckDetail    = lazy(() => import('./pages/setuk/SetukCheckDetail'))
@@ -150,6 +155,11 @@ export default function App() {
           <Route path="/academic-plan"          element={<ProtectedRoute anyUser><AcademicPlanHome /></ProtectedRoute>} />
           <Route path="/academic-plan/compare"  element={<ProtectedRoute anyUser><AcademicPlanCompare /></ProtectedRoute>} />
           <Route path="/academic-plan/:planId"  element={<ProtectedRoute anyUser><AcademicPlanEditor /></ProtectedRoute>} />
+
+          {/* ── 업무분장 만들기 (1차 초안은 편집자·관리자만, 공람·확정본은 교직원 전체 — 컴포넌트와 규칙에서 판정) ── */}
+          <Route path="/duty-plan"                element={<ProtectedRoute anyUser><DutyPlanHome /></ProtectedRoute>} />
+          <Route path="/duty-plan/:year/wish"     element={<ProtectedRoute anyUser><DutyWishPage /></ProtectedRoute>} />
+          <Route path="/duty-plan/:year/:planId"  element={<ProtectedRoute anyUser><DutyPlanPage /></ProtectedRoute>} />
 
           <Route path="/setuk"                        element={<ProtectedRoute anyUser><SetukUpload /></ProtectedRoute>} />
           {/* 로그인 없이도 링크만으로 바로 볼 수 있어야 하는 사용법 안내 — 의도적으로 ProtectedRoute로 감싸지 않음 */}

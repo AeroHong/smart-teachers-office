@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import Avatar from '@mui/material/Avatar'
 import AvatarGroup from '@mui/material/AvatarGroup'
 import Tooltip from '@mui/material/Tooltip'
-import { PRESENCE_BEAT_MS, PRESENCE_STALE_MS, beatPresence, leavePresence, subscribeViewers } from './planRepo'
+import * as planRepo from './planRepo'
 
 const COLORS = ['#0f766e', '#7c3aed', '#c2410c', '#1d4ed8', '#be185d', '#15803d', '#a16207', '#4338ca']
 const colorOf = (uid = '') => COLORS[[...uid].reduce((n, c) => n + c.charCodeAt(0), 0) % COLORS.length]
@@ -10,8 +10,10 @@ const colorOf = (uid = '') => COLORS[[...uid].reduce((n, c) => n + c.charCodeAt(
 /**
  * 지금 이 초안을 보고 있는 다른 사람 — 구글 문서처럼 프로필 사진(없으면 이름 첫 글자).
  * 화면이 보이는 동안만 2분마다 '있음'을 알리고, 탭을 숨기거나 떠나면 지운다.
+ * repo: 다른 모듈(업무분장)이 같은 모양의 함수 묶음(beatPresence·leavePresence·subscribeViewers·PRESENCE_*)을 넘긴다
  */
-export default function PresenceAvatars({ schoolId, planId, me }) {
+export default function PresenceAvatars({ schoolId, planId, me, repo = planRepo }) {
+  const { PRESENCE_BEAT_MS, PRESENCE_STALE_MS, beatPresence, leavePresence, subscribeViewers } = repo
   const [viewers, setViewers] = useState([])
   const [now, setNow] = useState(Date.now())
 

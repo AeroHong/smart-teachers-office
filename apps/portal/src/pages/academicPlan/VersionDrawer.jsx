@@ -7,7 +7,7 @@ import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Collapse from '@mui/material/Collapse'
 import TextField from '@mui/material/TextField'
-import { listVersions } from './planRepo'
+import { listVersions as listPlanVersions } from './planRepo'
 
 const ACTION_LABEL = { save: '수정', restore: '복구', create: '만들기', holidays: '공휴일' }
 
@@ -17,7 +17,7 @@ const fmt = (d) => (d ? d.toLocaleString('ko-KR', { month: 'numeric', day: 'nume
  * 수정 기록 — 누가·언제·무엇을 바꿨는지(ExamCore VersionDrawer와 같은 모양).
  * 각 기록은 저장 시점의 전체 스냅숏을 갖고 있어 '이 버전으로 복구'할 수 있다(복구도 새 기록으로 남는다).
  */
-export default function VersionDrawer({ open, onClose, schoolId, plan, canEdit, onRestore }) {
+export default function VersionDrawer({ open, onClose, schoolId, plan, canEdit, onRestore, listVersions = listPlanVersions, filterPlaceholder = '이름·일정으로 찾기' }) {
   const [items, setItems] = useState(null)
   const [openId, setOpenId] = useState(null)
   const [filter, setFilter] = useState('')
@@ -36,7 +36,7 @@ export default function VersionDrawer({ open, onClose, schoolId, plan, canEdit, 
       <Box sx={{ p: 2, borderBottom: '1px solid #e2e8f0' }}>
         <Typography sx={{ fontWeight: 800 }}>수정 기록</Typography>
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>{plan?.name} · 저장할 때마다 남습니다</Typography>
-        <TextField size="small" fullWidth placeholder="이름·일정으로 찾기" value={filter} onChange={(e) => setFilter(e.target.value)} sx={{ mt: 1 }} />
+        <TextField size="small" fullWidth placeholder={filterPlaceholder} value={filter} onChange={(e) => setFilter(e.target.value)} sx={{ mt: 1 }} />
       </Box>
       <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25, overflowY: 'auto' }}>
         {items === null && <CircularProgress size={24} sx={{ alignSelf: 'center' }} />}

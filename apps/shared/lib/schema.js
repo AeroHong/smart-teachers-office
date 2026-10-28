@@ -87,6 +87,15 @@ export const COL = {
   // 초안 하위에 versions(요약)·versionData(스냅숏) — EXAM_VERSIONS와 같은 이름을 쓴다. 계산은 academicPlan.js
   ACADEMIC_PLAN_YEARS: 'academicPlanYears',
   ACADEMIC_PLANS: 'academicPlans',
+  // 업무분장 만들기(2026-10) — 학년도 설정 dutyPlanYears/{year}, 그 아래 편성안 plans/{auto-ID}(하위 versions·
+  // versionData·viewers·comments는 academicPlans와 같은 이름)와 희망원 wishes/{uid}. 학년도를 경로에 두는 이유:
+  // 규칙이 경로의 학년도로 편집자를 판정해야 목록 조회가 통과한다(문서 필드로는 쿼리 안전성을 증명 못 함).
+  // 해를 넘어 이어지는 업무 dutyCatalog/{dutyKey}(하위 notes). 계산은 dutyPlan.js
+  DUTY_PLAN_YEARS: 'dutyPlanYears',
+  DUTY_PLANS: 'plans',          // dutyPlanYears/{year}/plans/{planId}
+  DUTY_WISHES: 'wishes',        // dutyPlanYears/{year}/wishes/{uid}
+  DUTY_CATALOG: 'dutyCatalog',
+  DUTY_NOTES: 'notes',          // dutyCatalog/{dutyKey}/notes/{noteId}
   COVER_TEMPLATES: 'coverTemplates',        // 캔버스 표지 템플릿 라이브러리 (관리자 작성)
   DASHBOARD_MODULES: 'dashboardModules',    // 위젯 노출 제어 (enabled + visibility)
 
