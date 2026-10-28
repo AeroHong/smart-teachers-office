@@ -3,7 +3,7 @@ import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import LockIcon from '@mui/icons-material/Lock'
 import {
-  GRADES, WEEK_LABELS, addDays, classifyDay, daysBetween, eventDisplayTitle, indexEventsByDate, isNoProgress, makeContext,
+  GRADES, WEEK_LABELS, addDays, classifyDay, daysBetween, eventDisplayTitle, eventTitle, indexEventsByDate, isNoProgress, makeContext,
 } from '@shared/lib/academicPlan'
 import { eventStyle } from './planUi'
 
@@ -224,7 +224,7 @@ export default function PlanGrid({
           }}>
           {isLocked(ev) && <Lock />}
           <ActivityBadges activities={ev.activities} />
-          {`${ev.title || ''}${gradeSuffix(ev.grades)}`}
+          {`${eventTitle(ev)}${gradeSuffix(ev.grades)}`}
         </Box>
       </Tooltip>
     )
@@ -253,7 +253,7 @@ export default function PlanGrid({
             ...(changedIds?.has(ev.id) ? { boxShadow: 'inset 0 0 0 2px #f97316' } : {}),
           }}>
           {head && isLocked(ev) && <Lock />}
-          {head && `${ev.title || ''}${gradeSuffix(ev.grades)}`}
+          {head && `${eventTitle(ev)}${gradeSuffix(ev.grades)}`}
         </Box>
       </Tooltip>
     )

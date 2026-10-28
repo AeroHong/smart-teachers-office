@@ -56,7 +56,12 @@ function eventDisplayTitle(ev) {
     .filter((a) => Number(a.hours) > 0)
     .map((a) => `${a.type}${a.hours}h${a.grades?.length && a.grades.length < 3 ? `(${a.grades.join(',')})` : ''}`)
   const grade = ev.grades?.length && ev.grades.length < 3 ? `(${ev.grades.join(',')})` : ''
-  return [...hours, `${ev.title || ''}${grade}`].filter((s) => s.trim()).join(' ')
+  let title = ev.title || ''
+  if (ev.kind === '요일교체' && Number.isInteger(ev.weekdaySwap)) {
+    const w = `${'월화수목금'[ev.weekdaySwap]}요일`
+    if (!title.includes(w)) title = `${title}(${w} 수업)`
+  }
+  return [...hours, `${title}${grade}`].filter((s) => s.trim()).join(' ')
 }
 
 async function loadCaller(db, request, schoolId) {

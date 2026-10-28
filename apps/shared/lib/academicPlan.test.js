@@ -106,6 +106,8 @@ test('일정 이동·다음 학년도 복제', () => {
 test('표시 제목 — 창체 시수·대상 학년 접미사', () => {
   assert.equal(eventDisplayTitle({ title: '체험교육활동', grades: [1, 2], activities: [{ type: '자율', hours: 6 }] }), '자율6h 체험교육활동(1,2)')
   assert.equal(eventDisplayTitle({ title: '방학식', grades: [], activities: [] }), '방학식')
+  assert.equal(eventDisplayTitle({ title: '요일교체', kind: '요일교체', weekdaySwap: 3 }), '요일교체(목요일 수업)')
+  assert.equal(eventDisplayTitle({ title: '목요일 시간표', kind: '요일교체', weekdaySwap: 3 }), '목요일 시간표')
 })
 
 test('일정 차이 — 추가·삭제·이동·수정', () => {

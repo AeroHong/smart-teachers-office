@@ -483,12 +483,20 @@ export function unscheduleEvent(ev) {
 }
 
 /** 일정 표시 제목: 창체 시수 + 제목 + 대상 학년. 구글 캘린더·인쇄가 같은 형식을 쓴다. */
+/** 일정 이름 — 요일 교체는 어느 요일 시간표로 운영하는지 붙인다(이름에 이미 그 요일이 있으면 그대로) */
+export function eventTitle(ev) {
+  const title = ev.title || ''
+  if (ev.kind !== '요일교체' || !Number.isInteger(ev.weekdaySwap)) return title
+  const w = `${SCHOOL_WEEKDAYS[ev.weekdaySwap]}요일`
+  return title.includes(w) ? title : `${title}(${w} 수업)`
+}
+
 export function eventDisplayTitle(ev) {
   const hours = (ev.activities || [])
     .filter((a) => Number(a.hours) > 0)
     .map((a) => `${a.type}${a.hours}h${a.grades?.length && a.grades.length < 3 ? `(${a.grades.join(',')})` : ''}`)
   const grade = ev.grades?.length && ev.grades.length < 3 ? `(${ev.grades.join(',')})` : ''
-  return [...hours, `${ev.title || ''}${grade}`].filter((s) => s.trim()).join(' ')
+  return [...hours, `${eventTitle(ev)}${grade}`].filter((s) => s.trim()).join(' ')
 }
 
 /**
