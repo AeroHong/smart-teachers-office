@@ -359,6 +359,87 @@ export function rollEventsToNextYear(events, nextYear) {
     .filter((ev) => isTrayEvent(ev) || (ev.date >= start && ev.date <= end))
 }
 
+// ── 나이스 학사일정 가져오기 ────────────────────────────────────────────
+// 서버(neisSchedule 함수)가 나이스 교육정보 개방 포털 SchoolSchedule 행을 { date, name, content, grades, off }로
+// 줄여 보내면 여기서 일정으로 바꾼다. off = 수업공제일 구분('공휴일' | '휴업일' | '').
+
+// 방학 기간·토요휴업일은 날마다 한 줄씩 들어 있지만 학기 범위(개학·방학식)로 이미 정해진다 — 버린다
+const NEIS_SKIP_RE = /토요\s*휴업일|^(여름|겨울|학년말|봄)?\s*방학$/
+// 하루를 통째로 쓰는 흔한 행사 — 실수업일에서 빠지게 전일행사로 둔다(가져온 뒤 확인)
+const NEIS_FULL_DAY_RE = /수학여행|체험\s*(학습|교육|활동)|체육대회|스포츠|축제|수련회|대학수학능력시험/
+const NEIS_SWAP_RE = /요일\s*(변동|교체|변경)\s*\(?\s*([월화수목금])/
+
+/** 나이스 행 하나 → 일정 유형·제목 */
+function neisKind(row) {
+  const name = row.name.trim()
+  if (row.off === '공휴일') return { kind: '공휴일' }
+  const swap = name.match(NEIS_SWAP_RE)
+  if (swap) return { kind: '요일교체', weekdaySwap: SCHOOL_WEEKDAYS.indexOf(swap[2]) }
+  if (/입학식|개학식|시업식/.test(name)) return { kind: '개학' }
+  if (/방학식/.test(name)) return { kind: '방학식', fullDay: true }
+  if (/종업식/.test(name)) return { kind: '종업식', fullDay: true }
+  if (/졸업식/.test(name)) return { kind: '졸업식', fullDay: true }
+  if (/중간고사|1차\s*지필/.test(name)) return { kind: '정기고사', examType: '중간' }
+  if (/기말고사|2차\s*지필/.test(name)) return { kind: '정기고사', examType: '기말' }
+  if (row.off === '휴업일') return { kind: '재량휴업' }
+  return { kind: '일반', fullDay: NEIS_FULL_DAY_RE.test(name) }
+}
+
+/**
+ * 나이스 학사일정 행 → 일정 목록. 같은 이름·학년이 이어지는 날(주말·공휴일만 끼어도)은 기간 일정 하나로 합친다.
+ * 2학기 개학이 없으면 여름방학 다음 수업일로 넣는다.
+ * @param rows [{date:'YYYY-MM-DD', name, content?, grades:[1,2,3 중], off}]
+ * @param makeId 일정 id를 만드는 함수
+ */
+export function neisRowsToEvents(rows = [], makeId = (i) => `neis${i}`) {
+  const sorted = [...rows]
+    .filter((r) => isDateKey(r.date) && r.name?.trim() && !NEIS_SKIP_RE.test(r.name.trim()))
+    // 주말 휴업일(토요휴업일 등)은 버리고, 주말 행사는 표시만 되게 둔다
+    .filter((r) => !(r.off === '휴업일' && mondayIndex(r.date) > 4))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  // 공휴일·휴업일 — 기간 일정을 합칠 때 사이에 끼어도 이어진 것으로 본다
+  const offDays = new Set(rows.filter((r) => r.off === '공휴일' || r.off === '휴업일').map((r) => r.date))
+  const isGap = (d) => mondayIndex(d) > 4 || offDays.has(d)
+  const out = []
+  const open = new Map() // 합치는 중인 일정: 제목|유형|학년 → 일정
+  for (const r of sorted) {
+    const k = neisKind(r)
+    const grades = (r.grades || []).length && r.grades.length < 3 ? [...r.grades].sort() : []
+    const title = r.name.trim()
+    const key = `${title}|${k.kind}|${grades.join(',')}`
+    const prev = open.get(key)
+    // 이어지는 날인지 — 사이에 낀 날이 모두 토·일이면 이어진 것으로 본다
+    const lastDay = prev ? prev.endDate || prev.date : null
+    let joined = false
+    if (prev && k.kind !== '공휴일' && k.kind !== '요일교체') {
+      let d = addDays(lastDay, 1)
+      while (d < r.date && isGap(d)) d = addDays(d, 1)
+      joined = d === r.date
+    }
+    if (joined) { prev.endDate = r.date; continue }
+    if (prev && lastDay === r.date) continue // 같은 날 같은 일정이 두 줄
+    const ev = { id: makeId(out.length), date: r.date, title, grades, fullDay: false, activities: [], ...k }
+    if (r.content?.trim() && r.content.trim() !== title) ev.note = r.content.trim()
+    out.push(ev)
+    open.set(key, ev)
+  }
+  // 2학기 개학은 나이스에 따로 없는 학교가 많다 — 여름방학 다음 수업일을 개학으로 넣는다
+  const summer = rows.filter((r) => /여름\s*방학/.test(r.name || '') && isDateKey(r.date)).map((r) => r.date).sort()
+  if (summer.length) {
+    let d = addDays(summer[summer.length - 1], 1)
+    while (isGap(d)) d = addDays(d, 1)
+    const has = out.some((e) => e.kind === '개학' && e.date > summer[0] && e.date <= addDays(d, 14))
+    if (!has) {
+      out.push({
+        id: makeId(out.length), date: d, title: '2학기 개학', kind: '개학', grades: [], fullDay: false, activities: [],
+        note: '나이스에 개학 일정이 없어 여름방학 다음 수업일로 넣었습니다',
+      })
+      out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    }
+  }
+  return out
+}
+
 // ── 단계(주요 일정 → 세부 → 확정) ─────────────────────────────────────────
 // 1) 주요 일정(frame): 초안 여러 개로 큰 일정(수업일수를 정하는 일정)만 잡고 비교한다.
 // 2) 세부(detail): 관리자가 주요 일정을 확정하면 그때의 큰 일정에 frame 표시가 붙어 잠긴다(화면 잠금 + 수정 기록 —

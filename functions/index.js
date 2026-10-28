@@ -26,6 +26,8 @@ exports.runAcademicCalendarSyncNow = runAcademicCalendarSyncNow
 const academicPlanPublish = require('./academicPlanPublish')
 exports.fetchKoreanHolidays = academicPlanPublish.fetchKoreanHolidays
 exports.publishAcademicPlan = academicPlanPublish.publishAcademicPlan
+// 새 초안 — 나이스 학사일정 가져오기
+exports.neisSchedule = require('./neisSchedule').neisSchedule
 
 const callSystem = require('./callSystem')
 exports.generatePairingCode = callSystem.generatePairingCode

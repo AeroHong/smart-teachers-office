@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import {
   addDays, buildWeekRows, classifyDay, computeStats, describeDiff, diffEvents, eventDisplayTitle,
   isTrayEvent, makeContext, mondayIndex, placeTrayEvent, rollEventsToNextYear, rowsForSemester, semesterRanges, shiftEvent,
-  unscheduleEvent, isNoProgress, eventsToCards, importPrevCards, mergeDeptColors, sameWeekdayNextYear, addConfirmation, currentConfirmation, isEventLocked, markFrameEvents, planStage, relockEvents,
+  unscheduleEvent, isNoProgress, eventsToCards, neisRowsToEvents, importPrevCards, mergeDeptColors, sameWeekdayNextYear, addConfirmation, currentConfirmation, isEventLocked, markFrameEvents, planStage, relockEvents,
 } from './academicPlan.js'
 import { plan2026 } from './academicPlan.fixture2026.js'
 
@@ -256,4 +256,40 @@ test('진도 없는 날 — 학력평가·모의고사는 실수업일엔 그대
   assert.equal(isNoProgress({ title: '대학수능모의평가' }), true)
   const off = computeStats({ ...plan2026, events: [...base, mock({ noProgress: false })] })
   assert.deepEqual(off.grades[1][1].beforeMid, before.grades[1][1].beforeMid)
+})
+
+test('나이스 학사일정 행 → 일정', () => {
+  const all = [1, 2, 3]
+  const rows = [
+    { date: '2026-03-01', name: '3·1절', grades: all, off: '공휴일' },
+    { date: '2026-03-03', name: '입학식', grades: [1], off: '' },
+    { date: '2026-03-03', name: '시업식', grades: [2, 3], off: '' },
+    { date: '2026-03-07', name: '토요휴업일', grades: all, off: '휴업일' },
+    // 금·월은 주말을 사이에 두고 이어진다 → 한 일정
+    { date: '2026-03-13', name: '학생 상담주간', grades: all, off: '' },
+    { date: '2026-03-16', name: '학생 상담주간', grades: all, off: '' },
+    { date: '2026-03-17', name: '학생 상담주간', grades: all, off: '' },
+    { date: '2026-04-27', name: '1학기 중간고사', grades: all, off: '' },
+    { date: '2026-04-28', name: '1학기 중간고사', grades: all, off: '' },
+    { date: '2026-05-04', name: '재량휴업일', grades: all, off: '휴업일' },
+    { date: '2026-05-08', name: '요일 변동(월)', grades: all, off: '' },
+    { date: '2026-05-20', name: '수학여행', grades: [2], off: '' },
+    { date: '2026-07-16', name: '방학식', grades: all, off: '' },
+    { date: '2026-07-20', name: '여름방학', grades: all, off: '휴업일' },
+  ]
+  const evs = neisRowsToEvents(rows)
+  const by = (t) => evs.find((e) => e.title === t)
+  // 여름방학 뒤 개학이 없으면 다음 수업일(7/21)을 2학기 개학으로 넣는다
+  assert.equal(evs.length, 10)
+  assert.deepEqual([by('2학기 개학').kind, by('2학기 개학').date], ['개학', '2026-07-21'])
+  assert.equal(by('3·1절').kind, '공휴일')
+  assert.deepEqual([by('입학식').kind, by('입학식').grades, by('시업식').grades], ['개학', [1], [2, 3]])
+  assert.deepEqual([by('학생 상담주간').date, by('학생 상담주간').endDate], ['2026-03-13', '2026-03-17'])
+  assert.deepEqual([by('1학기 중간고사').kind, by('1학기 중간고사').examType, by('1학기 중간고사').endDate], ['정기고사', '중간', '2026-04-28'])
+  assert.equal(by('재량휴업일').kind, '재량휴업')
+  assert.deepEqual([by('요일 변동(월)').kind, by('요일 변동(월)').weekdaySwap], ['요일교체', 0])
+  assert.deepEqual([by('수학여행').fullDay, by('수학여행').grades], [true, [2]])
+  assert.equal(by('방학식').fullDay, true)
+  assert.equal(by('토요휴업일'), undefined)
+  assert.equal(by('여름방학'), undefined)
 })

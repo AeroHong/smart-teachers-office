@@ -184,6 +184,7 @@
   - `studentOuPath` (string) - 학생 OU 경로 (예: `/학생 2026`) — StudentHub 「Workspace 학생 동기화」에서 고친다
   - `lastStudentSyncAt` (timestamp) - 마지막 학생 동기화 시각(Functions가 기록, StudentHub 학적 기준일)
   - 포털 계정 관리는 `enabled`·`adminEmail`·`staffOuPath`를 필드 단위로 저장한다(다른 필드를 지우지 않게)
+- `neis` (object) - 나이스 학교 코드 `{ atptCode, schoolCode, schoolName }` — 학사일정 '나이스에서 가져오기'로 처음 고를 때 Functions(`neisSchedule`)가 저장
 
 > ⚠️ **문서 정정**: `workspaceSync.lastSyncAt`을 쓰는 코드는 없다. 실제로는 `adminEmail`, `staffOuPath`가 있다.
 
@@ -1184,6 +1185,8 @@ ExamCore(2026-10, 고사 업무 앱 — StudentHub에서 옮김)가 저장할 �
 - **generateAsaChecklistPdf** (onCall) - 성취평가제 체크리스트 PDF 생성 (Puppeteer, 1GiB)
 - **parseEvaluationPlan** (onCall) - 업로드한 hwpx 계획서에서 반영비율·성적산출방법 표 추출
   (`functions/evaluationPlanParser.js`)
+- **neisSchedule** (onCall) - 나이스 교육정보 개방 포털에서 학교 찾기·학사일정 가져오기(`functions/neisSchedule.js`).
+  인증키는 Secret Manager `neis-api-key`(없으면 키 없이 5건만)
 
 ### `functions/studentHub.js`
 - **issueHubHandoffToken** (onCall) - 교직원 본인 uid의 custom token 발급 → StudentHub가 재로그인 없이 진입

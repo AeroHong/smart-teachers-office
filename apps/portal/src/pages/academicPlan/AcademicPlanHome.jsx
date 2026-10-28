@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { httpsCallable } from 'firebase/functions'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -22,14 +23,16 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import { useAuth } from '@shared/contexts/AuthContext'
+import { functions } from '@shared/lib/firebase'
 import { currentYearSemester } from '@shared/lib/schema'
 import {
-  MIN_WEEKDAY_DAYS, STAGE_LABEL, computeStats, eventsToCards, mergeDeptColors, planStage, rollEventsToNextYear,
+  MIN_WEEKDAY_DAYS, STAGE_LABEL, computeStats, eventsToCards, mergeDeptColors, neisRowsToEvents, planStage, rollEventsToNextYear,
 } from '@shared/lib/academicPlan'
 import Layout from '../../components/Layout'
 import useStaffDirectory from './useStaffDirectory'
 import { createPlan, deletePlan, loadPrevYear, saveDeptColors, saveYear, subscribePlans, subscribeYear } from './planRepo'
 import { ACCENT, ACCENT_BG } from './planUi'
+import NeisImportFields from './NeisImportFields'
 
 const fmt = (ts) => (ts?.toDate ? ts.toDate().toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
 const nextName = (plans) => {
@@ -137,6 +140,8 @@ function YearColumn({ year, role }) {
   const [prevConfirmed, setPrevConfirmed] = useState(null)
   const [prevColors, setPrevColors] = useState({})
   const [showOthers, setShowOthers] = useState(false)
+  const [neis, setNeis] = useState({ school: null, year })
+  const [notice, setNotice] = useState('')
   // 교직원 명단은 관리자 기능(편집자·학년도 시작)에만 쓴다 — 다른 사람은 읽지 않는다
   const { staff, loading: staffLoading, refetch: refetchStaff } = useStaffDirectory(canAdmin ? schoolId : null, year)
 
@@ -167,6 +172,7 @@ function YearColumn({ year, role }) {
   const openNew = () => {
     // 지난 학년도 학사일정이 있으면 기본은 '카드로 시작' — 날짜는 새로 정하고, 내용은 그대로 가져온다
     setNewForm({ name: nextName(plans || []), source: prevConfirmed ? 'cards' : plans?.length ? 'copy' : 'blank', copyId: plans?.[0]?.id || '' })
+    setNeis((n) => ({ ...n, year: role === 'next' ? year - 1 : year }))
     setNewOpen(true)
   }
 
@@ -190,6 +196,17 @@ function YearColumn({ year, role }) {
       } else if (newForm.source === 'prev' && prevConfirmed) {
         events = rollEventsToNextYear(prevConfirmed.events, year)
         basedOn = prevConfirmed.id
+      } else if (newForm.source === 'neis') {
+        if (!neis.school) throw new Error('나이스 학교를 고르세요.')
+        const { data } = await httpsCallable(functions, 'neisSchedule')({ schoolId, action: 'events', year: neis.year, ...neis.school })
+        const stamp = Date.now().toString(36)
+        const fetched = neisRowsToEvents(data.rows, (i) => `neis_${stamp}_${i}`)
+        if (!fetched.length) throw new Error(`나이스에 ${neis.year}학년도 학사일정이 없습니다.`)
+        // 이 학년도면 날짜 그대로, 지난 학년도면 카드로(날짜는 표에 끌어 놓아 정함)
+        events = neis.year === year ? fetched : eventsToCards(fetched)
+        setNotice(data.limited
+          ? '나이스 인증키가 아직 없어 5건만 가져왔습니다. 시스템 관리자에게 인증키 등록을 요청하세요.'
+          : `나이스에서 일정 ${fetched.length}건을 가져왔습니다. 전일행사·시수는 확인해 주세요.`)
       }
       const id = await createPlan({ schoolId, year, name: newForm.name.trim() || nextName(plans), events, holidays, basedOn, by })
       // 지난 학년도에서 시작했으면 부서 색도 — 이미 정한 색은 그대로, 빈 부서만
@@ -243,6 +260,7 @@ function YearColumn({ year, role }) {
         )}
       </Box>
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {notice && <Alert severity="info" onClose={() => setNotice('')}>{notice}</Alert>}
 
       {yearDoc === null && (
         canAdmin ? (
@@ -293,7 +311,11 @@ function YearColumn({ year, role }) {
                 가져올 학사일정: {prevConfirmed.name}{prevConfirmed.status === 'confirmed' ? ' (확정본)' : ' (확정본이 없어 가장 최근 초안)'}
               </Typography>
             )}
+            <FormControlLabel value="neis" control={<Radio />} label="나이스에서 가져오기" />
           </RadioGroup>
+          {newForm.source === 'neis' && (
+            <NeisImportFields schoolId={schoolId} year={year} value={neis} onChange={setNeis} />
+          )}
           {newForm.source === 'copy' && (
             <TextField select label="복제할 초안" value={newForm.copyId} onChange={(e) => setNewForm({ ...newForm, copyId: e.target.value })}>
               {(plans || []).map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
@@ -302,7 +324,9 @@ function YearColumn({ year, role }) {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setNewOpen(false)}>취소</Button>
-          <Button variant="contained" disableElevation onClick={create} disabled={creating}>만들기</Button>
+          <Button variant="contained" disableElevation onClick={create} disabled={creating || (newForm.source === 'neis' && !neis.school)}>
+            {creating ? '만드는 중…' : '만들기'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
