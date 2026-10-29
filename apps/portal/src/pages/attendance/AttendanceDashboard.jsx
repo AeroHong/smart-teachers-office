@@ -11,6 +11,8 @@ import Layout from '../../components/Layout'
 import QRDisplay from '../../components/QRDisplay'
 import PeriodSessionDashboard from './PeriodSessionDashboard'
 import { periodLabel } from './eventHelpers'
+import BonusDrawOverlay from './BonusDrawOverlay'
+import { bonusCandidates, pickIndex } from '@shared/lib/bonusDraw'
 
 const DAYS = ['일', '월', '화', '수', '목', '금', '토']
 const DAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토']
@@ -311,7 +313,7 @@ function todayStr() {
 }
 
 export default function AttendanceDashboard() {
-  const { schoolId } = useAuth()
+  const { schoolId, user } = useAuth()
   const { eventId } = useParams()
   const navigate = useNavigate()
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -477,19 +479,28 @@ export default function AttendanceDashboard() {
   const OPEN_EVENT_LUCKY_POOL = 30
   const luckyPoolSize = students.length > 0 ? students.length : OPEN_EVENT_LUCKY_POOL
   const [luckyNumber, setLuckyNumber] = useState(null)
+  // 추가 뽑기 결과 — 행운번호와 같은 luckyDraws/{날짜} 문서의 bonus 필드
+  const [bonusDraw, setBonusDraw] = useState(null)
+  // 행운번호 문서 하나만 구독한다 — 추가 뽑기 결과가 다른 교사 화면에도 바로 떠야 해서
+  // 예전의 getDoc 1회 읽기를 onSnapshot으로 바꿨다(문서 1개라 읽기 비용은 미미하다).
   useEffect(() => {
     // 교시별 버튼 출석에는 등수·행운번호가 없다
-    if (!schoolId || !eventId || !selectedDate || luckyPoolSize < 4 || !event || event.checkinMode === 'button') { setLuckyNumber(null); return undefined }
-    let alive = true
+    if (!schoolId || !eventId || !selectedDate || !event || event.checkinMode === 'button') {
+      setLuckyNumber(null); setBonusDraw(null); return undefined
+    }
     const ref = doc(db, 'schools', schoolId, 'events', eventId, 'luckyDraws', selectedDate)
-    getDoc(ref).then(async (snap) => {
-      if (!alive) return
-      if (snap.exists()) { setLuckyNumber(snap.data().number); return }
+    let creating = false
+    const unsub = onSnapshot(ref, (snap) => {
+      const data = snap.exists() ? snap.data() : {}
+      setBonusDraw(data.bonus ?? null)
+      if (data.number) { setLuckyNumber(data.number); return }
+      setLuckyNumber(null)
+      if (luckyPoolSize < 4 || creating) return
+      creating = true
       const number = Math.floor(Math.random() * (luckyPoolSize - 3)) + 4
-      await setDoc(ref, { number, createdAt: serverTimestamp() }).catch(() => {})
-      if (alive) setLuckyNumber(number)
-    }).catch(() => {})
-    return () => { alive = false }
+      setDoc(ref, { number, createdAt: serverTimestamp() }, { merge: true }).catch(() => {})
+    }, () => {})
+    return unsub
   }, [schoolId, eventId, selectedDate, luckyPoolSize, !!event, event?.checkinMode])
 
   // 뽑힌 번호와 같은 등수로 이미 체크인한 학생 — 아직 아무도 그 등수에 도달하지
@@ -505,6 +516,86 @@ export default function AttendanceDashboard() {
         <span style={styles.luckyWinnerName}>{attendedMap[luckyStudentId]?.studentName}</span> 학생 당첨! 🍀
       </span>
     </div>
+  )
+
+  // ── 추가 뽑기 ─────────────────────────────────────────────────
+  // 출결을 다 마친 뒤(그룹 학생 전원이 출석 또는 결석 사유 등록), 1~3등과 행운번호
+  // 당첨자 4명을 뺀 출석 학생 중 1명을 더 뽑는다(사용자 요청, 2026-10-30). 뽑는 순간
+  // 결과를 저장하고 5초짜리 명단 훑기 애니메이션을 띄운다 — 결과는 저장돼 있으므로
+  // 새로고침해도, 다른 교사 화면에서도 같은 당첨자가 보인다. 그룹이 없는 개방형
+  // 이벤트는 "전원"을 알 수 없으므로 교사가 원할 때 언제든 뽑을 수 있다.
+  const [bonusAnim, setBonusAnim] = useState(null) // { candidates, winnerId }
+  const [bonusSaving, setBonusSaving] = useState(false)
+  const unprocessedCount = students.filter(s => !attendedMap[s.studentId] && !absentLogMap[s.studentId]).length
+  const bonusReady = students.length > 0 ? unprocessedCount === 0 : true
+  const bonusPool = bonusCandidates(Object.keys(attendedMap), checkinRankMap, luckyStudentId)
+    .sort((a, b) => checkinRankMap[a] - checkinRankMap[b])
+    .map(id => {
+      const s = students.find(st => st.studentId === id)
+      const l = attendedMap[id]
+      return {
+        id,
+        name: s?.name ?? l?.studentName ?? '이름 없음',
+        sub: `${s?.grade ?? l?.grade}학년 ${s?.class ?? l?.class}반 ${s?.number ?? l?.number}번`,
+      }
+    })
+  const redrawPool = bonusDraw ? bonusPool.filter(c => c.id !== bonusDraw.studentId) : bonusPool
+
+  const runBonusDraw = async () => {
+    // 다시 뽑을 때는 이전 당첨자를 빼고 뽑는다(당첨자가 자리에 없을 때 쓰는 용도)
+    const pool = redrawPool
+    if (pool.length === 0 || bonusSaving) return
+    if (bonusDraw && !window.confirm(`이미 ${bonusDraw.studentName} 학생이 뽑혔습니다. 이 학생을 빼고 다시 뽑을까요?`)) return
+    const winner = pool[pickIndex(pool.length)]
+    setBonusSaving(true)
+    try {
+      await setDoc(
+        doc(db, 'schools', schoolId, 'events', eventId, 'luckyDraws', selectedDate),
+        { bonus: { studentId: winner.id, studentName: winner.name, drawnAt: serverTimestamp(), drawnBy: user?.uid ?? null } },
+        { merge: true },
+      )
+      setBonusAnim({ candidates: pool, winnerId: winner.id })
+    } catch (e) {
+      console.error(e)
+      alert('추가 뽑기 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+    } finally { setBonusSaving(false) }
+  }
+
+  const bonusStudentId = bonusAnim ? null : (bonusDraw?.studentId ?? null)
+  const bonusSection = (() => {
+    if (bonusAnim) return null // 애니메이션이 끝나기 전엔 결과를 미리 보여주지 않는다
+    if (bonusDraw) {
+      return (
+        <div style={styles.bonusBanner}>
+          <span style={{ fontSize: '1.1rem' }}>🎁</span>
+          <span>
+            추가 뽑기 당첨 — <span style={styles.bonusWinnerName}>{bonusDraw.studentName}</span> 학생! 🎉
+          </span>
+          <button onClick={runBonusDraw} disabled={bonusSaving || redrawPool.length === 0} style={styles.bonusRedrawBtn}>
+            다시 뽑기
+          </button>
+        </div>
+      )
+    }
+    if (Object.keys(attendedMap).length === 0) return null
+    const canDraw = bonusReady && bonusPool.length > 0
+    return (
+      <div style={styles.bonusBar}>
+        <button onClick={runBonusDraw} disabled={!canDraw || bonusSaving} style={{ ...styles.bonusBtn, ...(canDraw ? {} : styles.bonusBtnDisabled) }}>
+          🎁 추가 뽑기
+        </button>
+        <span style={styles.bonusHint}>
+          {!bonusReady
+            ? `출결을 모두 마치면 뽑을 수 있어요 (미처리 ${unprocessedCount}명)`
+            : bonusPool.length === 0
+              ? '1~3등·행운번호 당첨자 말고는 뽑을 학생이 없습니다'
+              : `1~3등·행운번호 당첨자를 뺀 출석 학생 ${bonusPool.length}명 중 1명`}
+        </span>
+      </div>
+    )
+  })()
+  const bonusOverlay = bonusAnim && (
+    <BonusDrawOverlay candidates={bonusAnim.candidates} winnerId={bonusAnim.winnerId} onClose={() => setBonusAnim(null)} />
   )
 
   const hasLateCheck = event?.type === '조회' && event?.lateCheckTime
@@ -858,6 +949,7 @@ export default function AttendanceDashboard() {
                     <span style={styles.studentName}>{l.studentName}</span>
                     {rank && rank <= 3 && <span style={rankBadgeStyle(rank)}>{rank}등</span>}
                     {rank && rank === luckyNumber && <span style={luckyBadgeStyle}>🍀 행운상</span>}
+                    {l.studentId === bonusStudentId && <span style={bonusBadgeStyle}>🎁 추가 당첨</span>}
                   </div>
                   <span style={styles.studentIdText}>{l.grade}학년 {l.class}반 {l.number}번</span>
                 </div>
@@ -876,7 +968,7 @@ export default function AttendanceDashboard() {
       return (
         <div key={s.studentId}>
           <div style={styles.studentRow}>
-            <StudentInfo student={s} rank={rank} isLucky={rank === luckyNumber} />
+            <StudentInfo student={s} rank={rank} isLucky={rank === luckyNumber} isBonus={s.studentId === bonusStudentId} />
             <div style={styles.logInfo}>
               <span style={{ ...styles.methodBadge, backgroundColor: log?.method === 'manual' ? '#fff3e0' : '#e8f5e9', color: log?.method === 'manual' ? '#e65100' : '#2e7d32' }}>{log?.method === 'manual' ? '수동' : 'QR'}</span>
               {hasLateCheck && log?.late && <span style={styles.lateBadge}>지각</span>}
@@ -992,7 +1084,9 @@ export default function AttendanceDashboard() {
           </div>
         )}
         {luckyBanner}
+        {bonusSection}
         {panelsGrid}
+        {bonusOverlay}
         {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
       </Layout>
     )
@@ -1081,7 +1175,9 @@ export default function AttendanceDashboard() {
       )}
 
       {luckyBanner}
+      {bonusSection}
       {panelsGrid}
+      {bonusOverlay}
       {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
     </Layout>
   )
@@ -1187,22 +1283,84 @@ function ConfettiCelebration({ onDone }) {
   )
 }
 
-// 슬라이드 캐러셀 — QR·출석·미출석 3개 구역을 화면 하나에서 넘겨보게 한다(3열 드래그
-// 리사이즈 대신, 사용자 요청 2026-09-09 — "3개 구역을 별도로 슬라이드 할 수 있도록").
-// 탭(제목) 클릭·좌우 화살표·터치 스와이프 세 가지를 다 지원해서 마우스로 쓰는 교사도,
-// 태블릿/키오스크로 화면만 띄워 놓고 보는 경우도 같은 방식으로 넘길 수 있다. 탭 글자
-// 자체가 각 패널의 제목(참여자 수 포함)을 대신하므로 패널 안에는 따로 제목을 두지 않는다.
 // QR·출석·미출석을 나란히 3분할해서 동시에 보여준다 — 칸마다 제목을 고정해 두고
-// 내용만 그 칸 안에서 스크롤된다(사용자 요청, 2026-09-09).
+// 내용만 그 칸 안에서 스크롤된다(사용자 요청, 2026-09-09). 칸 사이 경계를 끌어
+// 폭을 조절할 수 있다 — 3분할로 바꾸면서 없어졌던 드래그 리사이즈를 되살렸다(사용자
+// 요청, 2026-10-30). 조절한 폭은 이 브라우저에만 기억한다(교사마다 화면이 달라서).
+const COL_WIDTHS_KEY = 'attendance.colWidths'
+const DEFAULT_COL_WIDTHS = [30, 35, 35]
+const MIN_COL_WIDTH = 15 // %
+
+function loadColWidths() {
+  try {
+    const v = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY))
+    if (Array.isArray(v) && v.length === 3 && v.every(n => typeof n === 'number' && n >= MIN_COL_WIDTH)) return v
+  } catch { /* 저장소를 못 쓰면 기본값 */ }
+  return DEFAULT_COL_WIDTHS
+}
+
 function ThreeColumnPanels({ panels, titles, colors = [] }) {
+  const [widths, setWidths] = useState(loadColWidths)
+  const [dragIdx, setDragIdx] = useState(null)
+  const containerRef = useRef(null)
+
+  const startDrag = (e, idx) => {
+    e.preventDefault()
+    const total = containerRef.current?.getBoundingClientRect().width || 1
+    const startX = e.clientX
+    const start = [...widths]
+    let latest = start
+    setDragIdx(idx)
+    const onMove = (ev) => {
+      const pair = start[idx] + start[idx + 1]
+      const delta = ((ev.clientX - startX) / total) * 100
+      const left = Math.min(pair - MIN_COL_WIDTH, Math.max(MIN_COL_WIDTH, start[idx] + delta))
+      latest = [...start]
+      latest[idx] = left
+      latest[idx + 1] = pair - left
+      setWidths(latest)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setDragIdx(null)
+      try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(latest)) } catch { /* 무시 */ }
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  const resetWidths = () => {
+    setWidths(DEFAULT_COL_WIDTHS)
+    try { localStorage.removeItem(COL_WIDTHS_KEY) } catch { /* 무시 */ }
+  }
+
   return (
-    <div style={styles.threeCol}>
-      {panels.map((p, i) => (
-        <div key={i} style={styles.threeColPanel}>
+    <div
+      ref={containerRef}
+      style={{
+        ...styles.threeCol,
+        gridTemplateColumns: `minmax(0, ${widths[0]}fr) 16px minmax(0, ${widths[1]}fr) 16px minmax(0, ${widths[2]}fr)`,
+        ...(dragIdx !== null ? { userSelect: 'none', cursor: 'col-resize' } : {}),
+      }}
+    >
+      {panels.map((p, i) => [
+        <div key={`p${i}`} style={styles.threeColPanel}>
           <h3 style={{ ...styles.threeColTitle, color: colors[i] || '#333' }}>{titles[i]}</h3>
           <div style={styles.threeColBody}>{p}</div>
-        </div>
-      ))}
+        </div>,
+        i < panels.length - 1 && (
+          <div
+            key={`h${i}`}
+            onPointerDown={e => startDrag(e, i)}
+            onDoubleClick={resetWidths}
+            title="끌어서 폭 조절 · 두 번 클릭하면 원래대로"
+            style={styles.colHandle}
+          >
+            <div style={{ ...styles.colHandleBar, ...(dragIdx === i ? styles.colHandleBarActive : {}) }} />
+          </div>
+        ),
+      ])}
     </div>
   )
 }
@@ -1219,7 +1377,12 @@ const luckyBadgeStyle = {
   padding: '0.1rem 0.3rem', borderRadius: '4px',
 }
 
-function StudentInfo({ student: s, rank, isLucky }) {
+const bonusBadgeStyle = {
+  fontSize: '0.68rem', fontWeight: 700, color: '#c2410c', backgroundColor: '#ffedd5',
+  padding: '0.1rem 0.3rem', borderRadius: '4px',
+}
+
+function StudentInfo({ student: s, rank, isLucky, isBonus }) {
   return (
     <div style={styles.studentInfo}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -1227,6 +1390,7 @@ function StudentInfo({ student: s, rank, isLucky }) {
         <span style={styles.studentName}>{s.name}</span>
         {rank && rank <= 3 && <span style={rankBadgeStyle(rank)}>{rank}등</span>}
         {isLucky && <span style={luckyBadgeStyle}>🍀 행운상</span>}
+        {isBonus && <span style={bonusBadgeStyle}>🎁 추가 당첨</span>}
       </div>
       <span style={styles.studentIdText}>{s.grade}학년 {s.class}반 {s.number}번</span>
     </div>
@@ -1363,7 +1527,11 @@ const styles = {
   noGroupNote: { color: '#888', fontSize: '0.85rem', marginBottom: '1rem' },
 
   // QR·출석·미출석 3분할 — 한 화면에 동시에 보여주고 칸마다 따로 스크롤된다.
-  threeCol: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1rem', alignItems: 'start' },
+  threeCol: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'stretch' },
+  // 칸 사이 경계 손잡이 — 끌어서 폭 조절(터치도 pointer 이벤트로 같이 처리)
+  colHandle: { cursor: 'col-resize', display: 'flex', justifyContent: 'center', alignItems: 'center', touchAction: 'none' },
+  colHandleBar: { width: '4px', height: '48px', borderRadius: '2px', backgroundColor: '#e5e7eb', transition: 'background-color 0.15s' },
+  colHandleBarActive: { backgroundColor: '#1a73e8' },
   threeColPanel: {
     backgroundColor: '#fff', borderRadius: '10px', padding: '1rem 1.25rem',
     boxShadow: '0 1px 4px rgba(0,0,0,0.08)', boxSizing: 'border-box',
@@ -1379,6 +1547,25 @@ const styles = {
     padding: '0.6rem 1rem', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#9a3412',
   },
   luckyWinnerName: { fontWeight: 700, color: '#15803d' },
+
+  // 추가 뽑기
+  bonusBar: { display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.75rem' },
+  bonusBtn: {
+    padding: '0.45rem 1rem', borderRadius: '8px', border: 'none', backgroundColor: '#ea580c',
+    color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer',
+  },
+  bonusBtnDisabled: { backgroundColor: '#e7e5e4', color: '#a8a29e', cursor: 'default' },
+  bonusHint: { fontSize: '0.8rem', color: '#78716c' },
+  bonusBanner: {
+    display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+    backgroundColor: '#fff7ed', border: '1px solid #fdba74', borderRadius: '10px',
+    padding: '0.6rem 1rem', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#9a3412',
+  },
+  bonusWinnerName: { fontWeight: 700, color: '#c2410c' },
+  bonusRedrawBtn: {
+    marginLeft: 'auto', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #fdba74',
+    backgroundColor: '#fff', color: '#c2410c', fontSize: '0.75rem', cursor: 'pointer',
+  },
 
   empty: { color: '#aaa', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' },
 

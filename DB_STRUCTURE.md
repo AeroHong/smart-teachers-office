@@ -598,6 +598,11 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - List: 슈퍼 어드민, 소속 교사, 학생
 - Write: 슈퍼 어드민, 소속 교사
 
+**하위 컬렉션:** `/luckyDraws/{YYYY-MM-DD}` — 날짜별 추첨 1문서 (`AttendanceDashboard.jsx`)
+- `number` (number) - 오늘의 행운번호(4등 이상 중 하나, 당첨자 확정 전 비공개), `createdAt`
+- `bonus` (map | 없음) - 추가 뽑기 결과 `{ studentId, studentName, drawnAt, drawnBy }` — 1~3등·행운번호 당첨자를 뺀 출석 학생 중 1명
+- 접근 권한: 슈퍼 어드민, 소속 교사만 읽기·쓰기
+
 ---
 
 #### `/schools/{schoolId}/notices/{noticeId}`
