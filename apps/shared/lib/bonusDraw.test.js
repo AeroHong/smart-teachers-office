@@ -32,12 +32,22 @@ test('일정 — 마지막 단계가 당첨자 자리에서 멈춘다', () => {
   }
 })
 
-test('일정 — 전체 길이는 약 5초, 갈수록 느려지고, 명단을 한 바퀴 이상 훑는다', () => {
+test('일정 — 전체 길이는 약 5초, 갈수록 느려진다', () => {
   const sch = buildSpinSchedule(20, 7)
   const total = sch.reduce((a, s) => a + s.delay, 0)
   assert.ok(Math.abs(total - 5000) < 50, `total=${total}`)
   for (let i = 1; i < sch.length; i++) assert.ok(sch[i].delay >= sch[i - 1].delay)
-  assert.ok(sch.length >= 20)
+})
+
+test('일정 — 무작위로 움직이되 같은 칸에 연속으로 머물지 않는다', () => {
+  for (const length of [2, 3, 25]) {
+    const sch = buildSpinSchedule(length, 1, { startIndex: 0 })
+    assert.notEqual(sch[0].index, 0)
+    for (let i = 1; i < sch.length; i++) assert.notEqual(sch[i].index, sch[i - 1].index)
+  }
+  // 순서대로 도는 게 아니다 — 25명이면 다음 칸이 +1이 아닌 경우가 있어야 한다
+  const sch = buildSpinSchedule(25, 10, { rng: (() => { let x = 7; return () => (x = (x * 9301 + 49297) % 233280) / 233280 })() })
+  assert.ok(sch.some((s, i) => i > 0 && s.index !== (sch[i - 1].index + 1) % 25))
 })
 
 test('일정 — 한 명뿐이면 한 단계, 잘못된 입력은 빈 배열', () => {

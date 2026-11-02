@@ -547,6 +547,9 @@ export default function AttendanceDashboard() {
     if (pool.length === 0 || bonusSaving) return
     if (bonusDraw && !window.confirm(`이미 ${bonusDraw.studentName} 학생이 뽑혔습니다. 이 학생을 빼고 다시 뽑을까요?`)) return
     const winner = pool[pickIndex(pool.length)]
+    // 애니메이션을 먼저 띄운 뒤 저장한다 — 저장부터 하면 Firestore 로컬 반영(onSnapshot)이
+    // 즉시 와서 창이 열리기 직전에 결과 배너가 한순간 보였다(사용자 지적, 2026-11-03)
+    setBonusAnim({ candidates: pool, winnerId: winner.id })
     setBonusSaving(true)
     try {
       await setDoc(
@@ -554,9 +557,9 @@ export default function AttendanceDashboard() {
         { bonus: { studentId: winner.id, studentName: winner.name, drawnAt: serverTimestamp(), drawnBy: user?.uid ?? null } },
         { merge: true },
       )
-      setBonusAnim({ candidates: pool, winnerId: winner.id })
     } catch (e) {
       console.error(e)
+      setBonusAnim(null)
       alert('추가 뽑기 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.')
     } finally { setBonusSaving(false) }
   }

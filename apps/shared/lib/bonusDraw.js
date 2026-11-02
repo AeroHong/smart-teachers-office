@@ -34,15 +34,17 @@ export function pickIndex(length, rng = Math.random) {
 
 /**
  * 하이라이트가 명단을 훑는 일정 — 처음엔 빠르게, 끝으로 갈수록 느려지다가
- * winnerIndex에서 멈춘다.
+ * winnerIndex에서 멈춘다. 순서대로 돌면 다음 칸이 뻔히 보여 재미가 없어서
+ * 칸을 무작위로 건너뛴다(사용자 요청, 2026-11-03). 같은 칸에 두 번 연속 머물지 않는다.
  * @param {number} length 명단 길이
  * @param {number} winnerIndex 멈출 자리
  * @param {object} [opts]
- * @param {number} [opts.totalMs=5000] 전체 길이(대략)
+ * @param {number} [opts.totalMs=5000] 전체 길이
  * @param {number} [opts.startIndex=0] 하이라이트가 처음 놓일 자리
+ * @param {() => number} [opts.rng=Math.random] 테스트용 난수
  * @returns {{ index: number, delay: number }[]} 각 단계에서 놓일 자리와, 그 자리에 오기 전 기다린 시간
  */
-export function buildSpinSchedule(length, winnerIndex, { totalMs = 5000, startIndex = 0 } = {}) {
+export function buildSpinSchedule(length, winnerIndex, { totalMs = 5000, startIndex = 0, rng = Math.random } = {}) {
   if (length <= 0 || winnerIndex < 0 || winnerIndex >= length) return []
   if (length === 1) return [{ index: 0, delay: totalMs }]
 
@@ -50,16 +52,22 @@ export function buildSpinSchedule(length, winnerIndex, { totalMs = 5000, startIn
   const MIN = 40
   const MAX = 520
   const delayAt = (t) => MIN + (MAX - MIN) * t * t * t
-  const avg = MIN + (MAX - MIN) / 4
-  let steps = Math.max(length, Math.round(totalMs / avg))
-  // 마지막 단계가 winnerIndex에 오도록 단계 수를 맞춘다(필요하면 조금 더 돈다)
-  const offset = ((winnerIndex - startIndex) % length + length) % length
-  steps += ((offset - steps) % length + length) % length
+  const steps = Math.max(2, Math.round(totalMs / (MIN + (MAX - MIN) / 4)))
 
-  const raw = Array.from({ length: steps }, (_, i) => delayAt((i + 1) / steps))
+  // 직전 칸과 다른 칸을 무작위로 — 마지막 칸은 당첨자, 그 바로 앞은 당첨자가 아니어야 한다
+  const indices = []
+  let prev = startIndex
+  for (let i = 0; i < steps - 1; i++) {
+    const avoid = new Set([prev])
+    if (i === steps - 2) avoid.add(winnerIndex)
+    const choices = Array.from({ length }, (_, k) => k).filter(k => !avoid.has(k))
+    const next = choices.length ? choices[Math.min(choices.length - 1, Math.floor(rng() * choices.length))] : prev
+    indices.push(next)
+    prev = next
+  }
+  indices.push(winnerIndex)
+
+  const raw = indices.map((_, i) => delayAt((i + 1) / steps))
   const scale = totalMs / raw.reduce((a, b) => a + b, 0)
-  return raw.map((d, i) => ({
-    index: (startIndex + i + 1) % length,
-    delay: Math.round(d * scale),
-  }))
+  return indices.map((index, i) => ({ index, delay: Math.round(raw[i] * scale) }))
 }
