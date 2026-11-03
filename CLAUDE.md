@@ -12,6 +12,7 @@
 | `apps/dashboard` | 업무 메신저 — 채널·캔버스·DM·알림·학사일정·구성원·보강 | `dashboard` → smart-school-dashboard |
 | `apps/desktop` | Electron 데스크톱 앱 — dashboard를 감싼 트레이 상주 셸, OS 알림, 재실 감지, 자동 업데이트 | `desktop-updates` → smart-school-updates |
 | `apps/kiosk` | 교무실 앞 선생님 호출 키오스크 | `kiosk` → smart-school-kiosk |
+| `apps/classflow` | 선택과목 분반 배정(ClassFlow) — 수강신청 엑셀 → 분반·그룹 편성(CP-SAT 솔버 `functions-python/sectioning_solver.py`). StudentHub 「분반 배정」으로 진입, 선택과목 담당자 전용 | `classflow` → smart-class-flow |
 | `apps/shared` | 공용 코드 — `lib/firebase.js`, `contexts/AuthContext`, 순수 로직(`lib/*.js` + `*.test.js`), 테마 | — |
 
 그 밖에: `functions/`(Node Cloud Functions), `functions-python/`(QR 안내문 파이프라인), `tools/`(일회성 스크립트·로컬 도구), `tests/`(Firestore 규칙 테스트), `manual/`(교사용 매뉴얼 원본 → `portal/manual/`로 복사).
@@ -47,7 +48,7 @@ StudentHub(학적·고사)·ExamCore(고사 업무)는 **별도 저장소의 앱
 | 라우팅 | react-router-dom v6 |
 | DB / 인증 / 저장소 | Firebase Firestore · Authentication(Google) · Storage |
 | 서버 | Firebase Cloud Functions (Node, 일부 Python) |
-| 호스팅 | Firebase Hosting — 타깃 7개(`.firebaserc`) |
+| 호스팅 | Firebase Hosting — 타깃 8개(`.firebaserc`) |
 | 데스크톱 | Electron + electron-builder + electron-updater (자체 서명 코드사인) |
 | 스타일링 | MUI + inline styles, 공통 테마 `apps/shared/theme.js` |
 
@@ -88,6 +89,7 @@ StudentHub(학적·고사)·ExamCore(고사 업무)는 **별도 저장소의 앱
 npm run dev               # 포털
 npm run dev:dashboard     # 업무 메신저
 npm run dev:kiosk         # 키오스크
+npm run dev:classflow     # 분반 배정
 npm run dev:desktop       # Electron (dashboard 배포본을 띄움)
 
 npm test                  # 순수 로직 테스트 (apps/**/*.test.js)
@@ -96,13 +98,14 @@ npm run test:rules        # Firestore 보안 규칙 테스트 (에뮬레이터)
 npm run deploy            # 포털 빌드 + hosting:seonyoo,smart-school
 npm run deploy:dashboard  # 대시보드 빌드 + hosting:dashboard
 npm run deploy:kiosk
+npm run deploy:classflow  # 분반 배정 빌드 + hosting:classflow
 npm run release:desktop   # 데스크톱 빌드 + hosting:desktop-updates (서명 빌드는 apps/desktop의 release:signed)
 
 firebase deploy --only functions
 firebase deploy --only firestore:rules
 ```
 
-빌드 산출물 `portal/`, `dashboard/`, `kiosk/`의 `index.html`은 커밋 대상이고 `assets/`는 무시된다.
+빌드 산출물 `portal/`, `dashboard/`, `kiosk/`, `classflow/`의 `index.html`은 커밋 대상이고 `assets/`는 무시된다.
 
 ---
 

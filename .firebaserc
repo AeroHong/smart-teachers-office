@@ -25,6 +25,9 @@
         ],
         "examcore": [
           "smart-examcore"
+        ],
+        "classflow": [
+          "smart-class-flow"
         ]
       }
     }

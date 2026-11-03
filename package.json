@@ -18,6 +18,9 @@
     "build:kiosk": "vite build --config apps/kiosk/vite.config.js",
     "deploy:kiosk": "npm run build:kiosk && firebase deploy --only hosting:kiosk",
     "preview:kiosk": "vite preview --config apps/kiosk/vite.config.js",
+    "dev:classflow": "vite --config apps/classflow/vite.config.js",
+    "build:classflow": "vite build --config apps/classflow/vite.config.js",
+    "deploy:classflow": "npm run build:classflow && firebase deploy --only hosting:classflow",
     "dev:desktop": "npm --prefix apps/desktop run dev",
     "build:desktop": "npm --prefix apps/desktop run dist",
     "release:desktop": "npm --prefix apps/desktop run release && firebase deploy --only hosting:desktop-updates"

@@ -25,7 +25,7 @@ import {
   assertFails, assertSucceeds, initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch,
+  collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 
 const SCHOOL = 'test-school'
@@ -1796,4 +1796,71 @@ test('업무분장 지우기: 1차 초안은 만든 사람이 기록까지 한 b
   b.delete(doc(db, ...dp('plans', 'draft1')))
   b.delete(doc(db, ...dp('plans', 'draft1', 'versions', 'v1')))
   await assertSucceeds(b.commit())
+})
+
+// ── 선택과목 분반 배정(smart-class-flow, 2026-11) ─────────────────
+// A: 작업을 만든 선택과목 담당자 / B: 다른 선택과목 담당자 / C: 담당자 아닌 교사 / H: 교장(열람) / ADMIN: 학교 관리자
+// SUPER(토큰 없이): 다른 학교 교사
+const sp = (...segs) => path('sectioningProjects', ...segs)
+const H = 'headmaster-h'
+async function seedSectioning() {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, 'users', H), { role: 'headmaster', schoolId: SCHOOL })
+    await setDoc(doc(db, ...path('studentHubManagers', A)), { roles: ['elective'] })
+    await setDoc(doc(db, ...path('studentHubManagers', B)), { roles: ['elective', 'exam'] })
+    await setDoc(doc(db, ...path('studentHubManagers', C)), { roles: ['exam'] })
+    await setDoc(doc(db, ...sp('p1')), { title: '2-2', requests: { 10101: [0, 1] }, revision: 1, createdBy: A })
+    await setDoc(doc(db, ...sp('p1', 'versions', 'v1')), { name: '1차', data: {}, createdBy: B })
+  })
+}
+
+test('분반 배정: 선택과목 담당자만 읽고 만든다, 교장은 읽기만, 다른 교사·다른 학교는 못 본다', async () => {
+  await seedSectioning()
+  await assertSucceeds(getDoc(doc(as(B), ...sp('p1'))))
+  await assertSucceeds(getDocs(collection(as(B), ...sp())))
+  await assertSucceeds(getDoc(doc(as(H), ...sp('p1'))))
+  await assertSucceeds(getDoc(doc(as(ADMIN), ...sp('p1'))))
+  await assertFails(getDoc(doc(as(C), ...sp('p1'))))
+  await assertFails(getDoc(doc(as(SUPER), ...sp('p1'))))
+  await assertSucceeds(setDoc(doc(as(B), ...sp('p2')), { title: 'x', revision: 0, createdBy: B }))
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...sp('p5')), { title: 'x', revision: 0, createdBy: ADMIN }))
+  await assertFails(setDoc(doc(as(C), ...sp('p6')), { title: 'x', revision: 0, createdBy: C }))
+  await assertFails(setDoc(doc(as(H), ...sp('p7')), { title: 'x', revision: 0, createdBy: H }))
+  await assertFails(setDoc(doc(as(B), ...sp('p3')), { title: 'x', revision: 0, createdBy: A }))
+  await assertFails(setDoc(doc(as(B), ...sp('p4')), { title: 'x', revision: 5, createdBy: B }))
+})
+
+test('분반 배정: 저장은 담당자가 revision +1일 때만, 만든 사람은 못 바꾼다', async () => {
+  await seedSectioning()
+  const ref = doc(as(B), ...sp('p1'))
+  await assertSucceeds(updateDoc(ref, { title: '고침', revision: 2 }))
+  await assertFails(updateDoc(ref, { title: '덮어쓰기', revision: 2 }))
+  await assertFails(updateDoc(ref, { revision: 3, createdBy: B }))
+  await assertFails(updateDoc(doc(as(H), ...sp('p1')), { title: '교장', revision: 3 }))
+  await assertFails(updateDoc(doc(as(C), ...sp('p1')), { title: '일반', revision: 3 }))
+})
+
+test('분반 배정: 삭제는 만든 담당자·관리자, 버전은 고치지 않는다', async () => {
+  await seedSectioning()
+  await assertFails(updateDoc(doc(as(B), ...sp('p1', 'versions', 'v1')), { name: '바꿈' }))
+  await assertFails(setDoc(doc(as(B), ...sp('p1', 'versions', 'v2')), { name: 'x', createdBy: A }))
+  await assertSucceeds(setDoc(doc(as(B), ...sp('p1', 'versions', 'v2')), { name: 'x', createdBy: B }))
+  await assertFails(setDoc(doc(as(C), ...sp('p1', 'versions', 'v3')), { name: 'x', createdBy: C }))
+  await assertSucceeds(deleteDoc(doc(as(A), ...sp('p1', 'versions', 'v1'))))  // 작업 만든 사람은 남의 버전도
+  await assertFails(deleteDoc(doc(as(B), ...sp('p1'))))
+  await assertSucceeds(deleteDoc(doc(as(A), ...sp('p1'))))
+})
+
+test('ClassFlow 사용자 로그: 본인 이름·서버 시각으로만 쓰고, 담당자·교장만 읽고, 고치지 못한다', async () => {
+  await seedSectioning()
+  const log = (uid) => ({ action: 'login', summary: '접속', details: [], targetId: null, uid, email: '', name: uid, at: serverTimestamp() })
+  await assertSucceeds(setDoc(doc(as(C), ...path('classflowLogs', 'l1')), log(C)))
+  await assertFails(setDoc(doc(as(C), ...path('classflowLogs', 'l2')), log(A)))
+  await assertFails(setDoc(doc(as(C), ...path('classflowLogs', 'l3')), { ...log(C), extra: 1 }))
+  await assertSucceeds(getDoc(doc(as(A), ...path('classflowLogs', 'l1'))))
+  await assertSucceeds(getDoc(doc(as(H), ...path('classflowLogs', 'l1'))))
+  await assertFails(getDoc(doc(as(C), ...path('classflowLogs', 'l1'))))
+  await assertFails(updateDoc(doc(as(A), ...path('classflowLogs', 'l1')), { summary: 'x' }))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...path('classflowLogs', 'l1'))))
 })

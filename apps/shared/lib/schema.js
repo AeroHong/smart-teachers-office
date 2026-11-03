@@ -180,6 +180,8 @@ export const COL = {
   // StudentHub 사용자 로그 — auto-ID. 지우거나 고치지 않는다(firestore.rules). 고사 명렬표 도구의
   // activityLogs와 같은 모양(action·summary·details·uid·email·name·at)
   HUB_LOGS: 'studentHubLogs',
+  // 선택과목 분반 배정(ClassFlow, 2026-11) 사용자 로그 — studentHubLogs와 같은 모양, 따로 쌓는다
+  CLASSFLOW_LOGS: 'classflowLogs',
   // 대시보드 화면 — auto-ID. scope 'shared'(관리자가 꾸미는 공용·TV 화면) | 'personal'(본인만)
   HUB_DASHBOARDS: 'studentHubDashboards',
   // StudentHub 메타 — 고정 ID 문서. 'roster': 나이스 명렬 마지막 업로드(학적 기준일 계산용)
