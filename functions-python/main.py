@@ -144,3 +144,79 @@ def qr_notice_generate(req: https_fn.Request) -> https_fn.Response:
             "X-File-Name": quote(filename),
         },
     )
+
+
+# ── 선택과목 분반 배정 (smart-class-flow) ──────────────────────────────────────
+# 학번과 과목명만 오가는 계산 전용 함수라 저장은 하지 않는다. 교직원 토큰(staff 클레임)만 허용.
+SECTIONING_MAX_TIME = 300
+
+
+@https_fn.on_request(region="asia-northeast3", memory=options.MemoryOption.GB_4, cpu=4,
+                     timeout_sec=540, max_instances=5, concurrency=1)
+def sectioning_solve(req: https_fn.Request) -> https_fn.Response:
+    """body: {mode: "solve" | "diagnose", data: <sectioning_solver.solve 입력>}"""
+    if req.method == "OPTIONS":
+        return https_fn.Response("", status=204, headers=CORS_HEADERS)
+    if req.method != "POST":
+        return _json_response({"error": "허용되지 않은 메서드입니다."}, status=405)
+    token = _verify_auth(req)
+    if token is None:
+        return _json_response({"error": "로그인이 필요합니다."}, status=401)
+    if not (token.get("staff") or token.get("superAdmin")):
+        return _json_response({"error": "교직원만 사용할 수 있습니다."}, status=403)
+
+    import queue
+    import threading
+    import sectioning_solver as ss
+
+    body = req.get_json(silent=True) or {}
+    data = body.get("data")
+    if not isinstance(data, dict) or not data.get("subjects") or not data.get("students"):
+        return _json_response({"error": "배정할 과목·학생 데이터가 없습니다."}, status=400)
+    data["timeLimit"] = max(5, min(float(data.get("timeLimit") or 30), SECTIONING_MAX_TIME))
+    data["workers"] = 8
+    mode = body.get("mode")
+    count = max(1, min(int(body.get("count") or 3), 5))
+
+    def run(log=None):
+        if mode == "diagnose":
+            return ss.diagnose(data, time_limit=min(data["timeLimit"], 60), log=log)
+        if mode == "alternatives":
+            return ss.alternatives(data, count=count, log=log)
+        return ss.solve(data, log=log)
+
+    if not body.get("stream"):
+        try:
+            return _json_response(run())
+        except Exception as e:
+            return _json_response({"error": f"배정 계산 실패: {e}"}, status=500)
+
+    # 스트리밍: 진행 로그를 한 줄에 JSON 하나씩(NDJSON) 흘려 보내고 마지막 줄에 결과
+    q = queue.Queue()
+
+    def worker():
+        try:
+            q.put({"type": "result", "data": run(log=q.put)})
+        except Exception as e:  # noqa: BLE001
+            q.put({"type": "error", "error": f"배정 계산 실패: {e}"})
+        q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        while True:
+            try:
+                ev = q.get(timeout=5)
+            except queue.Empty:
+                yield json.dumps({"type": "tick"}) + "\n"  # 연결 유지
+                continue
+            if ev is None:
+                return
+            yield json.dumps(ev, ensure_ascii=False) + "\n"
+
+    return https_fn.Response(gen(), status=200, headers={
+        **CORS_HEADERS,
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
