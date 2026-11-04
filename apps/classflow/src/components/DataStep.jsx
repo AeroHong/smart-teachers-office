@@ -9,7 +9,7 @@ import TextField from '@mui/material/TextField'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import { allStudentIds, demandOf, toggleStudentPick, addStudent, removeStudent } from '@shared/lib/sectioning'
+import { allStudentIds, demandOf, toggleStudentPick, addStudent, removeStudent, maxPicks, setGroupCount, MAX_GROUPS } from '@shared/lib/sectioning'
 import { blockColor } from './colors'
 
 /**
@@ -72,6 +72,18 @@ export default function DataStep({ project, onChange, onNext }) {
     setQ(id)
   }
 
+  // 공강 그룹: 학생당 과목 수보다 그룹을 더 열면 학생마다 남는 그룹이 공강(매주 그만큼 학교에 더 있음)
+  const picks = maxPicks(project)
+  const changeGroups = (n) => {
+    if (n === T) return
+    const placed = project.subjects.some((x) => x.slotBySection.some((t) => t !== null && t !== undefined))
+    const msg = n > picks
+      ? `그룹을 ${n}개(${project.slots.length < n ? '늘림' : '줄임'})로 바꿉니다.\n학생당 ${picks}과목이라 학생마다 공강이 ${n - picks}개(매주 ${n - picks}개 그룹 시간) 생깁니다.`
+      : `그룹을 ${n}개로 줄여 공강을 없앱니다.`
+    const tail = placed ? '\n\n이미 배정했다면 그룹 배치를 다시 찾아야 합니다(없어지는 그룹의 분반은 그룹 미정). 저장 전에는 되돌리기로 돌아갈 수 있습니다.' : ''
+    if (window.confirm(msg + tail)) onChange(setGroupCount(project, n))
+  }
+
   const gridCols = `${Object.keys(project.names || {}).length ? 140 : 86}px 56px repeat(${cols.length}, minmax(0, 1fr)) 40px`
 
   return (
@@ -79,8 +91,25 @@ export default function DataStep({ project, onChange, onNext }) {
       <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid #dde3ea', display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
         <Typography fontWeight={800}>수강신청 데이터</Typography>
         <Typography variant="body2" color="text.secondary">
-          {project.sourceFileName} · 배정 대상 {Object.keys(project.requests).length}명 · 제외 {excludedSet.size}명 · 학생당 {T}과목(그룹 {project.slots.join('·')})
+          {project.sourceFileName} · 배정 대상 {Object.keys(project.requests).length}명 · 제외 {excludedSet.size}명 · 학생당 {picks}과목
         </Typography>
+        <Tooltip title={<Box sx={{ fontSize: 12.5, lineHeight: 1.7 }}>
+          보통 그룹 수 = 학생당 과목 수입니다.<br />
+          그룹을 더 열면(공강 그룹) 학생마다 남는 그룹이 <b>공강</b>이 됩니다 — 배정은 쉬워지지만 모든 학생이 매주 그만큼 학교에 더 있게 됩니다.<br />
+          그룹마다 공강 인원은 2단계 상단의 「공강 최대」로 제한할 수 있습니다.
+        </Box>}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">그룹</Typography>
+            <select value={T} onChange={(e) => changeGroups(Number(e.target.value))}
+              style={{ fontSize: 13, border: '1px solid #cfd6cf', borderRadius: 6, padding: '2px 4px', background: '#fff', fontWeight: 700 }}>
+              {Array.from({ length: MAX_GROUPS - Math.max(1, picks) + 1 }, (_, i) => Math.max(1, picks) + i).map((n) => (
+                <option key={n} value={n}>{n}개{n > picks ? ` (공강 ${n - picks})` : ''}</option>
+              ))}
+            </select>
+            <Typography variant="body2" color="text.secondary">{project.slots.join('·')}</Typography>
+            {T > picks && <Chip size="small" color="warning" variant="outlined" label={`학생마다 공강 ${T - picks}개`} />}
+          </Box>
+        </Tooltip>
         <Box sx={{ flex: 1 }} />
         <TextField size="small" placeholder="학번·이름 검색" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 140 }} />
         <Chip label={`전체 ${ids.length}`} onClick={() => setFilter('all')} color={filter === 'all' ? 'primary' : 'default'} variant={filter === 'all' ? 'filled' : 'outlined'} />

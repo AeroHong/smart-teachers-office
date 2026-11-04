@@ -20,11 +20,11 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import {
   demandOf, sectionSizes, validateProject, toSolverInput, applySolverResult, resizeSections, updateSubject, spreadOf,
   normalizeProject, recalcSections, placementCheck, quickAssign, balanceScore, compareScore, resetAssignment, unassignedBySubject,
-  makeSolveLog, pushSolveLog, setStudentPicks, SOLVE_LOG_LINES,
+  makeSolveLog, pushSolveLog, setStudentPicks, SOLVE_LOG_LINES, hasFree,
 } from '@shared/lib/sectioning'
 import { watchProject, saveProject, saveProjectInfo, saveVersion } from '../lib/projectStore'
 import { callSolver } from '../lib/solverApi'
-import { exportNeis, exportRoster, exportTimetable, exportBackup } from '../lib/exporters'
+import { exportNeis, exportRoster, exportTimetable, exportBackup, exportMeeting } from '../lib/exporters'
 import SlotGrid from '../components/SlotGrid'
 import DataStep from '../components/DataStep'
 import StudentStep from '../components/StudentStep'
@@ -38,6 +38,8 @@ import AlternativesDialog from '../components/AlternativesDialog'
 import SolveLogPanel from '../components/SolveLogPanel'
 import WorkInfoDialog from '../components/WorkInfoDialog'
 import MergeInfoDialog from '../components/MergeInfoDialog'
+import MeetingPrint from '../components/MeetingPrint'
+import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
 import AppShell from '../components/AppShell'
 import { useHubRoles } from '../lib/useHubRoles'
 import { logHub, workLabel } from '../lib/activity'
@@ -85,6 +87,8 @@ export default function Workspace() {
   const [isFull, setIsFull] = useState(!!document.fullscreenElement)
   const [step, setStep] = useState(0)
   const [logOpen, setLogOpen] = useState(true)
+  const [printing, setPrinting] = useState(false)
+  const [meetingMenu, setMeetingMenu] = useState(null)
   const abortRef = useRef(null)
   const forceRef = useRef(false)   // 버전을 불러온 뒤 저장 — 합치지 않고 그 상태 그대로
   const byName = userName || user?.displayName || user?.email || ''
@@ -432,6 +436,7 @@ export default function Workspace() {
       } else return
     }
     if (change.minMode) p = { ...p, minMode: change.minMode }
+    if ('freeMax' in change) p = { ...p, freeMax: change.freeMax }
     if (change.subject) {
       const s = p.subjects.findIndex((x) => x.name === change.subject)
       if (change.sections) p = resizeSections(p, s, change.sections)
@@ -460,13 +465,16 @@ export default function Workspace() {
   }
 
   const doExport = async (kind) => {
-    if (kind !== 'backup' && !validation.ok && !window.confirm('미배정·충돌이 남아 있습니다. 그래도 내보낼까요?')) return
+    // 회의 자료는 진행 중인 배정을 보여 주는 용도라 미배정이 있어도 묻지 않는다
+    if (!['backup', 'meeting', 'meetingPrint'].includes(kind) && !validation.ok && !window.confirm('미배정·충돌이 남아 있습니다. 그래도 내보낼까요?')) return
     try {
+      if (kind === 'meeting') await exportMeeting(project)
+      if (kind === 'meetingPrint') setPrinting(true)
       if (kind === 'neis') await exportNeis(project)
       if (kind === 'roster') await exportRoster(project)
       if (kind === 'timetable') await exportTimetable(project)
       if (kind === 'backup') exportBackup(project)
-      const kindLabel = { neis: '나이스 일괄등록 양식', roster: '분반별 명단', timetable: '그룹표 요약', backup: '작업 백업' }[kind]
+      const kindLabel = { neis: '나이스 일괄등록 양식', roster: '분반별 명단', timetable: '그룹표 요약', backup: '작업 백업', meeting: '회의 자료(엑셀)', meetingPrint: '회의 자료 인쇄(PDF)' }[kind]
       logHub(schoolId, { action: 'sectioning_export', summary: `${workLabel(project)} ${kindLabel} 내려받기`, targetId: projectId })
     } catch (e) {
       console.error(e)
@@ -542,6 +550,17 @@ export default function Workspace() {
             <Button size="small" sx={{ fontSize: 12 }} onClick={() => commit(recalcSections(project, { force: true }))}>다시 계산</Button>
           </Box>
         </Tooltip>
+        {hasFree(project) && (
+          <Tooltip title="그룹마다 공강(수업 없는) 학생이 이 인원을 넘지 않게 배정합니다(꼭 지킴). 비우면 제한 없음. 자습 감독·공간에 맞춰 정하세요">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: '#fff7e0', borderRadius: 2, px: 1, height: 36, flexShrink: 0 }}>
+              <Typography variant="body2" noWrap>공강 최대</Typography>
+              <input type="number" min={0} value={project.freeMax ?? ''} placeholder="—" className="cf-num"
+                onChange={(e) => commit({ ...project, freeMax: e.target.value === '' ? null : Math.max(0, Number(e.target.value)) })}
+                style={numStyle} />
+              <Typography variant="body2">명</Typography>
+            </Box>
+          </Tooltip>
+        )}
         {/* 배정: 주 버튼 하나 + ▾ 메뉴(더 오래·처음부터·여러 안·초기화) */}
         <Box sx={{ display: 'flex', flexShrink: 0 }}>
           <Tooltip title="배정합니다 — 지금 배정을 출발점으로 더 좋은 해를 30초 동안 찾고, 나빠지면 지금 배정을 그대로 둡니다. 고정은 유지">
@@ -586,10 +605,22 @@ export default function Workspace() {
   )
 
   return (
-    <AppShell work={work} header={header} toolbar={toolbar} fill>
+    <AppShell work={work} header={header} toolbar={toolbar} fill autoCollapse={step === 1}>
       {/* ── 단계 제목 + 상태 ── */}
       <Box sx={{ height: 40, flexShrink: 0, display: 'flex', alignItems: 'center', px: 2, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
         <Typography fontWeight={800} color="primary" sx={{ mr: 2 }}>{STEPS[step]}</Typography>
+        {step === 1 && (
+          <>
+            <Tooltip title="배정표 전체(그룹 × 과목)와 과목·그룹 요약을 회의 자료로 내려받습니다">
+              <Button size="small" variant="outlined" startIcon={<DescriptionIcon />} endIcon={<ArrowDropDownIcon />} sx={{ mr: 1.5, height: 28 }}
+                onClick={(e) => setMeetingMenu(e.currentTarget)}>회의 자료</Button>
+            </Tooltip>
+            <Menu anchorEl={meetingMenu} open={!!meetingMenu} onClose={() => setMeetingMenu(null)}>
+              <MenuItem onClick={() => { setMeetingMenu(null); doExport('meetingPrint') }}>PDF로 인쇄 (A4 가로) — 인쇄 창에서 「PDF로 저장」</MenuItem>
+              <MenuItem onClick={() => { setMeetingMenu(null); doExport('meeting') }}>엑셀로 내려받기 — 배정표·요약·분반별 명단</MenuItem>
+            </Menu>
+          </>
+        )}
         {!canEdit && <Chip size="small" variant="outlined" label="열람 전용 — 바꾼 내용은 저장되지 않습니다" />}
         {behind && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -612,6 +643,11 @@ export default function Workspace() {
           {validation.separationViolations.length > 0 && (
             <Tooltip title={validation.separationViolations.map((v) => `${project.subjects[v.s].name}: ${v.students.join('·')}`).join(', ')}>
               <Chip size="small" color="error" label={`분리 위반 ${validation.separationViolations.length}곳`} />
+            </Tooltip>
+          )}
+          {validation.freeOver.length > 0 && (
+            <Tooltip title={validation.freeOver.map((x) => `${project.slots[x.slot]}그룹 공강 ${x.free}명(최대 ${x.limit})`).join(', ')}>
+              <Chip size="small" color="warning" label={`공강 초과 ${validation.freeOver.length}그룹`} />
             </Tooltip>
           )}
           {validation.sizeIssues.length > 0 && (
@@ -651,6 +687,7 @@ export default function Workspace() {
       <InfeasibleDialog info={infeasible} project={project} onApply={applySuggestion} onApplyStudent={applyStudentChange}
         labelOf={labelOf} canEdit={canEdit} onClose={() => setInfeasible(null)} />
       <MergeInfoDialog info={mergeInfo} onClose={() => setMergeInfo(null)} />
+      {printing && <MeetingPrint project={project} onDone={() => setPrinting(false)} />}
       {infoOpen && (
         <WorkInfoDialog project={project} onClose={() => setInfoOpen(false)}
           onSave={async (patch) => { await saveInfo(patch); setInfoOpen(false) }} />

@@ -148,6 +148,14 @@ def solve(data, log=None):
             problems.append(f"{s['name']}: 신청 {demand[i]}명을 {K[i]}분반 × 최대 {s['maxSize']}명에 담을 수 없음(최대 인원 '꼭 지킴')")
         if data.get("minMode") == "hard" and s.get("minSize") and K[i] >= 2 and K[i] * int(s["minSize"]) > demand[i]:
             problems.append(f"{s['name']}: 신청 {demand[i]}명으로 {K[i]}분반 × 최소 {s['minSize']}명을 채울 수 없음(최소 인원 '꼭 지킴')")
+    # 공강 그룹: 그룹당 공강 학생 상한(그룹 수가 학생 과목 수보다 많을 때)
+    free_max = data.get("freeMax")
+    free_max = None if free_max in (None, "") else int(free_max)
+    if free_max is not None:
+        total_free = sum(max(0, T - len(set(st["subjects"]))) for st in students)
+        if T * free_max < total_free:
+            problems.append(f"공강 {total_free}개를 그룹 {T}개 × 그룹당 공강 최대 {free_max}명에 담을 수 없음"
+                            f"(최소 {-(-total_free // T)}명 필요)")
     if problems:
         return {"status": "INVALID", "message": "입력 오류", "problems": problems}
 
@@ -242,6 +250,7 @@ def solve(data, log=None):
     # ── 그룹 배정 y[g][(s,k,t)] ──
     y = []
     unassigned_vars = []
+    placed_terms = []   # 그룹마다 배정되는 학생 수(공강 계산용)
     size_terms = defaultdict(list)  # (s,k) → [var]
     for gi, g in enumerate(groups):
         n = len(g["members"])
@@ -259,6 +268,7 @@ def solve(data, log=None):
             unassigned_vars.append(n - a)
         else:
             a = n
+        placed_terms.append(a)
         for s in g["subjects"]:
             m.Add(sum(yg[(s, k, t)] for k in range(K[s]) for t in range(T)) == a)
         for t in range(T):
@@ -268,6 +278,13 @@ def solve(data, log=None):
                 if s in g["subjects"] and 0 <= k < K[s]:
                     m.Add(sum(yg[(s, k, t)] for t in range(T)) == a)
         y.append(yg)
+
+    # 공강 상한: 그룹 t의 공강 = 배정 학생 − 그룹 t에 수업이 있는 학생
+    if free_max is not None:
+        for t in range(T):
+            busy = sum(v for yg in y for (s, k, tt), v in yg.items() if tt == t)
+            m.Add(sum(placed_terms) - busy <= free_max)
+        _emit(log, "info", f"그룹당 공강 최대 {free_max}명")
 
     if sep_rules:
         group_of = {g["members"][0]: gi for gi, g in enumerate(groups) if len(g["members"]) == 1}
@@ -611,6 +628,10 @@ def suggest(data, base_time=8, focus=None, log=None, max_found=5, budget=150):
         trials.append(("분반 최대 인원을 '가능하면 지킴'으로", {"maxMode": "soft"}, {**data, "maxMode": "soft"}, {}))
     if data.get("minMode") == "hard":
         trials.append(("분반 최소 인원을 '가능하면 지킴'으로", {"minMode": "soft"}, {**data, "minMode": "soft"}, {}))
+    if data.get("freeMax") not in (None, ""):
+        fm = int(data["freeMax"])
+        trials.append((f"그룹당 공강 최대 {fm}→{fm + 5}명", {"freeMax": fm + 5}, {**data, "freeMax": fm + 5}, {}))
+        trials.append(("그룹당 공강 인원 제한 풀기", {"freeMax": None}, {**data, "freeMax": None}, {}))
     rooms = data.get("rooms")
     if isinstance(rooms, (int, float)):
         trials.append((f"그룹당 교실 {int(rooms)}→{int(rooms) + 1}", {"rooms": int(rooms) + 1},

@@ -12,6 +12,7 @@ import {
   placementCheck, placementCheckIfMoved, quickAssign, resetAssignment, sizeIssues,
   separationIssues, addSeparation, updateSeparation, removeSeparation, balanceScore, compareScore, unassignedBySubject,
   detectEnrollmentLayout, suggestWorkInfo, folderOf, mergeProject, makeSolveLog, pushSolveLog, formatSolveLog,
+  setGroupCount, freeCounts, hasFree, totalFree, maxPicks, matchSeparations, meetingReport,
 } from './sectioning.js'
 
 // 실제 나이스 수강신청 일괄등록 파일과 같은 모양(1행 학년·학기, 2행 칸막이 병합, 3행 과목명)
@@ -431,4 +432,71 @@ test('배정 기록 — 만들기·최근 5회·글로 내보내기(원본 줄�
   // 합치기: 기록은 둘 다
   const m = mergeProject(pr, pushSolveLog(pr, { ...log, id: 'a', at: '2026-11-04T01:00:00Z' }), pushSolveLog(pr, { ...log, id: 'b', at: '2026-11-04T02:00:00Z' })).project
   assert.deepEqual(m.solveLogs.map((x) => x.id), ['a', 'b'])
+})
+
+test('공강 그룹 — 그룹 늘리기·공강 인원·하한은 학생 최대 과목 수', () => {
+  const p = solvedProject()
+  assert.equal(maxPicks(p), 3)
+  assert.equal(hasFree(p), false)
+  assert.equal(setGroupCount(p, 2), p)
+  const p4 = setGroupCount(p, 4)
+  assert.deepEqual(p4.slots, ['A', 'B', 'C', 'D'])
+  assert.equal(hasFree(p4), true)
+  assert.equal(totalFree(p4), 3)
+  // 10102는 세계사·정치가 같은 B라 A·D가 비어 있다
+  assert.deepEqual(freeCounts(p4), [1, 0, 0, 3])
+})
+
+test('공강 그룹 — 줄이면 없어진 그룹의 분반은 그룹 미정, 그 학생은 미배정', () => {
+  let p4 = moveSectionSlot(setGroupCount(solvedProject(), 4), 3, 1, 3)
+  p4 = { ...p4, assignment: { ...p4.assignment, 10101: [0, 0, 1] } }
+  const p3 = setGroupCount(p4, 3)
+  assert.deepEqual(p3.subjects[3].slotBySection, [2, null])
+  assert.deepEqual(p3.assignment['10101'], [0, 0, null])
+  assert.ok(validateProject(p3).unassigned.includes('10101'))
+})
+
+test('공강 최대 인원 — 검사와 솔버 입력(공강 없는 작업은 무시)', () => {
+  const p4 = { ...setGroupCount(solvedProject(), 4), freeMax: 2 }
+  assert.deepEqual(validateProject(p4).freeOver, [{ slot: 3, free: 3, limit: 2 }])
+  assert.equal(toSolverInput(p4).freeMax, 2)
+  const p = { ...solvedProject(), freeMax: 2 }
+  assert.deepEqual(validateProject(p).freeOver, [])
+  assert.equal(toSolverInput(p).freeMax, null)
+  assert.equal(normalizeProject(solvedProject()).freeMax, null)
+})
+
+test('분리 규칙 가져오기 — 학번이 같으면 그대로, 바뀌었으면 이름으로, 동명이인·없음은 못 찾음', () => {
+  const p = { ...solvedProject(), names: { 10101: '가', 10102: '나', 10103: '나' } }
+  const r = matchSeparations([
+    { id: 'r1', students: ['10101', '99999'], memo: '메모' },
+    { id: 'r2', students: ['88888', '77777'] },
+    { id: 'r3', students: ['20101', '66666'] },
+  ], { 99999: '나', 20101: '가', 66666: '라' }, p)
+  assert.deepEqual(r[0].students.map((x) => x.how), ['id', 'ambiguous'])
+  assert.equal(r[0].ok, false)
+  assert.deepEqual(r[1].students.map((x) => x.how), ['missing', 'missing'])
+  assert.deepEqual(r[2].students.map((x) => x.how), ['name', 'missing'])
+
+  const q = { ...solvedProject(), names: { 10101: '가', 10102: '나', 10103: '다' } }
+  const m = matchSeparations([{ id: 'r1', students: ['20101', '20102'] }], { 20101: '가', 20102: '나' }, q)
+  assert.deepEqual(m[0].ids, ['10101', '10102'])
+  assert.equal(m[0].ok, true)
+  const withRule = addSeparation(q, ['10102', '10101'])
+  const d = matchSeparations([{ id: 'r1', students: ['20101', '20102'] }], { 20101: '가', 20102: '나' }, withRule)
+  assert.equal(d[0].duplicate, true)
+  assert.equal(d[0].ok, false)
+})
+
+test('회의 자료 — 배정표 격자·상태, 분리 규칙은 개수만', () => {
+  const p = addSeparation(solvedProject(), ['10101', '10103'], '비밀')
+  const r = meetingReport(p)
+  assert.equal(r.groups.length, 3)
+  assert.equal(r.cols.length, 4)
+  assert.deepEqual(r.groups[0].cells[0], [{ k: 0, label: 'A', size: 2 }])
+  assert.equal(r.status.conflicts, 1)
+  assert.equal(r.status.separationRules, 1)
+  assert.equal(JSON.stringify(r).includes('비밀'), false)
+  assert.equal(r.showFree, false)
+  assert.equal(meetingReport(setGroupCount(p, 4)).groups[3].free, 3)
 })

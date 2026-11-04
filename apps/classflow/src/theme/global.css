@@ -4,3 +4,14 @@ body { -webkit-font-smoothing: antialiased; font-feature-settings: 'tnum' 1; }
 /* 배정표·상단 바의 숫자칸·선택칸(input·select)도 브라우저 기본 글꼴 대신 Pretendard */
 input, select, textarea, button { font-family: inherit; }
 @media print { .no-print { display: none !important; } }
+/* 배정표 좁은 숫자칸 — 위아래 화살표가 숫자를 가리지 않게 숨긴다 */
+input.cf-num { -moz-appearance: textfield; appearance: textfield; }
+input.cf-num::-webkit-inner-spin-button, input.cf-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* 회의 자료 인쇄(MeetingPrint) — 화면에서는 숨기고, 인쇄할 때는 앱 대신 이것만 */
+@media screen { .print-only { display: none; } }
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  body:has(> .print-only) > #root { display: none !important; }
+  .print-only { display: block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-only .pr-page { break-after: page; }
+}

@@ -10,11 +10,14 @@ import LockOpenIcon from '@mui/icons-material/LockOpen'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import {
   moveSectionSlot, toggleSectionLock, sectionLabel, studentSchedule, spreadOf,
-  updateSubject, resizeSections, recalcSections, placementCheck, placementCheckIfMoved, unassignedBySubject,
+  updateSubject, resizeSections, recalcSections, placementCheck, placementCheckIfMoved, unassignedBySubject, hasFree,
 } from '@shared/lib/sectioning'
 import { blockColor } from './colors'
 
 const ROW_HEAD = 104
+const COL_MIN = '4.6rem'
+// 가로 스크롤 때 왼쪽 그룹 칸을 붙여 둔다
+const stickyLeft = { position: 'sticky', left: 0, zIndex: 1 }
 
 const miniInput = {
   width: '100%', minWidth: 0, boxSizing: 'border-box', border: '1px solid #c9d3de', borderRadius: 4,
@@ -23,7 +26,7 @@ const miniInput = {
 
 function NumBox({ value, placeholder, disabled, onCommit, title }) {
   return (
-    <input type="number" min={0} title={title} style={{ ...miniInput, color: disabled ? '#9aa5b1' : '#1f2933' }}
+    <input type="number" min={0} title={title} className="cf-num" style={{ ...miniInput, color: disabled ? '#9aa5b1' : '#1f2933' }}
       value={value ?? ''} placeholder={placeholder} disabled={disabled}
       onChange={(e) => onCommit(e.target.value)} />
   )
@@ -110,9 +113,13 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
     else onChange(moved)
   }
 
-  const gridCols = `${ROW_HEAD}px repeat(${cols.length}, minmax(0, 1fr))`
+  // 열이 너무 좁아지면 숫자가 가려진다 — 최소 폭 아래로는 가로 스크롤
+  const gridCols = `${ROW_HEAD}px repeat(${cols.length}, minmax(${COL_MIN}, 1fr))`
+  const gridMinWidth = `calc(${ROW_HEAD}px + ${cols.length} * ${COL_MIN})`
   const sepRight = (i, subj) => (cols[i + 1]?.subj.block !== subj.block ? '2px solid #c9d3de' : '1px solid #e6ebf0')
   const totalSections = project.subjects.reduce((a, s) => a + s.sections, 0)
+  const showFree = hasFree(project)
+  const freeLimit = project.freeMax === null || project.freeMax === undefined || project.freeMax === '' ? null : Number(project.freeMax)
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#fff', minWidth: 0, overflow: 'hidden' }}>
@@ -137,9 +144,12 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
           </Typography>
         )}
       </Box>
+      {/* 헤더와 본문을 한 스크롤 상자에 — 같은 폭을 써서 세로선이 어긋나지 않는다 */}
+      <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      <Box sx={{ minWidth: gridMinWidth }}>
       {/* ── 헤더: 칸막이 + 과목명 + 과목 설정 ── */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: gridCols, borderBottom: '2px solid #c9d3de', flexShrink: 0 }}>
-        <Box sx={{ gridRow: 'span 3', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', px: 1, pb: 0.75, bgcolor: '#f3f6f9', borderRight: '1px solid #dde3ea' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: gridCols, borderBottom: '2px solid #c9d3de', position: 'sticky', top: 0, zIndex: 2, bgcolor: '#fff' }}>
+        <Box sx={{ ...stickyLeft, gridRow: 'span 3', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', px: 1, pb: 0.75, bgcolor: '#f3f6f9', borderRight: '1px solid #dde3ea' }}>
           <Tooltip placement="right" title={
             <Box sx={{ fontSize: 12.5, lineHeight: 1.7 }}>
               <b>최대</b> 분반별 최대 인원(비우면 상단 값)<br />
@@ -233,11 +243,11 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
       </Box>
 
       {/* ── 본문: 그룹 행 ── */}
-      <Box sx={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: gridCols, gridAutoRows: 'minmax(74px, max-content)', alignContent: 'start', overflowY: 'auto' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: gridCols, gridAutoRows: 'minmax(74px, max-content)', alignContent: 'start' }}>
         {rows.map((t, ri) => {
           return [
             <Box key={`h${ri}`} sx={{
-              borderRight: '1px solid #dde3ea', borderBottom: '1px solid #dde3ea', px: 1, py: 0.5,
+              ...stickyLeft, borderRight: '1px solid #dde3ea', borderBottom: '1px solid #dde3ea', px: 1, py: 0.5,
               bgcolor: t === null ? '#fffbea' : '#f3f6f9', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.25,
             }}>
               <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
@@ -254,6 +264,15 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
                 <Typography fontSize={11} color="error" fontWeight={700}>최대 인원 초과 {rowStats[ri].over}반</Typography>
               )}
               <Typography fontSize={11.5} color="text.secondary">분반 {rowStats[ri].n}개</Typography>
+              {showFree && t !== null && (() => {
+                const n = validation.freeCounts?.[t] ?? 0
+                const over = freeLimit !== null && n > freeLimit
+                return (
+                  <Tooltip title={`이 그룹 시간에 수업이 없는 학생${freeLimit !== null ? ` (공강 최대 ${freeLimit}명)` : ''}`}>
+                    <Typography fontSize={11.5} fontWeight={700} color={over ? 'error' : '#7c5a00'}>공강 {n}명{over ? ' 초과' : ''}</Typography>
+                  </Tooltip>
+                )
+              })()}
             </Box>,
             ...cols.map(({ subj, s }, i) => {
               const ks = subj.slotBySection.map((x, k) => ((x ?? null) === t ? k : -1)).filter((k) => k >= 0)
@@ -325,6 +344,8 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
             }),
           ]
         })}
+      </Box>
+      </Box>
       </Box>
     </Box>
   )

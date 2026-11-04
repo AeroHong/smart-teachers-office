@@ -13,7 +13,7 @@ import { mergeProject, normalizeProject } from '@shared/lib/sectioning'
 /** 문서에 저장하는 필드(계산값·화면 상태는 빼고) */
 export const PERSIST_KEYS = [
   'title', 'year', 'grade', 'semester', 'termLabel', 'sourceFileName', 'entryYear', 'folder',
-  'slots', 'rooms', 'maxSize', 'maxMode', 'minSize', 'minMode', 'subjects', 'requests', 'assignment',
+  'slots', 'rooms', 'maxSize', 'maxMode', 'minSize', 'minMode', 'freeMax', 'subjects', 'requests', 'assignment',
   'lockedStudents', 'manualStudents', 'excluded', 'warnings', 'separations', 'names', 'solveLogs',
   'headerRows', 'headerMerges', 'subjectCols', 'infoCols', 'studentInfo', 'lastSolve',
 ]
@@ -40,6 +40,7 @@ export async function listProjects(schoolId) {
       entryYear: x.entryYear ?? null, folder: x.folder || '',
       sourceFileName: x.sourceFileName, studentCount: Object.keys(x.requests || {}).length,
       subjectCount: (x.subjects || []).length, lastSolve: x.lastSolve || null,
+      separationCount: (x.separations || []).length,
       updatedAt: x.updatedAt?.toDate?.() || null, updatedByName: x.updatedByName || '', createdBy: x.createdBy,
     }
   })

@@ -9,6 +9,7 @@ import { PORTAL_URL } from '../lib/links'
 const FILES = [
   { kind: 'neis', title: '수강신청 원본 양식', desc: '받은 수강신청 파일과 같은 형식(학번·이름 열 그대로), 과목 칸에 분반 기호(그룹 글자)를 넣습니다.', ext: '.xlsx' },
   { kind: 'roster', title: '분반별 명단', desc: '첫 시트는 전체 분반(열), 이어서 과목별 시트. 담당 교사 배포용.', ext: '.xlsx' },
+  { kind: 'meeting', title: '회의 자료', desc: '배정표 전체(그룹 × 과목)와 과목·그룹 요약. PDF는 인쇄 창에서 「PDF로 저장」.', ext: '.pdf / .xlsx', print: true },
   { kind: 'timetable', title: '그룹표 요약', desc: '그룹(A~E) × 분반 인원표와 과목별 편차. A4 가로 인쇄.', ext: '.xlsx' },
   { kind: 'backup', title: '작업 백업', desc: '작업 전체를 파일로 보관하거나 다른 계정에서 「백업 파일 불러오기」.', ext: '.json' },
 ]
@@ -26,12 +27,19 @@ export default function ExportStep({ validation, onExport }) {
         {!validation.ok && <Alert severity="warning" sx={{ mb: 2 }}>미배정·충돌이 남아 있습니다. 3단계에서 확인한 뒤 내보내세요.</Alert>}
 
         <Typography fontWeight={700} sx={{ mb: 1 }}>파일로 내보내기</Typography>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 4 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(12rem, 1fr))', gap: 2, mb: 4 }}>
           {FILES.map((f) => (
             <Paper key={f.kind} sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Typography fontWeight={800}>{f.title} <Typography component="span" color="text.secondary" fontSize={13}>{f.ext}</Typography></Typography>
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>{f.desc}</Typography>
-              <Button variant={f.kind === 'backup' ? 'outlined' : 'contained'} onClick={() => onExport(f.kind)}>내려받기</Button>
+              {f.print ? (
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button variant="contained" sx={{ flex: 1 }} onClick={() => onExport('meetingPrint')}>PDF 인쇄</Button>
+                  <Button variant="outlined" sx={{ flex: 1 }} onClick={() => onExport('meeting')}>엑셀</Button>
+                </Box>
+              ) : (
+                <Button variant={f.kind === 'backup' ? 'outlined' : 'contained'} onClick={() => onExport(f.kind)}>내려받기</Button>
+              )}
             </Paper>
           ))}
         </Box>

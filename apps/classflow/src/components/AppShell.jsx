@@ -51,17 +51,26 @@ const ROLE_LABEL = { enrollment: '학적', exam: '고사', absence: '결시', el
  * header: 상단 바 왼쪽, toolbar: 상단 바 오른쪽(최근 활동 뒤, 프로필 앞)
  * fill: 본문이 화면 높이를 꽉 채우는 작업 화면(안에서 스크롤)
  * 배정표(17개 과목 열) 때문에 StudentHub와 달리 사이드바를 아이콘만 남기고 접을 수 있다.
+ * autoCollapse: 배정표 단계처럼 넓은 표를 보는 동안 자동으로 접는다(끝나면 원래 상태로).
  */
-export default function AppShell({ work = null, header = null, toolbar = null, fill = false, children }) {
+export default function AppShell({ work = null, header = null, toolbar = null, fill = false, autoCollapse = false, children }) {
   const theme = useTheme()
   const wide = useMediaQuery('(min-width:1800px)')
   const { pathname } = useLocation()
   const { user, userName, photoURL, schoolId, schoolName, logout } = useAuth()
   const { manage, viewer, canView, roles } = useHubRoles()
-  const [collapsed, setCollapsed] = useState(readCollapsed)
+  const [stored, setStored] = useState(readCollapsed)
+  // autoCollapse(배정표 단계) 동안 직접 펴고 접은 것 — 저장하지 않고, 단계를 옮기면 지운다
+  const [override, setOverride] = useState(null)
+  useEffect(() => { setOverride(null) }, [autoCollapse])
+  const collapsed = override ?? (autoCollapse || stored)
   const [userMenu, setUserMenu] = useState(null)
   const [open, setOpen] = useState(() => new Set(['work', 'classflow', 'admin']))
-  const toggleCollapsed = () => setCollapsed((v) => { writeCollapsed(!v); return !v })
+  const toggleCollapsed = () => {
+    if (autoCollapse) { setOverride(!collapsed); return }
+    writeCollapsed(!stored)
+    setStored(!stored)
+  }
   const toggleSection = (key) => setOpen((prev) => {
     const next = new Set(prev)
     if (next.has(key)) next.delete(key); else next.add(key)

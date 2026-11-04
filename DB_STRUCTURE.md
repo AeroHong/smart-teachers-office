@@ -975,10 +975,11 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - `names` — `{학번: 이름}`(원본에 이름 열이 있을 때, 2026-11-04)
 - `lockedStudents[]`, `manualStudents[]`, `excluded[{id, reason}]`(신청 없음 등), `warnings[]`
 - `maxSize`·`maxMode`, `minSize`·`minMode` — 분반 최대·최소 인원과 지키는 정도(`hard` 꼭 / `soft` 가능하면 / `off` 참고만). 최소는 2분반 이상 과목에만
+- `freeMax` — 그룹당 공강 학생 최대 인원(null = 제한 없음, 꼭 지킴). 그룹 수(`slots`)를 학생당 과목 수보다 많이 연 공강 그룹 작업에서만 쓴다
 - `separations[{id, students[학번], memo}]` — 분리 규칙: 규칙 학생들이 함께 듣는 모든 과목에서 서로 다른 분반(꼭 지킴). 메모는 짧게, 민감한 사유 금지
 - `headerRows[{cells}]`·`headerMerges[]`·`subjectCols[]` — 원본 양식으로 되돌려 내보낼 원본 헤더
 - `infoCols[]`·`studentInfo{학번: [원본 학생 정보 열 값…]}` — 원본 양식 되돌리기에서 학번·이름·고유번호 열을 그대로 살린다(2026-11-04)
-- `solveLogs[]` — 배정 기록(최근 5회): `{id, title, at, byName, summary, ok, settings{students, subjects, sections, slots, maxSize, maxMode, minSize, minMode, separations, lockedSections, lockedStudents}, result{ok, unassigned, conflicts, worst, sum, subjects[{name, block, sections[{label, n}]}]}|null, lines[{t, type, text}](최대 600줄)}`. 저장할 때 함께 저장, 화면에서 복사·.txt 다운로드(회의·증빙)
+- `solveLogs[]` — 배정 기록(최근 5회): `{id, title, at, byName, summary, ok, settings{students, subjects, sections, slots, maxSize, maxMode, minSize, minMode, freeMax, separations, lockedSections, lockedStudents}, result{ok, unassigned, conflicts, worst, sum, subjects[{name, block, sections[{label, n}]}]}|null, lines[{t, type, text}](최대 600줄)}`. 저장할 때 함께 저장, 화면에서 복사·.txt 다운로드(회의·증빙)
 - `lastSolve` — 마지막 솔버 결과 요약(status·worstSpread·spreadSum·changes·ok·at)
 - `revision`(저장마다 +1), `createdBy`, `createdAt`, `updatedAt`, `updatedByName`
 

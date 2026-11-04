@@ -3,7 +3,8 @@
  *
  * 용어
  * - 칸막이(block): 수강신청 파일 2행의 C·D 같은 선택 묶음. "C에서 4과목, D에서 1과목"처럼 고르는 범위일 뿐 시간과는 무관하다.
- * - 그룹(slot): A~E처럼 실제로 수업이 동시에 열리는 시간 묶음. 학생 한 명의 선택 과목 수 = 그룹 수.
+ * - 그룹(slot): A~E처럼 실제로 수업이 동시에 열리는 시간 묶음. 보통 학생 한 명의 선택 과목 수 = 그룹 수.
+ *   그룹을 과목 수보다 더 열면(공강 그룹) 학생마다 남는 그룹이 공강이 된다 — freeMax로 그룹당 공강 인원 상한.
  * - 분반(section): 과목 s의 k번째 반. 분반마다 그룹 하나에 놓인다(slotBySection[k]).
  *
  * 프로젝트(Firestore 문서와 같은 모양 — 중첩 배열을 쓰지 않는다)
@@ -307,6 +308,7 @@ export function normalizeProject(p) {
     maxMode: p.maxMode || 'hard',
     minSize: p.minSize ?? null,
     minMode: p.minMode || 'soft',
+    freeMax: p.freeMax ?? null,
     // 그룹별 교실 수 제한은 화면에서 뺐다(2026-11-03, 실제로 필요 없음) — 예전 값이 남아 해를 막지 않도록 비운다
     rooms: p.slots.map(() => null),
     excluded: p.excluded || [],
@@ -544,8 +546,11 @@ export function validateProject(project) {
     if (new Set(ts).size !== ts.length) sameSlot.push(s)
   })
   const sep = separationIssues(project)
+  const free = freeCounts(project)
+  const freeOver = isBlank(project.freeMax) || !hasFree(project)
+    ? [] : free.map((n, t) => ({ slot: t, free: n, limit: Number(project.freeMax) })).filter((x) => x.free > x.limit)
   return {
-    unassigned, conflicts, roomOverflow, sameSlot, slotUse: used, sizeIssues: sizeIssues(project),
+    unassigned, conflicts, roomOverflow, sameSlot, slotUse: used, sizeIssues: sizeIssues(project), freeCounts: free, freeOver,
     separationViolations: sep.violations, separationUnsplittable: sep.unsplittable,
     ok: !unassigned.length && !conflicts.length && !roomOverflow.length && !sameSlot.length && !sep.violations.length,
   }
@@ -691,6 +696,7 @@ export function toSolverInput(project, { keepPrevious = false, timeLimit = 30, w
     slots: project.slots, rooms: roomsOf(project), subjects, students,
     lockedAssignments, previous: keepPrevious ? previous : null, timeLimit, hint,
     maxMode: project.maxMode || 'off', minMode: project.minMode || 'off',
+    freeMax: hasFree(project) && !isBlank(project.freeMax) ? Number(project.freeMax) : null,
     separations: (project.separations || []).map((r) => r.students).filter((x) => x.length >= 2),
   }
 }
@@ -1085,7 +1091,7 @@ function pick3(b, m, t, onConflict) {
 const SETTING_LABELS = {
   title: '작업명', year: '학년도', grade: '학년', semester: '학기', entryYear: '입학년도', folder: '묶음',
   termLabel: '학기 표시', sourceFileName: '파일명', slots: '그룹', rooms: '교실 수', maxSize: '분반 최대 인원',
-  maxMode: '최대 인원 방식', minSize: '분반 최소 인원', minMode: '최소 인원 방식', lastSolve: '마지막 배정 결과',
+  maxMode: '최대 인원 방식', minSize: '분반 최소 인원', minMode: '최소 인원 방식', freeMax: '공강 최대 인원', lastSolve: '마지막 배정 결과',
   warnings: '불러올 때 경고', headerRows: '원본 머리', headerMerges: '원본 머리 병합', subjectCols: '원본 과목 열',
   infoCols: '원본 학생 정보 열', studentInfo: '원본 학생 정보',
 }
@@ -1216,6 +1222,7 @@ export function solveSettings(project) {
     maxMode: project.maxMode || 'hard',
     minSize: project.minSize ?? null,
     minMode: project.minMode || 'soft',
+    freeMax: hasFree(project) ? project.freeMax ?? null : null,
     separations: (project.separations || []).length,
     lockedSections,
     lockedStudents: (project.lockedStudents || []).length,
@@ -1286,6 +1293,7 @@ export function formatSolveLog(project, log, { raw = false } = {}) {
   out.push(`설정: 학생 ${st.students ?? '-'}명 · 과목 ${st.subjects ?? '-'}개 · 분반 ${st.sections ?? '-'}개 · 그룹 ${st.slots || '-'}`
     + ` · 분반 최대 ${st.maxSize ?? '-'}명(${MODE_TEXT[st.maxMode] || st.maxMode || '-'})`
     + (st.minSize ? ` · 최소 ${st.minSize}명(${MODE_TEXT[st.minMode] || st.minMode})` : '')
+    + (st.freeMax !== null && st.freeMax !== undefined ? ` · 그룹당 공강 최대 ${st.freeMax}명` : '')
     + (st.separations ? ` · 분리 규칙 ${st.separations}개` : '')
     + (st.lockedSections || st.lockedStudents ? ` · 고정 분반 ${st.lockedSections || 0}개·학생 ${st.lockedStudents || 0}명` : ''))
   out.push('')
@@ -1304,4 +1312,170 @@ export function formatSolveLog(project, log, { raw = false } = {}) {
     }
   }
   return out.join('\n')
+}
+
+// ── 공강 그룹: 그룹 수 > 학생당 과목 수 ──────────────────────────────────
+
+export const MAX_GROUPS = 8
+
+const isBlank = (v) => v === null || v === undefined || v === ''
+
+/** 학생 한 명의 가장 많은 선택 과목 수(그룹 수의 하한) */
+export function maxPicks(project) {
+  return Math.max(0, ...Object.values(project.requests).map((x) => x.length))
+}
+
+/** 공강이 생기는 작업인가(그룹이 남는 학생이 있음) */
+export function hasFree(project) {
+  const T = project.slots.length
+  return Object.values(project.requests).some((x) => x.length < T)
+}
+
+/** 학생마다 공강 수의 합 = Σ(그룹 수 − 과목 수) */
+export function totalFree(project) {
+  const T = project.slots.length
+  return Object.values(project.requests).reduce((a, x) => a + Math.max(0, T - x.length), 0)
+}
+
+/** 그룹별 공강 학생 수 — 그 그룹에 들어간 분반이 없는 학생(미배정 과목이 있으면 그 학생의 빈 그룹도 공강으로 센다) */
+export function freeCounts(project) {
+  const N = Object.keys(project.requests).length
+  const busy = project.slots.map(() => 0)
+  for (const sid of Object.keys(project.requests)) {
+    const ts = new Set(studentSchedule(project, sid).map((x) => x.slot).filter((t) => t !== null && t !== undefined))
+    for (const t of ts) if (busy[t] !== undefined) busy[t]++
+  }
+  return busy.map((b) => N - b)
+}
+
+/**
+ * 그룹 수 바꾸기. n은 학생 최대 과목 수 ~ MAX_GROUPS.
+ * 줄이면 없어지는 그룹의 분반은 그룹 미정(고정 해제), 그 분반 학생은 미배정. 서로 다른 그룹 과목의 분반 수는 n 이하로.
+ */
+export function setGroupCount(project, n) {
+  const count = Math.min(MAX_GROUPS, Math.max(maxPicks(project), 1, Math.floor(Number(n) || 0)))
+  if (count === project.slots.length) return project
+  const goneSet = new Set()
+  project.subjects.forEach((subj, s) => subj.slotBySection.forEach((t, k) => {
+    if (t !== null && t !== undefined && t >= count) goneSet.add(`${s}:${k}`)
+  }))
+  let p = {
+    ...project,
+    slots: slotLetters(count),
+    rooms: slotLetters(count).map(() => null),
+    subjects: project.subjects.map((subj, s) => {
+      if (!subj.slotBySection.some((_, k) => goneSet.has(`${s}:${k}`))) return subj
+      return {
+        ...subj,
+        locked: false,
+        slotBySection: subj.slotBySection.map((t, k) => (goneSet.has(`${s}:${k}`) ? null : t)),
+        lockedSections: subj.lockedSections.map((x, k) => (goneSet.has(`${s}:${k}`) ? false : x)),
+      }
+    }),
+  }
+  // 그룹이 사라진 분반의 학생은 미배정
+  if (goneSet.size) {
+    const assignment = { ...p.assignment }
+    for (const [sid, subs] of Object.entries(p.requests)) {
+      const a = assignment[sid] || []
+      if (subs.some((s, j) => goneSet.has(`${s}:${a[j]}`))) {
+        assignment[sid] = subs.map((s, j) => (goneSet.has(`${s}:${a[j]}`) ? null : a[j] ?? null))
+      }
+    }
+    p = { ...p, assignment }
+  }
+  p.subjects.forEach((subj, s) => { if (subj.distinctSlots && subj.sections > count) p = resizeSections(p, s, count) })
+  return p
+}
+
+// ── 분리 규칙 가져오기(다른 학기 작업에서) ────────────────────────────────
+
+/**
+ * 다른 작업의 분리 규칙을 지금 작업 학생에 맞춘다. 학번이 같으면 그대로, 없으면 이름이 지금 명단에 한 명뿐일 때 그 학생.
+ * @param rules 원본 규칙 [{ id, students, memo }], sourceNames 원본 { 학번: 이름 }, target 지금 작업
+ * @returns [{ rule, students: [{ from, name, to, how: 'id'|'name'|'missing'|'ambiguous' }], ids: [새 학번], ok, duplicate }]
+ */
+export function matchSeparations(rules, sourceNames = {}, target) {
+  const known = new Set(Object.keys(target.requests))
+  const byName = new Map()
+  for (const sid of known) {
+    const nm = String(target.names?.[sid] || '').trim()
+    if (!nm) continue
+    if (!byName.has(nm)) byName.set(nm, [])
+    byName.get(nm).push(sid)
+  }
+  const existing = new Set((target.separations || []).map((r) => [...r.students].sort().join(',')))
+  return (rules || []).map((rule) => {
+    const students = (rule.students || []).map((from) => {
+      const name = String(sourceNames[from] || '').trim()
+      if (known.has(from)) return { from, name: name || target.names?.[from] || '', to: from, how: 'id' }
+      const cands = name ? byName.get(name) || [] : []
+      if (cands.length === 1) return { from, name, to: cands[0], how: 'name' }
+      return { from, name, to: null, how: cands.length > 1 ? 'ambiguous' : 'missing' }
+    })
+    const ids = [...new Set(students.map((x) => x.to).filter(Boolean))]
+    const duplicate = ids.length >= 2 && existing.has([...ids].sort().join(','))
+    return { rule, students, ids, ok: ids.length >= 2 && !duplicate, duplicate }
+  })
+}
+
+// ── 회의 자료 ────────────────────────────────────────────────────────────
+
+/**
+ * 회의 자료(인쇄·엑셀) 한 벌 — 배정표 격자와 과목·그룹 요약. 분리 규칙은 개수만(학생 이름은 싣지 않는다).
+ */
+export function meetingReport(project) {
+  const v = validateProject(project)
+  const sizes = sectionSizes(project)
+  const demand = demandOf(project)
+  const blocks = [...new Set(project.subjects.map((s) => s.block))]
+  const cols = blocks.flatMap((b) => project.subjects.map((subj, s) => ({ subj, s })).filter((x) => x.subj.block === b))
+    .map(({ subj, s }) => ({
+      s, name: subj.name, block: subj.block, demand: demand[s], sections: subj.sections,
+      maxSize: subj.maxSize || project.maxSize || null,
+      avg: subj.sections ? Math.round((demand[s] / subj.sections) * 10) / 10 : null,
+      spread: spreadOf(sizes[s]), sizes: sizes[s], locked: !!subj.locked,
+      labels: subj.slotBySection.map((_, k) => sectionLabel(project, s, k)),
+    }))
+  const showFree = hasFree(project)
+  const free = freeCounts(project)
+  const cellOf = (s, pred) => project.subjects[s].slotBySection
+    .map((x, k) => (pred(x) ? { k, label: sectionLabel(project, s, k), size: sizes[s][k] } : null)).filter(Boolean)
+  const groups = project.slots.map((letter, t) => {
+    const cells = cols.map((c) => cellOf(c.s, (x) => x === t))
+    const all = cells.flat().map((x) => x.size)
+    return {
+      t, letter, cells, sections: all.length, students: all.reduce((a, b) => a + b, 0),
+      min: all.length ? Math.min(...all) : 0, max: all.length ? Math.max(...all) : 0, free: showFree ? free[t] : null,
+    }
+  })
+  const unplaced = cols.map((c) => cellOf(c.s, (x) => x === null || x === undefined))
+  return {
+    title: project.title || '선택과목 분반',
+    term: [project.year && `${project.year}학년도`, project.grade && `${project.grade}학년`, project.semester && `${project.semester}학기`].filter(Boolean).join(' '),
+    date: new Date().toLocaleDateString('ko-KR'),
+    blocks: blocks.map((b) => ({ block: b, span: cols.filter((c) => c.block === b).length })),
+    cols,
+    groups,
+    unplaced: unplaced.some((x) => x.length) ? unplaced : null,
+    showFree,
+    status: {
+      students: Object.keys(project.requests).length,
+      excluded: (project.excluded || []).length,
+      subjects: project.subjects.length,
+      sections: project.subjects.reduce((a, x) => a + x.sections, 0),
+      groups: project.slots.join(''),
+      unassigned: v.unassigned.length,
+      conflicts: v.conflicts.length,
+      separationRules: (project.separations || []).length,
+      separationViolations: v.separationViolations.length,
+      sizeIssues: v.sizeIssues.length,
+      freeOver: v.freeOver.length,
+      worstSpread: Math.max(0, ...sizes.filter((x) => x.length > 1).map(spreadOf)),
+      maxSize: project.maxSize ?? null, maxMode: project.maxMode || 'hard',
+      minSize: project.minSize ?? null, minMode: project.minMode || 'soft',
+      freeMax: showFree ? project.freeMax ?? null : null,
+      totalFree: showFree ? totalFree(project) : 0,
+    },
+  }
 }
