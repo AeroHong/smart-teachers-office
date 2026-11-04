@@ -160,12 +160,18 @@ export default function ProjectList() {
                       <Paper key={p.id} variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
                         onClick={() => openWorkspace(navigate, p.id)}>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
+                          {(p.year || p.grade || p.semester) && (
+                            <Typography variant="caption" fontWeight={700} color="primary"
+                              sx={{ display: 'inline-block', mb: 0.5, px: 0.75, py: 0.1, borderRadius: 1, bgcolor: 'action.selected' }}>
+                              {workLabel(p)}
+                            </Typography>
+                          )}
                           <Stack direction="row" spacing={1} alignItems="center">
                             <Typography fontWeight={800} fontSize="1.05rem" noWrap title={p.title}>{p.title || workLabel(p)}</Typography>
                             {p.lastSolve?.ok && <Chip size="small" color="success" label="배정 완료" />}
                           </Stack>
                           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }} noWrap>
-                            {[workLabel(p) !== p.title && workLabel(p), `학생 ${p.studentCount}명`, `과목 ${p.subjectCount}개`, p.sourceFileName,
+                            {[`학생 ${p.studentCount}명`, `과목 ${p.subjectCount}개`, p.sourceFileName,
                               p.updatedAt && `${p.updatedAt.toLocaleString('ko-KR')} ${p.updatedByName}`].filter(Boolean).join(' · ')}
                           </Typography>
                         </Box>
