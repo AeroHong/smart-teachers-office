@@ -11,6 +11,7 @@ import {
   normalizeProject, recalcSections, setStudentPicks, toggleStudentPick, addStudent, removeStudent, roomsOf,
   placementCheck, placementCheckIfMoved, quickAssign, resetAssignment, sizeIssues,
   separationIssues, addSeparation, updateSeparation, removeSeparation, balanceScore, compareScore, unassignedBySubject,
+  detectEnrollmentLayout, suggestWorkInfo, folderOf, mergeProject, makeSolveLog, pushSolveLog, formatSolveLog,
 } from './sectioning.js'
 
 // 실제 나이스 수강신청 일괄등록 파일과 같은 모양(1행 학년·학기, 2행 칸막이 병합, 3행 과목명)
@@ -302,4 +303,132 @@ test('과목별 미배정 — 분반 없음·그룹 미정·사라진 분반', (
   const r = unassignedBySubject(p)
   assert.deepEqual(r.map((x) => [x.name, x.count]), [['정치', 2], ['기하', 1]])
   assert.deepEqual(r[0].students, ['10102', '10103'])
+})
+
+// 교육부 수강신청 프로그램 원본과 같은 모양(가짜 이름): 1행 안내, 2행 학기, 3행 선택그룹, 4행 과목, 5행 고유번호,
+// A~C열 1·2·3학년 학번(그 학년만 값, 나머지 0), D열 이름, E열 학생 고유번호, F열~ 0/1
+const MOE_ROWS = [
+  ['고유번호는 절대 변경하지 말고 …', null, null, null, null, null, null, null, null],
+  ['1학년', '2학년', '3학년', '이름', '학기', '2-1', null, null, null],
+  [null, null, null, null, '선택그룹', 'A', null, null, 'B'],
+  [null, null, null, null, '과목', '물리학', '화학', '생명과학', '일본어'],
+  [null, null, null, null, '고유번호', '2Y1ST100001', '2Y1ST100002', '2Y1ST100003', '2Y1ST100004'],
+  [10101, 0, 0, '가나다', '3342M0000001', 1, 1, 0, 1],
+  [10102, 0, 0, '라마바', '3342M0000002', 0, 1, 1, 1],
+  [10103, 0, 0, '사아자', '3342M0000003', 0, 0, 0, 0],
+]
+const MOE_MERGES = [
+  { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, { s: { r: 1, c: 0 }, e: { r: 4, c: 0 } },
+  { s: { r: 1, c: 5 }, e: { r: 1, c: 8 } }, { s: { r: 2, c: 5 }, e: { r: 2, c: 7 } },
+]
+
+test('추출 — 교육부 원본 양식: 이름표로 과목·그룹·고유번호 행, 학번·이름 열을 찾는다', () => {
+  const lay = detectEnrollmentLayout(MOE_ROWS, MOE_MERGES)
+  assert.equal(lay.dataStart, 5)
+  assert.deepEqual(lay.idCols, [0, 1, 2])
+  assert.equal(lay.nameCol, 3)
+  assert.equal(lay.subjectRow, 3)
+  assert.equal(lay.blockRow, 2)
+  assert.equal(lay.codeRow, 4)
+  assert.deepEqual(lay.subjectCols, [5, 6, 7, 8])
+  const p = parseEnrollmentRows(MOE_ROWS, MOE_MERGES)
+  assert.deepEqual(p.subjects.map((s) => [s.name, s.block, s.code]), [
+    ['물리학', 'A', '2Y1ST100001'], ['화학', 'A', '2Y1ST100002'], ['생명과학', 'A', '2Y1ST100003'], ['일본어', 'B', '2Y1ST100004']])
+  assert.deepEqual(p.students, [{ id: '10101', subjects: [0, 1, 3] }, { id: '10102', subjects: [1, 2, 3] }])
+  assert.deepEqual(p.excluded, [{ id: '10103', reason: '신청 과목 없음' }])
+  assert.equal(p.names['10102'], '라마바')
+  assert.equal(p.termLabel, '2-1')
+  assert.equal(p.slotCount, 3)
+})
+
+test('추출 — 2학년 열에 학번이 있으면 그 값을 쓴다, 사람이 고친 행·열을 우선한다', () => {
+  const rows = MOE_ROWS.map((r) => [...r])
+  rows[5] = [0, 20101, 0, '가나다', '3342M0000001', 1, 1, 0, 1]
+  const p = parseEnrollmentRows(rows, MOE_MERGES)
+  assert.equal(p.students[0].id, '20101')
+  // 과목 열을 앞 3개로 좁히기
+  const q = parseEnrollmentRows(rows, MOE_MERGES, { lastCol: 7 })
+  assert.deepEqual(q.subjects.map((s) => s.name), ['물리학', '화학', '생명과학'])
+  // 이름 열 없음
+  const r = parseEnrollmentRows(rows, MOE_MERGES, { nameCol: null })
+  assert.deepEqual(r.names, {})
+})
+
+test('원본 양식 되돌리기 — 학생 정보 열(학번·이름·고유번호)을 살린다', () => {
+  const pr = createProject(parseEnrollmentRows(MOE_ROWS, MOE_MERGES), { maxSize: 30 })
+  const { rows } = neisExportRows(pr)
+  assert.equal(rows.length, 8)
+  assert.deepEqual(rows[5].slice(0, 5), [10101, 0, 0, '가나다', '3342M0000001'])
+  assert.deepEqual(rows[7].slice(0, 5), [10103, 0, 0, '사아자', '3342M0000003'])
+})
+
+test('작업 정보 — 학년도 = 입학년도 + 학년 − 1, 작업명·묶음 기본값', () => {
+  const a = suggestWorkInfo('2025입학생_수강신청일괄등록.xlsx', '3-1')
+  assert.deepEqual([a.entryYear, a.year, a.grade, a.semester], [2025, 2027, 3, 1])
+  assert.equal(a.title, '2027학년도 3학년 1학기 선택과목 분반')
+  assert.equal(a.folder, '2025입학생')
+  const b = suggestWorkInfo('2026입학생_수강신청일괄등록20261103 (1).xlsx', '2-1')
+  assert.deepEqual([b.entryYear, b.year], [2026, 2027])
+  const c = suggestWorkInfo('수강신청.xlsx', '2-2')
+  assert.deepEqual([c.entryYear, c.year, c.grade], [null, null, 2])
+  // 옛 작업: 학년도·학년으로 묶음 계산
+  assert.equal(folderOf({ year: 2027, grade: 2 }), '2026입학생')
+  assert.equal(folderOf({ folder: '내 묶음' }), '내 묶음')
+  const pr = createProject(parseEnrollmentRows(MOE_ROWS, MOE_MERGES), { year: 2027, entryYear: 2026, title: 't' })
+  assert.deepEqual([pr.year, pr.entryYear, pr.grade, pr.semester, pr.folder], [2027, 2026, 2, 1, '2026입학생'])
+})
+
+test('합치기 — 서로 다른 곳은 둘 다 남기고, 같은 곳은 최신본을 남기고 알린다', () => {
+  const base = createProject(parseEnrollmentRows(MOE_ROWS, MOE_MERGES), { maxSize: 30, title: '처음' })
+  // 나: 작업명·10101 신청 변경·분리 규칙 추가 / 다른 사람: 최대 인원·10102 배정·물리학 분반 수
+  const mine = setStudentPicks({ ...base, title: '내 이름' }, '10101', [0, 2, 3])
+  const mine2 = addSeparation(mine, ['10101', '10102'])
+  const latest = resizeSections({ ...base, maxSize: 25, assignment: { ...base.assignment, 10102: [0, 0, 0] } }, 0, 2)
+  const { project: m, conflicts } = mergeProject(base, mine2, latest)
+  assert.equal(m.title, '내 이름')
+  assert.equal(m.maxSize, 25)
+  assert.deepEqual(m.requests['10101'], [0, 2, 3])
+  assert.deepEqual(m.assignment['10102'], [0, 0, 0])
+  assert.equal(m.subjects[0].sections, 2)
+  assert.equal(m.separations.length, 1)
+  assert.deepEqual(conflicts, [])
+
+  // 같은 학생을 둘 다 고침 → 최신본
+  const theirs = setStudentPicks(base, '10101', [1, 2, 3])
+  const r = mergeProject(base, mine, theirs, (sid) => `학번 ${sid}`)
+  assert.deepEqual(r.project.requests['10101'], [1, 2, 3])
+  assert.equal(r.conflicts.length, 1)
+  assert.match(r.conflicts[0], /학번 10101/)
+
+  // 같은 과목의 서로 다른 항목: 분반 수(나) + 같은 그룹 금지(다른 사람) → 둘 다
+  const a = resizeSections(base, 1, 2)
+  const b = { ...base, subjects: base.subjects.map((s, i) => (i === 1 ? { ...s, distinctSlots: false } : s)) }
+  const ab = mergeProject(base, a, b).project
+  assert.equal(ab.subjects[1].sections, 2)
+  assert.equal(ab.subjects[1].distinctSlots, false)
+})
+
+test('배정 기록 — 만들기·최근 5회·글로 내보내기(원본 줄은 기본 제외)', () => {
+  const pr = createProject(parseEnrollmentRows(MOE_ROWS, MOE_MERGES), { maxSize: 30, title: '기록 시험', year: 2027 })
+  const c = {
+    title: '배정 실행', startedAt: Date.UTC(2026, 10, 4, 1, 2, 3),
+    logs: [{ t: 10, type: 'local', text: '시작' }, { t: 500, type: 'raw', text: '#1 원본' }, { t: 900, type: 'done', text: '검사 통과' }],
+    done: { ok: true, summary: '최적해' },
+  }
+  const log = makeSolveLog(pr, c, { byName: '홍길동', after: pr })
+  assert.equal(log.settings.students, 2)
+  assert.equal(log.result.subjects.length, 4)
+  let p = pr
+  for (let i = 0; i < 7; i++) p = pushSolveLog(p, { ...log, id: `l${i}` })
+  assert.equal(p.solveLogs.length, 5)
+  assert.equal(p.solveLogs[0].id, 'l2')
+  const text = formatSolveLog(pr, log)
+  assert.match(text, /기록 시험/)
+  assert.match(text, /홍길동/)
+  assert.match(text, /검사 통과/)
+  assert.doesNotMatch(text, /#1 원본/)
+  assert.match(formatSolveLog(pr, log, { raw: true }), /#1 원본/)
+  // 합치기: 기록은 둘 다
+  const m = mergeProject(pr, pushSolveLog(pr, { ...log, id: 'a', at: '2026-11-04T01:00:00Z' }), pushSolveLog(pr, { ...log, id: 'b', at: '2026-11-04T02:00:00Z' })).project
+  assert.deepEqual(m.solveLogs.map((x) => x.id), ['a', 'b'])
 })

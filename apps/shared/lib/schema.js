@@ -182,6 +182,8 @@ export const COL = {
   HUB_LOGS: 'studentHubLogs',
   // 선택과목 분반 배정(ClassFlow, 2026-11) 사용자 로그 — studentHubLogs와 같은 모양, 따로 쌓는다
   CLASSFLOW_LOGS: 'classflowLogs',
+  // 선택과목 분반 배정 작업(ClassFlow) — StudentHub 선택과목 「분반 배정에서 가져오기」가 읽는다
+  SECTIONING_PROJECTS: 'sectioningProjects',
   // 대시보드 화면 — auto-ID. scope 'shared'(관리자가 꾸미는 공용·TV 화면) | 'personal'(본인만)
   HUB_DASHBOARDS: 'studentHubDashboards',
   // StudentHub 메타 — 고정 ID 문서. 'roster': 나이스 명렬 마지막 업로드(학적 기준일 계산용)

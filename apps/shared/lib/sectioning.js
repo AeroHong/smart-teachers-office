@@ -15,6 +15,8 @@
  *   assignment: { [studentId]: [sectionIdx|null, ...] },    // requests와 같은 순서
  *   lockedStudents: [studentId], manualStudents: [studentId],
  *   excluded: [{ id, reason }],
+ *   entryYear, folder, names: { [studentId]: 이름 }, studentInfo: { [studentId]: [원본 정보 열 값] }, infoCols: [col],
+ *   solveLogs: [{ id, title, at, byName, summary, ok, settings, result, lines }],   // 배정 기록(최근 5회)
  *   headerRows: [{ cells: [...] }], headerMerges: [{ s:{r,c}, e:{r,c} }], subjectCols: [col, ...],
  * }
  */
@@ -33,33 +35,164 @@ const isPicked = (v) => {
 
 const cellText = (v) => (v === null || v === undefined ? '' : String(v).trim())
 
+/** 엑셀 열 이름(0 → A, 26 → AA) */
+export function colName(c) {
+  let s = ''
+  let n = c + 1
+  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26) }
+  return s
+}
+
+// 머리 영역 이름표 — 과목명·칸막이·과목코드·학기·이름·학번 칸
+const LABELS = {
+  subject: /^(과목|과목명|교과목|교과목명)$/,
+  block: /^(선택\s*그룹|그룹|칸막이|묶음|선택\s*군|교과\s*군|선택\s*묶음)$/,
+  code: /(고유\s*번호|과목\s*코드|과목\s*번호|코드)$/,
+  term: /^(학기|학년\s*-\s*학기)$/,
+  name: /^(이름|성명|학생\s*명|학생\s*이름)$/,
+  id: /^(학번|\d\s*학년)$/,
+}
+const isLabel = (t) => Object.values(LABELS).some((re) => re.test(t))
+/** 학번 값: 4~6자리 숫자이고 0이 아님 */
+const isIdVal = (v) => /^\d{4,6}$/.test(cellText(v)) && Number(cellText(v)) > 0
+/** 신청 칸 값: 비었거나 짧은 표시(1·0·O·V 등). 학번·이름·코드는 아니다 */
+const isPickVal = (v) => { const t = cellText(v); return t === '' || (t.length <= 2 && !/^\d{4,}$/.test(t)) }
+const isCodeLike = (t) => /^[A-Za-z0-9-]{6,}$/.test(t) && /\d/.test(t) && !/^\d{4,6}$/.test(t)
+const blankRow = (r) => !r || r.every((v) => !cellText(v))
+
 /**
- * 수강신청 일괄등록 시트(2차원 배열)를 읽는다.
+ * 수강신청 엑셀의 모양을 알아낸다 — 학생 행 시작, 학번 열(여러 개면 행마다 0 아닌 값), 이름 열,
+ * 과목명·칸막이·과목코드 행, 과목 열. 양식이 학교·해마다 달라도 이름표(과목·선택그룹·고유번호·이름·n학년)와
+ * 값 모양(학번 숫자, 0/1 칸)으로 찾는다. overrides로 사람이 고친 값을 우선한다
+ * (idCol·nameCol·subjectRow·blockRow·codeRow·firstCol·lastCol, null = 없음).
+ * @returns {{ dataStart, idCols, nameCol, subjectRow, blockRow, codeRow, subjectCols, infoCols, width, guessed: string[] }}
+ */
+export function detectEnrollmentLayout(rows, merges = [], overrides = {}) {
+  const width = Math.max(0, ...rows.map((r) => (r ? r.length : 0)))
+  const at = (r, c) => rows[r]?.[c]
+  const has = (k) => overrides[k] !== undefined
+
+  // 학생 행 시작: 학번 값이 있고, 바로 아래 행에도 학번이 있음(또는 그 아래가 모두 빈 행) — 머리의 숫자 한 칸과 구별
+  const hasId = (r) => !!rows[r] && rows[r].some(isIdVal)
+  let dataStart = -1
+  for (let r = 0; r < rows.length; r++) {
+    if (hasId(r) && (r + 1 >= rows.length || hasId(r + 1) || rows.slice(r + 1).every(blankRow))) { dataStart = r; break }
+  }
+  if (dataStart < 1) throw new Error('학번(숫자)으로 시작하는 학생 행을 찾지 못했습니다.')
+  const dataRows = []
+  for (let r = dataStart; r < rows.length; r++) if (!blankRow(rows[r])) dataRows.push(r)
+
+  // 머리 이름표(병합 칸은 왼쪽 위 칸에만 값이 있다)
+  const labels = []
+  for (let r = 0; r < dataStart; r++) {
+    for (let c = 0; c < width; c++) {
+      const t = cellText(at(r, c))
+      if (!t) continue
+      for (const [kind, re] of Object.entries(LABELS)) if (re.test(t)) labels.push({ kind, r, c })
+    }
+  }
+  const labelOf = (kind) => labels.find((l) => l.kind === kind)
+  const guessed = []
+
+  // 학번 열: 값이 학번·0·빈칸뿐이고, 학번 값이 30% 이상이거나 학번 이름표(학번·n학년)가 붙은 열
+  let idCols
+  if (has('idCol') && overrides.idCol !== null) idCols = [Number(overrides.idCol)]
+  else {
+    const labeled = new Set(labels.filter((l) => l.kind === 'id').map((l) => l.c))
+    idCols = []
+    for (let c = 0; c < width; c++) {
+      const vals = dataRows.map((r) => at(r, c))
+      if (!vals.every((v) => isIdVal(v) || cellText(v) === '' || cellText(v) === '0')) continue
+      const n = vals.filter(isIdVal).length
+      if ((n > 0 && n >= dataRows.length * 0.3) || labeled.has(c)) idCols.push(c)
+    }
+    if (!idCols.some((c) => dataRows.some((r) => isIdVal(at(r, c))))) throw new Error('학번 열을 찾지 못했습니다.')
+  }
+
+  // 이름 열: 이름표, 없으면 한글 2~5자가 대부분인 열
+  let nameCol = null
+  if (has('nameCol')) nameCol = overrides.nameCol === null ? null : Number(overrides.nameCol)
+  else {
+    const l = labelOf('name')
+    if (l) nameCol = l.c
+    else {
+      for (let c = 0; c < width && nameCol === null; c++) {
+        if (idCols.includes(c)) continue
+        const vals = dataRows.map((r) => cellText(at(r, c))).filter(Boolean)
+        if (vals.length >= dataRows.length * 0.7 && vals.filter((t) => /^[가-힣]{2,5}$/.test(t)).length >= vals.length * 0.8) nameCol = c
+      }
+      if (nameCol !== null) guessed.push('이름 열')
+    }
+  }
+
+  const candidate = (c) => !idCols.includes(c) && c !== nameCol && dataRows.every((r) => isPickVal(at(r, c)))
+  const candTexts = (r) => {
+    const out = []
+    for (let c = 0; c < width; c++) if (candidate(c) && cellText(at(r, c))) out.push(cellText(at(r, c)))
+    return out
+  }
+
+  // 과목코드 행·과목명 행·칸막이 행
+  let codeRow = has('codeRow') ? overrides.codeRow : (labelOf('code')?.r ?? null)
+  let subjectRow = has('subjectRow') ? overrides.subjectRow : (labelOf('subject')?.r ?? null)
+  if (subjectRow === null || subjectRow === undefined) {
+    // 이름표가 없으면 학생 행 위로 올라가며, 과목코드 모양 행은 건너뛴 첫 글자 행
+    subjectRow = null
+    for (let r = dataStart - 1; r >= 0; r--) {
+      const texts = candTexts(r)
+      if (!texts.length) continue
+      if (texts.filter(isCodeLike).length >= texts.length * 0.7) { if (codeRow === null && !has('codeRow')) codeRow = r; continue }
+      subjectRow = r
+      break
+    }
+    if (subjectRow === null) throw new Error('과목명 행을 찾지 못했습니다.')
+  }
+  let blockRow = has('blockRow') ? overrides.blockRow : (labelOf('block')?.r ?? null)
+  if (!has('blockRow') && blockRow === null && subjectRow > 0) {
+    const texts = candTexts(subjectRow - 1)
+    // 학기(2-1)만 있는 행은 칸막이가 아니다
+    if (texts.length && !texts.every((t) => /^\d-\d$/.test(t))) blockRow = subjectRow - 1
+  }
+
+  // 과목 열: 과목명 행에 이름표 아닌 글자 + 학생 값이 0/1 모양
+  const subjectCols = []
+  const from = overrides.firstCol ?? 0
+  const to = overrides.lastCol ?? width - 1
+  for (let c = from; c <= to; c++) {
+    const t = cellText(at(subjectRow, c))
+    if (t && !isLabel(t) && candidate(c)) subjectCols.push(c)
+  }
+  if (!subjectCols.length) throw new Error('과목 열을 찾지 못했습니다.')
+
+  // 학생 정보 열(원본 양식으로 되돌릴 때 다시 채운다): 과목 열이 아니고 값이 있는 열
+  const sub = new Set(subjectCols)
+  const infoCols = []
+  for (let c = 0; c < width; c++) if (!sub.has(c) && dataRows.some((r) => cellText(at(r, c)))) infoCols.push(c)
+
+  return { dataStart, idCols, nameCol, subjectRow, blockRow, codeRow, subjectCols, infoCols, width, guessed }
+}
+
+/**
+ * 알아낸 모양(layout)대로 학생·과목을 뽑는다.
  * rows: XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) 결과, merges: ws['!merges']
  */
-export function parseEnrollmentRows(rows, merges = []) {
+export function extractEnrollment(rows, merges, layout) {
+  const { dataStart, idCols, nameCol, subjectRow, blockRow, codeRow, subjectCols, infoCols } = layout
   const warnings = []
-  const dataStart = rows.findIndex((r) => r && /^\d{4,}$/.test(cellText(r[0])))
-  if (dataStart < 1) throw new Error('학번(숫자)으로 시작하는 학생 행을 찾지 못했습니다.')
-  const headerRow = dataStart - 1
-  const header = rows[headerRow] || []
+  const header = rows[subjectRow] || []
 
-  const subjectCols = []
-  for (let c = 1; c < header.length; c++) if (cellText(header[c])) subjectCols.push(c)
-  if (!subjectCols.length) throw new Error('과목명 행을 찾지 못했습니다.')
-
-  // 칸막이: 과목명 바로 위 행. 병합 범위 → 그 칸 값, 병합 안 된 칸 → 자기 값, 빈 칸 → 왼쪽 칸막이 이어받기
+  // 칸막이: 병합 범위 → 그 칸 값, 병합 안 된 칸 → 자기 값, 빈 칸 → 왼쪽 칸막이 이어받기
   const colBlock = {}
-  const blockRow = headerRow - 1
-  if (blockRow >= 0) {
+  if (blockRow !== null && blockRow !== undefined && blockRow >= 0) {
     for (const m of merges || []) {
-      if (m.s.r <= blockRow && m.e.r >= blockRow && m.s.r === blockRow) {
+      if (m.s.r === blockRow) {
         const name = cellText(rows[blockRow]?.[m.s.c])
-        if (name) for (let c = m.s.c; c <= m.e.c; c++) colBlock[c] = name
+        if (name && !isLabel(name)) for (let c = m.s.c; c <= m.e.c; c++) colBlock[c] = name
       }
     }
     for (const c of subjectCols) {
-      if (!colBlock[c] && cellText(rows[blockRow]?.[c])) colBlock[c] = cellText(rows[blockRow][c])
+      const t = cellText(rows[blockRow]?.[c])
+      if (!colBlock[c] && t && !isLabel(t)) colBlock[c] = t
     }
   }
   let last = null
@@ -67,19 +200,34 @@ export function parseEnrollmentRows(rows, merges = []) {
     if (colBlock[c]) last = colBlock[c]
     else colBlock[c] = last
   }
-  const subjects = subjectCols.map((c) => ({ name: cellText(header[c]), block: colBlock[c] || '전체', col: c }))
+  const subjects = subjectCols.map((c) => {
+    const s = { name: cellText(header[c]), block: colBlock[c] || '전체', col: c }
+    const code = codeRow !== null && codeRow !== undefined ? cellText(rows[codeRow]?.[c]) : ''
+    if (code) s.code = code
+    return s
+  })
   const dupNames = subjects.map((s) => s.name).filter((n, i, a) => a.indexOf(n) !== i)
   if (dupNames.length) throw new Error(`과목명이 중복됩니다: ${[...new Set(dupNames)].join(', ')}`)
 
   const students = []
   const excluded = []
+  const names = {}
+  const info = {}
   const seen = new Set()
   for (let r = dataStart; r < rows.length; r++) {
     const row = rows[r]
-    const id = cellText(row?.[0])
-    if (!id) continue
+    if (blankRow(row)) continue
+    const idc = idCols.find((c) => isIdVal(row[c]))
+    if (idc === undefined) {
+      const n = nameCol !== null ? cellText(row[nameCol]) : ''
+      if (n || subjectCols.some((c) => isPicked(row[c]))) warnings.push(`${r + 1}행${n ? `(${n})` : ''}: 학번이 없어 건너뛰었습니다.`)
+      continue
+    }
+    const id = cellText(row[idc])
     if (seen.has(id)) { warnings.push(`학번 ${id}가 두 번 나옵니다 — 뒤의 행은 무시했습니다.`); continue }
     seen.add(id)
+    if (nameCol !== null && cellText(row[nameCol])) names[id] = cellText(row[nameCol])
+    if (infoCols.length) info[id] = infoCols.map((c) => (row[c] === undefined ? null : row[c]))
     const picks = []
     subjectCols.forEach((c, i) => { if (isPicked(row[c])) picks.push(i) })
     if (!picks.length) { excluded.push({ id, reason: '신청 과목 없음' }); continue }
@@ -119,10 +267,19 @@ export function parseEnrollmentRows(rows, merges = []) {
     warnings,
     slotCount,
     termLabel,
+    names,
+    info,
+    infoCols,
+    layout,
     headerRows: rows.slice(0, dataStart).map((r) => ({ cells: (r || []).map((v) => (v === undefined ? null : v)) })),
     headerMerges: (merges || []).filter((m) => m.s.r < dataStart).map((m) => ({ s: { ...m.s }, e: { ...m.e } })),
     subjectCols,
   }
+}
+
+/** 수강신청 일괄등록 시트(2차원 배열)를 읽는다 — 모양 알아내기 + 뽑기. overrides는 detectEnrollmentLayout 참고 */
+export function parseEnrollmentRows(rows, merges = [], overrides = {}) {
+  return extractEnrollment(rows, merges, detectEnrollmentLayout(rows, merges, overrides))
 }
 
 /** 분반별 최대 인원으로 분반 수 계산(올림). 같은 과목 다른 그룹이면 그룹 수를 넘지 않는다. 예: 50명, 최대 35명 → 2분반 */
@@ -156,6 +313,8 @@ export function normalizeProject(p) {
     lockedStudents: p.lockedStudents || [],
     manualStudents: p.manualStudents || [],
     separations: p.separations || [],
+    names: p.names || {},
+    solveLogs: p.solveLogs || [],
     subjects: p.subjects.map((s) => ({
       ...s,
       maxSize: s.maxSize ?? s.target ?? null,
@@ -180,7 +339,51 @@ export function recalcSections(project, { force = false, only = null } = {}) {
   return p
 }
 
-export function createProject(parsed, { title = '', year = null, maxSize = DEFAULT_MAX_SIZE, sourceFileName = '' } = {}) {
+/**
+ * 파일명·학기 표시로 작업 정보를 미리 채운다.
+ *   입학년도: 파일명의 "2026입학" / 학년·학기: "2-1" / 학년도 = 입학년도 + 학년 − 1
+ *   예) 2025입학생 3-1 → 2027학년도 3학년 1학기, 2026입학생 2-1 → 2027학년도 2학년 1학기
+ */
+export function suggestWorkInfo(fileName = '', termLabel = '') {
+  const m = String(fileName).match(/(20\d{2})\s*(학년도\s*)?입학/)
+  const entryYear = m ? Number(m[1]) : null
+  const [g, sem] = String(termLabel || '').split('-').map(Number)
+  const grade = g || null
+  const semester = sem || null
+  const year = entryYear && grade ? entryYear + grade - 1 : null
+  const info = { entryYear, grade, semester, year }
+  return { ...info, title: defaultTitle(info), folder: defaultFolder(info) }
+}
+
+/** 학년도 = 입학년도 + 학년 − 1 (둘 중 하나라도 없으면 null) */
+export function yearOf(entryYear, grade) {
+  return Number(entryYear) && Number(grade) ? Number(entryYear) + Number(grade) - 1 : null
+}
+
+/** 입학년도 = 학년도 − 학년 + 1 */
+export function entryYearOf(year, grade) {
+  return Number(year) && Number(grade) ? Number(year) - Number(grade) + 1 : null
+}
+
+export function defaultTitle({ year, grade, semester }) {
+  const t = [year && `${year}학년도`, grade && `${grade}학년`, semester && `${semester}학기`].filter(Boolean).join(' ')
+  return t ? `${t} 선택과목 분반` : '선택과목 분반'
+}
+
+export function defaultFolder({ entryYear, year, grade }) {
+  const e = entryYear || entryYearOf(year, grade)
+  return e ? `${e}입학생` : '분류 없음'
+}
+
+/** 작업 묶음 이름(옛 문서는 학년도·학년으로 입학년도를 계산해 보인다) */
+export function folderOf(p) {
+  return p?.folder || defaultFolder({ entryYear: p?.entryYear, year: p?.year, grade: p?.grade })
+}
+
+export function createProject(parsed, {
+  title = '', year = null, maxSize = DEFAULT_MAX_SIZE, sourceFileName = '',
+  entryYear = null, grade = undefined, semester = undefined, folder = '',
+} = {}) {
   const slots = slotLetters(parsed.slotCount)
   const requests = {}
   const assignment = {}
@@ -191,17 +394,27 @@ export function createProject(parsed, { title = '', year = null, maxSize = DEFAU
   const demand = parsed.subjects.map((_, i) => parsed.students.filter((s) => s.subjects.includes(i)).length)
   const subjects = parsed.subjects.map((s, i) => {
     const sections = suggestSections(demand[i], maxSize, slots.length)
-    return {
+    const out = {
       name: s.name, block: s.block, sections, maxSize: null, sectionsManual: false, distinctSlots: true,
       slotBySection: Array(sections).fill(null), lockedSections: Array(sections).fill(false), locked: false,
     }
+    if (s.code) out.code = s.code
+    return out
   })
   const [g, sem] = (parsed.termLabel || '').split('-').map(Number)
+  const gr = grade === undefined ? (g || null) : (Number(grade) || null)
+  const se = semester === undefined ? (sem || null) : (Number(semester) || null)
+  const ey = Number(entryYear) || entryYearOf(year, gr)
   return {
-    title, year, grade: g || null, semester: sem || null, termLabel: parsed.termLabel, sourceFileName,
+    title, year, grade: gr, semester: se, termLabel: parsed.termLabel, sourceFileName,
+    entryYear: ey || null, folder: folder || defaultFolder({ entryYear: ey, year, grade: gr }),
     slots, rooms: slots.map(() => null),
     maxSize, maxMode: 'hard', minSize: null, minMode: 'soft', subjects, requests, assignment, separations: [],
     lockedStudents: [], manualStudents: [], excluded: parsed.excluded,
+    names: parsed.names || {},
+    studentInfo: parsed.info || {},
+    infoCols: parsed.infoCols || [],
+    solveLogs: [],
     warnings: parsed.warnings,
     headerRows: parsed.headerRows, headerMerges: parsed.headerMerges, subjectCols: parsed.subjectCols,
   }
@@ -209,7 +422,7 @@ export function createProject(parsed, { title = '', year = null, maxSize = DEFAU
 
 // ── 1단계: 신청 데이터 고치기 ────────────────────────────────────────────
 
-/** 학생 sid의 신청 과목을 picks로. 남는 과목의 배정은 유지, 새 과목은 미배정, 비면 제외 명단으로 */
+
 export function setStudentPicks(project, sid, picks) {
   const sorted = [...new Set(picks)].sort((a, b) => a - b)
   const requests = { ...project.requests }
@@ -440,7 +653,7 @@ export function toSolverInput(project, { keepPrevious = false, timeLimit = 30, w
       if (t !== null && t !== undefined && (subj.locked || subj.lockedSections[k])) sectionSlots[k] = t
     })
     return {
-      name: subj.name, sections: subj.sections, distinctSlots: subj.distinctSlots, sectionSlots,
+      name: subj.name, block: subj.block, sections: subj.sections, distinctSlots: subj.distinctSlots, sectionSlots,
       maxSize: subj.maxSize || project.maxSize || null, minSize: subj.minSize || project.minSize || null,
     }
   })
@@ -536,17 +749,21 @@ export function neisExportRows(project) {
   const cols = project.subjectCols || project.subjects.map((_, i) => i + 1)
   const width = Math.max(1 + project.subjects.length, ...cols.map((c) => c + 1), ...header.map((r) => r.length))
   const rows = header.map((r) => Array.from({ length: width }, (_, c) => r[c] ?? null))
-  for (const sid of studentIds(project)) {
+  // 원본의 학생 정보 열(학번·이름·고유번호 등)을 그대로 되살린다. 옛 작업은 1열에 학번만
+  const infoCols = project.infoCols || []
+  const baseRow = (sid) => {
     const row = Array(width).fill(null)
-    row[0] = /^\d+$/.test(sid) ? Number(sid) : sid
+    const info = project.studentInfo?.[sid]
+    if (info && infoCols.length) infoCols.forEach((c, i) => { if (c < width) row[c] = info[i] ?? null })
+    else row[0] = /^\d+$/.test(sid) ? Number(sid) : sid
+    return row
+  }
+  for (const sid of studentIds(project)) {
+    const row = baseRow(sid)
     for (const x of studentSchedule(project, sid)) row[cols[x.s]] = x.label
     rows.push(row)
   }
-  for (const ex of project.excluded || []) {
-    const row = Array(width).fill(null)
-    row[0] = /^\d+$/.test(ex.id) ? Number(ex.id) : ex.id
-    rows.push(row)
-  }
+  for (const ex of project.excluded || []) rows.push(baseRow(ex.id))
   return { rows, merges: project.headerMerges || [] }
 }
 
@@ -852,4 +1069,239 @@ export function unassignedBySubject(project) {
   return [...by.entries()]
     .map(([s, students]) => ({ s, name: project.subjects[s].name, count: students.length, students }))
     .sort((x, y) => y.count - x.count || x.s - y.s)
+}
+
+// ── 공동 작업: 저장할 때 3방향 합치기 ─────────────────────────────────────
+
+const sameVal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+/** base(내가 연 본)·mine(내 것)·latest(최신 저장본) — 내가 바꾼 곳만 내 값, 둘 다 다르게 바꿨으면 최신본 */
+function pick3(b, m, t, onConflict) {
+  if (sameVal(m, b)) return t
+  if (sameVal(t, b) || sameVal(m, t)) return m
+  onConflict()
+  return t
+}
+
+const SETTING_LABELS = {
+  title: '작업명', year: '학년도', grade: '학년', semester: '학기', entryYear: '입학년도', folder: '묶음',
+  termLabel: '학기 표시', sourceFileName: '파일명', slots: '그룹', rooms: '교실 수', maxSize: '분반 최대 인원',
+  maxMode: '최대 인원 방식', minSize: '분반 최소 인원', minMode: '최소 인원 방식', lastSolve: '마지막 배정 결과',
+  warnings: '불러올 때 경고', headerRows: '원본 머리', headerMerges: '원본 머리 병합', subjectCols: '원본 과목 열',
+  infoCols: '원본 학생 정보 열', studentInfo: '원본 학생 정보',
+}
+// 분반 수·그룹 배치·분반 고정은 함께 움직인다
+const SECTION_UNIT = ['sections', 'slotBySection', 'lockedSections']
+const SUBJECT_FIELD_LABELS = { maxSize: '최대 인원', minSize: '최소 인원', sectionsManual: '분반 수 직접 지정', distinctSlots: '같은 그룹 금지', locked: '과목 고정', block: '칸막이', name: '과목명', code: '과목 코드' }
+
+function setMerge(b = [], m = [], t = []) {
+  const bs = new Set(b)
+  const ms = new Set(m)
+  const added = m.filter((x) => !bs.has(x))
+  const removed = new Set(b.filter((x) => !ms.has(x)))
+  return [...new Set([...t.filter((x) => !removed.has(x)), ...added])]
+}
+
+/**
+ * 저장할 때 다른 사람이 먼저 저장했으면 최신본 위에 내 변경을 합친다(ExamCore mergeDraft와 같은 방식).
+ *  · 설정 값은 항목 단위, 과목은 과목·항목 단위(분반 수·그룹 배치·고정은 한 덩어리)
+ *  · 학생은 신청·배정·제외·이름을 한 덩어리로(배정 순서가 신청 순서에 매여 있으므로)
+ *  · 고정 학생·직접 배정 학생은 추가·삭제 단위, 분리 규칙은 규칙 단위, 배정 기록은 둘 다 남긴다
+ * @returns {{ project, conflicts: string[] }}
+ */
+export function mergeProject(base, mine, latest, labelOf = (sid) => sid) {
+  const conflicts = []
+  const out = { ...latest }
+
+  for (const k of Object.keys(SETTING_LABELS)) {
+    if (!(k in base) && !(k in mine) && !(k in latest)) continue
+    out[k] = pick3(base[k], mine[k], latest[k], () => conflicts.push(`${SETTING_LABELS[k]} — 둘 다 고쳐서 최신본 값을 남겼습니다.`))
+  }
+
+  // 과목
+  const names = (p) => (p.subjects || []).map((s) => s.name).join('|')
+  if (names(base) === names(mine) && names(base) === names(latest)) {
+    out.subjects = latest.subjects.map((t, i) => {
+      const b = base.subjects[i]
+      const m = mine.subjects[i]
+      if (sameVal(m, b)) return t
+      if (sameVal(t, b)) return m
+      const o = { ...t }
+      const unit = (x) => SECTION_UNIT.map((f) => x[f])
+      const u = pick3(unit(b), unit(m), unit(t), () => conflicts.push(`${t.name} 분반 수·그룹 배치 — 둘 다 고쳐서 최신본을 남겼습니다.`))
+      SECTION_UNIT.forEach((f, j) => { o[f] = u[j] })
+      for (const f of new Set([...Object.keys(b), ...Object.keys(m), ...Object.keys(t)])) {
+        if (SECTION_UNIT.includes(f)) continue
+        o[f] = pick3(b[f], m[f], t[f], () => conflicts.push(`${t.name} ${SUBJECT_FIELD_LABELS[f] || f} — 둘 다 고쳐서 최신본을 남겼습니다.`))
+      }
+      return o
+    })
+  } else if (names(mine) !== names(base) && names(latest) === names(base)) {
+    out.subjects = mine.subjects
+  } else {
+    out.subjects = latest.subjects
+    if (names(mine) !== names(base)) conflicts.push('과목 구성 — 둘 다 바꿔서 최신본을 남겼습니다.')
+  }
+
+  // 학생: 신청·배정·제외·이름 한 덩어리
+  const unitOf = (p, sid) => {
+    const ex = (p.excluded || []).find((x) => x.id === sid)
+    return {
+      r: p.requests?.[sid] ?? null,
+      a: p.assignment?.[sid] ?? null,
+      ex: ex ? ex.reason : null,
+      n: p.names?.[sid] ?? null,
+    }
+  }
+  const ids = new Set()
+  for (const p of [base, mine, latest]) {
+    Object.keys(p.requests || {}).forEach((x) => ids.add(x))
+    ;(p.excluded || []).forEach((x) => ids.add(x.id))
+    Object.keys(p.names || {}).forEach((x) => ids.add(x))
+  }
+  const requests = {}
+  const assignment = {}
+  const excluded = []
+  const nameMap = {}
+  for (const sid of ids) {
+    const u = pick3(unitOf(base, sid), unitOf(mine, sid), unitOf(latest, sid),
+      () => conflicts.push(`${labelOf(sid)} 신청·배정 — 둘 다 고쳐서 최신본을 남겼습니다.`))
+    if (u.r) { requests[sid] = u.r; assignment[sid] = u.a || u.r.map(() => null) }
+    if (u.ex !== null) excluded.push({ id: sid, reason: u.ex })
+    if (u.n !== null) nameMap[sid] = u.n
+  }
+  // 제외 명단은 최신본 순서를 살린다
+  const exOrder = new Map((latest.excluded || []).map((x, i) => [x.id, i]))
+  excluded.sort((x, y) => (exOrder.get(x.id) ?? 1e9) - (exOrder.get(y.id) ?? 1e9))
+  out.requests = requests
+  out.assignment = assignment
+  out.excluded = excluded
+  out.names = nameMap
+
+  out.lockedStudents = setMerge(base.lockedStudents, mine.lockedStudents, latest.lockedStudents)
+  out.manualStudents = setMerge(base.manualStudents, mine.manualStudents, latest.manualStudents)
+
+  // 분리 규칙: 규칙 id 단위
+  const byId = (arr) => new Map((arr || []).map((r) => [r.id, r]))
+  const bs = byId(base.separations)
+  const ms = byId(mine.separations)
+  const ts = byId(latest.separations)
+  const sepIds = [...new Set([...ts.keys(), ...ms.keys(), ...bs.keys()])]
+  out.separations = sepIds
+    .map((id) => pick3(bs.get(id), ms.get(id), ts.get(id), () => conflicts.push('분리 규칙 — 둘 다 고쳐서 최신본을 남겼습니다.')))
+    .filter(Boolean)
+
+  // 배정 기록: 둘 다 남긴다(최근 SOLVE_LOG_KEEP회)
+  const logs = new Map()
+  for (const l of [...(latest.solveLogs || []), ...(mine.solveLogs || [])]) logs.set(l.id, l)
+  out.solveLogs = [...logs.values()].sort((a, b) => String(a.at).localeCompare(String(b.at))).slice(-SOLVE_LOG_KEEP)
+
+  return { project: out, conflicts: [...new Set(conflicts)] }
+}
+
+// ── 배정 기록(로그) ──────────────────────────────────────────────────────
+
+export const SOLVE_LOG_KEEP = 5
+export const SOLVE_LOG_LINES = 600
+const MODE_TEXT = { hard: '꼭 지킴', soft: '가능하면', off: '참고만' }
+
+/** 실행할 때의 설정 요약 */
+export function solveSettings(project) {
+  const lockedSections = project.subjects.reduce((a, x) => a + (x.locked ? x.sections : (x.lockedSections || []).filter(Boolean).length), 0)
+  return {
+    students: Object.keys(project.requests).length,
+    subjects: project.subjects.length,
+    sections: project.subjects.reduce((a, x) => a + x.sections, 0),
+    slots: project.slots.join(''),
+    maxSize: project.maxSize ?? null,
+    maxMode: project.maxMode || 'hard',
+    minSize: project.minSize ?? null,
+    minMode: project.minMode || 'soft',
+    separations: (project.separations || []).length,
+    lockedSections,
+    lockedStudents: (project.lockedStudents || []).length,
+  }
+}
+
+/** 실행 결과 요약 — 미배정·편차·과목별 분반 인원 */
+export function solveResultSummary(project) {
+  const v = validateProject(project)
+  const sc = balanceScore(project)
+  const sizes = sectionSizes(project)
+  return {
+    ok: v.ok,
+    unassigned: v.unassigned.length,
+    conflicts: v.conflicts.length,
+    worst: sc.worst,
+    sum: sc.sum,
+    subjects: project.subjects.map((subj, s) => ({
+      name: subj.name,
+      block: subj.block,
+      sections: sizes[s].map((n, k) => ({ label: sectionLabel(project, s, k), n })),
+    })),
+  }
+}
+
+/**
+ * 콘솔 상태(SolveConsole) → 저장할 기록 하나.
+ * before: 실행할 때의 작업(설정), after: 실행 뒤 작업(결과, 해가 없거나 실패면 null)
+ */
+export function makeSolveLog(before, c, { byName = '', after = null } = {}) {
+  return {
+    id: `log_${Number(c.startedAt).toString(36)}`,
+    title: c.title || '배정 실행',
+    at: new Date(c.startedAt).toISOString(),
+    byName,
+    summary: c.done?.summary || '',
+    ok: !!c.done?.ok,
+    settings: solveSettings(before),
+    result: after ? solveResultSummary(after) : null,
+    lines: (c.logs || []).slice(-SOLVE_LOG_LINES).map(({ t, type, text }) => ({ t: Math.round(t || 0), type: type || 'local', text: String(text ?? '') })),
+  }
+}
+
+export function pushSolveLog(project, log) {
+  return { ...project, solveLogs: [...(project.solveLogs || []).filter((x) => x.id !== log.id), log].slice(-SOLVE_LOG_KEEP) }
+}
+
+const pad2 = (n) => String(n).padStart(2, '0')
+function fmtAt(iso) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso || '')
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+}
+function fmtT(ms) {
+  const s = Math.max(0, ms / 1000)
+  return `${pad2(Math.floor(s / 60))}:${(s % 60).toFixed(1).padStart(4, '0')}`
+}
+const LINE_MARK = { local: '›', info: '▸', raw: ' ', solution: '★', warn: '!', done: '✔', error: '✖' }
+
+/** 회의 자료·증빙용 글. raw=false면 솔버 원본 진행 줄은 뺀다 */
+export function formatSolveLog(project, log, { raw = false } = {}) {
+  const st = log.settings || {}
+  const term = [project.year && `${project.year}학년도`, project.grade && `${project.grade}학년`, project.semester && `${project.semester}학기`].filter(Boolean).join(' ')
+  const out = []
+  out.push(`[선택과목 분반 배정 기록] ${project.title || ''}`.trim())
+  if (term) out.push(`대상: ${term}${project.sourceFileName ? ` · 원본 ${project.sourceFileName}` : ''}`)
+  out.push(`실행: ${log.title} · ${fmtAt(log.at)}${log.byName ? ` · ${log.byName}` : ''}`)
+  out.push(`설정: 학생 ${st.students ?? '-'}명 · 과목 ${st.subjects ?? '-'}개 · 분반 ${st.sections ?? '-'}개 · 그룹 ${st.slots || '-'}`
+    + ` · 분반 최대 ${st.maxSize ?? '-'}명(${MODE_TEXT[st.maxMode] || st.maxMode || '-'})`
+    + (st.minSize ? ` · 최소 ${st.minSize}명(${MODE_TEXT[st.minMode] || st.minMode})` : '')
+    + (st.separations ? ` · 분리 규칙 ${st.separations}개` : '')
+    + (st.lockedSections || st.lockedStudents ? ` · 고정 분반 ${st.lockedSections || 0}개·학생 ${st.lockedStudents || 0}명` : ''))
+  out.push('')
+  out.push('── 진행 ──')
+  for (const l of log.lines || []) {
+    if (!raw && l.type === 'raw') continue
+    out.push(`${fmtT(l.t)} ${LINE_MARK[l.type] || '›'} ${l.text}`)
+  }
+  out.push('')
+  out.push(`── 결과 ── ${log.summary || (log.ok ? '완료' : '해 없음 또는 실패')}`)
+  const r = log.result
+  if (r) {
+    out.push(`미배정 ${r.unassigned}명 · 시간 충돌 ${r.conflicts}명 · 분반 편차 최대 ${r.worst}명 · 편차 합계 ${r.sum}`)
+    for (const s of r.subjects || []) {
+      out.push(`  [${s.block}] ${s.name}: ${(s.sections || []).map((x) => `${x.label} ${x.n}명`).join(', ') || '분반 없음'}`)
+    }
+  }
+  return out.join('\n')
 }

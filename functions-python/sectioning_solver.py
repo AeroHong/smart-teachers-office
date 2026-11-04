@@ -641,19 +641,102 @@ def suggest(data, base_time=8, focus=None, log=None, max_found=5, budget=150):
     return out
 
 
+def suggest_student_changes(data, diag, log=None, per_student=3, budget=60, base_time=8, max_students=6):
+    """해가 없을 때 남는 학생마다 '같은 칸막이 안에서 과목 하나 바꾸기' 후보를 찾는다.
+
+    1) 빠른 판정: 진단 배치(미배정 최소 해)에서 바꾼 조합이 서로 다른 그룹의 분반에 들어가는지,
+       최대 인원 '꼭 지킴'이면 자리가 남는지 본다(_assignments).
+    2) 확인: 빠른 판정을 통과한 후보부터 학생당 per_student개까지, 그 학생만 바꾼 데이터로 다시 풀어
+       남는 학생 수를 센다(0이면 전체 배정 가능). budget초가 지나면 나머지는 빠른 판정 결과만 돌려준다.
+    반환: [{id, subjects, from, to, block, quick, verified, remaining, worstSpread}]
+    """
+    unassigned = diag.get("unassigned") or []
+    if not unassigned or len(unassigned) > max_students:
+        return []
+    subjects = data["subjects"]
+    T = len(data.get("slots") or "ABCDE")
+    by_name = {s["name"]: s for s in subjects}
+    block = {s["name"]: (s.get("block") or "전체") for s in subjects}
+    demand = defaultdict(int)
+    for st in data["students"]:
+        for n in set(st.get("subjects") or []):
+            demand[n] += 1
+    # 진단 배치: 과목 → [(타임, 인원)]
+    placed = defaultdict(list)
+    for sec in diag.get("sections") or []:
+        if sec.get("slot") is not None:
+            placed[sec["subject"]].append((int(sec["slot"]), int(sec.get("size") or 0)))
+    hard_max = data.get("maxMode") == "hard"
+
+    def quick_ok(names):
+        opts = []
+        for n in names:
+            cap = by_name[n].get("maxSize") if hard_max else None
+            ts = sorted({t for t, size in placed.get(n, []) if not cap or size < int(cap)})
+            if not ts:
+                return False
+            opts.append(ts)
+        return next(_assignments(opts), None) is not None
+
+    out = []
+    t0 = time.time()
+    _emit(log, "info", f"학생 과목 조정 제안 — 남는 학생 {len(unassigned)}명의 과목을 같은 칸막이 안에서 하나씩 바꿔 봅니다")
+    for u in unassigned:
+        sid = str(u["id"])
+        subs = list(u.get("subjects") or [])
+        cands = []
+        for frm in subs:
+            for to, s in by_name.items():
+                if to in subs or block[to] != block.get(frm) or int(s.get("sections") or 0) < 1:
+                    continue
+                new = [to if n == frm else n for n in subs]
+                if len(set(new)) > T:
+                    continue
+                q = quick_ok(new)
+                cands.append({"from": frm, "to": to, "new": new, "quick": q,
+                              "avg": demand[to] / max(1, int(s.get("sections") or 1))})
+        # 빠른 판정 통과 → 분반 평균 인원이 적은(여유 있는) 과목 순
+        cands.sort(key=lambda c: (not c["quick"], c["avg"]))
+        picked = [c for c in cands if c["quick"]][:per_student] or cands[:1]
+        for c in picked:
+            item = {"id": sid, "subjects": subs, "from": c["from"], "to": c["to"], "block": block[c["to"]],
+                    "quick": c["quick"], "verified": False, "remaining": None, "worstSpread": None}
+            if time.time() - t0 < budget:
+                students = [({**st, "subjects": c["new"]} if str(st["id"]) == sid else st) for st in data["students"]]
+                multi = len(unassigned) > 1
+                r = solve({**data, "students": students, "timeLimit": base_time, "previous": None, "allowUnassigned": multi})
+                if r["status"] in ("OPTIMAL", "FEASIBLE"):
+                    rem = len(r.get("unassigned") or []) if multi else 0
+                    item["remaining"] = rem
+                    item["verified"] = rem == 0
+                    item["worstSpread"] = r["stats"].get("worstSpread")
+                    mark = "전체 배정 가능" if rem == 0 else f"남는 학생 {rem}명"
+                    _emit(log, "solution" if rem == 0 else "info", f"{sid}: {c['from']} → {c['to']} → {mark}")
+                else:
+                    item["remaining"] = None
+                    _emit(log, "raw", f"{sid}: {c['from']} → {c['to']} → 확인 못 함({r['status']})")
+            out.append(item)
+    # 확인된 것 먼저
+    out.sort(key=lambda x: (not x["verified"], x["remaining"] if x["remaining"] is not None else 99, not x["quick"]))
+    return out
+
+
 def diagnose(data, time_limit=30, log=None):
-    """해가 없을 때: 미배정을 최소로 하는 배치(누가 문제인지)와 완화 제안을 함께 돌려준다."""
+    """해가 없을 때: 미배정을 최소로 하는 배치(누가 문제인지)와 완화 제안, 학생 과목 조정 제안을 함께 돌려준다."""
     _emit(log, "info", "원인 찾기 — 미배정 학생 수를 최소로 하는 배치를 찾습니다")
     r = solve({**data, "allowUnassigned": True, "timeLimit": time_limit})
     unassigned = r.get("unassigned", [])
     for u in unassigned:
         _emit(log, "warn", f"남는 학생 {u['id']}: {', '.join(u['subjects'])}")
     focus = {name for u in unassigned for name in u["subjects"]} or None
+    ok = r["status"] in ("OPTIMAL", "FEASIBLE")
+    student_suggestions = suggest_student_changes(data, r, log=log) if ok else []
     return {
         "status": r["status"],
-        "minUnassigned": len(unassigned) if r["status"] in ("OPTIMAL", "FEASIBLE") else None,
+        "minUnassigned": len(unassigned) if ok else None,
         "unassigned": unassigned,
-        "suggestions": suggest(data, focus=focus, log=log),
+        "studentSuggestions": student_suggestions,
+        "suggestions": suggest(data, focus=focus, log=log, budget=120),
     }
 
 
