@@ -1431,6 +1431,41 @@ service cloud.firestore {
         allow delete: if hasHubRole(schoolId, 'enrollment');
       }
 
+      // 수능 시험장 양식(smart-csat-docs, 2026-11) — 학년도마다 작업공간 하나(csatWorkspaces/{학년도})
+      //  · 감독관 명단 등 개인정보는 브라우저에서 작업 비밀번호로 암호화한 암호문(iv·ct)만 올라온다.
+      //    서버에는 평문도 키도 없다 — 작업공간 문서의 key는 비밀번호로 감싼 데이터 키(풀 수 없음)
+      //  · 읽기·쓰기는 수능 담당자(StudentHub 담당자 지정 'csat', 관리자·교감은 지정 없이) + 교장
+      //  · 섹션 저장은 ver가 정확히 1 오르는 transaction(다른 PC 변경을 덮어쓰지 않게), 쓴 사람은 본인
+      //  · 삭제(시험 후 파기)는 사용 권한이 있는 담당자
+      function canCsat(schoolId) {
+        return hasHubRole(schoolId, 'csat') || isHeadmaster(schoolId);
+      }
+
+      match /csatWorkspaces/{wsId} {
+        allow read: if canCsat(schoolId);
+        allow create: if canCsat(schoolId) &&
+          request.resource.data.keys().hasOnly(['key', 'createdBy', 'createdByName', 'createdAt']) &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.key is map;
+        // 비밀번호 바꾸기 — 감싼 키(key)만 바꾼다
+        allow update: if canCsat(schoolId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['key']) &&
+          request.resource.data.key is map;
+        allow delete: if canCsat(schoolId);
+
+        match /sections/{section} {
+          allow read: if canCsat(schoolId);
+          allow create, update: if canCsat(schoolId) &&
+            section in ['basic', 'hq', 'proctors', 'proctoring'] &&
+            request.resource.data.keys().hasOnly(['iv', 'ct', 'ver', 'updatedBy', 'updatedByName', 'updatedAt']) &&
+            request.resource.data.iv is string && request.resource.data.ct is string &&
+            request.resource.data.ct.size() < 900000 &&
+            request.resource.data.updatedBy == request.auth.uid &&
+            request.resource.data.ver == (resource == null ? 1 : resource.data.ver + 1);
+          allow delete: if canCsat(schoolId);
+        }
+      }
+
       // 선택과목 분반 배정(smart-class-flow, 2026-11) — 학기별 작업 하나가 문서 하나(학번·과목·배정)
       //  · 쓰기(만들기·저장·버전)는 선택과목 담당자 — StudentHub 담당자 지정의 'elective'(관리자·교감은 지정 없이, hasHubRole)
       //  · 읽기는 담당자 + 교장(열람). 그 밖의 교직원은 볼 수 없다(분리 규칙 메모 등)

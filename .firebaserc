@@ -28,6 +28,9 @@
         ],
         "classflow": [
           "smart-class-flow"
+        ],
+        "csatdocs": [
+          "smart-csat-docs"
         ]
       }
     }

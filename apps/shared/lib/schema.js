@@ -204,6 +204,7 @@ export const HUB_ROLES = {
   EXAM: 'exam',             // 고사 명렬표(응시현황표)
   ABSENCE: 'absence',       // 결시 현황 확정
   ELECTIVE: 'elective',     // 선택과목 결과 업로드
+  CSAT: 'csat',             // 수능 시험장 양식(CSAT-Docs) — 감독관 명단·명찰·출근부·시감표
 }
 
 /**

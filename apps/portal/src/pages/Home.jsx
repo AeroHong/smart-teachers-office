@@ -64,6 +64,17 @@ const SERVICES = [
     statusColor: 'warning',
   },
   {
+    icon: '🎓',
+    title: '수능 시험장 양식',
+    description: '수능 시험장 학교의 명찰·출근부·인장등록대장·패찰·시감표를 원본 양식 그대로 만듭니다. 감독관 명단은 암호화해 보관합니다.',
+    // CSAT-Docs — 중간 페이지(/csat-docs)가 재로그인 없이 넘겨준다. 담당자(csat)·관리자·교감·교장만 쓴다
+    path: '/csat-docs',
+    color: '#0f766e',
+    bgColor: '#f0fdfa',
+    status: '시범운영중',
+    statusColor: 'warning',
+  },
+  {
     icon: '✅',
     title: '성취평가제 운영 체크리스트',
     description: '교육청 제출용 성취평가 운영 점검 체크리스트를 웹에서 공동 작성하고 PDF로 다운로드합니다.',

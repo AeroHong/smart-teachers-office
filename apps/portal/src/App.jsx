@@ -59,6 +59,7 @@ const SetukEmailSend      = lazy(() => import('./pages/setuk/SetukEmailSend'))
 const StudentHubLaunch    = lazy(() => import('./pages/StudentHubLaunch'))
 const ExamCoreLaunch      = lazy(() => import('./pages/ExamCoreLaunch'))
 const ClassFlowLaunch     = lazy(() => import('./pages/ClassFlowLaunch'))
+const CsatDocsLaunch      = lazy(() => import('./pages/CsatDocsLaunch'))
 
 // 연수 서명부 - lazy load
 const TrainingList    = lazy(() => import('./pages/training/TrainingList'))
@@ -168,6 +169,7 @@ export default function App() {
           <Route path="/studenthub"                   element={<ProtectedRoute><StudentHubLaunch /></ProtectedRoute>} />
           <Route path="/examcore"                     element={<ProtectedRoute><ExamCoreLaunch /></ProtectedRoute>} />
           <Route path="/classflow"                    element={<ProtectedRoute><ClassFlowLaunch /></ProtectedRoute>} />
+          <Route path="/csat-docs"                    element={<ProtectedRoute><CsatDocsLaunch /></ProtectedRoute>} />
           <Route path="/setuk/subject/:subjectName"  element={<ProtectedRoute anyUser><SetukSubjectDetail /></ProtectedRoute>} />
           {/* 세특 메일 발송은 emailJobs 생성 규칙상 교사만 가능 — anyUser가 아닌 교사 승인 라우트 */}
           <Route path="/setuk/subject/:subjectName/email" element={<ProtectedRoute><SetukEmailSend /></ProtectedRoute>} />

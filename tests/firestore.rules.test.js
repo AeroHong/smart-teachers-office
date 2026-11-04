@@ -1864,3 +1864,51 @@ test('ClassFlow 사용자 로그: 본인 이름·서버 시각으로만 쓰고, 
   await assertFails(updateDoc(doc(as(A), ...path('classflowLogs', 'l1')), { summary: 'x' }))
   await assertFails(deleteDoc(doc(as(ADMIN), ...path('classflowLogs', 'l1'))))
 })
+
+// ── 수능 시험장 양식(CSAT-Docs) — 암호문 작업공간 ────────────────
+// A: 수능 담당자(csat) / B: 담당자 아님 / ADMIN: 학교 관리자 / CH: 교장
+const CH = 'headmaster-csat'
+const ws = (...segs) => path('csatWorkspaces', '2027', ...segs)
+const sealed = (ver, uid) => ({ iv: 'aXY=', ct: 'Y3Q=', ver, updatedBy: uid, updatedByName: '이름', updatedAt: serverTimestamp() })
+async function seedCsat() {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, 'users', CH), { role: 'headmaster', schoolId: SCHOOL })
+    await setDoc(doc(db, ...path('studentHubManagers', A)), { roles: ['csat'] })
+    await setDoc(doc(db, ...path('studentHubManagers', B)), { roles: ['exam'] })
+  })
+}
+
+test('CSAT 작업공간: 수능 담당자·관리자·교장만 만들고 읽는다, 다른 교사·다른 학교는 못 본다', async () => {
+  await seedCsat()
+  const wsDoc = (uid) => ({ key: { salt: 's', iter: 600000, wrapped: { iv: 'i', ct: 'c' } }, createdBy: uid, createdByName: uid, createdAt: serverTimestamp() })
+  await assertFails(setDoc(doc(as(B), ...ws()), wsDoc(B)))
+  await assertFails(setDoc(doc(as(A), ...ws()), wsDoc(B)))                      // 만든 사람은 본인
+  await assertFails(setDoc(doc(as(A), ...ws()), { ...wsDoc(A), names: ['평문'] })) // 다른 필드 금지
+  await assertSucceeds(setDoc(doc(as(A), ...ws()), wsDoc(A)))
+  await assertSucceeds(getDoc(doc(as(A), ...ws())))
+  await assertSucceeds(getDoc(doc(as(ADMIN), ...ws())))
+  await assertSucceeds(getDoc(doc(as(CH), ...ws())))
+  await assertFails(getDoc(doc(as(B), ...ws())))
+  await assertFails(getDoc(doc(as(SUPER), ...ws())))
+  // 비밀번호 바꾸기 — key만 바꿀 수 있다
+  await assertSucceeds(updateDoc(doc(as(A), ...ws()), { key: { salt: 's2', iter: 600000, wrapped: { iv: 'i2', ct: 'c2' } } }))
+  await assertFails(updateDoc(doc(as(A), ...ws()), { createdBy: B }))
+})
+
+test('CSAT 섹션: 암호문 필드만, 버전은 정확히 1씩, 쓴 사람은 본인, 파기는 담당자', async () => {
+  await seedCsat()
+  const ref = (uid, s = 'proctors') => doc(as(uid), ...ws('sections', s))
+  await assertFails(setDoc(ref(A), { ...sealed(1, A), names: ['홍길동'] }))  // 평문 필드 거부
+  await assertFails(setDoc(ref(A, 'other'), sealed(1, A)))                   // 정해진 섹션만
+  await assertFails(setDoc(ref(A), sealed(2, A)))                            // 처음은 1
+  await assertFails(setDoc(ref(A), sealed(1, B)))                            // 쓴 사람은 본인
+  await assertFails(setDoc(ref(B), sealed(1, B)))                            // 담당자 아님
+  await assertSucceeds(setDoc(ref(A), sealed(1, A)))
+  await assertFails(setDoc(ref(ADMIN), sealed(1, ADMIN)))                    // 다른 PC 변경을 덮어쓰기(버전 그대로) 거부
+  await assertSucceeds(setDoc(ref(ADMIN), sealed(2, ADMIN)))
+  await assertFails(getDoc(ref(B)))
+  await assertSucceeds(getDoc(ref(CH)))
+  await assertFails(deleteDoc(ref(B)))
+  await assertSucceeds(deleteDoc(ref(A)))
+})

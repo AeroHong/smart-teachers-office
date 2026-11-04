@@ -137,6 +137,8 @@ const NAV_SECTIONS = [
     items: [
       { label: '고사 목록', path: '/examcore?next=/exams', icon: '◈' },
       { label: '우리 반 결시', path: '/examcore?next=/absences', icon: '◈' },
+      // 별도 앱(CSAT-Docs, 2026-11) — 수능 시험장 학교 양식. 권한은 앱에서 담당자(csat)로 거른다
+      { label: '수능 시험장 양식', path: '/csat-docs', icon: '◈' },
     ],
   },
   {

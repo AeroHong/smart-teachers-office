@@ -37,4 +37,10 @@ export const EXTERNAL_LINKS = [
     href: portalLink('/examcore'),
     hint: '응시현황표 · 감독 · 결시',
   },
+  {
+    // CSAT-Docs도 같은 중간 페이지 방식(/csat-docs)
+    label: '수능 시험장 양식',
+    href: portalLink('/csat-docs'),
+    hint: '명찰 · 출근부 · 시감표',
+  },
 ]
