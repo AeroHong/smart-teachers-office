@@ -14,6 +14,7 @@ export const ACTIONS = {
   sectioning_solve: { label: '배정 실행', color: 'warning' },
   sectioning_save: { label: '저장', color: 'primary' },
   sectioning_reset: { label: '배정 초기화', color: 'error' },
+  sectioning_student_change: { label: '학생 과목 조정', color: 'warning' },
   sectioning_delete: { label: '작업 삭제', color: 'error' },
   sectioning_export: { label: '내보내기', color: 'success' },
 }

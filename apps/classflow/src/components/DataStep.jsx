@@ -59,7 +59,7 @@ export default function DataStep({ project, onChange, onNext }) {
   const pickCount = {}
   for (const subs of Object.values(project.requests)) pickCount[subs.length] = (pickCount[subs.length] || 0) + 1
   const list = ids.filter((sid) => {
-    if (q && !sid.includes(q.trim())) return false
+    if (q && !sid.includes(q.trim()) && !(project.names?.[sid] || '').includes(q.trim())) return false
     if (filter === 'odd') return !!oddOf(sid)
     return true
   })
@@ -72,7 +72,7 @@ export default function DataStep({ project, onChange, onNext }) {
     setQ(id)
   }
 
-  const gridCols = `86px 56px repeat(${cols.length}, minmax(0, 1fr)) 40px`
+  const gridCols = `${Object.keys(project.names || {}).length ? 140 : 86}px 56px repeat(${cols.length}, minmax(0, 1fr)) 40px`
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, bgcolor: '#fff' }}>
@@ -82,7 +82,7 @@ export default function DataStep({ project, onChange, onNext }) {
           {project.sourceFileName} · 배정 대상 {Object.keys(project.requests).length}명 · 제외 {excludedSet.size}명 · 학생당 {T}과목(그룹 {project.slots.join('·')})
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <TextField size="small" placeholder="학번 검색" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 140 }} />
+        <TextField size="small" placeholder="학번·이름 검색" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 140 }} />
         <Chip label={`전체 ${ids.length}`} onClick={() => setFilter('all')} color={filter === 'all' ? 'primary' : 'default'} variant={filter === 'all' ? 'filled' : 'outlined'} />
         <Chip label={`확인 필요 ${oddIds.length}`} onClick={() => setFilter('odd')}
           color={filter === 'odd' ? (oddIds.length ? 'error' : 'primary') : 'default'} variant={filter === 'odd' ? 'filled' : 'outlined'} />
@@ -123,7 +123,7 @@ export default function DataStep({ project, onChange, onNext }) {
           const odd = oddOf(sid)
           return (
             <Box key={sid} sx={{ display: 'grid', gridTemplateColumns: gridCols, borderBottom: '1px solid #f0f2f5', bgcolor: excludedSet.has(sid) ? '#f6f6f6' : odd ? '#fff4f4' : 'transparent', '&:hover': { bgcolor: '#f3f7fc' } }}>
-              <Typography fontSize={13} fontWeight={700} sx={{ px: 1, py: 0.4, color: excludedSet.has(sid) ? 'text.disabled' : 'text.primary' }}>{sid}</Typography>
+              <Typography fontSize={13} fontWeight={700} sx={{ px: 1, py: 0.4, color: excludedSet.has(sid) ? 'text.disabled' : 'text.primary' }} noWrap>{sid}{project.names?.[sid] && <Box component="span" sx={{ ml: 0.75, fontWeight: 500, color: 'text.secondary' }}>{project.names[sid]}</Box>}</Typography>
               <Tooltip title={odd || ''} disableHoverListener={!odd}>
                 <Typography fontSize={13} textAlign="center" sx={{ py: 0.4 }} color={odd ? 'error' : 'text.secondary'} fontWeight={odd ? 700 : 400}>{subs.length}</Typography>
               </Tooltip>
@@ -141,7 +141,7 @@ export default function DataStep({ project, onChange, onNext }) {
                   </Box>
                 )
               })}
-              <IconButton size="small" sx={{ p: 0.25 }} onClick={() => { if (window.confirm(`${sid} 학생을 명단에서 지울까요?`)) onChange(removeStudent(project, sid)) }}>
+              <IconButton size="small" sx={{ p: 0.25 }} onClick={() => { if (window.confirm(`${sid}${project.names?.[sid] ? ` ${project.names[sid]}` : ''} 학생을 명단에서 지울까요?`)) onChange(removeStudent(project, sid)) }}>
                 <DeleteOutlineIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </Box>

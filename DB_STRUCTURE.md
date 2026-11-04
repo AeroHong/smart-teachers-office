@@ -963,17 +963,22 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 
 #### `/schools/{schoolId}/sectioningProjects/{projectId}` — 선택과목 분반 배정 (2026-11 신설, smart-class-flow.web.app)
 
-학기별 작업 하나 = 문서 하나. 나이스 수강신청 일괄등록 엑셀을 읽어 만든다. 순수 로직·필드 설명은 `apps/shared/lib/sectioning.js` 머리말.
+학기별 작업 하나 = 문서 하나. 수강신청 일괄등록 엑셀(교육부 수강신청 프로그램 원본 등)을 읽어 만든다 — 학번·이름·과목명·선택그룹 행·열은 이름표와 값 모양으로 자동 인식(`detectEnrollmentLayout`), 틀리면 화면에서 고친다. 순수 로직·필드 설명은 `apps/shared/lib/sectioning.js` 머리말.
+공동 작업(2026-11-04): 작업 창은 문서를 실시간 구독하고, 저장할 때 다른 사람이 먼저 저장했으면 3방향 합치기(`mergeProject` — 설정 항목·과목 항목·학생 단위)로 저장한다.
 
-- `title`, `year`, `grade`, `semester`, `termLabel`('2-2'), `sourceFileName`
+- `title`(작업명, 사용자가 정함), `year`(수업하는 학년도 = 입학년도 + 학년 − 1), `grade`, `semester`, `termLabel`('2-2'), `sourceFileName`
+- `entryYear`(입학년도), `folder`(작업 목록 묶음, 기본 `{입학년도}입학생`) — 2026-11-04
 - `slots` — 타임 글자(['A'..'E']). 학생 선택 과목 수 = 타임 수. 칸막이(C·D)는 선택 범위일 뿐 시간과 무관
 - `rooms` — 타임당 교실 수 상한, `defaultTarget` — 분반 목표 인원
-- `subjects[]` — `{name, block(칸막이), sections, target|null, distinctSlots(같은 과목은 다른 타임), slotBySection[타임|null], lockedSections[bool], locked(과목 고정)}`
-- `requests` — `{학번: [과목 index…]}`, `assignment` — `{학번: [분반 index|null…]}`(requests와 같은 순서)
+- `subjects[]` — `{name, block(칸막이), code?(과목 고유번호), sections, maxSize|null, minSize|null, sectionsManual, distinctSlots(같은 과목은 다른 타임), slotBySection[타임|null], lockedSections[bool], locked(과목 고정)}`
+- `requests` — `{학번: [과목 index…]}`, `assignment` — `{학번: [분반 index|null…]}`(requests와 같은 순서). 학번은 수강신청 당시 학번(보통 진급 전)
+- `names` — `{학번: 이름}`(원본에 이름 열이 있을 때, 2026-11-04)
 - `lockedStudents[]`, `manualStudents[]`, `excluded[{id, reason}]`(신청 없음 등), `warnings[]`
 - `maxSize`·`maxMode`, `minSize`·`minMode` — 분반 최대·최소 인원과 지키는 정도(`hard` 꼭 / `soft` 가능하면 / `off` 참고만). 최소는 2분반 이상 과목에만
 - `separations[{id, students[학번], memo}]` — 분리 규칙: 규칙 학생들이 함께 듣는 모든 과목에서 서로 다른 분반(꼭 지킴). 메모는 짧게, 민감한 사유 금지
-- `headerRows[{cells}]`·`headerMerges[]`·`subjectCols[]` — 나이스 양식으로 되돌려 내보낼 원본 헤더
+- `headerRows[{cells}]`·`headerMerges[]`·`subjectCols[]` — 원본 양식으로 되돌려 내보낼 원본 헤더
+- `infoCols[]`·`studentInfo{학번: [원본 학생 정보 열 값…]}` — 원본 양식 되돌리기에서 학번·이름·고유번호 열을 그대로 살린다(2026-11-04)
+- `solveLogs[]` — 배정 기록(최근 5회): `{id, title, at, byName, summary, ok, settings{students, subjects, sections, slots, maxSize, maxMode, minSize, minMode, separations, lockedSections, lockedStudents}, result{ok, unassigned, conflicts, worst, sum, subjects[{name, block, sections[{label, n}]}]}|null, lines[{t, type, text}](최대 600줄)}`. 저장할 때 함께 저장, 화면에서 복사·.txt 다운로드(회의·증빙)
 - `lastSolve` — 마지막 솔버 결과 요약(status·worstSpread·spreadSum·changes·ok·at)
 - `revision`(저장마다 +1), `createdBy`, `createdAt`, `updatedAt`, `updatedByName`
 
@@ -982,7 +987,9 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 **접근 권한:** 선택과목 담당자(StudentHub 담당자 지정 `elective`, 관리자·교감은 지정 없이 — `hasHubRole`)만 Create·Update, Read는 담당자 + 교장(열람). Update는 revision +1일 때만, createdBy 고정 / Delete - 관리자 동급·담당자인 만든 사람 (2026-11-03)
 · versions: Create 본인 이름으로, Update 불가, Delete 만든 사람·작업 만든 사람·관리자
 
-**계산:** `functions-python` `sectioning_solve`(HTTP, OR-Tools CP-SAT) — 학번·과목명만 받아 계산하고 저장하지 않는다(staff 클레임 필요)
+**계산:** `functions-python` `sectioning_solve`(HTTP, OR-Tools CP-SAT) — 학번·과목명만 받아 계산하고 저장하지 않는다(staff 클레임 필요). 해가 없으면 `diagnose`가 미배정 최소 해 + 완화 대안 + **학생 과목 조정 제안**(`studentSuggestions[{id, subjects, from, to, block, quick, verified, remaining, worstSpread}]` — 같은 칸막이 안에서 과목 하나 바꾸기, 다시 풀어 확인)을 돌려준다
+
+**StudentHub 연동(2026-11-04):** StudentHub 선택과목 「분반 배정에서 가져오기」가 이 문서를 읽어 `students.electiveSubjects` 초안을 만든다(수강신청 당시 학번 → 그 학년도 자리, 분반 기호 = 그룹 글자, 같은 그룹 2분반이면 `A1`·`A2`). 나이스 업로드 파일은 StudentHub가 저장된 `electiveSubjects`로 만든다
 
 ### 교수학습 및 평가 운영 계획 (2026-08-18 신설)
 

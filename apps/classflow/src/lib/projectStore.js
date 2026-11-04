@@ -1,29 +1,34 @@
 /**
  * 분반 배정 프로젝트 Firestore I/O — schools/{schoolId}/sectioningProjects/{id}
  * 학기별 작업 = 프로젝트 하나. 버전 스냅숏은 versions 하위 컬렉션.
- * 저장은 revision이 정확히 1 오르는 transaction — 다른 창에서 먼저 저장했으면 덮어쓰지 않고 알려 준다.
+ * 공동 작업(ExamCore와 같은 방식): 작업 창은 문서 하나를 실시간 구독하고, 저장은 revision이 1 오르는 transaction.
+ * 내가 연 뒤 다른 사람이 먼저 저장했으면 최신본 위에 내 변경을 합쳐(mergeProject) 저장한다.
  */
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, runTransaction, serverTimestamp,
+  addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
+import { mergeProject, normalizeProject } from '@shared/lib/sectioning'
 
 /** 문서에 저장하는 필드(계산값·화면 상태는 빼고) */
 export const PERSIST_KEYS = [
-  'title', 'year', 'grade', 'semester', 'termLabel', 'sourceFileName',
+  'title', 'year', 'grade', 'semester', 'termLabel', 'sourceFileName', 'entryYear', 'folder',
   'slots', 'rooms', 'maxSize', 'maxMode', 'minSize', 'minMode', 'subjects', 'requests', 'assignment',
-  'lockedStudents', 'manualStudents', 'excluded', 'warnings', 'separations',
-  'headerRows', 'headerMerges', 'subjectCols', 'lastSolve',
+  'lockedStudents', 'manualStudents', 'excluded', 'warnings', 'separations', 'names', 'solveLogs',
+  'headerRows', 'headerMerges', 'subjectCols', 'infoCols', 'studentInfo', 'lastSolve',
 ]
 
+/** Firestore는 undefined를 거부한다 — 빠진 값은 null, JSON으로 한 번 걸러 쓴다 */
 export function pickPersist(project) {
   const out = {}
   for (const k of PERSIST_KEYS) out[k] = project[k] === undefined ? null : project[k]
-  return out
+  return JSON.parse(JSON.stringify(out))
 }
 
 const colRef = (schoolId) => collection(db, 'schools', schoolId, 'sectioningProjects')
 const docRef = (schoolId, id) => doc(db, 'schools', schoolId, 'sectioningProjects', id)
+
+const byNameOf = (user) => user.displayName || user.email || ''
 
 export async function listProjects(schoolId) {
   const snap = await getDocs(query(colRef(schoolId), orderBy('updatedAt', 'desc')))
@@ -32,6 +37,7 @@ export async function listProjects(schoolId) {
     const x = d.data()
     return {
       id: d.id, title: x.title, year: x.year, grade: x.grade, semester: x.semester, termLabel: x.termLabel,
+      entryYear: x.entryYear ?? null, folder: x.folder || '',
       sourceFileName: x.sourceFileName, studentCount: Object.keys(x.requests || {}).length,
       subjectCount: (x.subjects || []).length, lastSolve: x.lastSolve || null,
       updatedAt: x.updatedAt?.toDate?.() || null, updatedByName: x.updatedByName || '', createdBy: x.createdBy,
@@ -46,9 +52,16 @@ export async function createProjectDoc(schoolId, project, user) {
     createdBy: user.uid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-    updatedByName: user.displayName || user.email || '',
+    updatedByName: byNameOf(user),
   })
   return ref.id
+}
+
+/** 다른 작업을 통째로 복사해 새 작업으로(배정·기록 포함, 버전은 빼고) */
+export async function duplicateProject(schoolId, id, user, title) {
+  const src = await loadProject(schoolId, id)
+  if (!src) throw new Error('작업을 찾을 수 없습니다.')
+  return createProjectDoc(schoolId, { ...normalizeProject(src), title }, user)
 }
 
 export async function loadProject(schoolId, id) {
@@ -57,24 +70,58 @@ export async function loadProject(schoolId, id) {
   return { id: snap.id, ...snap.data() }
 }
 
-export class SaveConflictError extends Error {}
+/**
+ * 작업 문서 하나를 실시간 구독한다. cb({ project(normalize 전 원본 데이터), revision, updatedByName, updatedAt, fromCache }) / 없으면 cb(null)
+ * 저장 직후 로컬 쓰기(hasPendingWrites)는 건너뛴다 — 서버가 확정한 값만 따라간다.
+ */
+export function watchProject(schoolId, id, cb, onError) {
+  return onSnapshot(docRef(schoolId, id), (snap) => {
+    if (!snap.exists()) { cb(null); return }
+    if (snap.metadata.hasPendingWrites) return
+    const x = snap.data()
+    cb({ data: { id: snap.id, ...x }, revision: x.revision || 0, updatedByName: x.updatedByName || '', updatedAt: x.updatedAt?.toDate?.() || null })
+  }, onError)
+}
 
-/** expectedRevision과 서버 revision이 다르면 SaveConflictError. 성공하면 새 revision */
-export async function saveProject(schoolId, id, project, expectedRevision, user) {
+/**
+ * 합치기 저장.
+ * @param o { base: 내가 연 저장본(normalize된 작업), mine: 지금 작업, baseRevision, user, labelOf, force: 합치지 않고 그대로(버전 불러오기) }
+ * @returns {{ revision, project, merged, conflicts: string[], byName }} — project는 실제로 저장된 상태(normalize됨)
+ */
+export async function saveProject(schoolId, id, o) {
+  const ref = docRef(schoolId, id)
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists()) throw new Error('작업이 삭제되었습니다.')
+    const server = snap.data()
+    const cur = server.revision || 0
+    const merged = cur !== o.baseRevision && !o.force
+    let next = o.mine
+    let conflicts = []
+    if (merged) {
+      const latest = normalizeProject({ id, ...server })
+      const r = mergeProject(o.base, o.mine, latest, o.labelOf)
+      next = r.project
+      conflicts = r.conflicts
+    }
+    tx.update(ref, {
+      ...pickPersist(next),
+      revision: cur + 1,
+      updatedAt: serverTimestamp(),
+      updatedByName: byNameOf(o.user),
+    })
+    return { revision: cur + 1, project: next, merged, conflicts, byName: server.updatedByName || '' }
+  })
+}
+
+/** 작업 정보(이름·학년도·묶음 등)만 바로 고친다 — 다른 사람의 작업 내용은 건드리지 않는다 */
+export async function saveProjectInfo(schoolId, id, patch, user) {
   const ref = docRef(schoolId, id)
   return runTransaction(db, async (tx) => {
     const snap = await tx.get(ref)
     if (!snap.exists()) throw new Error('작업이 삭제되었습니다.')
     const cur = snap.data().revision || 0
-    if (cur !== expectedRevision) {
-      throw new SaveConflictError(`다른 곳에서 먼저 저장했습니다(${snap.data().updatedByName || '다른 사용자'}). 새로 불러온 뒤 다시 작업하세요.`)
-    }
-    tx.update(ref, {
-      ...pickPersist(project),
-      revision: cur + 1,
-      updatedAt: serverTimestamp(),
-      updatedByName: user.displayName || user.email || '',
-    })
+    tx.update(ref, { ...JSON.parse(JSON.stringify(patch)), revision: cur + 1, updatedAt: serverTimestamp(), updatedByName: byNameOf(user) })
     return cur + 1
   })
 }
@@ -94,7 +141,7 @@ export async function saveVersion(schoolId, id, name, project, user) {
     data: pickPersist(project),
     stats: project.lastSolve || null,
     createdBy: user.uid,
-    createdByName: user.displayName || user.email || '',
+    createdByName: byNameOf(user),
     createdAt: serverTimestamp(),
   })
 }

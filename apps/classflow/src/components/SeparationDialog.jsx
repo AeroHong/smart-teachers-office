@@ -65,7 +65,7 @@ export default function SeparationDialog({ project, onChange, onClose, initialSt
         <Box sx={{ p: 1.5, mb: 2, borderRadius: 1.5, bgcolor: '#f5f7fa', border: '1px solid #e1e6ec' }}>
           <Typography fontWeight={700} fontSize={14} sx={{ mb: 1 }}>새 규칙</Typography>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: 'wrap', rowGap: 1 }}>
-            {draft.map((id) => <Chip key={id} label={id} onDelete={() => setDraft(draft.filter((x) => x !== id))} />)}
+            {draft.map((id) => <Chip key={id} label={project.names?.[id] ? `${id} ${project.names[id]}` : id} onDelete={() => setDraft(draft.filter((x) => x !== id))} />)}
             <TextField size="small" placeholder="학번 입력 후 Enter" value={input} sx={{ width: 170 }}
               onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addId()} />
             <Button size="small" onClick={addId}>넣기</Button>
@@ -93,7 +93,7 @@ export default function SeparationDialog({ project, onChange, onClose, initialSt
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
                   <Typography fontWeight={800} fontSize={14} sx={{ width: 52 }}>규칙 {i + 1}</Typography>
                   {r.students.map((id) => (
-                    <Chip key={id} size="small" label={id} color={known.has(id) ? 'default' : 'warning'}
+                    <Chip key={id} size="small" label={project.names?.[id] ? `${id} ${project.names[id]}` : id} color={known.has(id) ? 'default' : 'warning'}
                       onDelete={r.students.length > 2 ? () => onChange(updateSeparation(project, r.id, { students: r.students.filter((x) => x !== id) })) : undefined} />
                   ))}
                   <TextField size="small" variant="standard" placeholder="메모" defaultValue={r.memo} sx={{ width: 180, ml: 1 }}

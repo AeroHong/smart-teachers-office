@@ -41,7 +41,7 @@ export default function StudentStep({ project, validation, selectedSection, onSe
   const schedules = useMemo(() => Object.fromEntries(ids.map((sid) => [sid, studentSchedule(project, sid)])), [project, ids])
 
   const list = ids.filter((sid) => {
-    if (q && !sid.includes(q.trim())) return false
+    if (q && !sid.includes(q.trim()) && !(project.names?.[sid] || '').includes(q.trim())) return false
     if (filter === 'problem') return problem.has(sid)
     if (filter === 'manual') return manual.has(sid)
     if (filter === 'locked') return locked.has(sid)
@@ -52,7 +52,7 @@ export default function StudentStep({ project, validation, selectedSection, onSe
   })
   const effective = (filter === 'section' && !selectedSection) || (filter === 'unassignedSubject' && !unassignedOf[unSubject]) ? 'all' : filter
 
-  const gridCols = `80px 60px repeat(${cols.length}, minmax(0, 1fr))`
+  const gridCols = `${Object.keys(project.names || {}).length ? 140 : 80}px 60px repeat(${cols.length}, minmax(0, 1fr))`
   const idx = openSid ? list.indexOf(openSid) : -1
 
   return (
@@ -61,7 +61,7 @@ export default function StudentStep({ project, validation, selectedSection, onSe
         <Typography fontWeight={800}>학생별 배정</Typography>
         <Typography variant="body2" color="text.secondary">칸의 글자는 그룹(분반)입니다. 학생을 누르면 분반을 고칠 수 있습니다.</Typography>
         <Box sx={{ flex: 1 }} />
-        <TextField size="small" placeholder="학번 검색" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 140 }} />
+        <TextField size="small" placeholder="학번·이름 검색" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 140 }} />
         {[
           ['all', `전체 ${ids.length}`],
           ['problem', `문제 ${problem.size}`],
@@ -120,7 +120,7 @@ export default function StudentStep({ project, validation, selectedSection, onSe
           return (
             <Box key={sid} onClick={() => setOpenSid(sid)}
               sx={{ display: 'grid', gridTemplateColumns: gridCols, borderBottom: '1px solid #f0f2f5', cursor: 'pointer', bgcolor: isProblem ? '#fff4f4' : 'transparent', '&:hover': { bgcolor: '#eaf2fc' } }}>
-              <Typography fontSize={13} fontWeight={700} sx={{ px: 1, py: 0.45 }}>{sid}</Typography>
+              <Typography fontSize={13} fontWeight={700} sx={{ px: 1, py: 0.45 }} noWrap>{sid}{project.names?.[sid] && <Box component="span" sx={{ ml: 0.75, fontWeight: 500, color: 'text.secondary' }}>{project.names[sid]}</Box>}</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.25 }}>
                 {isProblem && <Typography fontSize={11} color="error" fontWeight={700}>문제</Typography>}
                 {manual.has(sid) && <Typography fontSize={11} color="primary">수동</Typography>}

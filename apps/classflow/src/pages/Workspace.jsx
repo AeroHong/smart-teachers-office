@@ -15,12 +15,14 @@ import Typography from '@mui/material/Typography'
 import FullscreenIcon from '@mui/icons-material/Fullscreen'
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
 import UndoIcon from '@mui/icons-material/Undo'
+import EditIcon from '@mui/icons-material/EditOutlined'
 import { useAuth } from '@shared/contexts/AuthContext'
 import {
   demandOf, sectionSizes, validateProject, toSolverInput, applySolverResult, resizeSections, updateSubject, spreadOf,
   normalizeProject, recalcSections, placementCheck, quickAssign, balanceScore, compareScore, resetAssignment, unassignedBySubject,
+  makeSolveLog, pushSolveLog, setStudentPicks, SOLVE_LOG_LINES,
 } from '@shared/lib/sectioning'
-import { loadProject, saveProject, saveVersion, SaveConflictError } from '../lib/projectStore'
+import { watchProject, saveProject, saveProjectInfo, saveVersion } from '../lib/projectStore'
 import { callSolver } from '../lib/solverApi'
 import { exportNeis, exportRoster, exportTimetable, exportBackup } from '../lib/exporters'
 import SlotGrid from '../components/SlotGrid'
@@ -33,6 +35,9 @@ import VersionDialog from '../components/VersionDialog'
 import { InfeasibleDialog } from '../components/SolveDialogs'
 import SolveConsole from '../components/SolveConsole'
 import AlternativesDialog from '../components/AlternativesDialog'
+import SolveLogPanel from '../components/SolveLogPanel'
+import WorkInfoDialog from '../components/WorkInfoDialog'
+import MergeInfoDialog from '../components/MergeInfoDialog'
 import AppShell from '../components/AppShell'
 import { useHubRoles } from '../lib/useHubRoles'
 import { logHub, workLabel } from '../lib/activity'
@@ -54,46 +59,73 @@ const STEP_ICONS = [StorageIcon, ViewModuleIcon, PeopleIcon, IosShareIcon]
 /** 작업 창 — FHD(1920×1080) 전체화면 기준. 1단계 데이터 확인 → 2단계 분반 배정표 → 3단계 학생별 배정 */
 export default function Workspace() {
   const { projectId } = useParams()
-  const { user, schoolId } = useAuth()
+  const { user, userName, schoolId } = useAuth()
   const { canEdit } = useHubRoles()
   const [project, setProject] = useState(null)
-  const [revision, setRevision] = useState(0)
+  // 공동 작업: base = 내가 따라가고 있는 저장본(합치기 기준), live = 서버 최신 저장본
+  const [base, setBase] = useState(null)       // { project, revision }
+  const [live, setLive] = useState(null)       // { project, revision, updatedByName, updatedAt }
   const [dirty, setDirty] = useState(false)
   const [history, setHistory] = useState([])
   const [loadError, setLoadError] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
+  const [mergeInfo, setMergeInfo] = useState(null)
   const [selectedSection, setSelectedSection] = useState(null)
   const limitIdx = 0
   const [solveMenu, setSolveMenu] = useState(null)
   const canEditRef = useRef(false)
   canEditRef.current = canEdit
   const [saveOpen, setSaveOpen] = useState(false)
+  const [infoOpen, setInfoOpen] = useState(false)
   const [solving, setSolving] = useState(null)   // 계산 콘솔 상태(SolveConsole)
   const [alts, setAlts] = useState(null)
   const [infeasible, setInfeasible] = useState(null)
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [isFull, setIsFull] = useState(!!document.fullscreenElement)
   const [step, setStep] = useState(0)
+  const [logOpen, setLogOpen] = useState(true)
   const abortRef = useRef(null)
-
-  useEffect(() => {
-    loadProject(schoolId, projectId)
-      .then((p) => {
-        if (!p) { setLoadError('작업을 찾을 수 없습니다.'); return }
-        const np = normalizeProject(p)
-        setProject(np)
-        setRevision(p.revision || 0)
-        // 이미 배정한 작업이면 2단계부터
-        setStep(Object.values(np.assignment || {}).some((a) => a.some((k) => k !== null)) ? 1 : 0)
-        document.title = `${p.title} · 분반 배정`
-      })
-      .catch((e) => { console.error(e); setLoadError('작업을 불러오지 못했습니다.') })
-  }, [schoolId, projectId])
+  const forceRef = useRef(false)   // 버전을 불러온 뒤 저장 — 합치지 않고 그 상태 그대로
+  const byName = userName || user?.displayName || user?.email || ''
 
   // 되돌리기 기록은 ref로 현재 값을 잡아 둔다(상태 갱신 함수 안에서 다른 상태를 바꾸지 않도록)
   const projectRef = useRef(null)
   projectRef.current = project
+  const baseRef = useRef(null)
+  baseRef.current = base
+  const dirtyRef = useRef(false)
+  dirtyRef.current = dirty
+
+  // 작업 문서 실시간 구독 — 처음 한 번은 그대로 연다
+  useEffect(() => {
+    let first = true
+    return watchProject(schoolId, projectId, (snap) => {
+      if (!snap) { setLoadError('작업을 찾을 수 없습니다. 다른 선생님이 지웠을 수 있습니다.'); return }
+      const np = normalizeProject(snap.data)
+      setLive({ project: np, revision: snap.revision, updatedByName: snap.updatedByName, updatedAt: snap.updatedAt })
+      if (first) {
+        first = false
+        setProject(np)
+        setBase({ project: np, revision: snap.revision })
+        // 이미 배정한 작업이면 2단계부터
+        setStep(Object.values(np.assignment || {}).some((a) => a.some((k) => k !== null)) ? 1 : 0)
+      }
+    }, (e) => { console.error(e); setLoadError('작업을 불러오지 못했습니다.') })
+  }, [schoolId, projectId])
+
+  // 저장 안 한 수정이 없으면(배정 계산 중이 아니면) 다른 사람이 저장한 최신본을 따라간다
+  useEffect(() => {
+    if (!live || !base || dirty || solving) return
+    if (live.revision === base.revision) return
+    setProject(live.project)
+    setBase({ project: live.project, revision: live.revision })
+    setHistory([])
+    setToast({ severity: 'info', text: `${live.updatedByName || '다른 선생님'}이(가) 저장한 내용을 반영했습니다.` })
+  }, [live, base, dirty, solving])
+
+  useEffect(() => { if (project?.title) document.title = `${project.title} · 분반 배정` }, [project?.title])
+
   const commit = useCallback((next) => {
     const prev = projectRef.current
     if (prev) setHistory((h) => [...h.slice(-29), prev])
@@ -102,13 +134,13 @@ export default function Workspace() {
     setDirty(true)
   }, [])
 
-  // 빠르게 여러 번 눌러도 한 단계씩 정확히 되돌리도록 기록을 ref로도 들고 있는다
+  // 빠르게 여러 번 눌러도 한 단계씩 정확히 되돌리도록 기록을 ref로도 들고 있는다. 배정 기록(로그)은 되돌리지 않는다
   const historyRef = useRef([])
   historyRef.current = history
   const undo = useCallback(() => {
     const h = historyRef.current
     if (!h.length) return
-    const last = h[h.length - 1]
+    const last = { ...h[h.length - 1], solveLogs: projectRef.current?.solveLogs || [] }
     historyRef.current = h.slice(0, -1)
     setHistory(historyRef.current)
     projectRef.current = last
@@ -116,28 +148,67 @@ export default function Workspace() {
     setDirty(true)
   }, [])
 
-  /** 저장. title이 오면 작업명도 바꾸고, versionName이 오면 같은 상태를 버전으로도 남긴다 */
-  const save = useCallback(async ({ title, versionName } = {}) => {
-    if (!project || saving) return false
+  /** 저장 안 한 수정 버리고 최신 저장본으로 */
+  const discard = useCallback(() => {
+    if (!live) return
+    setProject(live.project)
+    setBase({ project: live.project, revision: live.revision })
+    setHistory([])
+    setDirty(false)
+    forceRef.current = false
+  }, [live])
+
+  const labelOf = useCallback((sid) => {
+    const n = projectRef.current?.names?.[sid]
+    return n ? `${sid} ${n}` : sid
+  }, [])
+
+  /** 저장. 다른 사람이 먼저 저장했으면 합쳐서 저장한다. versionName이 오면 같은 상태를 버전으로도 남긴다 */
+  const save = useCallback(async ({ versionName } = {}) => {
+    if (!project || saving || !baseRef.current) return false
     setSaving(true)
     let ok = false
     try {
-      const p = title && title !== project.title ? { ...project, title } : project
-      const rev = await saveProject(schoolId, projectId, p, revision, user)
-      if (p !== project) { projectRef.current = p; setProject(p); document.title = `${p.title} · 분반 배정` }
-      setRevision(rev)
-      setDirty(false)
-      if (versionName) await saveVersion(schoolId, projectId, versionName, p, user)
-      logHub(schoolId, { action: 'sectioning_save', summary: `${workLabel(p)} 분반 배정 저장${versionName ? ` · 버전 "${versionName}"` : ''}`, targetId: projectId })
-      setToast({ severity: 'success', text: versionName ? `저장했습니다 · 버전 "${versionName}"` : '저장했습니다.' })
+      const b = baseRef.current
+      const r = await saveProject(schoolId, projectId, {
+        base: b.project, mine: project, baseRevision: b.revision, user, labelOf, force: forceRef.current,
+      })
+      const saved = normalizeProject(r.project)
+      // 저장하는 동안 더 고쳤으면 그 수정은 남긴다(다시 저장 필요)
+      const changedMeanwhile = projectRef.current !== project
+      if (!changedMeanwhile) { projectRef.current = saved; setProject(saved) }
+      setBase({ project: saved, revision: r.revision })
+      setDirty(changedMeanwhile)
+      forceRef.current = false
+      if (versionName) await saveVersion(schoolId, projectId, versionName, saved, user)
+      logHub(schoolId, { action: 'sectioning_save', summary: `${workLabel(saved)} 분반 배정 저장${r.merged ? ' (다른 선생님 저장본과 합침)' : ''}${versionName ? ` · 버전 "${versionName}"` : ''}`, targetId: projectId })
+      if (r.merged) {
+        const v = validateProject(saved)
+        setMergeInfo({ byName: r.byName, conflicts: r.conflicts, unassigned: v.unassigned.length, clashes: v.conflicts.length })
+      } else {
+        setToast({ severity: 'success', text: versionName ? `저장했습니다 · 버전 "${versionName}"` : '저장했습니다.' })
+      }
       ok = true
     } catch (e) {
       console.error(e)
-      setToast({ severity: 'error', text: e instanceof SaveConflictError ? e.message : '저장하지 못했습니다. 네트워크를 확인하세요.' })
+      setToast({ severity: 'error', text: e.message?.includes('삭제') ? e.message : '저장하지 못했습니다. 네트워크를 확인하세요.' })
     }
     setSaving(false)
     return ok
-  }, [project, saving, schoolId, projectId, revision, user])
+  }, [project, saving, schoolId, projectId, user, labelOf])
+
+  /** 작업 정보(이름·학년도·묶음)만 바로 저장 — 다른 수정은 그대로 둔다 */
+  const saveInfo = useCallback(async (patch) => {
+    const rev = await saveProjectInfo(schoolId, projectId, patch, user)
+    const apply = (p) => (p ? { ...p, ...patch } : p)
+    projectRef.current = apply(projectRef.current)
+    setProject(apply)
+    // 그 사이 다른 사람 저장이 없었으면(rev = 내 기준 + 1) 기준 revision도 올린다 — 내 저장을 남의 저장으로 착각하지 않게
+    setBase((b) => (b ? { project: apply(b.project), revision: b.revision === rev - 1 ? rev : b.revision } : b))
+    setHistory((h) => h.map(apply))
+    logHub(schoolId, { action: 'sectioning_save', summary: `${workLabel({ ...project, ...patch })} 작업 정보 변경 — ${patch.title}`, targetId: projectId })
+    setToast({ severity: 'success', text: '작업 정보를 저장했습니다.' })
+  }, [schoolId, projectId, user, project])
 
   // Ctrl+S 저장, Ctrl+Z 되돌리기, 저장 안 한 채 닫기 경고
   useEffect(() => {
@@ -163,22 +234,56 @@ export default function Workspace() {
   const worstSpread = useMemo(() => Math.max(0, ...sizes.filter((x) => x.length > 1).map(spreadOf)), [sizes])
 
   // ── 계산 콘솔: 실제 진행 로그를 쌓는다 ──
-  const startConsole = (title, limit) => {
+  // before: 실행할 때의 작업(배정 기록의 설정 요약에 쓴다)
+  const startConsole = (title, limit, before = projectRef.current) => {
     const now = Date.now()
-    setSolving({ title, startedAt: now, stepStartedAt: now, limit, logs: [], best: null, points: [], done: null })
+    setSolving({ title, startedAt: now, stepStartedAt: now, limit, logs: [], best: null, points: [], done: null, before })
   }
-  const log = (type, text) => setSolving((c) => (c ? { ...c, logs: [...c.logs.slice(-400), { t: Date.now() - c.startedAt, type, text }] } : c))
+  const log = (type, text) => setSolving((c) => (c ? { ...c, logs: [...c.logs.slice(-SOLVE_LOG_LINES), { t: Date.now() - c.startedAt, type, text }] } : c))
   const onServerEvent = (ev) => setSolving((c) => {
     if (!c) return c
     const t = Date.now() - c.startedAt
-    const next = { ...c, logs: [...c.logs.slice(-400), { t, type: ev.type, text: ev.text }] }
+    const next = { ...c, logs: [...c.logs.slice(-SOLVE_LOG_LINES), { t, type: ev.type, text: ev.text }] }
     if (ev.type === 'solution' && ev.worst !== undefined) {
       next.best = { n: (c.best?.n || 0) + 1, worst: ev.worst, sum: ev.sum }
       next.points = [...c.points, { t: t / 1000, sum: ev.sum, worst: ev.worst }]
     }
     return next
   })
+  // done.close: 기록만 남기고 콘솔은 바로 닫는다(해 없음 → 대안 창, 여러 안 → 비교 창)
+  // done.result: 실행 결과가 지금 작업에 반영됨(기록에 과목별 분반 인원을 남긴다)
   const finishConsole = (done) => setSolving((c) => (c ? { ...c, done: { at: Date.now(), ...done } } : c))
+
+  // 실행이 끝나면 배정 기록(로그)을 작업에 붙인다 — 저장할 때 함께 저장되고, 되돌리기로 지워지지 않는다
+  useEffect(() => {
+    if (!solving?.done || solving.archived) return
+    const cur = projectRef.current
+    if (!cur) return
+    const entry = makeSolveLog(solving.before || cur, solving, { byName, after: solving.done.result ? cur : null })
+    const next = pushSolveLog(cur, entry)
+    projectRef.current = next
+    setProject(next)
+    setDirty(true)
+    setLogOpen(true)
+    if (solving.done.close) setSolving(null)
+    else setSolving((c) => (c ? { ...c, archived: true } : c))
+  }, [solving, byName])
+
+  /** 해가 없을 때 진단 결과 — 기록에 남기고 대안 창을 연다 */
+  const finishDiagnose = (d) => {
+    const nm = (id) => labelOf(String(id))
+    if (d.unassigned?.length) log('warn', `조건을 그대로 두면 최소 ${d.unassigned.length}명이 남습니다: ${d.unassigned.map((u) => nm(u.id)).join(', ')}`)
+    log('warn', `대안 ${d.suggestions?.length || 0}가지를 찾았습니다`)
+    for (const s of d.suggestions || []) log('local', `대안: ${s.label} → 분반 편차 최대 ${s.worstSpread}명`)
+    for (const s of d.studentSuggestions || []) {
+      log('local', `학생 과목 조정 제안: ${nm(s.id)} ${s.from} → ${s.to}${s.verified ? ' (전체 배정 가능 확인)' : ' (빠른 판정만)'}`)
+    }
+    finishConsole({
+      ok: false, close: true,
+      summary: `해 없음 — 최소 미배정 ${d.minUnassigned ?? '?'}명 · 대안 ${d.suggestions?.length || 0}가지 · 학생 조정 제안 ${d.studentSuggestions?.length || 0}건`,
+    })
+    setInfeasible({ diagnose: d })
+  }
 
   /** 배정 실행. keepPrevious: 지금 배정을 기준으로 바뀌는 학생을 줄인다(고정은 항상 유지) */
   const runSolve = useCallback(async ({ keepPrevious = true, startIdx = limitIdx, base = project, fresh = false, minChange = false } = {}) => {
@@ -189,7 +294,7 @@ export default function Workspace() {
     abortRef.current = ctrl
     const nStudents = Object.keys(p.requests).length
     const nSections = p.subjects.reduce((a, x) => a + x.sections, 0)
-    startConsole(fresh ? '처음부터 새로 배정' : minChange ? '조건만 맞추기 — 바뀌는 학생 최소' : startIdx > 0 ? `배정 실행 — ${limitText(LIMITS[startIdx])} 동안 더 오래` : '배정 실행', LIMITS[startIdx])
+    startConsole(fresh ? '처음부터 새로 배정' : minChange ? '조건만 맞추기 — 바뀌는 학생 최소' : startIdx > 0 ? `배정 실행 — ${limitText(LIMITS[startIdx])} 동안 더 오래` : '배정 실행', LIMITS[startIdx], p)
     log('local', `작업 "${p.title}" · 학생 ${nStudents}명 · 과목 ${p.subjects.length}개 · 분반 ${nSections}개 · 그룹 ${p.slots.join('')}`)
     const lockedSec = p.subjects.reduce((a, x) => a + (x.locked ? x.sections : x.lockedSections.filter(Boolean).length), 0)
     if (lockedSec || p.lockedStudents?.length) log('local', `고정 — 분반 ${lockedSec}개 · 학생 ${p.lockedStudents?.length || 0}명`)
@@ -219,7 +324,7 @@ export default function Workspace() {
             const sNew = balanceScore(next)
             if (compareScore(sCur, sNew) < 0) {
               log('warn', `지금 배정(분반 편차 최대 ${sCur.worst}명 · 편차 합계 ${sCur.sum}${sCur.soft ? ` · 인원 초과 ${sCur.soft}` : ''})이 더 좋아서 그대로 둡니다`)
-              finishConsole({ ok: true, canImprove: true, nextIdx: Math.min(LIMITS.length - 1, i + 1), summary: `지금 배정 유지 · 분반 편차 최대 ${sCur.worst}명 · 편차 합계 ${sCur.sum}` })
+              finishConsole({ ok: true, result: true, canImprove: true, nextIdx: Math.min(LIMITS.length - 1, i + 1), summary: `지금 배정 유지 · 분반 편차 최대 ${sCur.worst}명 · 편차 합계 ${sCur.sum}` })
               return
             }
           }
@@ -234,6 +339,7 @@ export default function Workspace() {
           if (r.stats.changes) log('local', `이전 배정과 다른 학생-과목 ${r.stats.changes}건`)
           finishConsole({
             ok: v.ok,
+            result: true,
             canImprove: r.status !== 'OPTIMAL',
             nextIdx: Math.min(LIMITS.length - 1, i + 1),
             summary: `${r.status === 'OPTIMAL' ? '최적해' : '제한 시간 안의 최선'} · 분반 편차 최대 ${r.stats.worstSpread}명 · 편차 합계 ${r.stats.spreadSum}`,
@@ -248,9 +354,7 @@ export default function Workspace() {
         if (r.status === 'INFEASIBLE') {
           setSolving((c) => ({ ...c, limit: null }))
           const d = await callSolver('diagnose', toSolverInput(p, { timeLimit: 30 }), ctrl.signal, onServerEvent)
-          log('warn', `대안 ${d.suggestions?.length || 0}가지를 찾았습니다`)
-          setSolving(null)
-          setInfeasible({ diagnose: d })
+          finishDiagnose(d)
           return
         }
         // UNKNOWN → 다음 제한 시간으로
@@ -258,8 +362,7 @@ export default function Workspace() {
       setSolving((c) => ({ ...c, limit: null }))
       log('warn', '최대 시간 안에 해를 찾지 못했습니다 → 원인과 대안을 찾습니다')
       const d = await callSolver('diagnose', toSolverInput(p, { timeLimit: 60 }), ctrl.signal, onServerEvent)
-      setSolving(null)
-      setInfeasible({ diagnose: d })
+      finishDiagnose(d)
     } catch (e) {
       if (e.name === 'AbortError') { setSolving(null) } else {
         console.error(e)
@@ -290,7 +393,8 @@ export default function Workspace() {
         return { label: `안 ${i + 1}`, project: proj }
       })
       log('done', `${list.length}개 안을 만들었습니다`)
-      setSolving(null)
+      list.forEach((x) => log('local', `${x.label}: 분반 편차 최대 ${x.project.lastSolve?.worstSpread ?? '-'}명 · 편차 합계 ${x.project.lastSolve?.spreadSum ?? '-'}`))
+      finishConsole({ ok: list.length > 0, close: true, summary: `여러 안 ${list.length}개` })
       if (list.length) setAlts([{ label: '지금 작업', project: p }, ...list])
       else setToast({ severity: 'warning', text: '다른 안을 찾지 못했습니다. 먼저 배정 실행으로 해가 있는지 확인하세요.' })
     } catch (e) {
@@ -338,6 +442,23 @@ export default function Workspace() {
     runSolve({ base: p })
   }
 
+  /** 학생 과목 조정 제안 적용 — 같은 칸막이의 다른 과목으로 바꾸고 다시 계산(학생 상담 뒤 확정) */
+  const applyStudentChange = (sg) => {
+    const p = project
+    const sid = String(sg.id)
+    const from = p.subjects.findIndex((x) => x.name === sg.from)
+    const to = p.subjects.findIndex((x) => x.name === sg.to)
+    const subs = p.requests[sid]
+    if (!subs || from < 0 || to < 0 || !subs.includes(from)) { setToast({ severity: 'error', text: '제안을 적용할 수 없습니다(신청 데이터가 바뀜).' }); return }
+    if (!window.confirm(`${labelOf(sid)} 학생의 과목을 바꿉니다.\n${sg.from} → ${sg.to}\n\n학생·학부모 상담으로 확정한 뒤 적용하세요. 저장 전에는 되돌리기(↶)로 돌아갈 수 있습니다.`)) return
+    const next = setStudentPicks(p, sid, subs.map((s) => (s === from ? to : s)))
+    commit(next)
+    logHub(schoolId, { action: 'sectioning_student_change', targetId: projectId,
+      summary: `${workLabel(p)} 학생 과목 조정(저장 전) — ${labelOf(sid)} ${sg.from} → ${sg.to}` })
+    setInfeasible(null)
+    runSolve({ base: next })
+  }
+
   const doExport = async (kind) => {
     if (kind !== 'backup' && !validation.ok && !window.confirm('미배정·충돌이 남아 있습니다. 그래도 내보낼까요?')) return
     try {
@@ -362,7 +483,8 @@ export default function Workspace() {
   if (!project) return <Box sx={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default' }}><CircularProgress /></Box>
 
   const totalStudents = Object.keys(project.requests).length
-  const termText = project.grade && project.semester ? `${project.grade}학년 ${project.semester}학기` : project.termLabel
+  // 수정 중에 다른 사람이 저장함 — 저장하면 합쳐진다
+  const behind = dirty && live && base && live.revision !== base.revision
 
   const stepBadge = [
     project.excluded?.length ? { badge: `제외 ${project.excluded.length}`, badgeColor: 'default' } : {},
@@ -371,14 +493,20 @@ export default function Workspace() {
     {},
   ]
   const work = {
-    title: workLabel(project),
-    subtitle: project.sourceFileName || project.title,
+    title: project.title || workLabel(project),
+    subtitle: workLabel(project),
     steps: STEPS.map((label, i) => ({ key: label, label, icon: STEP_ICONS[i], active: step === i, onClick: () => setStep(i), ...stepBadge[i] })),
   }
   const header = (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-      <Typography fontWeight={800} noWrap sx={{ flexShrink: 0 }}>{workLabel(project)}</Typography>
-      <Typography variant="body2" color="text.secondary" noWrap sx={{ minWidth: 0, maxWidth: 260 }} title={project.title}>{project.title}</Typography>
+      <Tooltip title={canEdit ? '작업명·학년도·학년·학기·묶음 고치기' : ''}>
+        <Box onClick={canEdit ? () => setInfoOpen(true) : undefined}
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, cursor: canEdit ? 'pointer' : 'default', borderRadius: 1, px: 0.5, '&:hover': canEdit ? { bgcolor: 'action.hover' } : {} }}>
+          <Typography fontWeight={800} noWrap sx={{ minWidth: 0, maxWidth: 380 }} title={project.title}>{project.title || workLabel(project)}</Typography>
+          <Typography variant="body2" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>{workLabel(project)}</Typography>
+          {canEdit && <EditIcon sx={{ fontSize: 16, color: 'text.secondary', flexShrink: 0 }} />}
+        </Box>
+      </Tooltip>
     </Box>
   )
   const toolbar = (
@@ -443,7 +571,7 @@ export default function Workspace() {
         </Menu>
         <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
         <Tooltip title="되돌리기 (Ctrl+Z)"><span><IconButton size="small" disabled={!history.length} onClick={undo}><UndoIcon /></IconButton></span></Tooltip>
-        <Tooltip title="작업명을 고치고 저장, 버전으로도 남기기 (Ctrl+S는 바로 저장)">
+        <Tooltip title="저장하고 원하면 버전으로도 남깁니다(Ctrl+S는 바로 저장). 다른 선생님이 먼저 저장했으면 합쳐서 저장합니다">
           <span><Button variant={dirty ? 'outlined' : 'text'} color={dirty ? 'primary' : 'inherit'} disabled={saving || !canEdit} onClick={() => setSaveOpen(true)} sx={{ whiteSpace: 'nowrap' }}>
             {saving ? '저장 중…' : dirty ? '저장' : '저장됨'}
           </Button></span>
@@ -463,6 +591,12 @@ export default function Workspace() {
       <Box sx={{ height: 40, flexShrink: 0, display: 'flex', alignItems: 'center', px: 2, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
         <Typography fontWeight={800} color="primary" sx={{ mr: 2 }}>{STEPS[step]}</Typography>
         {!canEdit && <Chip size="small" variant="outlined" label="열람 전용 — 바꾼 내용은 저장되지 않습니다" />}
+        {behind && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Chip size="small" color="info" label={`${live.updatedByName || '다른 선생님'}이(가) 저장함 — 저장하면 합쳐집니다`} />
+            <Button size="small" onClick={() => { if (window.confirm('저장하지 않은 내 수정을 버리고 최신 저장본을 볼까요?')) discard() }}>내 수정 버리고 최신본 보기</Button>
+          </Box>
+        )}
         <Box sx={{ flex: 1 }} />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, pr: 1, '& .MuiChip-root': { height: 24 } }}>
           <Typography variant="body2" color="text.secondary" noWrap>학생 {totalStudents}명</Typography>
@@ -496,8 +630,14 @@ export default function Workspace() {
       <Box sx={{ flex: 1, minHeight: 0 }}>
         {step === 0 && <DataStep project={project} onChange={commit} onNext={() => setStep(1)} />}
         {step === 1 && (
-          <SlotGrid project={project} sizes={sizes} demand={demand} validation={validation}
-            selectedSection={selectedSection} onSelectSection={setSelectedSection} onChange={commit} onQuick={runQuick} />
+          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Box sx={{ flex: 1, minHeight: 0 }}>
+              <SlotGrid project={project} sizes={sizes} demand={demand} validation={validation}
+                selectedSection={selectedSection} onSelectSection={setSelectedSection} onChange={commit} onQuick={runQuick} />
+            </Box>
+            <SolveLogPanel project={project} open={logOpen} onToggle={() => setLogOpen((v) => !v)}
+              onExported={(how, entry) => logHub(schoolId, { action: 'sectioning_export', targetId: projectId, summary: `${workLabel(project)} 배정 기록 ${how} — ${entry.title}` })} />
+          </Box>
         )}
         {step === 2 && (
           <StudentStep project={project} validation={validation} selectedSection={selectedSection}
@@ -508,7 +648,13 @@ export default function Workspace() {
 
       <SolveConsole console={solving} onCancel={() => abortRef.current?.abort()} onClose={() => setSolving(null)}
         onImprove={() => { const idx = solving?.done?.nextIdx ?? 1; setSolving(null); runSolve({ startIdx: idx }) }} />
-      <InfeasibleDialog info={infeasible} project={project} onApply={applySuggestion} onClose={() => setInfeasible(null)} />
+      <InfeasibleDialog info={infeasible} project={project} onApply={applySuggestion} onApplyStudent={applyStudentChange}
+        labelOf={labelOf} canEdit={canEdit} onClose={() => setInfeasible(null)} />
+      <MergeInfoDialog info={mergeInfo} onClose={() => setMergeInfo(null)} />
+      {infoOpen && (
+        <WorkInfoDialog project={project} onClose={() => setInfoOpen(false)}
+          onSave={async (patch) => { await saveInfo(patch); setInfoOpen(false) }} />
+      )}
       <AlternativesDialog items={alts} onClose={() => setAlts(null)}
         onApply={(r) => { commit(r.project); setAlts(null); setToast({ severity: 'success', text: `${r.label}을 적용했습니다. 저장하면 확정됩니다.` }) }}
         onSaveVersion={async (r) => {
@@ -516,10 +662,18 @@ export default function Workspace() {
         }} />
       {versionsOpen && (
         <VersionDialog projectId={projectId} onClose={() => setVersionsOpen(false)}
-          onRestore={(data, name) => { commit(normalizeProject({ ...project, ...data, title: project.title })); setVersionsOpen(false); setToast({ severity: 'info', text: `"${name}"을 불러왔습니다. 저장하면 확정됩니다.` }) }} />
+          onRestore={(data, name) => {
+            // 작업 정보·배정 기록은 지금 것을 두고 배정 상태만 그 버전으로. 저장하면 합치지 않고 이 상태 그대로 저장한다
+            const keep = { title: project.title, year: project.year, grade: project.grade, semester: project.semester,
+              entryYear: project.entryYear, folder: project.folder, solveLogs: project.solveLogs }
+            commit(normalizeProject({ ...project, ...data, ...keep }))
+            forceRef.current = true
+            setVersionsOpen(false)
+            setToast({ severity: 'info', text: `"${name}"을 불러왔습니다. 저장하면 이 상태로 확정됩니다(다른 선생님의 저장 전 수정과 합치지 않음).` })
+          }} />
       )}
       {saveOpen && (
-        <SaveDialog project={project} onClose={() => setSaveOpen(false)} onSave={save}
+        <SaveDialog behindBy={behind ? (live.updatedByName || '다른 선생님') : ''} onClose={() => setSaveOpen(false)} onSave={save}
           summary={`${new Date().toLocaleDateString('ko-KR')} · 분반 ${project.subjects.reduce((a2, x) => a2 + x.sections, 0)}개 · 편차 최대 ${worstSpread}명`} />
       )}
       <Snackbar open={!!toast} autoHideDuration={4000} onClose={() => setToast(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>

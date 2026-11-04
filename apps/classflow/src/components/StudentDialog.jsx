@@ -29,6 +29,7 @@ export default function StudentDialog({ project, sid, problem, onChange, onClose
       onKeyDown={(e) => { if (e.key === 'ArrowDown' && e.altKey) onNext?.(); if (e.key === 'ArrowUp' && e.altKey) onPrev?.() }}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
         <Typography fontSize={22} fontWeight={800}>{sid}</Typography>
+        {project.names?.[sid] && <Typography fontSize={18} fontWeight={600} color="text.secondary">{project.names[sid]}</Typography>}
         {problem && <Chip size="small" color="error" label="미배정/충돌" />}
         {isManual && <Chip size="small" color="primary" variant="outlined" label="수동 변경" />}
         <Box sx={{ flex: 1 }} />
