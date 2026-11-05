@@ -1479,3 +1479,75 @@ export function meetingReport(project) {
     },
   }
 }
+
+// ── StudentHub 학생 이름 ─────────────────────────────────────────────────
+// 수강신청 파일의 학번(5자리)은 신청 당시 학년도의 자리다. 학번은 해마다 다른 학생에게 다시 쓰이므로
+// (학년도, 학번)으로 찾는다 — 학년도 = 입학년도 + 학번 첫 자리(학년) − 1.
+
+const pad2n = (n) => String(n).padStart(2, '0')
+const placeId = (p) => (p && p.grade && p.class && p.number ? `${p.grade}${pad2n(p.class)}${pad2n(p.number)}` : null)
+
+/** 학번 sid가 쓰인 학년도(입학년도를 모르면 null) */
+export function idYear(sid, entryYear) {
+  const g = Number(String(sid)[0])
+  return Number(entryYear) && g >= 1 && g <= 3 ? Number(entryYear) + g - 1 : null
+}
+
+/** 학번에서 학년 후보(신청 당시 학년, 진급 뒤 학년) — StudentHub에서 읽을 학년 */
+export function hubGradesOf(ids) {
+  const out = new Set()
+  for (const sid of ids) {
+    if (!/^\d{5}$/.test(String(sid))) continue
+    const g = Number(String(sid)[0])
+    if (g >= 1 && g <= 3) { out.add(g); if (g < 3) out.add(g + 1) }
+  }
+  return [...out].sort()
+}
+
+/**
+ * StudentHub 학생 문서들에서 학번 → 이름. 지금 자리(year·studentId), 학년도별 자리(placements), 다음 반편성(nextPlacement)을 모두 본다.
+ * @param ids 찾을 학번들, docs StudentHub students 문서 데이터, entryYear 작업의 입학년도
+ * @returns { [학번]: 이름 } — 학년도를 알면 (학년도, 학번)이 맞는 학생, 모르면 그 학번을 쓴 학생이 한 명일 때만
+ */
+export function namesFromHub(ids, docs, entryYear) {
+  const byYear = new Map()   // `${year}:${id}` → Set(name)
+  const byId = new Map()     // id → Set(name)
+  const put = (year, id, name) => {
+    if (!id || !name) return
+    if (year) {
+      const k = `${year}:${id}`
+      if (!byYear.has(k)) byYear.set(k, new Set())
+      byYear.get(k).add(name)
+    }
+    if (!byId.has(id)) byId.set(id, new Set())
+    byId.get(id).add(name)
+  }
+  for (const d of docs || []) {
+    const name = String(d.name || '').trim()
+    if (!name) continue
+    put(Number(d.year) || null, d.studentId ? String(d.studentId) : placeId(d), name)
+    for (const [y, p] of Object.entries(d.placements || {})) put(Number(y) || null, placeId(p), name)
+    if (d.nextPlacement) put(Number(d.nextPlacement.year) || null, placeId(d.nextPlacement), name)
+  }
+  const out = {}
+  for (const sid of ids) {
+    const id = String(sid)
+    const y = idYear(id, entryYear)
+    const set = y ? byYear.get(`${y}:${id}`) : byId.get(id)
+    if (set && set.size === 1) out[id] = [...set][0]
+  }
+  return out
+}
+
+/** 이름이 없는 학생만 StudentHub 이름으로 채운다(원본 파일 이름이 우선) */
+export function fillNames(project, hubNames) {
+  const add = Object.entries(hubNames || {}).filter(([sid, n]) => n && !project.names?.[sid])
+  if (!add.length) return project
+  return { ...project, names: { ...(project.names || {}), ...Object.fromEntries(add) } }
+}
+
+/** 화면 표시 `학번 이름` */
+export function studentLabel(project, sid) {
+  const n = project?.names?.[sid]
+  return n ? `${sid} ${n}` : String(sid)
+}

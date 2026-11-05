@@ -16,7 +16,7 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import { addSeparation, removeSeparation, updateSeparation, separationIssues, sectionLabel, quickAssign, matchSeparations, folderOf } from '@shared/lib/sectioning'
+import { addSeparation, removeSeparation, updateSeparation, separationIssues, sectionLabel, quickAssign, matchSeparations, folderOf, studentLabel } from '@shared/lib/sectioning'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { listProjects, loadProject } from '../lib/projectStore'
 
@@ -233,9 +233,9 @@ export default function SeparationDialog({ project, onChange, onClose, initialSt
                 </Stack>
                 {(v.length > 0 || u.length > 0) && (
                   <Typography fontSize={12} color="text.secondary" sx={{ mt: 0.5, pl: 7.5 }}>
-                    {v.map((x) => `✕ ${project.subjects[x.s].name} ${sectionLabel(project, x.s, x.k)}: ${x.students.join('·')}`).join('   ')}
+                    {v.map((x) => `✕ ${project.subjects[x.s].name} ${sectionLabel(project, x.s, x.k)}: ${x.students.map((id) => studentLabel(project, id)).join('·')}`).join('   ')}
                     {v.length && u.length ? '   ' : ''}
-                    {u.map((x) => `⚠ ${project.subjects[x.s].name}(1분반): ${x.students.join('·')}`).join('   ')}
+                    {u.map((x) => `⚠ ${project.subjects[x.s].name}(1분반): ${x.students.map((id) => studentLabel(project, id)).join('·')}`).join('   ')}
                   </Typography>
                 )}
               </Box>

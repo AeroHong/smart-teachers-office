@@ -20,10 +20,11 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import {
   demandOf, sectionSizes, validateProject, toSolverInput, applySolverResult, resizeSections, updateSubject, spreadOf,
   normalizeProject, recalcSections, placementCheck, quickAssign, balanceScore, compareScore, resetAssignment, unassignedBySubject,
-  makeSolveLog, pushSolveLog, setStudentPicks, SOLVE_LOG_LINES, hasFree,
+  makeSolveLog, pushSolveLog, setStudentPicks, SOLVE_LOG_LINES, hasFree, fillNames, studentLabel,
 } from '@shared/lib/sectioning'
 import { watchProject, saveProject, saveProjectInfo, saveVersion } from '../lib/projectStore'
 import { callSolver } from '../lib/solverApi'
+import { loadHubNames } from '../lib/hubStudents'
 import { exportNeis, exportRoster, exportTimetable, exportBackup, exportMeeting } from '../lib/exporters'
 import SlotGrid from '../components/SlotGrid'
 import DataStep from '../components/DataStep'
@@ -101,12 +102,16 @@ export default function Workspace() {
   const dirtyRef = useRef(false)
   dirtyRef.current = dirty
 
+  // StudentHub에서 찾은 학생 이름 — 원본 파일에 이름이 없는 학생만. 서버 저장본에도 덧입혀 '수정함'으로 잡히지 않게 한다
+  const hubNamesRef = useRef({})
+  const [hubLoaded, setHubLoaded] = useState(false)
+
   // 작업 문서 실시간 구독 — 처음 한 번은 그대로 연다
   useEffect(() => {
     let first = true
     return watchProject(schoolId, projectId, (snap) => {
       if (!snap) { setLoadError('작업을 찾을 수 없습니다. 다른 선생님이 지웠을 수 있습니다.'); return }
-      const np = normalizeProject(snap.data)
+      const np = fillNames(normalizeProject(snap.data), hubNamesRef.current)
       setLive({ project: np, revision: snap.revision, updatedByName: snap.updatedByName, updatedAt: snap.updatedAt })
       if (first) {
         first = false
@@ -127,6 +132,24 @@ export default function Workspace() {
     setHistory([])
     setToast({ severity: 'info', text: `${live.updatedByName || '다른 선생님'}이(가) 저장한 내용을 반영했습니다.` })
   }, [live, base, dirty, solving])
+
+  // 처음 연 뒤 한 번 — 이름 없는 학생을 StudentHub 학적에서 찾아 함께 보인다(저장하면 작업에도 남는다)
+  useEffect(() => {
+    if (!project || hubLoaded) return
+    setHubLoaded(true)
+    loadHubNames(schoolId, project).then((names) => {
+      const n = Object.keys(names).length
+      if (!n) return
+      hubNamesRef.current = names
+      const add = (p) => (p ? fillNames(p, names) : p)
+      projectRef.current = add(projectRef.current)
+      setProject(add)
+      setBase((b) => (b ? { ...b, project: add(b.project) } : b))
+      setLive((l) => (l ? { ...l, project: add(l.project) } : l))
+      setHistory((h) => h.map(add))
+      setToast({ severity: 'info', text: `StudentHub에서 학생 이름 ${n}명을 불러왔습니다.` })
+    }).catch((e) => console.warn('StudentHub 이름을 불러오지 못했습니다.', e))
+  }, [project, hubLoaded, schoolId])
 
   useEffect(() => { if (project?.title) document.title = `${project.title} · 분반 배정` }, [project?.title])
 
@@ -162,10 +185,7 @@ export default function Workspace() {
     forceRef.current = false
   }, [live])
 
-  const labelOf = useCallback((sid) => {
-    const n = projectRef.current?.names?.[sid]
-    return n ? `${sid} ${n}` : sid
-  }, [])
+  const labelOf = useCallback((sid) => studentLabel(projectRef.current, sid), [])
 
   /** 저장. 다른 사람이 먼저 저장했으면 합쳐서 저장한다. versionName이 오면 같은 상태를 버전으로도 남긴다 */
   const save = useCallback(async ({ versionName } = {}) => {
@@ -431,7 +451,7 @@ export default function Workspace() {
     if (change.dropSeparation !== undefined) {
       // 규칙을 지우지 않고 잠시 빼는 대신, 사용자가 확인한 뒤 지우도록 그 규칙만 제외해 다시 계산
       const rule = (p.separations || [])[change.dropSeparation]
-      if (rule && window.confirm(`분리 규칙(${rule.students.join(', ')})을 지우고 다시 계산할까요? 저장 전에는 되돌리기로 복구할 수 있습니다.`)) {
+      if (rule && window.confirm(`분리 규칙(${rule.students.map(labelOf).join(', ')})을 지우고 다시 계산할까요? 저장 전에는 되돌리기로 복구할 수 있습니다.`)) {
         p = { ...p, separations: p.separations.filter((r) => r.id !== rule.id) }
       } else return
     }
@@ -641,7 +661,7 @@ export default function Workspace() {
           {validation.roomOverflow.length > 0 && <Chip size="small" color="warning" label={`교실 초과 ${validation.roomOverflow.map((x) => `${project.slots[x.slot]}(${x.used}/${x.rooms})`).join(' ')}`} />}
           {validation.sameSlot.length > 0 && <Chip size="small" color="warning" label={`같은 그룹 분반 ${validation.sameSlot.length}과목`} />}
           {validation.separationViolations.length > 0 && (
-            <Tooltip title={validation.separationViolations.map((v) => `${project.subjects[v.s].name}: ${v.students.join('·')}`).join(', ')}>
+            <Tooltip title={validation.separationViolations.map((v) => `${project.subjects[v.s].name}: ${v.students.map(labelOf).join('·')}`).join(', ')}>
               <Chip size="small" color="error" label={`분리 위반 ${validation.separationViolations.length}곳`} />
             </Tooltip>
           )}

@@ -972,7 +972,7 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - `rooms` — 타임당 교실 수 상한, `defaultTarget` — 분반 목표 인원
 - `subjects[]` — `{name, block(칸막이), code?(과목 고유번호), sections, maxSize|null, minSize|null, sectionsManual, distinctSlots(같은 과목은 다른 타임), slotBySection[타임|null], lockedSections[bool], locked(과목 고정)}`
 - `requests` — `{학번: [과목 index…]}`, `assignment` — `{학번: [분반 index|null…]}`(requests와 같은 순서). 학번은 수강신청 당시 학번(보통 진급 전)
-- `names` — `{학번: 이름}`(원본에 이름 열이 있을 때, 2026-11-04)
+- `names` — `{학번: 이름}`. 원본에 이름 열이 있으면 그 값(2026-11-04), 없는 학생은 StudentHub `students`에서 (학년도 = 입학년도 + 학번 첫 자리 − 1, 학번)으로 찾아 채운다(2026-11-05, 원본이 우선)
 - `lockedStudents[]`, `manualStudents[]`, `excluded[{id, reason}]`(신청 없음 등), `warnings[]`
 - `maxSize`·`maxMode`, `minSize`·`minMode` — 분반 최대·최소 인원과 지키는 정도(`hard` 꼭 / `soft` 가능하면 / `off` 참고만). 최소는 2분반 이상 과목에만
 - `freeMax` — 그룹당 공강 학생 최대 인원(null = 제한 없음, 꼭 지킴). 그룹 수(`slots`)를 학생당 과목 수보다 많이 연 공강 그룹 작업에서만 쓴다

@@ -10,7 +10,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import {
   moveSectionSlot, toggleSectionLock, sectionLabel, studentSchedule, spreadOf,
-  updateSubject, resizeSections, recalcSections, placementCheck, placementCheckIfMoved, unassignedBySubject, hasFree,
+  updateSubject, resizeSections, recalcSections, placementCheck, placementCheckIfMoved, unassignedBySubject, hasFree, studentLabel,
 } from '@shared/lib/sectioning'
 import { blockColor } from './colors'
 
@@ -43,6 +43,7 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
   const [dragSubject, setDragSubject] = useState(null)
   const [dragHints, setDragHints] = useState(null) // 끄는 분반을 그룹 t로 옮기면 배정 불가 학생 수
   const T = project.slots.length
+  const lb = (sid) => studentLabel(project, sid)
 
   const blocks = useMemo(() => [...new Set(project.subjects.map((s) => s.block))], [project.subjects])
   const cols = useMemo(
@@ -131,15 +132,15 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
         </Typography>
         {pc.count > 0 && (
           <Typography fontSize={12} color="#7f1d1d" noWrap sx={{ minWidth: 0, flex: 1 }}
-            title={pc.blocked.map((b) => `${b.sids.join(',')}: ${b.subjects.map((x) => project.subjects[x].name).join('·')}`).join('\n')}>
-            {pc.blocked.slice(0, 3).map((b) => `${b.sids[0]}${b.sids.length > 1 ? ` 외 ${b.sids.length - 1}명` : ''}(${b.subjects.map((x) => project.subjects[x].name).join('·')})`).join(' / ')}
+            title={pc.blocked.map((b) => `${b.sids.map(lb).join(', ')}: ${b.subjects.map((x) => project.subjects[x].name).join('·')}`).join('\n')}>
+            {pc.blocked.slice(0, 3).map((b) => `${lb(b.sids[0])}${b.sids.length > 1 ? ` 외 ${b.sids.length - 1}명` : ''}(${b.subjects.map((x) => project.subjects[x].name).join('·')})`).join(' / ')}
             {pc.blocked.length > 3 ? ' …' : ''}
           </Typography>
         )}
         {!pc.count && !unassigned.length && <Typography fontSize={12} color="text.secondary" sx={{ flex: 1 }}>분반을 끌면 그룹마다 배정 가능 여부가 바로 표시되고, 놓으면 학생을 다시 나눕니다.</Typography>}
         {unassigned.length > 0 && (
           <Typography fontSize={12.5} color="error" fontWeight={700} noWrap sx={{ minWidth: 0, flex: pc.count ? 'none' : 1 }}
-            title={unassigned.map((u) => `${u.name} ${u.count}명: ${u.students.join(', ')}`).join('\n')}>
+            title={unassigned.map((u) => `${u.name} ${u.count}명: ${u.students.map(lb).join(', ')}`).join('\n')}>
             과목별 미배정 — {unassigned.map((u) => `${u.name} ${u.count}명`).join(' · ')}
           </Typography>
         )}
@@ -195,7 +196,7 @@ export default function SlotGrid({ project, sizes, demand, validation, selectedS
                 )}
               </Typography>
               {unassignedOf[s] && (
-                <Tooltip title={`미배정 학생: ${unassignedOf[s].students.join(', ')}`}>
+                <Tooltip title={`미배정 학생: ${unassignedOf[s].students.map(lb).join(', ')}`}>
                   <Typography fontSize={11.5} fontWeight={800} color="error">미배정 {unassignedOf[s].count}명</Typography>
                 </Tooltip>
               )}

@@ -31,6 +31,7 @@ import {
 } from '@shared/lib/sectioning'
 import { listProjects, createProjectDoc, deleteProject, duplicateProject, saveProjectInfo } from '../lib/projectStore'
 import { parseBackup } from '../lib/exporters'
+import { loadHubNames } from '../lib/hubStudents'
 import AppShell from '../components/AppShell'
 import WorkInfoDialog, { WorkInfoFields, infoPatch } from '../components/WorkInfoDialog'
 import { useHubRoles } from '../lib/useHubRoles'
@@ -320,10 +321,15 @@ function NewProjectDialog({ folders, onClose, onCreated }) {
     setSaving(true)
     try {
       const v = infoPatch(info)
-      const project = createProject(parsed, {
+      let project = createProject(parsed, {
         title: v.title, year: v.year, entryYear: v.entryYear, grade: v.grade, semester: v.semester, folder: v.folder,
         maxSize: Number(maxSize) || 30, sourceFileName: fileName,
       })
+      // 원본에 이름이 없는 학생은 StudentHub 학적에서 찾아 함께 저장한다(못 찾아도 작업은 만든다)
+      try {
+        const hub = await loadHubNames(schoolId, project)
+        if (Object.keys(hub).length) project = { ...project, names: { ...hub, ...(project.names || {}) } }
+      } catch (e) { console.warn('StudentHub 이름을 불러오지 못했습니다.', e) }
       const id = await createProjectDoc(schoolId, project, user)
       logHub(schoolId, { action: 'sectioning_create', summary: `${workLabel(project)} 분반 작업 만들기 — 학생 ${Object.keys(project.requests).length}명`, details: [fileName, v.title], targetId: id })
       onCreated(id)

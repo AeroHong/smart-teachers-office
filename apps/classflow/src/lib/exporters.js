@@ -29,6 +29,9 @@ const thin = { style: 'thin', color: { argb: 'FFBFC7D1' } }
 const border = { top: thin, left: thin, bottom: thin, right: thin }
 const headFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEF2F7' } }
 const asId = (sid) => (/^\d+$/.test(sid) ? Number(sid) : sid)
+// 명단 칸: 이름을 알면 `학번 이름`, 모르면 학번(숫자)
+const who = (project, sid) => (project.names?.[sid] ? `${sid} ${project.names[sid]}` : asId(sid))
+const hasNames = (project) => Object.keys(project.names || {}).length > 0
 
 /** 1. 나이스 일괄등록 — 원본 헤더(병합 포함) 그대로, 과목 칸에 분반 기호 */
 export async function exportNeis(project) {
@@ -67,11 +70,11 @@ function addRosterSheet(wb, project) {
     row.getCell(1).value = r + 1
     groups.forEach((g, c) => {
       const sid = g.students[r]
-      if (sid) { row.getCell(c + 2).value = asId(sid); row.getCell(c + 2).border = border }
+      if (sid) { row.getCell(c + 2).value = who(project, sid); row.getCell(c + 2).border = border }
     })
   }
   ws.getColumn(1).width = 6
-  groups.forEach((_, c) => { ws.getColumn(c + 2).width = 11 })
+  groups.forEach((_, c) => { ws.getColumn(c + 2).width = hasNames(project) ? 14 : 11 })
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: head.length }]
   return groups
 }
@@ -89,8 +92,8 @@ export async function exportRoster(project) {
     const sh = wb.addWorksheet(subj.name.replace(/[\\/?*[\]:]/g, '').slice(0, 31))
     sh.addRow(gs.map((g) => `${g.label} (${g.students.length}명)`)).font = { bold: true }
     const n = Math.max(...gs.map((g) => g.students.length))
-    for (let r = 0; r < n; r++) sh.addRow(gs.map((g) => (g.students[r] ? asId(g.students[r]) : null)))
-    gs.forEach((_, c) => { sh.getColumn(c + 1).width = 14 })
+    for (let r = 0; r < n; r++) sh.addRow(gs.map((g) => (g.students[r] ? who(project, g.students[r]) : null)))
+    gs.forEach((_, c) => { sh.getColumn(c + 1).width = hasNames(project) ? 16 : 14 })
   }
   await saveWorkbook(wb, `${baseName(project)}_분반별명단.xlsx`)
 }

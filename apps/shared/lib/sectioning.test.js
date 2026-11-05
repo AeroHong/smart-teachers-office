@@ -500,3 +500,24 @@ test('회의 자료 — 배정표 격자·상태, 분리 규칙은 개수만', (
   assert.equal(r.showFree, false)
   assert.equal(meetingReport(setGroupCount(p, 4)).groups[3].free, 3)
 })
+
+test('StudentHub 이름 — (학년도, 학번)으로 찾고, 원본 이름이 우선', async () => {
+  const { namesFromHub, hubGradesOf, fillNames, studentLabel, idYear } = await import('./sectioning.js')
+  assert.equal(idYear('20315', 2025), 2026)
+  assert.deepEqual(hubGradesOf(['20315', '20101', 'x1']), [2, 3])
+  const docs = [
+    // 2025입학생 — 2026에 2학년 3반 15번, 지금(2027)은 3학년 1반 2번
+    { name: '김하나', year: 2027, studentId: '30102', placements: { 2026: { grade: 2, class: 3, number: 15 } } },
+    // 2026입학생 — 2027에 2학년 3반 15번(같은 학번, 다른 학생)
+    { name: '이두리', year: 2027, studentId: '20315' },
+  ]
+  assert.deepEqual(namesFromHub(['20315'], docs, 2025), { 20315: '김하나' })
+  assert.deepEqual(namesFromHub(['20315'], docs, 2026), { 20315: '이두리' })
+  // 입학년도를 모르면 그 학번을 쓴 학생이 한 명일 때만
+  assert.deepEqual(namesFromHub(['20315', '30102'], docs, null), { 30102: '김하나' })
+  const p = { names: { 10101: '원본' }, requests: {} }
+  assert.deepEqual(fillNames(p, { 10101: '허브', 10102: '새이름' }).names, { 10101: '원본', 10102: '새이름' })
+  assert.equal(fillNames(p, { 10101: '허브' }), p)
+  assert.equal(studentLabel(p, '10101'), '10101 원본')
+  assert.equal(studentLabel(p, '10109'), '10109')
+})
