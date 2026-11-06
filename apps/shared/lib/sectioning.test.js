@@ -575,3 +575,12 @@ test('솔버 입력 — 고정 학생 목록·과목 고정 표시, 분리 규�
   assert.deepEqual(x.separations, [['10102', '10103']])
   assert.deepEqual(solverSeparations(p).map((r) => r.id), ['b'])
 })
+
+test('솔버 힌트 — 미배정 학생이 있어도 배정된 학생은 출발점으로 넘긴다', () => {
+  const p = solvedProject()
+  const q = { ...p, assignment: { ...p.assignment, 10102: [null, 0, 0] } }
+  const h = toSolverInput(q).hint
+  assert.ok(h.assignments['10101'])
+  assert.ok(h.assignments['10103'])
+  assert.equal(h.assignments['10102'], undefined)
+})

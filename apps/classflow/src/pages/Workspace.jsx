@@ -53,6 +53,8 @@ import IosShareIcon from '@mui/icons-material/IosShareOutlined'
 // 해를 못 찾으면 이 순서로 제한 시간을 늘려 다시 시도한다(초)
 const LIMITS = [30, 120, 300]
 const limitText = (s) => (s >= 60 ? `${s / 60}분` : `${s}초`)
+/** 지금 배정에서 제자리가 없는 학생 수(미배정 + 시간 충돌) */
+const currentBlocked = (p) => { const v = validateProject(p); return new Set([...v.unassigned, ...v.conflicts].map(String)).size }
 
 const numStyle = { width: 42, fontSize: 14, fontWeight: 700, textAlign: 'center', border: '1px solid #cfd6cf', borderRadius: 6, padding: '3px 2px', background: '#fff' }
 const selStyle = { fontSize: 12.5, border: '1px solid #cfd6cf', borderRadius: 6, padding: '3px 2px', background: '#fff', color: '#14532d', fontWeight: 600 }
@@ -314,7 +316,8 @@ export default function Workspace() {
       const sw = (s.swaps || [{ from: s.from, to: s.to }]).map((x) => `${x.from} → ${x.to}`).join(', ')
       log('local', `학생 과목 조정 제안: ${nm(s.id)} ${sw}${s.verified ? ' (전체 배정 가능 확인)' : ' (빠른 판정만)'}`)
     }
-    const entry = { at: new Date().toISOString(), reason, key: diagnoseKey(p), byName, diagnose: d }
+    // currentUnassigned: 진단을 시작할 때 지금 배정의 미배정 수 — 진단 배치가 이보다 나쁘면 창에서 알린다
+    const entry = { at: new Date().toISOString(), reason, key: diagnoseKey(p), byName, diagnose: d, currentUnassigned: currentBlocked(p) }
     const cur = projectRef.current
     if (cur) {
       const next = { ...cur, lastDiagnose: entry }

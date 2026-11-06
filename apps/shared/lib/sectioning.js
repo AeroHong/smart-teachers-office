@@ -683,14 +683,14 @@ export function toSolverInput(project, { keepPrevious = false, timeLimit = 30, w
   // 힌트: 그룹이 모두 정해진 지금 배정을 솔버의 출발점으로(그보다 좋은 해부터 찾게)
   let hint = null
   const placed = project.subjects.every((subj) => subj.slotBySection.every((t) => t !== null && t !== undefined))
-  const assignedAll = Object.entries(project.requests).every(([sid, subs]) => (project.assignment[sid] || []).length === subs.length &&
-    project.assignment[sid].every((k) => k !== null && k !== undefined))
+  // 학생 힌트는 모든 과목이 배정된 학생만 — 미배정이 섞여 있어도 나머지 학생은 넘긴다(진단이 지금 배정보다 나쁜 데서 시작하지 않게).
+  // 솔버는 같은 조합 묶음의 학생이 모두 있을 때만 그 묶음 인원 힌트를 쓴다(_apply_hint)
   if (withHint && placed) {
     hint = { sections: Object.fromEntries(project.subjects.map((subj) => [subj.name, [...subj.slotBySection]])), assignments: {} }
-    if (assignedAll) {
-      for (const [sid, subs] of Object.entries(project.requests)) {
-        hint.assignments[sid] = Object.fromEntries(subs.map((s, j) => [names[s], project.assignment[sid][j]]))
-      }
+    for (const [sid, subs] of Object.entries(project.requests)) {
+      const a = project.assignment[sid] || []
+      if (a.length !== subs.length || a.some((k) => k === null || k === undefined)) continue
+      hint.assignments[sid] = Object.fromEntries(subs.map((s, j) => [names[s], a[j]]))
     }
   }
   return {

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -81,6 +82,13 @@ export function InfeasibleDialog({
           </Alert>
         )}
 
+        {base > 0 && info.currentUnassigned != null && info.currentUnassigned < base && (
+          <Alert severity="info" sx={{ mb: 2 }}
+            action={onRediagnose && canEdit ? <Button color="inherit" size="small" onClick={onRediagnose}>다시 진단</Button> : null}>
+            진단 계산이 시간 안에 지금 배정(제자리 없는 학생 {info.currentUnassigned}명)보다 좋은 배치를 찾지 못했습니다.
+            아래 남는 학생·학생 제안은 진단 배치 기준이라 실제보다 많게 나왔을 수 있습니다. 다시 진단하면 지금 배정에서 출발합니다.
+          </Alert>
+        )}
         {base === 0 && (
           <Alert severity="success" sx={{ mb: 2 }}>
             진단 계산에서는 모든 학생이 들어가는 배치를 찾았습니다. 해가 있으니 「5분 동안 다시 계산」으로 다시 시도해 보세요.
@@ -119,52 +127,6 @@ export function InfeasibleDialog({
                 </Typography>
               </>
             )}
-          </Box>
-        )}
-
-        {diagnose?.unassigned?.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <Typography fontWeight={700} sx={{ mb: 0.5 }}>학생 과목 조정 제안 (같은 칸막이 안에서 과목 바꾸기)</Typography>
-            {studentSugs.length ? (
-              <Table size="small">
-                <TableHead>
-                  <TableRow><TableCell>대상 학생</TableCell><TableCell>지금 신청</TableCell><TableCell>제안</TableCell><TableCell align="center">확인</TableCell><TableCell /></TableRow>
-                </TableHead>
-                <TableBody>
-                  {studentSugs.map((sg) => {
-                    const sw = swapsOf(sg)
-                    return (
-                      <TableRow key={`${sg.id}:${sw.map((x) => `${x.from}>${x.to}`).join(',')}`}>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}><b>{labelOf(String(sg.id))}</b></TableCell>
-                        <TableCell sx={{ fontSize: 12.5, color: 'text.secondary' }}>{(sg.subjects || []).join(', ')}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          {sw.map((x) => (
-                            <div key={`${x.from}>${x.to}`}>{x.from} → <b>{x.to}</b>{x.block ? ` (${x.block})` : ''}</div>
-                          ))}
-                          {sw.length > 1 && <Chip size="small" label="두 과목" sx={{ height: 18, fontSize: 11 }} />}
-                        </TableCell>
-                        <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                          {sg.verified ? <Typography variant="body2" color="success.main" fontWeight={700}>전체 배정 가능 ✓{sg.worstSpread != null ? ` · 편차 ${sg.worstSpread}명` : ''}</Typography>
-                            : sg.remaining != null ? <Typography variant="body2" color="text.secondary">남는 학생 {sg.remaining}명</Typography>
-                              : <Typography variant="body2" color="text.secondary">빠른 판정만</Typography>}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Button size="small" variant="outlined" disabled={!canEdit || !onApplyStudent} onClick={() => onApplyStudent(sg)}>바꾸고 다시 계산</Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                과목 한두 개를 바꿔서 들어갈 수 있는 조합을 찾지 못했습니다.
-              </Typography>
-            )}
-            <Typography variant="caption" color="text.secondary">
-              학생·학부모 상담으로 바꿀 과목을 정한 뒤 적용하세요. &quot;전체 배정 가능&quot;은 그 학생만 바꾸면 모든 학생이 배정되는 것을 솔버로 확인한 제안이고,
-              &quot;빠른 판정만&quot;은 진단 배치에 들어갈 자리가 있는지만 본 것입니다.
-            </Typography>
           </Box>
         )}
 
@@ -224,6 +186,10 @@ export function InfeasibleDialog({
           </>
         )}
 
+        {diagnose?.unassigned?.length > 0 && (
+          <StudentSuggestions sugs={studentSugs} nStudents={diagnose.unassigned.length} labelOf={labelOf}
+            canEdit={canEdit} onApplyStudent={onApplyStudent} />
+        )}
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
           현재 분반 {project.subjects.reduce((a, s) => a + s.sections, 0)}개 · 그룹 {project.slots.length}개
           {Array.isArray(project.rooms) && project.rooms.some((r) => r !== null && r !== undefined && r !== '')
@@ -235,5 +201,91 @@ export function InfeasibleDialog({
         <Button onClick={onClose}>닫기</Button>
       </DialogActions>
     </Dialog>
+  )
+}
+
+/**
+ * 학생 과목 조정 제안 — 최후 수단이라 분반·규칙 대안 아래에 둔다.
+ * 학생마다 가장 좋은 후보 1줄, 나머지는 「다른 후보」로 접는다. 대상 학생이 3명을 넘으면 칸 전체를 접어 둔다.
+ */
+function StudentSuggestions({ sugs, nStudents, labelOf, canEdit, onApplyStudent }) {
+  const byStudent = []
+  const seen = new Map()
+  for (const sg of sugs) {
+    const id = String(sg.id)
+    if (!seen.has(id)) { seen.set(id, byStudent.length); byStudent.push({ id, list: [] }) }
+    byStudent[seen.get(id)].list.push(sg)
+  }
+  const [open, setOpen] = useState(byStudent.length <= 3)
+  const [more, setMore] = useState({})
+  const nVerified = byStudent.filter((x) => x.list[0]?.verified).length
+
+  const row = (sg, first, extra) => {
+    const sw = swapsOf(sg)
+    return (
+      <TableRow key={`${sg.id}:${sw.map((x) => `${x.from}>${x.to}`).join(',')}`} sx={first ? undefined : { bgcolor: '#fafafa' }}>
+        <TableCell sx={{ whiteSpace: 'nowrap' }}>{first ? <b>{labelOf(String(sg.id))}</b> : <Typography variant="caption" color="text.secondary">다른 후보</Typography>}</TableCell>
+        <TableCell sx={{ fontSize: 12.5, color: 'text.secondary' }}>{first ? (sg.subjects || []).join(', ') : ''}</TableCell>
+        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+          {sw.map((x) => (
+            <div key={`${x.from}>${x.to}`}>{x.from} → <b>{x.to}</b>{x.block ? ` (${x.block})` : ''}</div>
+          ))}
+          {sw.length > 1 && <Chip size="small" label="두 과목" sx={{ height: 18, fontSize: 11 }} />}
+        </TableCell>
+        <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+          {sg.verified ? <Typography variant="body2" color="success.main" fontWeight={700}>전체 배정 가능 ✓{sg.worstSpread != null ? ` · 편차 ${sg.worstSpread}명` : ''}</Typography>
+            : sg.remaining != null ? <Typography variant="body2" color="text.secondary">남는 학생 {sg.remaining}명</Typography>
+              : <Typography variant="body2" color="text.secondary">빠른 판정만</Typography>}
+          {extra}
+        </TableCell>
+        <TableCell align="right">
+          <Button size="small" variant="outlined" disabled={!canEdit || !onApplyStudent} onClick={() => onApplyStudent(sg)}>바꾸고 다시 계산</Button>
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  return (
+    <Box sx={{ mt: 2.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Typography fontWeight={700}>학생 과목 조정 제안 — 최후 수단 (같은 칸막이 안에서 과목 바꾸기)</Typography>
+        {byStudent.length > 0 && (
+          <Button size="small" onClick={() => setOpen((v) => !v)}>
+            {open ? '접기' : `펼치기 (학생 ${byStudent.length}명${nVerified ? ` · 전체 배정 확인 ${nVerified}명` : ''})`}
+          </Button>
+        )}
+      </Box>
+      {!byStudent.length ? (
+        <Typography variant="body2" color="text.secondary">과목 한두 개를 바꿔서 들어갈 수 있는 조합을 찾지 못했습니다.</Typography>
+      ) : !open ? (
+        <Typography variant="body2" color="text.secondary">
+          {nStudents > 3 ? `남는 학생이 ${nStudents}명이라 학생 과목을 바꾸기보다 위의 분반·규칙 대안을 먼저 보세요.` : '학생 신청을 바꾸는 제안입니다.'}
+        </Typography>
+      ) : (
+        <>
+          <Table size="small">
+            <TableHead>
+              <TableRow><TableCell>대상 학생</TableCell><TableCell>지금 신청</TableCell><TableCell>제안</TableCell><TableCell align="center">확인</TableCell><TableCell /></TableRow>
+            </TableHead>
+            <TableBody>
+              {byStudent.flatMap(({ id, list }) => {
+                const rest = list.slice(1)
+                const toggle = rest.length ? (
+                  <Button size="small" sx={{ display: 'block', mx: 'auto', minWidth: 0, p: 0, fontSize: 11.5 }}
+                    onClick={() => setMore((m) => ({ ...m, [id]: !m[id] }))}>
+                    {more[id] ? '다른 후보 접기' : `다른 후보 ${rest.length}개`}
+                  </Button>
+                ) : null
+                return [row(list[0], true, toggle), ...(more[id] ? rest.map((sg) => row(sg, false)) : [])]
+              })}
+            </TableBody>
+          </Table>
+          <Typography variant="caption" color="text.secondary">
+            학생·학부모 상담으로 바꿀 과목을 정한 뒤 적용하세요. &quot;전체 배정 가능&quot;은 그 학생만 바꾸면 모든 학생이 배정되는 것을 솔버로 확인한 제안이고,
+            &quot;빠른 판정만&quot;은 진단 배치에 들어갈 자리가 있는지만 본 것입니다.
+          </Typography>
+        </>
+      )}
+    </Box>
   )
 }

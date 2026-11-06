@@ -967,26 +967,29 @@ def _apply_hint(m, hint, subjects, subject_index, K, T, x, groups, y, locked):
         for t in range(T):
             m.AddHint(x[s][k][t], 1 if t == t0 else 0)
 
-    # 그룹별 인원 힌트
+    # 그룹별 인원 힌트 — 배정이 없거나 어긋난 학생은 빼고 센다(진단 모드에서 지금 배정 그대로가 출발점이 되도록)
     asg = hint.get("assignments") or {}
     for gi, g in enumerate(groups):
         cnt = defaultdict(int)
-        ok = True
+        n_ok = 0
         for sid in g["members"]:
             a = asg.get(sid)
             if not a:
-                ok = False
-                break
+                continue
+            keys = []
             for s in g["subjects"]:
                 k_old = a.get(subjects[s]["name"])
                 if k_old is None or (s, int(k_old)) not in remap:
-                    ok = False
+                    keys = None
                     break
                 k = remap[(s, int(k_old))]
-                cnt[(s, k, slot_hint[(s, k)])] += 1
-            if not ok:
-                break
-        if not ok:
+                keys.append((s, k, slot_hint[(s, k)]))
+            if keys is None:
+                continue
+            n_ok += 1
+            for key in keys:
+                cnt[key] += 1
+        if not n_ok:
             continue
         for key, v in y[gi].items():
             m.AddHint(v, cnt.get(key, 0))
