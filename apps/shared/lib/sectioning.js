@@ -1676,3 +1676,19 @@ export function explainUnassigned(project, diag) {
   const order = { clash: 0, full: 1, lock: 2, separation: 3, free: 4, other: 5 }
   return [...groups.values()].sort((a, b) => order[a.kind] - order[b.kind] || b.sids.length - a.sids.length)
 }
+
+/**
+ * 진단 기준선 — 지금 배정 그대로의 "남는 학생"과 그룹 배치. 솔버 진단이 이보다 나쁘면 서버가 이것을 진단 결과로 쓴다.
+ * 그룹이 정해지지 않은 분반이 있으면 null(지금 배정이 비교 기준이 못 된다).
+ * @returns {{ unassigned: {id, subjects}[], sections: {subject, index, slot, size}[] } | null}
+ */
+export function diagnoseBaseline(project) {
+  if (!project.subjects.every((subj) => subj.slotBySection.every((t) => t !== null && t !== undefined))) return null
+  const v = validateProject(project)
+  const blocked = [...new Set([...v.unassigned, ...v.conflicts].map(String))]
+  const sizes = sectionSizes(project)
+  return {
+    unassigned: blocked.map((sid) => ({ id: sid, subjects: (project.requests[sid] || []).map((s) => project.subjects[s].name) })),
+    sections: project.subjects.flatMap((subj, s) => subj.slotBySection.map((t, k) => ({ subject: subj.name, index: k, slot: t, size: sizes[s][k] }))),
+  }
+}

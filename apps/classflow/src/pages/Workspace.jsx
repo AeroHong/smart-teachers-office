@@ -21,7 +21,7 @@ import {
   demandOf, sectionSizes, validateProject, toSolverInput, applySolverResult, resizeSections, updateSubject, spreadOf,
   normalizeProject, recalcSections, placementCheck, quickAssign, balanceScore, compareScore, resetAssignment, unassignedBySubject,
   makeSolveLog, pushSolveLog, setStudentPicks, SOLVE_LOG_LINES, hasFree, fillNames, studentLabel,
-  diagnoseKey, solverSeparations,
+  diagnoseKey, solverSeparations, diagnoseBaseline,
 } from '@shared/lib/sectioning'
 import { watchProject, saveProject, saveProjectInfo, saveVersion } from '../lib/projectStore'
 import { callSolver } from '../lib/solverApi'
@@ -401,7 +401,7 @@ export default function Workspace() {
         }
         if (r.status === 'INFEASIBLE') {
           setSolving((c) => ({ ...c, limit: null }))
-          const d = await callSolver('diagnose', toSolverInput(p, { timeLimit: 30 }), ctrl.signal, onServerEvent)
+          const d = await callSolver('diagnose', { ...toSolverInput(p, { timeLimit: 30 }), baseline: diagnoseBaseline(p) }, ctrl.signal, onServerEvent)
           finishDiagnose(d, 'proven', p)
           return
         }
@@ -409,7 +409,7 @@ export default function Workspace() {
       }
       setSolving((c) => ({ ...c, limit: null }))
       log('warn', '최대 시간 안에 해를 찾지 못했습니다 → 원인과 대안을 찾습니다')
-      const d = await callSolver('diagnose', toSolverInput(p, { timeLimit: 60 }), ctrl.signal, onServerEvent)
+      const d = await callSolver('diagnose', { ...toSolverInput(p, { timeLimit: 60 }), baseline: diagnoseBaseline(p) }, ctrl.signal, onServerEvent)
       finishDiagnose(d, 'timeout', p)
     } catch (e) {
       if (e.name === 'AbortError') { setSolving(null) } else {

@@ -906,7 +906,18 @@ def diagnose(data, time_limit=30, log=None):
     sections는 그 배치(남는 학생이 가장 적은 그룹 배치) — 화면에서 원인 설명(explainUnassigned)에 쓴다.
     """
     _emit(log, "info", "원인 찾기 — 미배정 학생 수를 최소로 하는 배치를 찾습니다")
+    base = data.get("baseline") or None
+    data = {k: v for k, v in data.items() if k != "baseline"}
     r = solve({**data, "allowUnassigned": True, "timeLimit": time_limit})
+    # 기준선: 지금 배정 그대로. 솔버가 시간 안에 그보다 나은 배치를 못 찾으면 지금 배정으로 진단한다
+    # (CP-SAT 힌트는 참고일 뿐이라, 큰 작업에서는 지금보다 남는 학생이 많은 배치에서 멈출 수 있다)
+    if base and isinstance(base.get("unassigned"), list) and base.get("sections"):
+        found = len(r.get("unassigned") or []) if r["status"] in ("OPTIMAL", "FEASIBLE") else None
+        if found is None or found > len(base["unassigned"]):
+            _emit(log, "info", f"지금 배정(남는 학생 {len(base['unassigned'])}명)이 진단 계산"
+                  f"({'해 못 찾음' if found is None else f'{found}명'})보다 나아 지금 배정 기준으로 진단합니다")
+            r = {"status": "FEASIBLE", "unassigned": [{"id": str(u["id"]), "subjects": list(u.get("subjects") or [])} for u in base["unassigned"]],
+                 "sections": base["sections"]}
     unassigned = r.get("unassigned", [])
     for u in unassigned:
         _emit(log, "warn", f"남는 학생 {u['id']}: {', '.join(u['subjects'])}")

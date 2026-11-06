@@ -13,7 +13,7 @@ import {
   separationIssues, addSeparation, updateSeparation, removeSeparation, balanceScore, compareScore, unassignedBySubject,
   detectEnrollmentLayout, suggestWorkInfo, folderOf, mergeProject, makeSolveLog, pushSolveLog, formatSolveLog,
   setGroupCount, freeCounts, hasFree, totalFree, maxPicks, matchSeparations, meetingReport,
-  explainUnassigned, diagnoseKey, solverSeparations,
+  explainUnassigned, diagnoseKey, solverSeparations, diagnoseBaseline,
 } from './sectioning.js'
 
 // 실제 나이스 수강신청 일괄등록 파일과 같은 모양(1행 학년·학기, 2행 칸막이 병합, 3행 과목명)
@@ -583,4 +583,13 @@ test('솔버 힌트 — 미배정 학생이 있어도 배정된 학생은 출발
   assert.ok(h.assignments['10101'])
   assert.ok(h.assignments['10103'])
   assert.equal(h.assignments['10102'], undefined)
+})
+
+test('진단 기준선 — 지금 배정의 제자리 없는 학생과 그룹 배치', () => {
+  const p = solvedProject()                     // 10102 시간 충돌
+  const b = diagnoseBaseline(p)
+  assert.deepEqual(b.unassigned, [{ id: '10102', subjects: ['세계사', '정치', '일본어'] }])
+  assert.equal(b.sections.length, 5)
+  assert.deepEqual(b.sections[0], { subject: '기하', index: 0, slot: 0, size: 2 })
+  assert.equal(diagnoseBaseline(resizeSections(p, 0, 2)), null)   // 그룹 미정 분반이 있으면 기준이 못 된다
 })
