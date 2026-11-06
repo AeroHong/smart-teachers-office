@@ -13,6 +13,7 @@ import {
   separationIssues, addSeparation, updateSeparation, removeSeparation, balanceScore, compareScore, unassignedBySubject,
   detectEnrollmentLayout, suggestWorkInfo, folderOf, mergeProject, makeSolveLog, pushSolveLog, formatSolveLog,
   setGroupCount, freeCounts, hasFree, totalFree, maxPicks, matchSeparations, meetingReport,
+  explainUnassigned, diagnoseKey, solverSeparations,
 } from './sectioning.js'
 
 // 실제 나이스 수강신청 일괄등록 파일과 같은 모양(1행 학년·학기, 2행 칸막이 병합, 3행 과목명)
@@ -520,4 +521,57 @@ test('StudentHub 이름 — (학년도, 학번)으로 찾고, 원본 이름이 �
   assert.equal(fillNames(p, { 10101: '허브' }), p)
   assert.equal(studentLabel(p, '10101'), '10101 원본')
   assert.equal(studentLabel(p, '10109'), '10109')
+})
+
+// ── 배정 불가 진단 ──
+const diagOf = (p, unassigned) => ({
+  unassigned,
+  sections: p.subjects.flatMap((subj, s) => subj.slotBySection.map((t, k) => ({ subject: subj.name, index: k, slot: t, size: sectionSizes(p)[s][k] }))),
+})
+
+test('원인 설명 — 같은 그룹에만 있는 과목, 꽉 찬 분반, 같은 이유끼리 묶기', () => {
+  const p = solvedProject()                     // 기하 A, 세계사 B, 정치 B, 일본어 C·A
+  const ex = explainUnassigned(p, diagOf(p, [
+    { id: '10102', subjects: ['세계사', '정치', '일본어'] },
+    { id: '10199', subjects: ['세계사', '정치'] },
+  ]))
+  assert.equal(ex.length, 1)
+  assert.equal(ex[0].kind, 'clash')
+  assert.deepEqual(ex[0].subjects, ['세계사', '정치'])
+  assert.deepEqual(ex[0].sids, ['10102', '10199'])
+  assert.match(ex[0].text, /모두 B그룹에만/)
+
+  // 최대 인원 꼭 지킴: 일본어 C(3명) — 기하 A와 함께라면 일본어는 C뿐인데 꽉 참
+  const q = { ...p, maxMode: 'hard', maxSize: 3 }
+  const ex2 = explainUnassigned(q, { ...diagOf(q, [{ id: '10101', subjects: ['기하', '일본어'] }]),
+    sections: [{ subject: '기하', index: 0, slot: 0, size: 1 }, { subject: '일본어', index: 0, slot: 2, size: 3 }, { subject: '일본어', index: 1, slot: 0, size: 0 }] })
+  assert.equal(ex2[0].kind, 'full')
+  assert.match(ex2[0].text, /일본어 C그룹\(3\/3명\)/)
+
+  // 그룹은 맞고 고정 학생이면 lock
+  const r = { ...p, maxMode: 'off', lockedStudents: ['10101'] }
+  assert.equal(explainUnassigned(r, diagOf(r, [{ id: '10101', subjects: ['기하', '세계사'] }]))[0].kind, 'lock')
+  assert.deepEqual(explainUnassigned(p, { unassigned: [{ id: '1', subjects: [] }] }), [])   // 예전 저장본(배치 없음)
+})
+
+test('진단 열쇠 — 신청 순서와 그룹 배치는 무시, 조건이 바뀌면 달라짐', () => {
+  const p = solvedProject()
+  const reordered = { ...p, requests: Object.fromEntries(Object.entries(p.requests).reverse()) }
+  assert.equal(diagnoseKey(p), diagnoseKey(reordered))
+  assert.equal(diagnoseKey(p), diagnoseKey(moveSectionSlot(p, 2, 0, 2)))     // 고정 안 된 분반 이동
+  assert.notEqual(diagnoseKey(p), diagnoseKey({ ...p, maxMode: p.maxMode === 'hard' ? 'soft' : 'hard' }))
+  assert.notEqual(diagnoseKey(p), diagnoseKey(resizeSections(p, 0, 2)))
+  assert.notEqual(diagnoseKey(p), diagnoseKey({ ...p, lockedStudents: ['10101'] }))
+})
+
+test('솔버 입력 — 고정 학생 목록·과목 고정 표시, 분리 규칙 번호는 2명 이상 규칙 기준', () => {
+  let p = { ...solvedProject(), lockedStudents: ['10101', '99999'] }
+  p = { ...p, subjects: p.subjects.map((x, i) => (i === 1 ? { ...x, locked: true } : x)) }
+  p = { ...p, separations: [{ id: 'a', students: ['10101'] }, { id: 'b', students: ['10102', '10103'] }] }
+  const x = toSolverInput(p)
+  assert.deepEqual(x.lockedStudentIds, ['10101'])
+  assert.equal(x.subjects[1].locked, true)
+  assert.equal(x.subjects[0].locked, false)
+  assert.deepEqual(x.separations, [['10102', '10103']])
+  assert.deepEqual(solverSeparations(p).map((r) => r.id), ['b'])
 })

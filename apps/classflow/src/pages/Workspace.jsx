@@ -21,6 +21,7 @@ import {
   demandOf, sectionSizes, validateProject, toSolverInput, applySolverResult, resizeSections, updateSubject, spreadOf,
   normalizeProject, recalcSections, placementCheck, quickAssign, balanceScore, compareScore, resetAssignment, unassignedBySubject,
   makeSolveLog, pushSolveLog, setStudentPicks, SOLVE_LOG_LINES, hasFree, fillNames, studentLabel,
+  diagnoseKey, solverSeparations,
 } from '@shared/lib/sectioning'
 import { watchProject, saveProject, saveProjectInfo, saveVersion } from '../lib/projectStore'
 import { callSolver } from '../lib/solverApi'
@@ -167,7 +168,7 @@ export default function Workspace() {
   const undo = useCallback(() => {
     const h = historyRef.current
     if (!h.length) return
-    const last = { ...h[h.length - 1], solveLogs: projectRef.current?.solveLogs || [] }
+    const last = { ...h[h.length - 1], solveLogs: projectRef.current?.solveLogs || [], lastDiagnose: projectRef.current?.lastDiagnose ?? null }
     historyRef.current = h.slice(0, -1)
     setHistory(historyRef.current)
     projectRef.current = last
@@ -256,6 +257,8 @@ export default function Workspace() {
   const sizes = useMemo(() => (project ? sectionSizes(project) : []), [project])
   const validation = useMemo(() => (project ? validateProject(project) : null), [project])
   const worstSpread = useMemo(() => Math.max(0, ...sizes.filter((x) => x.length > 1).map(spreadOf)), [sizes])
+  // 진단 창을 연 동안만 — 진단한 뒤 배정 조건이 바뀌었는지
+  const diagnoseStale = useMemo(() => !!(infeasible?.key && project && diagnoseKey(project) !== infeasible.key), [infeasible, project])
 
   // ── 계산 콘솔: 실제 진행 로그를 쌓는다 ──
   // before: 실행할 때의 작업(배정 기록의 설정 요약에 쓴다)
@@ -293,20 +296,37 @@ export default function Workspace() {
     else setSolving((c) => (c ? { ...c, archived: true } : c))
   }, [solving, byName])
 
-  /** 해가 없을 때 진단 결과 — 기록에 남기고 대안 창을 연다 */
-  const finishDiagnose = (d) => {
+  /**
+   * 해가 없을 때 진단 결과 — 기록에 남기고, 작업에 마지막 진단으로 붙여(저장하면 함께 저장) 대안 창을 연다.
+   * reason: 'proven'(해 없음 증명) | 'timeout'(최대 시간 안에 못 찾음 — 증명 아님). p: 진단한 작업(조건이 바뀌었는지 비교 기준)
+   */
+  const finishDiagnose = (d, reason, p) => {
     const nm = (id) => labelOf(String(id))
-    if (d.unassigned?.length) log('warn', `조건을 그대로 두면 최소 ${d.unassigned.length}명이 남습니다: ${d.unassigned.map((u) => nm(u.id)).join(', ')}`)
-    log('warn', `대안 ${d.suggestions?.length || 0}가지를 찾았습니다`)
-    for (const s of d.suggestions || []) log('local', `대안: ${s.label} → 분반 편차 최대 ${s.worstSpread}명`)
+    const sugs = d.suggestions || []
+    const nFull = sugs.filter((s) => s.full ?? true).length
+    const nPartial = sugs.length - nFull
+    if (d.unassigned?.length) log('warn', `조건을 그대로 두면 ${reason === 'timeout' ? '' : '최소 '}${d.unassigned.length}명이 남습니다: ${d.unassigned.map((u) => nm(u.id)).join(', ')}`)
+    log('warn', `완전 해결 대안 ${nFull}가지 · 부분 개선 ${nPartial}가지를 찾았습니다`)
+    for (const s of sugs) {
+      log('local', (s.full ?? true) ? `대안: ${s.label} → 분반 편차 최대 ${s.worstSpread}명` : `부분 개선: ${s.label} → 남는 학생 ${s.remaining}명 이하`)
+    }
     for (const s of d.studentSuggestions || []) {
-      log('local', `학생 과목 조정 제안: ${nm(s.id)} ${s.from} → ${s.to}${s.verified ? ' (전체 배정 가능 확인)' : ' (빠른 판정만)'}`)
+      const sw = (s.swaps || [{ from: s.from, to: s.to }]).map((x) => `${x.from} → ${x.to}`).join(', ')
+      log('local', `학생 과목 조정 제안: ${nm(s.id)} ${sw}${s.verified ? ' (전체 배정 가능 확인)' : ' (빠른 판정만)'}`)
+    }
+    const entry = { at: new Date().toISOString(), reason, key: diagnoseKey(p), byName, diagnose: d }
+    const cur = projectRef.current
+    if (cur) {
+      const next = { ...cur, lastDiagnose: entry }
+      projectRef.current = next
+      setProject(next)
+      setDirty(true)
     }
     finishConsole({
       ok: false, close: true,
-      summary: `해 없음 — 최소 미배정 ${d.minUnassigned ?? '?'}명 · 대안 ${d.suggestions?.length || 0}가지 · 학생 조정 제안 ${d.studentSuggestions?.length || 0}건`,
+      summary: `${reason === 'timeout' ? '시간 안에 못 찾음' : '해 없음'} — ${reason === 'timeout' ? '' : '최소 '}미배정 ${d.minUnassigned ?? '?'}명 · 대안 ${nFull}가지 · 부분 개선 ${nPartial}가지 · 학생 조정 제안 ${d.studentSuggestions?.length || 0}건`,
     })
-    setInfeasible({ diagnose: d })
+    setInfeasible(entry)
   }
 
   /** 배정 실행. keepPrevious: 지금 배정을 기준으로 바뀌는 학생을 줄인다(고정은 항상 유지) */
@@ -356,6 +376,7 @@ export default function Workspace() {
           const fin = balanceScore(next)
           r.stats = { ...r.stats, worstSpread: fin.worst, spreadSum: fin.sum }
           next.lastSolve = { ...r.stats, status: r.status, ok: v.ok, limit, at: new Date().toISOString() }
+          if (v.ok) next.lastDiagnose = null   // 풀렸으면 지난 진단은 지운다
           commit(next)
           logHub(schoolId, { action: 'sectioning_solve', targetId: projectId,
             summary: `${workLabel(p)} 분반 배정 실행 — ${v.ok ? '미배정 0명' : '검사 문제 있음'} · 분반 편차 최대 ${r.stats.worstSpread}명` })
@@ -378,7 +399,7 @@ export default function Workspace() {
         if (r.status === 'INFEASIBLE') {
           setSolving((c) => ({ ...c, limit: null }))
           const d = await callSolver('diagnose', toSolverInput(p, { timeLimit: 30 }), ctrl.signal, onServerEvent)
-          finishDiagnose(d)
+          finishDiagnose(d, 'proven', p)
           return
         }
         // UNKNOWN → 다음 제한 시간으로
@@ -386,7 +407,7 @@ export default function Workspace() {
       setSolving((c) => ({ ...c, limit: null }))
       log('warn', '최대 시간 안에 해를 찾지 못했습니다 → 원인과 대안을 찾습니다')
       const d = await callSolver('diagnose', toSolverInput(p, { timeLimit: 60 }), ctrl.signal, onServerEvent)
-      finishDiagnose(d)
+      finishDiagnose(d, 'timeout', p)
     } catch (e) {
       if (e.name === 'AbortError') { setSolving(null) } else {
         console.error(e)
@@ -444,42 +465,65 @@ export default function Workspace() {
     })
   }, [project, commit])
 
-  const applySuggestion = (change) => {
+  /** 대안 적용 — 조건 하나 또는 두 가지 함께(sg.changes). 규칙을 지우거나 고정을 푸는 것은 한 번 더 묻는다 */
+  const applySuggestion = (sg) => {
+    const changes = sg.changes || (sg.change ? [sg.change] : [])
     let p = project
-    if (change.rooms) p = { ...p, rooms: change.rooms }
-    if (change.maxMode) p = { ...p, maxMode: change.maxMode }
-    if (change.dropSeparation !== undefined) {
-      // 규칙을 지우지 않고 잠시 빼는 대신, 사용자가 확인한 뒤 지우도록 그 규칙만 제외해 다시 계산
-      const rule = (p.separations || [])[change.dropSeparation]
-      if (rule && window.confirm(`분리 규칙(${rule.students.map(labelOf).join(', ')})을 지우고 다시 계산할까요? 저장 전에는 되돌리기로 복구할 수 있습니다.`)) {
-        p = { ...p, separations: p.separations.filter((r) => r.id !== rule.id) }
-      } else return
+    // 분리 규칙 번호는 솔버에 보낸 목록(학생 2명 이상인 규칙) 기준
+    const drops = changes.filter((c) => c.dropSeparation !== undefined)
+      .map((c) => solverSeparations(p)[c.dropSeparation]).filter(Boolean)
+    const unlocks = changes.filter((c) => c.unlockSections || c.unlockStudents)
+    if (drops.length || unlocks.length) {
+      const lines = [
+        ...drops.map((r) => `· 분리 규칙(${r.students.map(labelOf).join(', ')}) 지우기`),
+        ...unlocks.map((c) => (c.unlockStudents ? `· 고정 학생 ${(p.lockedStudents || []).length}명 고정 풀기` : `· ${c.subject} 분반 그룹 고정 풀기`)),
+      ]
+      if (!window.confirm(`정해 둔 규칙을 바꾸고 다시 계산합니다.\n${lines.join('\n')}\n\n저장 전에는 되돌리기(↶)로 복구할 수 있습니다.`)) return
     }
-    if (change.minMode) p = { ...p, minMode: change.minMode }
-    if ('freeMax' in change) p = { ...p, freeMax: change.freeMax }
-    if (change.subject) {
-      const s = p.subjects.findIndex((x) => x.name === change.subject)
-      if (change.sections) p = resizeSections(p, s, change.sections)
-      if (change.distinctSlots === false) p = updateSubject(p, s, { distinctSlots: false })
+    if (drops.length) {
+      const ids = new Set(drops.map((r) => r.id))
+      p = { ...p, separations: p.separations.filter((r) => !ids.has(r.id)) }
     }
+    for (const change of changes) {
+      if (change.rooms) p = { ...p, rooms: change.rooms }
+      if (change.maxMode) p = { ...p, maxMode: change.maxMode }
+      if (change.minMode) p = { ...p, minMode: change.minMode }
+      if ('freeMax' in change) p = { ...p, freeMax: change.freeMax }
+      if (change.unlockStudents) p = { ...p, lockedStudents: [] }
+      if (change.subject) {
+        const s = p.subjects.findIndex((x) => x.name === change.subject)
+        if (s < 0) continue
+        if (change.sections) p = resizeSections(p, s, change.sections)
+        if (change.distinctSlots === false) p = updateSubject(p, s, { distinctSlots: false })
+        if (change.unlockSections) p = updateSubject(p, s, { locked: false, lockedSections: p.subjects[s].lockedSections.map(() => false) })
+      }
+    }
+    logHub(schoolId, { action: 'sectioning_relax', targetId: projectId, summary: `${workLabel(p)} 배정 불가 대안 적용(저장 전) — ${sg.label}` })
     commit(p)
     setInfeasible(null)
     runSolve({ base: p })
   }
 
-  /** 학생 과목 조정 제안 적용 — 같은 칸막이의 다른 과목으로 바꾸고 다시 계산(학생 상담 뒤 확정) */
+  /** 학생 과목 조정 제안 적용 — 같은 칸막이의 다른 과목으로 바꾸고 다시 계산(학생 상담 뒤 확정). 두 과목 바꾸기도 같은 방식 */
   const applyStudentChange = (sg) => {
     const p = project
     const sid = String(sg.id)
-    const from = p.subjects.findIndex((x) => x.name === sg.from)
-    const to = p.subjects.findIndex((x) => x.name === sg.to)
+    const swaps = sg.swaps || [{ from: sg.from, to: sg.to }]
     const subs = p.requests[sid]
-    if (!subs || from < 0 || to < 0 || !subs.includes(from)) { setToast({ severity: 'error', text: '제안을 적용할 수 없습니다(신청 데이터가 바뀜).' }); return }
-    if (!window.confirm(`${labelOf(sid)} 학생의 과목을 바꿉니다.\n${sg.from} → ${sg.to}\n\n학생·학부모 상담으로 확정한 뒤 적용하세요. 저장 전에는 되돌리기(↶)로 돌아갈 수 있습니다.`)) return
-    const next = setStudentPicks(p, sid, subs.map((s) => (s === from ? to : s)))
+    let picks = subs ? [...subs] : null
+    for (const sw of swaps) {
+      const from = p.subjects.findIndex((x) => x.name === sw.from)
+      const to = p.subjects.findIndex((x) => x.name === sw.to)
+      if (!picks || from < 0 || to < 0 || !picks.includes(from)) { picks = null; break }
+      picks = picks.map((s) => (s === from ? to : s))
+    }
+    if (!picks) { setToast({ severity: 'error', text: '제안을 적용할 수 없습니다(신청 데이터가 바뀜).' }); return }
+    const text = swaps.map((x) => `${x.from} → ${x.to}`).join(', ')
+    if (!window.confirm(`${labelOf(sid)} 학생의 과목을 바꿉니다.\n${swaps.map((x) => `${x.from} → ${x.to}`).join('\n')}\n\n학생·학부모 상담으로 확정한 뒤 적용하세요. 저장 전에는 되돌리기(↶)로 돌아갈 수 있습니다.`)) return
+    const next = setStudentPicks(p, sid, picks)
     commit(next)
     logHub(schoolId, { action: 'sectioning_student_change', targetId: projectId,
-      summary: `${workLabel(p)} 학생 과목 조정(저장 전) — ${labelOf(sid)} ${sg.from} → ${sg.to}` })
+      summary: `${workLabel(p)} 학생 과목 조정(저장 전) — ${labelOf(sid)} ${text}` })
     setInfeasible(null)
     runSolve({ base: next })
   }
@@ -639,6 +683,12 @@ export default function Workspace() {
               <MenuItem onClick={() => { setMeetingMenu(null); doExport('meetingPrint') }}>PDF로 인쇄 (A4 가로) — 인쇄 창에서 「PDF로 저장」</MenuItem>
               <MenuItem onClick={() => { setMeetingMenu(null); doExport('meeting') }}>엑셀로 내려받기 — 배정표·요약·분반별 명단</MenuItem>
             </Menu>
+            {project.lastDiagnose && (
+              <Tooltip title="마지막으로 배정이 안 됐을 때의 원인·대안을 다시 봅니다(다시 계산하지 않음)">
+                <Button size="small" color="warning" variant="outlined" sx={{ mr: 1.5, height: 28 }}
+                  onClick={() => setInfeasible(project.lastDiagnose)}>지난 진단 보기</Button>
+              </Tooltip>
+            )}
           </>
         )}
         {!canEdit && <Chip size="small" variant="outlined" label="열람 전용 — 바꾼 내용은 저장되지 않습니다" />}
@@ -704,7 +754,9 @@ export default function Workspace() {
 
       <SolveConsole console={solving} onCancel={() => abortRef.current?.abort()} onClose={() => setSolving(null)}
         onImprove={() => { const idx = solving?.done?.nextIdx ?? 1; setSolving(null); runSolve({ startIdx: idx }) }} />
-      <InfeasibleDialog info={infeasible} project={project} onApply={applySuggestion} onApplyStudent={applyStudentChange}
+      <InfeasibleDialog info={infeasible} project={project} stale={diagnoseStale} onApply={applySuggestion} onApplyStudent={applyStudentChange}
+        onRediagnose={() => { setInfeasible(null); runSolve() }}
+        onRetryLonger={() => { setInfeasible(null); runSolve({ startIdx: LIMITS.length - 1 }) }}
         labelOf={labelOf} canEdit={canEdit} onClose={() => setInfeasible(null)} />
       <MergeInfoDialog info={mergeInfo} onClose={() => setMergeInfo(null)} />
       {printing && <MeetingPrint project={project} onDone={() => setPrinting(false)} />}

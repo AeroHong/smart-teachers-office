@@ -981,6 +981,7 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - `infoCols[]`·`studentInfo{학번: [원본 학생 정보 열 값…]}` — 원본 양식 되돌리기에서 학번·이름·고유번호 열을 그대로 살린다(2026-11-04)
 - `solveLogs[]` — 배정 기록(최근 5회): `{id, title, at, byName, summary, ok, settings{students, subjects, sections, slots, maxSize, maxMode, minSize, minMode, freeMax, separations, lockedSections, lockedStudents}, result{ok, unassigned, conflicts, worst, sum, subjects[{name, block, sections[{label, n}]}]}|null, lines[{t, type, text}](최대 600줄)}`. 저장할 때 함께 저장, 화면에서 복사·.txt 다운로드(회의·증빙)
 - `lastSolve` — 마지막 솔버 결과 요약(status·worstSpread·spreadSum·changes·ok·at)
+- `lastDiagnose` — 마지막 배정 불가 진단(2026-11-06): `{at, reason("proven" 해 없음 증명 | "timeout" 시간 안에 못 찾음), key(diagnoseKey — 배정 조건 열쇠, 바뀌면 "다시 진단" 안내), byName, diagnose{status, minUnassigned, unassigned[{id, subjects}], sections[{subject, index, slot, size}](남는 학생이 가장 적은 배치), suggestions[{label, changes[], full, remaining, worstSpread, spreadSum, avgBefore?, avgAfter?}], studentSuggestions[{id, subjects, swaps[{from, to, block}], quick, verified, remaining, worstSpread}]}}`. 모두 배정되면 null
 - `revision`(저장마다 +1), `createdBy`, `createdAt`, `updatedAt`, `updatedByName`
 
 **하위:** `versions/{id}` — `{name, data(위 필드 스냅숏), stats, createdBy, createdByName, createdAt}`

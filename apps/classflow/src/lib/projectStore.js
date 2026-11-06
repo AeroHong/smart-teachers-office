@@ -15,7 +15,7 @@ export const PERSIST_KEYS = [
   'title', 'year', 'grade', 'semester', 'termLabel', 'sourceFileName', 'entryYear', 'folder',
   'slots', 'rooms', 'maxSize', 'maxMode', 'minSize', 'minMode', 'freeMax', 'subjects', 'requests', 'assignment',
   'lockedStudents', 'manualStudents', 'excluded', 'warnings', 'separations', 'names', 'solveLogs',
-  'headerRows', 'headerMerges', 'subjectCols', 'infoCols', 'studentInfo', 'lastSolve',
+  'headerRows', 'headerMerges', 'subjectCols', 'infoCols', 'studentInfo', 'lastSolve', 'lastDiagnose',
 ]
 
 /** Firestore는 undefined를 거부한다 — 빠진 값은 null, JSON으로 한 번 걸러 쓴다 */

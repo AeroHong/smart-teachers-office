@@ -317,6 +317,7 @@ export function normalizeProject(p) {
     separations: p.separations || [],
     names: p.names || {},
     solveLogs: p.solveLogs || [],
+    lastDiagnose: p.lastDiagnose || null,
     subjects: p.subjects.map((s) => ({
       ...s,
       maxSize: s.maxSize ?? s.target ?? null,
@@ -658,7 +659,7 @@ export function toSolverInput(project, { keepPrevious = false, timeLimit = 30, w
       if (t !== null && t !== undefined && (subj.locked || subj.lockedSections[k])) sectionSlots[k] = t
     })
     return {
-      name: subj.name, block: subj.block, sections: subj.sections, distinctSlots: subj.distinctSlots, sectionSlots,
+      name: subj.name, block: subj.block, sections: subj.sections, distinctSlots: subj.distinctSlots, sectionSlots, locked: !!subj.locked,
       maxSize: subj.maxSize || project.maxSize || null, minSize: subj.minSize || project.minSize || null,
     }
   })
@@ -694,11 +695,17 @@ export function toSolverInput(project, { keepPrevious = false, timeLimit = 30, w
   }
   return {
     slots: project.slots, rooms: roomsOf(project), subjects, students,
-    lockedAssignments, previous: keepPrevious ? previous : null, timeLimit, hint,
+    lockedAssignments, lockedStudentIds: [...lockedStudentSet].filter((sid) => project.requests[sid]),
+    previous: keepPrevious ? previous : null, timeLimit, hint,
     maxMode: project.maxMode || 'off', minMode: project.minMode || 'off',
     freeMax: hasFree(project) && !isBlank(project.freeMax) ? Number(project.freeMax) : null,
-    separations: (project.separations || []).map((r) => r.students).filter((x) => x.length >= 2),
+    separations: solverSeparations(project).map((r) => r.students),
   }
+}
+
+/** 솔버에 보내는 분리 규칙(학생 2명 이상인 규칙만) — 진단의 dropSeparation 번호는 이 목록 기준 */
+export function solverSeparations(project) {
+  return (project.separations || []).filter((r) => (r.students || []).length >= 2)
 }
 
 /** 균형 점수 {worst: 분반 편차 최대, sum: 편차 합계} — 작을수록 좋다 */
@@ -965,6 +972,7 @@ export function resetAssignment(project) {
     lockedStudents: [],
     manualStudents: [],
     lastSolve: null,
+    lastDiagnose: null,
   }
 }
 
@@ -1091,7 +1099,7 @@ function pick3(b, m, t, onConflict) {
 const SETTING_LABELS = {
   title: '작업명', year: '학년도', grade: '학년', semester: '학기', entryYear: '입학년도', folder: '묶음',
   termLabel: '학기 표시', sourceFileName: '파일명', slots: '그룹', rooms: '교실 수', maxSize: '분반 최대 인원',
-  maxMode: '최대 인원 방식', minSize: '분반 최소 인원', minMode: '최소 인원 방식', freeMax: '공강 최대 인원', lastSolve: '마지막 배정 결과',
+  maxMode: '최대 인원 방식', minSize: '분반 최소 인원', minMode: '최소 인원 방식', freeMax: '공강 최대 인원', lastSolve: '마지막 배정 결과', lastDiagnose: '마지막 진단 결과',
   warnings: '불러올 때 경고', headerRows: '원본 머리', headerMerges: '원본 머리 병합', subjectCols: '원본 과목 열',
   infoCols: '원본 학생 정보 열', studentInfo: '원본 학생 정보',
 }
@@ -1550,4 +1558,121 @@ export function fillNames(project, hubNames) {
 export function studentLabel(project, sid) {
   const n = project?.names?.[sid]
   return n ? `${sid} ${n}` : String(sid)
+}
+
+// ── 배정 불가 진단 — 저장·원인 설명 ──────────────────────────────────────
+
+/** 키 순서와 상관없는 JSON(저장했다 불러오면 맵 순서가 바뀔 수 있다) */
+function stableJson(v) {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`
+  if (v && typeof v === 'object') return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableJson(v[k])}`).join(',')}}`
+  return JSON.stringify(v ?? null)
+}
+
+/**
+ * 진단 기준 열쇠 — 배정 조건(분반 수·고정·인원 조건·분리·학생 신청)이 같으면 같은 값.
+ * 고정되지 않은 그룹 배치·학생 배정은 넣지 않는다(진단 결과에 영향이 없다).
+ */
+export function diagnoseKey(project) {
+  const x = toSolverInput(project, { withHint: false })
+  const students = [...x.students].sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .map((st) => ({ id: st.id, subjects: [...st.subjects].sort() }))
+  const text = stableJson({ ...x, students, timeLimit: null, previous: null, hint: null })
+  let h = 5381
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0
+  return `${h.toString(36)}_${text.length.toString(36)}`
+}
+
+const popcount = (m) => { let c = 0; while (m) { c += m & 1; m >>= 1 } return c }
+
+/** 홀 조건 위반 중 가장 작은 과목 묶음 — 묶음 과목들이 열린 그룹 수가 과목 수보다 적으면 함께 들을 수 없다 */
+function hallViolation(names, slotsOf) {
+  const n = names.length
+  if (n > 12) return null
+  const masks = []
+  for (let m = 1; m < 1 << n; m++) masks.push(m)
+  masks.sort((a, b) => popcount(a) - popcount(b) || a - b)
+  for (const m of masks) {
+    const subs = names.filter((_, i) => m & (1 << i))
+    const slots = new Set(subs.flatMap((nm) => slotsOf(nm)))
+    if (slots.size < subs.length) return { subjects: subs, slots: [...slots].sort((a, b) => a - b) }
+  }
+  return null
+}
+
+/**
+ * 남는 학생마다 왜 들어갈 자리가 없는지 — 진단의 "남는 학생이 가장 적은 그룹 배치"(diag.sections) 기준.
+ *  · clash: 몇 과목이 과목 수보다 적은 그룹에만 열려 있어 시간이 겹친다
+ *  · full: 그룹은 맞지만 들어갈 분반이 최대 인원('꼭 지킴')으로 꽉 찼다
+ *  · lock / separation / free / other: 고정 학생, 분리 규칙, 공강 제한, 다른 학생과의 자리 나눔
+ * 같은 이유의 학생은 한 줄로 묶는다.
+ * @returns {{ kind, text, subjects: string[], sids: string[] }[]}
+ */
+export function explainUnassigned(project, diag) {
+  const secs = diag?.sections
+  const list = diag?.unassigned || []
+  if (!secs?.length || !list.length) return []
+  const L = (t) => project.slots[t] ?? '?'
+  const subjByName = new Map(project.subjects.map((s) => [s.name, s]))
+  const bySubj = new Map()
+  for (const sec of secs) {
+    if (sec.slot === null || sec.slot === undefined) continue
+    if (!bySubj.has(sec.subject)) bySubj.set(sec.subject, [])
+    bySubj.get(sec.subject).push(sec)
+  }
+  const hardMax = project.maxMode === 'hard'
+  const capOf = (nm) => Number(subjByName.get(nm)?.maxSize || project.maxSize) || null
+  const openSlots = (nm) => [...new Set((bySubj.get(nm) || []).map((x) => x.slot))]
+  const freeSlots = (nm) => {
+    const cap = hardMax ? capOf(nm) : null
+    return [...new Set((bySubj.get(nm) || []).filter((x) => !cap || (x.size || 0) < cap).map((x) => x.slot))]
+  }
+  const secText = (nm) => {
+    const ss = openSlots(nm).sort((a, b) => a - b)
+    const k = subjByName.get(nm)?.sections ?? ss.length
+    return `${nm}(${k}분반 · ${ss.length ? ss.map(L).join('') : '그룹 없음'})`
+  }
+  const locked = new Set(project.lockedStudents || [])
+  const sepStudents = new Set(solverSeparations(project).flatMap((r) => r.students.map(String)))
+  const groups = new Map()
+  for (const u of list) {
+    const sid = String(u.id)
+    const names = u.subjects || []
+    let kind
+    let text
+    let subjects = []
+    const v = hallViolation(names, openSlots)
+    if (v) {
+      kind = 'clash'
+      subjects = v.subjects
+      text = v.slots.length === 1
+        ? `${v.subjects.map(secText).join(', ')} — 모두 ${L(v.slots[0])}그룹에만 있어 함께 들을 수 없음`
+        : `${v.subjects.map(secText).join(', ')} — ${v.subjects.length}과목이 그룹 ${v.slots.length}개${v.slots.length ? `(${v.slots.map(L).join('·')})` : ''}에만 열려 있어 시간이 겹침`
+    } else if (hallViolation(names, freeSlots)) {
+      const w = hallViolation(names, freeSlots)
+      kind = 'full'
+      subjects = w.subjects
+      const full = w.subjects.flatMap((nm) => (bySubj.get(nm) || [])
+        .filter((x) => capOf(nm) && (x.size || 0) >= capOf(nm))
+        .map((x) => `${nm} ${L(x.slot)}그룹(${x.size}/${capOf(nm)}명)`))
+      text = `들어갈 수 있는 그룹의 분반이 최대 인원으로 꽉 참 — ${full.join(', ')}`
+    } else if (locked.has(sid)) {
+      kind = 'lock'
+      text = '고정 학생 — 고정된 분반 그대로는 다른 과목과 그룹이 겹치거나 자리가 없음'
+    } else if (sepStudents.has(sid)) {
+      kind = 'separation'
+      text = '분리 규칙 대상 — 함께 둘 수 없는 학생과 다른 분반으로 나눌 자리가 없음'
+    } else if (!isBlank(project.freeMax) && hasFree(project)) {
+      kind = 'free'
+      text = '그룹당 공강 인원 제한 때문에 이 학생의 공강 그룹을 둘 곳이 없음'
+    } else {
+      kind = 'other'
+      text = '그룹 배치로는 들어갈 자리가 있지만, 다른 학생 배정·인원 조건과 함께 맞추면 이 학생 몫이 남음(전체 조합 문제)'
+    }
+    const key = `${kind}|${text}`
+    if (!groups.has(key)) groups.set(key, { kind, text, subjects, sids: [] })
+    groups.get(key).sids.push(sid)
+  }
+  const order = { clash: 0, full: 1, lock: 2, separation: 3, free: 4, other: 5 }
+  return [...groups.values()].sort((a, b) => order[a.kind] - order[b.kind] || b.sids.length - a.sids.length)
 }
