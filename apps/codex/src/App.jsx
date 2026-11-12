@@ -23,6 +23,9 @@ const ImportPage = lazy(() => import('./pages/ImportPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const ManagersPage = lazy(() => import('./pages/ManagersPage'))
 const PublicApp = lazy(() => import('./pages/PublicApp'))
+const StructurePage = lazy(() => import('./pages/StructurePage'))
+const HierarchySettingsPage = lazy(() => import('./pages/HierarchySettingsPage'))
+const LawReviewPage = lazy(() => import('./pages/LawReviewPage'))
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
@@ -94,6 +97,9 @@ export default function App() {
         <Route path="/admin/import" element={<ImportPage />} />
         <Route path="/admin/settings" element={<SettingsPage />} />
         <Route path="/admin/managers" element={<ManagersPage />} />
+        <Route path="/admin/structure" element={<HierarchySettingsPage />} />
+        <Route path="/admin/laws" element={<LawReviewPage />} />
+        <Route path="/structure" element={<StructurePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

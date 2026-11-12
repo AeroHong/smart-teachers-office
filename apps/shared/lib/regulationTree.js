@@ -132,10 +132,26 @@ export function nodePath(byId, id) {
   return head
 }
 
-/** 목차(사이드바) — 장·절·조와 부칙. 부칙 안 조는 뺀다 */
+/**
+ * 목차(사이드바) — 장·절·조와 부칙. 부칙 안 조는 뺀다.
+ * 조문이 없는 지침·안내형 문서(참고1 「□ 재직기간 별 연가 일수」 등)는 맨 윗단계의 짧은 머리 줄(□·1. 등)로 목차를 만든다(type 'heading').
+ */
 export function tocOf(nodes) {
   const { byId } = indexNodes(nodes)
   const out = []
+  const hasArticles = nodes.some((n) => n.type === 'article' && !ancestors(byId, n.id).some((a) => a.type === 'addendum'))
+  if (!hasArticles) {
+    for (const n of nodes) {
+      if (n.parent || !n.text || n.text.length > 50 || n.text.includes('\n')) {
+        if (n.type === 'addendum' || n.type === 'appendix' || n.type === 'chapter') out.push({ id: n.id, type: n.type, num: n.num || '', title: n.type === 'addendum' ? '부칙' : (n.title || '') })
+        continue
+      }
+      if (n.type === 'item' || /^[□■◆◇▶●○]/.test(n.text) || (n.type === 'text' && !/[.다]$/.test(n.text))) {
+        out.push({ id: n.id, type: 'heading', num: n.num || '', title: `${n.type === 'item' ? `${n.num}. ` : ''}${n.text.replace(/^[□■◆◇▶●○]\s*/, '')}` })
+      }
+    }
+    return out
+  }
   for (const n of nodes) {
     if (n.type === 'chapter' || n.type === 'section' || n.type === 'addendum' || n.type === 'appendix') {
       out.push({ id: n.id, type: n.type, num: n.num || '', title: n.type === 'addendum' ? `부칙${n.date ? ` (${n.date})` : ''}` : (n.title || '') })

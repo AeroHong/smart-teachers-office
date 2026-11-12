@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
+  addDoc, collection, deleteDoc, doc, FieldPath, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction,
   serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from '@shared/lib/firebase'
@@ -16,6 +16,7 @@ import { collectRefs, guessCategory, indexNodes, tocOf } from '@shared/lib/regul
 import { buildSearchEntries, packIndex, replaceRegEntries } from '@shared/lib/regulationSearch'
 import { changeSummary, diffNodes } from '@shared/lib/regulationDiff'
 import { normTitle, titleSimilarity } from '@shared/lib/regulationParse'
+import { suggestHierarchy } from '@shared/lib/regulationHierarchy'
 
 export const BOOK_ID = 'main'
 export const LOG_SUB = 'log'
@@ -166,13 +167,28 @@ function citationsFor(regs, findReg) {
 }
 
 /** 목차 문서의 규정 한 줄 */
-export function bookEntry({ id, title, no, reference, category, order, currentVersionId, effectiveDate, nodes, isPublic = false }) {
+/**
+ * 목차 문서의 규정 한 줄. 체계(level·parentId·basis)·상태(status)는 넘긴 값을 그대로 둔다(관리자가 「체계 설정」에서 고친 값).
+ */
+export function bookEntry({ id, title, no, reference, category, order, currentVersionId, effectiveDate, nodes, isPublic = false, level, parentId, basis, status, repealedDate }) {
   return {
     id, title, no: no || '', reference: !!reference, category: category || guessCategory(title, reference), order,
     currentVersionId, effectiveDate: effectiveDate || '', public: !!isPublic,
+    level: level || 'regulation', parentId: parentId || null, basis: basis || [], status: status || 'active',
+    ...(repealedDate ? { repealedDate } : {}),
     articleCount: nodes.filter((n) => n.type === 'article').length,
     toc: tocOf(nodes),
   }
+}
+
+/** 체계 자동 제안을 규정 줄에 채운다 — onlyEmpty면 아직 체계가 없는 규정만(관리자가 고친 값은 그대로) */
+export function withHierarchy(entries, regsWithNodes, { onlyEmpty = true } = {}) {
+  const sug = suggestHierarchy(regsWithNodes)
+  return entries.map((e) => {
+    const s = sug.get(e.id)
+    if (!s || (onlyEmpty && e.hierarchySet)) return e
+    return { ...e, level: s.level, parentId: s.parentId, basis: s.basis }
+  })
 }
 
 // ── 가져오기(최초 적재·다시 적재) ─────────────────────────────────
@@ -190,7 +206,9 @@ export async function importBook({ schoolId, title, effectiveDate, sourceFileNam
     if (match) used.add(match.id)
     const id = match?.id || doc(collection(db, ...p(schoolId, COL.REGULATIONS))).id
     const verId = doc(collection(db, ...p(schoolId, COL.REGULATIONS, id, VERSIONS_SUB))).id
-    return { ...r, id, verId, order, existed: !!match, isPublic: match?.public }
+    // 다시 적재 — 관리자가 정한 체계·공개·상태는 이어받는다
+    const keep = match ? { isPublic: match.public, level: match.level, parentId: match.parentId, basis: match.basis, status: match.status, repealedDate: match.repealedDate, hierarchySet: match.hierarchySet } : {}
+    return { ...r, id, verId, order, existed: !!match, ...keep }
   })
   const findReg = makeFindReg({ regulations: staged.map((r) => ({ id: r.id, title: r.title, toc: tocOf(r.nodes) })) })
 
@@ -214,7 +232,7 @@ export async function importBook({ schoolId, title, effectiveDate, sourceFileNam
   const search = writeSearchParts(b(), schoolId, entries, existingBook?.searchParts || 0)
   b().set(bookRef(schoolId), {
     title, effectiveDate, sourceFileName: sourceFileName || '',
-    regulations: staged.map((r) => bookEntry({ ...r, currentVersionId: r.verId, effectiveDate })),
+    regulations: withHierarchy(staged.map((r) => ({ ...bookEntry({ ...r, currentVersionId: r.verId, effectiveDate }), ...(r.hierarchySet ? { hierarchySet: true } : {}) })), staged),
     citations: citationsFor(staged, findReg),
     recent: existingBook?.recent || [],
     ...search,
@@ -317,7 +335,8 @@ export async function applyAmendment(schoolId, amd, book, user) {
   if (reg.data().currentVersionId !== amd.baseVersionId) throw new Error('이 개정안을 만든 뒤 규정이 먼저 바뀌었습니다. 지금 규정으로 개정안을 다시 만들어 주세요.')
   const base = await getVersion(schoolId, amd.regId, amd.baseVersionId)
   const d = diffNodes(base.nodes, amd.nodes)
-  if (!d.added.length && !d.deleted.length && !d.modified.length && !d.moved.length) throw new Error('바뀐 곳이 없습니다.')
+  const repeal = amd.kind === '폐지'
+  if (!repeal && !d.added.length && !d.deleted.length && !d.modified.length && !d.moved.length) throw new Error('바뀐 곳이 없습니다.')
   const date = amd.effectiveDate
   const mark = new Map([...d.added.map((id) => [id, '신설']), ...d.modified.map((id) => [id, '개정']), ...d.deleted.map((id) => [id, '삭제'])])
   const nodes = amd.nodes.map((n) => (mark.has(n.id) ? { ...n, hist: [...(n.hist || []), { kind: mark.get(n.id), date }] } : n))
@@ -330,20 +349,23 @@ export async function applyAmendment(schoolId, amd, book, user) {
     createdAt: serverTimestamp(), createdBy: user.uid, createdByName: user.name,
   })
   const history = [...(reg.data().history || []), { kind: amd.kind || '일부개정', date, amendmentId: amd.id }]
-  batch.update(regRef(schoolId, amd.regId), { currentVersionId: verRef.id, history, updatedAt: serverTimestamp(), updatedByName: user.name })
+  batch.update(regRef(schoolId, amd.regId), { currentVersionId: verRef.id, history, ...(repeal ? { status: 'repealed', repealedDate: date } : {}), updatedAt: serverTimestamp(), updatedByName: user.name })
 
   // 목차·인용
   const entry = book.regulations.find((r) => r.id === amd.regId)
-  const regulations = book.regulations.map((r) => (r.id === amd.regId ? { ...bookEntry({ ...r, nodes, currentVersionId: verRef.id, effectiveDate: date, isPublic: r.public }) } : r))
+  const regulations = book.regulations.map((r) => (r.id === amd.regId
+    ? { ...bookEntry({ ...r, nodes, currentVersionId: verRef.id, effectiveDate: date, isPublic: repeal ? false : r.public, ...(repeal ? { status: 'repealed', repealedDate: date } : {}) }), ...(r.hierarchySet ? { hierarchySet: true } : {}) }
+    : r))
   const findReg = makeFindReg({ regulations })
   const citations = Object.fromEntries(Object.entries(book.citations || {})
     .map(([k, v]) => [k, v.filter((x) => !x.startsWith(`${amd.regId}/`))]).filter(([, v]) => v.length))
-  for (const ref of collectRefs(amd.regId, nodes, findReg)) {
+  for (const ref of repeal ? [] : collectRefs(amd.regId, nodes, findReg)) {
     const k = `${ref.to.regId}/${ref.to.nodeId}`
     citations[k] = [...new Set([...(citations[k] || []), `${amd.regId}/${ref.from}`])]
   }
   // 검색 색인 — 이 규정 줄만 바꾼다
-  const entries = replaceRegEntries(await loadSearchIndex(schoolId, book), amd.regId, buildSearchEntries(amd.regId, nodes))
+  // 폐지된 규정은 검색에서 뺀다(연혁·버전으로는 계속 볼 수 있다)
+  const entries = replaceRegEntries(await loadSearchIndex(schoolId, book), amd.regId, repeal ? [] : buildSearchEntries(amd.regId, nodes))
   const search = writeSearchParts(batch, schoolId, entries, book.searchParts || 0)
   const recent = [{ regId: amd.regId, title: entry?.title || amd.regTitle, kind: amd.kind || '일부개정', date, amendmentId: amd.id }, ...(book.recent || [])].slice(0, 12)
   batch.update(bookRef(schoolId), { regulations, citations, recent, ...search, updatedAt: serverTimestamp(), updatedByName: user.name })
@@ -356,7 +378,7 @@ export async function applyAmendment(schoolId, amd, book, user) {
   })
   await batch.commit()
   // 외부 공개 규정이면 공개 사본도 다시 쓴다(확정은 이미 끝났으니 실패해도 안내만)
-  if (entry?.public) {
+  if (entry?.public) { // 폐지면 공개 사본에서도 빠진다(위에서 public을 껐다)
     const { publishPublicBook } = await import('./publicBook')
     await publishPublicBook(schoolId, { ...book, regulations, citations, recent }, user).catch((e) => console.error('공개 사본 반영 실패:', e))
   }
@@ -388,3 +410,16 @@ export async function setManagerRole(schoolId, staff, role, on) {
 }
 
 export { indexNodes }
+
+// ── 체계(위계) ──────────────────────────────────────────────────
+
+/** 지금 규정집 전체에 체계 자동 제안을 다시 받는다 — onlyEmpty면 관리자가 정하지 않은 규정만 */
+export async function suggestBookHierarchy(schoolId, book, { onlyEmpty = true } = {}) {
+  const regs = await Promise.all(book.regulations.map(async (r) => ({ id: r.id, title: r.title, reference: r.reference, nodes: (await getCurrentNodes(schoolId, book, r.id)) || [] })))
+  return withHierarchy(book.regulations, regs, { onlyEmpty })
+}
+
+/** 상위 법령 점검 기록 — 목차 문서 lawReviews.{법령키} = { checkedAt, byName, note } */
+export async function markLawReviewed(schoolId, key, { note = '' } = {}, user) {
+  await updateDoc(bookRef(schoolId), new FieldPath('lawReviews', key), { checkedAt: new Date().toISOString().slice(0, 10), byName: user.name, note })
+}

@@ -63,6 +63,7 @@ export default function RegulationPage() {
           <RegulationHeader
             entry={{ ...reg, ...entry, history: reg.history }}
             version={version}
+            book={book}
             notice={past && (
               <Alert severity="info" sx={{ mt: 2 }} action={<Button component={RouterLink} to={`/r/${regId}`}>현행 보기</Button>}>
                 {fmtDate(version.effectiveDate)} 시행 버전을 보고 있습니다.
@@ -73,7 +74,7 @@ export default function RegulationPage() {
                 <Button size="small" startIcon={<HistoryIcon />} component={RouterLink} to={`/r/${regId}/history`}>연혁·버전 비교</Button>
                 <Button size="small" startIcon={<DownloadIcon />} onClick={() => downloadRegulationHwpx({ title: entry?.title || reg.title, version, history: reg.history, regId, book, loadNodes: (id) => getCurrentNodes(schoolId, book, id) }).catch((e) => setErr(`내려받기 실패: ${e.message}`))}>한글(hwpx)</Button>
                 <Button size="small" startIcon={<PrintIcon />} onClick={() => window.print()}>인쇄·PDF</Button>
-                {canEdit && !past && <Button size="small" variant="contained" startIcon={<EditNoteIcon />} disabled={busy} onClick={startAmendment}>개정안 만들기</Button>}
+                {canEdit && !past && entry?.status !== 'repealed' && <Button size="small" variant="contained" startIcon={<EditNoteIcon />} disabled={busy} onClick={startAmendment}>개정안 만들기</Button>}
               </>
             )}
           />

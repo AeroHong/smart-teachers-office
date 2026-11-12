@@ -175,3 +175,60 @@ test('AI 청크: 조 단위로 묶고 출처를 앞에 붙인다', async () => {
   assert.match(c63.text, /^「학생생활지도 규정」 제63조\n제63조\(벌점의 활용\)\n벌점의 누적/)
   assert.equal(c63.text.split('\n').length, 5) // 머리 + 조 제목 + 항 3개
 })
+
+// ── 위계 ────────────────────────────────────────────────────────
+import { childrenOf, dependentsOf, findLaws, hierarchyTree, lawIndex, suggestHierarchy } from './regulationHierarchy.js'
+
+test('위계: 상위 법령 찾기 — 낫표·낫표 없는 법률·대통령령 규정·조례, 학교 규정·「방법」은 빼고', () => {
+  const laws = findLaws('본교는 교육기본법 및 초‧중등교육법에 의하여 … 「조기진급 등에 관한 규정」(대통령령 제27751호)에 따라 … 「서울특별시립학교운영위원회 구성 및 운영 등에 관한 조례」 제21조 … 평가 방법은 「학칙」을 따른다', ['학칙'])
+  assert.deepEqual(laws.map((l) => [l.name, l.article || null]), [
+    ['조기진급 등에 관한 규정', null],
+    ['서울특별시립학교운영위원회 구성 및 운영 등에 관한 조례', '21'],
+    ['교육기본법', null],
+    ['초‧중등교육법', null],
+  ])
+  assert.match(laws[2].url, /^https:\/\/www\.law\.go\.kr\/법령\//)
+  assert.match(laws[1].url, /자치법규/)
+})
+
+test('위계: 제안 — 학칙이 맡긴 회칙, 세칙은 회칙 아래, 「…규정 제21조」 근거는 그 규정 아래', () => {
+  const art = (id, num, text, parent = null) => ({ id, parent, type: 'article', num, title: '', text })
+  const regs = [
+    { id: 'rule', title: '학칙', nodes: [art('h1', '1', '본교는 초‧중등교육법에 의하여'), art('h32', '32', '학생회의 조직 및 운영에 관한 세부 사항은 학생회칙으로 정한다.')] },
+    { id: 'sc', title: '학교운영위원회 규정', nodes: [art('s1', '1', '「초․중등교육법」 제31조에 따라'), art('s21', '21', '소위원회를 둘 수 있다.')] },
+    { id: 'council', title: '학생회 회칙', nodes: [art('c1', '1', '본 회는 학생회라 칭한다'), art('c2', '2', '학생회 운영 세칙을 둔다')] },
+    { id: 'detail', title: '학생회 운영 세칙', nodes: [art('d1', '1', '본 세칙은 학생회 운영에 관한 세부 사항')] },
+    { id: 'lunch', title: '학교급식소위원회 규정', nodes: [art('l1', '1', '서울특별시립학교운영위원회 구성 및 운영 등에 관한 조례 제21조 및 선유고등학교운영위원회 규정 제 21조 제 1항에 따라')] },
+    { id: 'mutual', title: '상조회칙', reference: true, nodes: [art('m1', '1', '본회는 상조회라 칭한다')] },
+    { id: 'guide', title: '교원 휴가 및 복무규정', reference: true, nodes: [{ id: 'g1', parent: null, type: 'text', text: '□ 재직기간 별 연가 일수' }] },
+  ]
+  const s = suggestHierarchy(regs)
+  assert.deepEqual([...s].map(([id, v]) => [id, v.level, v.parentId]), [
+    ['rule', 'rule', null], ['sc', 'regulation', 'rule'], ['council', 'regulation', 'rule'], ['detail', 'sub', 'council'],
+    ['lunch', 'sub', 'sc'], ['mutual', 'bylaw', null], ['guide', 'guide', null],
+  ])
+  assert.deepEqual(s.get('council').basis, [{ kind: 'reg', regId: 'rule', nodeId: 'h32', label: '학칙 제32조' }])
+  assert.deepEqual(s.get('lunch').basis.find((b) => b.kind === 'reg'), { kind: 'reg', regId: 'sc', nodeId: 's21', label: '학교운영위원회 규정 제21조 제1항' })
+  // 트리·하위·영향·법령 모음
+  const book = regs.map((r, i) => ({ id: r.id, title: r.title, order: i, ...s.get(r.id) }))
+  book.push({ id: 'dead', title: '급식비 징수 및 환불 규정', order: 9, level: 'regulation', parentId: 'rule', status: 'repealed', basis: [] })
+  const tree = hierarchyTree(book)
+  assert.equal(tree.roots[0].reg.id, 'rule')
+  assert.deepEqual(tree.roots[0].children.map((c) => c.reg.id), ['sc', 'council'])
+  assert.deepEqual(tree.roots[0].children[1].children.map((c) => c.reg.id), ['detail'])
+  assert.deepEqual([tree.guides.length, tree.bylaws.length, tree.repealed.length], [1, 1, 1])
+  assert.deepEqual(childrenOf(book, 'sc').map((r) => r.id), ['lunch'])
+  assert.deepEqual(dependentsOf(book, 'rule', ['h32']).map((d) => d.regId), ['council'])
+  assert.deepEqual(dependentsOf(book, 'rule', ['h1']), [])
+  assert.equal(lawIndex(book).find((l) => l.name === '초‧중등교육법')?.refs.length, 2) // 가운뎃점 모양이 달라도 같은 법
+})
+
+test('목차: 조문 없는 안내형 문서는 머리 줄(□·1.)로', () => {
+  const nodes = [
+    { id: 't1', parent: null, type: 'text', text: '□ 재직기간 별 연가 일수 (국가공무원 복무규정 제15조)' },
+    { id: 't2', parent: null, type: 'table', rows: [{ cells: [{ text: '재직기간' }] }] },
+    { id: 't3', parent: null, type: 'item', num: '1', text: '목적' },
+    { id: 't4', parent: 't3', type: 'text', text: '교원의 복무를 정한다.' },
+  ]
+  assert.deepEqual(tocOf(nodes).map((t) => [t.id, t.type, t.title]), [['t1', 'heading', '재직기간 별 연가 일수 (국가공무원 복무규정 제15조)'], ['t3', 'heading', '1. 목적']])
+})

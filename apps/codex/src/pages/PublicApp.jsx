@@ -57,6 +57,8 @@ function PublicRegulation({ schoolId, book, base, entries }) {
           <RegulationHeader
             entry={{ ...entry, title: reg.title }}
             version={reg}
+            book={book}
+            base={base}
             actions={(
               <>
                 <Button size="small" startIcon={<DownloadIcon />} onClick={() => downloadRegulationHwpx({ title: reg.title, version: reg, history: [], regId, book, loadNodes })}>한글(hwpx)</Button>

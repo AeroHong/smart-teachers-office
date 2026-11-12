@@ -99,6 +99,7 @@ export default function Home() {
             </Typography>
           )}
           <Box sx={{ width: '100%', maxWidth: 760 }}><SearchField autoFocus /></Box>
+          {book && <Button component={RouterLink} to="/structure" size="small">규정 체계도 보기</Button>}
           {loading && <CircularProgress />}
           {!loading && !book && (
             <Paper variant="outlined" sx={{ p: 3, width: '100%', maxWidth: 760, textAlign: 'center' }}>

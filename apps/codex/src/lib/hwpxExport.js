@@ -87,7 +87,7 @@ export async function downloadRegulationHwpx({ title, version, history, regId, b
  * @param {{ book, loadNodes: (regId) => Promise<object[]> , regs: {id,title,history?}[] }} a
  */
 export async function downloadBookHwpx({ book, loadNodes, onProgress }) {
-  const regs = [...book.regulations].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const regs = [...book.regulations].filter((r) => r.status !== 'repealed').sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   const paras = [
     para(ALIGN.center, run(CHAR.heading, book.effectiveDate ? `(${dateText(book.effectiveDate)} 현재)` : '')),
     para(ALIGN.center, ''),

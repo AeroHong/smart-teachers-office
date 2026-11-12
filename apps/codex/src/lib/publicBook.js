@@ -20,10 +20,11 @@ export const publicUrl = (schoolId) => `${window.location.origin}/public/${schoo
 
 /** 공개 사본 다시 쓰기 — 공개 규정 수를 돌려준다. 공개가 하나도 없고 예전 사본도 없으면 아무것도 안 쓴다 */
 export async function publishPublicBook(schoolId, book, user) {
-  const regs = book.regulations.filter((r) => r.public)
+  const regs = book.regulations.filter((r) => r.public && r.status !== 'repealed')
   const existing = await getDocs(collection(db, PUBLIC_COL, schoolId, 'regulations'))
   const existed = (await getDoc(pubBook(schoolId))).exists()
   if (!regs.length && !existed) return 0
+  const ids = new Set(regs.map((r) => r.id))
   const batch = writeBatch(db)
   const entries = []
   for (const r of regs) {
@@ -37,10 +38,14 @@ export async function publishPublicBook(schoolId, book, user) {
   const oldParts = existed ? (await getDoc(pubBook(schoolId))).data().searchParts || 0 : 0
   parts.forEach((e, i) => batch.set(pubSearch(schoolId, i), { entries: e }))
   for (let i = parts.length; i < oldParts; i++) batch.delete(pubSearch(schoolId, i))
-  const ids = new Set(regs.map((r) => r.id))
   batch.set(pubBook(schoolId), {
     title: book.title || '', effectiveDate: book.effectiveDate || '',
-    regulations: regs.map(({ id, title, no, reference, category, order, currentVersionId, effectiveDate, articleCount, toc }) => ({ id, title, no, reference, category, order, currentVersionId, effectiveDate, articleCount, toc, public: true })),
+    // 체계도 함께 — 상위·근거 규정은 공개된 것만 남긴다(법령 근거는 그대로)
+    regulations: regs.map(({ id, title, no, reference, category, order, currentVersionId, effectiveDate, articleCount, toc, level, parentId, basis }) => ({
+      id, title, no, reference, category, order, currentVersionId, effectiveDate, articleCount, toc, public: true,
+      level: level || 'regulation', parentId: parentId && ids.has(parentId) ? parentId : null,
+      basis: (basis || []).filter((b) => b.kind === 'law' || ids.has(b.regId)),
+    })),
     citations: Object.fromEntries(Object.entries(book.citations || {})
       .filter(([k]) => ids.has(k.split('/')[0]))
       .map(([k, v]) => [k, v.filter((x) => ids.has(x.split('/')[0]))])

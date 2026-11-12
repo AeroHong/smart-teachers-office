@@ -24,6 +24,7 @@ import {
   convertPlainRefs, insertAfter, insertChild, markDeleted, moveNode, newBranchArticle, newNode, removeNode, updateNode,
 } from '@shared/lib/regulationEdit'
 import { refToken, renumber } from '@shared/lib/regulationTree'
+import { childrenOf, dependentsOf } from '@shared/lib/regulationHierarchy'
 import { useAuth } from '@shared/contexts/AuthContext'
 import AdminFrame from '../components/AdminFrame'
 import CompareTable from '../components/CompareTable'
@@ -97,10 +98,22 @@ export default function AmendmentEditor() {
     const d = diffNodes(baseNodes, draft.nodes, { textOf })
     return new Map([...d.modified.map((x) => [x, 'modified']), ...d.moved.map((x) => [x, 'modified']), ...d.added.map((x) => [x, 'added']), ...d.deleted.map((x) => [x, 'deleted'])])
   }, [baseNodes, draft, regId, regTitle])
-  const removedCount = useMemo(() => (baseNodes && draft ? baseNodes.filter((n) => !draft.nodes.some((m) => m.id === n.id)).length : 0), [baseNodes, draft])
+  const removedIds = useMemo(() => (baseNodes && draft ? baseNodes.filter((n) => !draft.nodes.some((m) => m.id === n.id)).map((n) => n.id) : []), [baseNodes, draft])
+  const removedCount = removedIds.length
+  // 폐지안은 규정 전체가 없어지는 것으로 대조한다(현행 | <삭 제>)
+  const isRepeal = draft?.kind === '폐지'
+  const compareTarget = isRepeal ? [] : draft?.nodes
   const rows = useMemo(() => (baseNodes && draft && tab === 1
-    ? comparisonRows(baseNodes, draft.nodes, { textOf: refTextOf({ regId, oldNodes: baseNodes, newNodes: draft.nodes, regTitle }) })
-    : []), [baseNodes, draft, tab, regId, regTitle])
+    ? comparisonRows(baseNodes, compareTarget, { textOf: refTextOf({ regId, oldNodes: baseNodes, newNodes: compareTarget, regTitle }) })
+    : []), [baseNodes, draft, tab, regId, regTitle, compareTarget])
+  // 하위 규정 영향 — 바뀌거나 지워지는 조문을 근거로 삼는 다른 규정(폐지면 이 규정을 근거·상위로 둔 모든 규정)
+  const affected = useMemo(() => {
+    if (!book || !draft) return []
+    const ids = isRepeal ? (baseNodes || []).map((n) => n.id) : [...states.keys(), ...removedIds]
+    const list = dependentsOf(book.regulations, regId, ids).filter((d) => d.regId !== regId)
+    if (isRepeal) for (const c of childrenOf(book.regulations, regId)) if (!list.some((d) => d.regId === c.id)) list.push({ regId: c.id, title: c.title, label: '상위 규정' })
+    return list
+  }, [book, draft, isRepeal, baseNodes, states, removedIds, regId])
   const depth = useMemo(() => {
     const m = new Map()
     for (const n of draft?.nodes || []) m.set(n.id, n.parent ? (m.get(n.parent) ?? 0) + 1 : 0)
@@ -169,7 +182,7 @@ export default function AmendmentEditor() {
   }
 
   const downloadHwpx = () => {
-    const r = comparisonRows(baseNodes, draft.nodes, { textOf: refTextOf({ regId, oldNodes: baseNodes, newNodes: draft.nodes, regTitle }) })
+    const r = comparisonRows(baseNodes, compareTarget, { textOf: refTextOf({ regId, oldNodes: baseNodes, newNodes: compareTarget, regTitle }) })
     downloadComparisonHwpx({ regTitle: amd.regTitle, kind: draft.kind, reason: draft.reason, effectiveDate: draft.effectiveDate, staffMeetingDate: draft.staffMeetingDate, committeeDate: draft.committeeDate, rows: r, strikeOld })
       .catch((e) => setErr(e.message))
   }
@@ -177,7 +190,7 @@ export default function AmendmentEditor() {
   if (loading || (amd && !draft)) return <AdminFrame title="개정안" need="edit" back="/amendments"><CircularProgress /></AdminFrame>
   if (!amd) return <AdminFrame title="개정안" need="edit" back="/amendments"><Alert severity="warning">없는 개정안입니다.</Alert></AdminFrame>
   const st = STATUS[amd.status] || STATUS.draft
-  const changeCount = states.size + removedCount
+  const changeCount = isRepeal ? 1 : states.size + removedCount
 
   return (
     <AdminFrame
@@ -197,6 +210,14 @@ export default function AmendmentEditor() {
     >
       {remoteNewer && <Alert severity="warning" sx={{ mb: 2 }}>{amd.updatedByName} 님이 먼저 저장했습니다. 지금 내용을 저장하면 막힙니다 — 고친 내용을 따로 적어 두고 새로 고쳐 주세요.</Alert>}
       {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr('')}>{err}</Alert>}
+      {!!affected.length && amd.status !== 'applied' && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <b>하위 규정 영향</b> — {isRepeal ? '이 규정을 폐지하면' : '바뀌는 조문을 근거로 삼는 규정이 있습니다.'}{' '}
+          {affected.map((d, i) => <span key={`${d.regId}-${i}`}>{i > 0 && ', '}<RouterLink to={`/r/${d.regId}`}>{d.title}</RouterLink>{d.label ? ` (${d.label})` : ''}</span>)}
+          {isRepeal ? ' 의 근거·상위가 사라집니다. 함께 정리할지 확인하세요.' : ' — 함께 고쳐야 하는지 확인하세요.'}
+        </Alert>
+      )}
+      {isRepeal && amd.status !== 'applied' && <Alert severity="info" sx={{ mb: 2 }}>폐지안입니다. 확정하면 이 규정은 목차·검색에서 빠지고 「폐지된 규정」으로 옮겨집니다(연혁·이전 버전은 남음). 조문은 고치지 않아도 됩니다.</Alert>}
       {amd.status === 'applied' && <Alert severity="success" sx={{ mb: 2 }}>{amd.appliedByName} 님이 확정했습니다. <RouterLink to={`/r/${regId}`}>현행 규정 보기</RouterLink></Alert>}
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>

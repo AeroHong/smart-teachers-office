@@ -1015,7 +1015,12 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 - 목차 문서(`regulationBooks/main`) 필드: `title`, `effectiveDate`, `sourceFileName`, `regulations[{id, title, no, reference, category,
   order, currentVersionId, effectiveDate, public, articleCount, toc[{id, type, num, branch?, title, deleted?}]}]`,
   `citations{'규정id/노드id': ['규정id/조id', …]}`(「이 조를 인용하는 곳」, 고정 링크 + 찾을 수 있는 글자 참조), `recent[]`(최근 개정 12건),
-  `searchParts`, `searchStamp`, `updatedAt`, `updatedByName`
+  `searchParts`, `searchStamp`, `lawReviews{법령키: {checkedAt, byName, note}}`(상위 법령 점검), `updatedAt`, `updatedByName`
+- 규정 줄의 **체계(세로 기준, 2026-11-12)** — `level`(rule 학칙 | regulation 규정 | sub 세칙·하위 규정 | guide 지침·안내 | bylaw 자치 회칙),
+  `parentId`(상위 규정), `basis[{kind:'reg', regId, nodeId?, label} | {kind:'law', name, article?, url?}]`(근거 조문·상위 법령),
+  `hierarchySet`(관리자가 고침 — 자동 제안이 덮어쓰지 않음), `status`(active | repealed), `repealedDate`.
+  자동 제안은 `suggestHierarchy`(apps/shared/lib/regulationHierarchy.js) — 제1조 등의 근거 문구(「…규정 제21조」, 「…법」, 학칙의 「…회칙으로 정한다」)로 짐작
+- 폐지: 개정 구분 「폐지」를 확정하면 `status: 'repealed'` — 목차·검색·외부 공개에서 빠지고 「폐지된 규정」으로(버전·연혁은 남음)
 - 노드의 `hist[{kind(신설|개정|삭제), date}]` — 확정할 때 바뀐 노드에 붙는다(화면의 「<개정 2026.6.24.>」). 본문 안 고정 링크는 `{{ref:규정id/노드id}}`
 - `regulationAiUsage/{YYYY-MM-DD}_{uid}` — AI 답변 하루 사용 횟수 `{uid, count}`. Cloud Function만 쓴다(규칙 없음 = 클라이언트 불가)
 - (예정) `regulationChunks/{규정id}_{조id}` — 벡터 검색용 조 단위 청크 `{r, a, title, path, text, effectiveDate, versionId, embedding}`.
