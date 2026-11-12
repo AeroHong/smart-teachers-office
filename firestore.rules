@@ -284,6 +284,19 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
+    // ── /publicRegulationBooks — 학교 규정집 외부 공개 사본(Codex-Edu, 2026-11) ──
+    // 학교 홈페이지 링크로 로그인 없이 읽는다. 관리자가 「외부 공개」로 고른 규정의 현행본만 복사해 둔 것이라
+    // 누구나 읽어도 된다(학교 데이터 /schools/{schoolId}/regulations…는 그대로 교직원만).
+    // 쓰기는 그 학교 관리자 동급(학교 관리자·교감·시스템 관리자) — 목차 설정 저장·개정 확정 때 Codex-Edu가 다시 쓴다.
+    match /publicRegulationBooks/{schoolId} {
+      allow read: if true;
+      allow write: if isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId);
+      match /{sub}/{docId} {
+        allow read: if sub in ['regulations', 'search'];
+        allow write: if sub in ['regulations', 'search'] && (isSuperAdmin() || isSchoolAdmin(schoolId) || isPrincipal(schoolId));
+      }
+    }
+
     // ── /auditLogs ──────────────────────────────────────────────
     match /auditLogs/{logId} {
       allow read: if isSuperAdmin();

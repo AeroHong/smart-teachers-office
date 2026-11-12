@@ -1970,3 +1970,19 @@ test('규정 개정안: 담당자가 만들고 고치며, 확정은 관리자만
   await assertSucceeds(setDoc(doc(as(A), ...path('regulationAmendments', 'a1', 'log', 'l1')), log(A)))
   await assertFails(updateDoc(doc(as(A), ...path('regulationAmendments', 'a1', 'log', 'l1')), { action: 'add' }))
 })
+
+test('규정집 외부 공개 사본: 누구나 읽고, 그 학교 관리자만 쓴다', async () => {
+  await seedRegulation()
+  const anon = env.unauthenticatedContext().firestore()
+  await assertSucceeds(setDoc(doc(as(ADMIN), 'publicRegulationBooks', SCHOOL), { title: '규정집', regulations: [] }))
+  await assertSucceeds(setDoc(doc(as(ADMIN), 'publicRegulationBooks', SCHOOL, 'regulations', 'r1'), { title: '학칙', nodes: [] }))
+  await assertSucceeds(setDoc(doc(as(ADMIN), 'publicRegulationBooks', SCHOOL, 'search', '0'), { entries: [] }))
+  await assertFails(setDoc(doc(as(ADMIN), 'publicRegulationBooks', SCHOOL, 'secret', 'x'), { a: 1 }))      // 정해진 하위만
+  await assertFails(setDoc(doc(as(A), 'publicRegulationBooks', SCHOOL, 'regulations', 'r2'), { title: 'x' })) // 규정 담당자도 불가
+  await assertFails(setDoc(doc(as(ADMIN), 'publicRegulationBooks', OTHER_SCHOOL), { title: 'x' }))           // 다른 학교
+  await assertSucceeds(getDoc(doc(anon, 'publicRegulationBooks', SCHOOL)))
+  await assertSucceeds(getDoc(doc(anon, 'publicRegulationBooks', SCHOOL, 'regulations', 'r1')))
+  await assertSucceeds(getDocs(collection(anon, 'publicRegulationBooks', SCHOOL, 'regulations')))
+  await assertFails(setDoc(doc(anon, 'publicRegulationBooks', SCHOOL), { title: 'x' }))
+})
+
