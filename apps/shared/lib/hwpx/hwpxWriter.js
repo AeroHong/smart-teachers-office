@@ -9,6 +9,9 @@
 // 템플릿 header.xml의 ID(참조용):
 //   charPr  0=10pt  1=9pt  2=16pt 굵게  4=9pt  5=9pt 굵게  6=8pt  7=8pt 회색(#444)
 //   paraPr  0=가운데  2=왼쪽
+//   (2026-11 Codex-Edu 추가 — 뒤에 덧붙여 기존 ID는 그대로)
+//   charPr  8=10pt 굵게  9=9pt 밑줄  10=9pt 취소선  11=9pt 굵게+밑줄  12=12pt 굵게  13=10pt 밑줄  14=10pt 취소선
+//   paraPr  3=왼쪽 들여쓰기 1단(항)  4=2단(호)  5=3단(목)
 //   borderFill  3=실선 0.12mm  4=실선 + 회색 채움(#E4E4E4)
 import JSZip from 'jszip'
 import headerXml from './template/header.xml?raw'
@@ -23,8 +26,11 @@ import manifestXml from './template/manifest.xml?raw'
 
 export const MM = 283.465 // 1mm = 283.465 HWPUNIT
 export const BODY_WIDTH_MM = 180 // A4 210mm − 좌우 여백 15mm×2 (secPrRun.xml의 margin과 짝)
-export const CHAR = { body: 0, small: 1, title: 2, cell: 4, cellBold: 5, tiny: 6, note: 7 }
-export const ALIGN = { center: 0, left: 2 }
+export const CHAR = {
+  body: 0, small: 1, title: 2, cell: 4, cellBold: 5, tiny: 6, note: 7,
+  bodyBold: 8, cellUnder: 9, cellStrike: 10, cellBoldUnder: 11, heading: 12, bodyUnder: 13, bodyStrike: 14,
+}
+export const ALIGN = { center: 0, left: 2, indent1: 3, indent2: 4, indent3: 5 }
 
 export function x(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -48,7 +54,7 @@ export function cell({ col, row, colSpan = 1, rowSpan = 1, widthMm, header = fal
 let tableSeq = 0
 
 /**
- * 표 — rows는 행마다 셀 목록 { text?, paras?, colSpan?, rowSpan?, header?, align?, char? }.
+ * 표 — rows는 행마다 셀 목록 { text?, paras?, colSpan?, rowSpan?, header?, align?, char?, vertAlign?('TOP'|'CENTER') }.
  * 병합으로 가려진 칸은 셀을 넣지 않는다(HTML 표와 같다). 열 주소(colAddr)는 여기서 병합을 따져 매긴다.
  * @param {{ widths: number[] (mm), rows: object[][], headerRows?: number }} t
  */
@@ -69,7 +75,7 @@ export function table({ widths, rows, headerRows = 1 }) {
       const header = cd.header ?? r < headerRows
       const paras = cd.paras || String(cd.text ?? '').split('\n').map((line) =>
         para(cd.align ?? ALIGN.center, line ? run(cd.char ?? (header ? CHAR.cellBold : CHAR.cell), line) : ''))
-      const out = cell({ col: c, row: r, colSpan, rowSpan, header, paras, widthMm: widths.slice(c, c + colSpan).reduce((a, b) => a + b, 0) })
+      const out = cell({ col: c, row: r, colSpan, rowSpan, header, paras, vertAlign: cd.vertAlign || 'CENTER', widthMm: widths.slice(c, c + colSpan).reduce((a, b) => a + b, 0) })
       c += colSpan
       return out
     }).join('')
