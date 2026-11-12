@@ -6,6 +6,12 @@
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@shared/lib/firebase'
 
+/**
+ * AI 답변 켜기 — 루트 .env에 VITE_CODEX_AI=1을 넣고 다시 빌드하면 도우미에 「AI로 답 정리하기」가 나온다.
+ * 켜기 전에 할 일: Secret Manager에 anthropic-api-key 등록 → firebase deploy --only functions:askRegulation
+ */
+export const AI_ENABLED = import.meta.env.VITE_CODEX_AI === '1'
+
 export async function askRegulationAi(schoolId, question, sources = []) {
   try {
     const { data } = await httpsCallable(functions, 'askRegulation', { timeout: 60_000 })({

@@ -18,7 +18,7 @@ import RegulationHeader from '../components/RegulationHeader'
 import TocSidebar from '../components/TocSidebar'
 import { createAmendment, getCurrentNodes, useBook, useRegulation } from '../lib/data'
 import { downloadRegulationHwpx } from '../lib/hwpxExport'
-import { askRegulationAi } from '../lib/ai'
+import { AI_ENABLED, askRegulationAi } from '../lib/ai'
 import { useRegulationRole } from '../lib/useRegulationRole'
 import { useSearchIndex } from '../lib/useSearchIndex'
 import { fmtDate } from './Home'
@@ -52,7 +52,7 @@ export default function RegulationPage() {
     <ReaderLayout
       top={<AppBar />}
       sidebar={(close) => <TocSidebar book={book} regId={regId} onPick={close} />}
-      assistant={(close) => <AssistantPanel book={book} entries={entries} onClose={close} askAi={(q, s) => askRegulationAi(schoolId, q, s)} />}
+      assistant={(close) => <AssistantPanel book={book} entries={entries} onClose={close} askAi={AI_ENABLED ? (q, s) => askRegulationAi(schoolId, q, s) : undefined} />}
     >
       {loading && <CircularProgress />}
       {error && <Alert severity="error">규정을 불러오지 못했습니다: {error.message}</Alert>}
