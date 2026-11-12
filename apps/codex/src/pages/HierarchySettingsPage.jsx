@@ -91,7 +91,7 @@ function BasisDialog({ row, book, onClose, onSave }) {
 
 /** 체계 설정 — 규정마다 위계·상위 규정·근거. 자동 제안을 받아 확인하고 고친다(관리자) */
 export default function HierarchySettingsPage() {
-  const { schoolId, user, userName } = useAuth()
+  const { schoolId, schoolName, user, userName } = useAuth()
   const { book, loading } = useBook(schoolId)
   const [rows, setRows] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -120,8 +120,8 @@ export default function HierarchySettingsPage() {
       const bad = rows.filter(cyc)
       if (bad.length) throw new Error(`상위 규정이 돌고 돕니다: ${bad.map((r) => r.title).join(', ')}`)
       const merged = book.regulations.map((r) => { const x = byId.get(r.id); return x ? { ...r, level: x.level, parentId: x.parentId || null, basis: x.basis || [], ...(x.hierarchySet ? { hierarchySet: true } : {}) } : r })
-      await saveBookSettings(schoolId, book, merged, { uid: user.uid, name: userName })
-      await publishPublicBook(schoolId, { ...book, regulations: merged }, { name: userName })
+      await saveBookSettings(schoolId, book, merged, { uid: user.uid, name: userName, schoolName })
+      await publishPublicBook(schoolId, { ...book, regulations: merged }, { name: userName, schoolName })
       setMsg({ type: 'success', text: '저장했습니다.' })
     } catch (e) { setMsg({ type: 'error', text: e.message }) }
     setBusy(false)

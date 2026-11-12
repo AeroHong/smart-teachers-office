@@ -39,7 +39,7 @@ export async function publishPublicBook(schoolId, book, user) {
   parts.forEach((e, i) => batch.set(pubSearch(schoolId, i), { entries: e }))
   for (let i = parts.length; i < oldParts; i++) batch.delete(pubSearch(schoolId, i))
   batch.set(pubBook(schoolId), {
-    title: book.title || '', effectiveDate: book.effectiveDate || '',
+    title: book.title || '', schoolName: book.schoolName || user?.schoolName || '', effectiveDate: book.effectiveDate || '',
     // 체계도 함께 — 상위·근거 규정은 공개된 것만 남긴다(법령 근거는 그대로)
     regulations: regs.map(({ id, title, no, reference, category, order, currentVersionId, effectiveDate, articleCount, toc, level, parentId, basis }) => ({
       id, title, no, reference, category, order, currentVersionId, effectiveDate, articleCount, toc, public: true,

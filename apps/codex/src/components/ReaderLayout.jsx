@@ -7,6 +7,7 @@ import Stack from '@mui/material/Stack'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import { SIDEBAR_BG } from '../theme'
 
 const SIDE_W = 290
 const ASSIST_W = 360
@@ -48,15 +49,15 @@ export default function ReaderLayout({ top, sidebar, assistant, children }) {
   const closeInline = () => { setPinned(false); writePref(false) }
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.paper', display: 'flex', flexDirection: 'column' }}>
       {top}
       <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {mid ? (
-          <Box className="no-print" sx={{ width: SIDE_W, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', position: 'sticky', top: 52, height: PANE_H }}>
+          <Box className="no-print" sx={{ width: SIDE_W, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider', bgcolor: SIDEBAR_BG, position: 'sticky', top: 52, height: PANE_H }}>
             {sidebar(() => {})}
           </Box>
         ) : (
-          <Drawer open={tocOpen} onClose={() => setTocOpen(false)} PaperProps={{ sx: { width: 'min(320px, 88vw)' } }}>
+          <Drawer open={tocOpen} onClose={() => setTocOpen(false)} PaperProps={{ sx: { width: 'min(320px, 88vw)', bgcolor: SIDEBAR_BG } }}>
             {sidebar(() => setTocOpen(false))}
           </Drawer>
         )}

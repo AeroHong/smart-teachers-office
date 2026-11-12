@@ -198,7 +198,7 @@ export function withHierarchy(entries, regsWithNodes, { onlyEmpty = true } = {})
  * 새 규정은 만들고, 원본에 없는 규정은 목차에서 뺀다(규정 문서·버전은 남는다).
  * @param {{ schoolId, title, effectiveDate, sourceFileName, regs: {title, no, reference, category, history, nodes}[], user: {uid, name} }} a
  */
-export async function importBook({ schoolId, title, effectiveDate, sourceFileName, regs, user, existingBook }) {
+export async function importBook({ schoolId, schoolName = '', title, effectiveDate, sourceFileName, regs, user, existingBook }) {
   const prev = existingBook?.regulations || []
   const used = new Set()
   const staged = regs.map((r, order) => {
@@ -231,7 +231,7 @@ export async function importBook({ schoolId, title, effectiveDate, sourceFileNam
   const entries = staged.flatMap((r) => buildSearchEntries(r.id, r.nodes))
   const search = writeSearchParts(b(), schoolId, entries, existingBook?.searchParts || 0)
   b().set(bookRef(schoolId), {
-    title, effectiveDate, sourceFileName: sourceFileName || '',
+    title, schoolName: schoolName || existingBook?.schoolName || '', effectiveDate, sourceFileName: sourceFileName || '',
     regulations: withHierarchy(staged.map((r) => ({ ...bookEntry({ ...r, currentVersionId: r.verId, effectiveDate }), ...(r.hierarchySet ? { hierarchySet: true } : {}) })), staged),
     citations: citationsFor(staged, findReg),
     recent: existingBook?.recent || [],
@@ -244,7 +244,7 @@ export async function importBook({ schoolId, title, effectiveDate, sourceFileNam
 
 /** 목차 설정(분류·순서·제목·외부 공개)만 고친다 — 본문은 그대로 */
 export async function saveBookSettings(schoolId, book, regulations, user) {
-  await updateDoc(bookRef(schoolId), { regulations, updatedAt: serverTimestamp(), updatedByName: user.name })
+  await updateDoc(bookRef(schoolId), { regulations, ...(user.schoolName ? { schoolName: user.schoolName } : {}), updatedAt: serverTimestamp(), updatedByName: user.name })
   const batch = writeBatch(db)
   for (const r of regulations) {
     const old = book.regulations.find((x) => x.id === r.id)

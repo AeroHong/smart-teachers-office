@@ -24,7 +24,7 @@ import { publishPublicBook, publicUrl } from '../lib/publicBook'
 
 /** 목차 설정 — 이름·분류·순서·외부 공개 */
 export default function SettingsPage() {
-  const { schoolId, user, userName } = useAuth()
+  const { schoolId, schoolName, user, userName } = useAuth()
   const { book, loading } = useBook(schoolId)
   const [rows, setRows] = useState(null)
   const [msg, setMsg] = useState(null)
@@ -38,8 +38,8 @@ export default function SettingsPage() {
     setSaving(true); setMsg(null)
     try {
       const regulations = rows.map((r, i) => ({ ...r, order: i, reference: r.category === 'reference' }))
-      await saveBookSettings(schoolId, book, regulations, { uid: user.uid, name: userName })
-      const n = await publishPublicBook(schoolId, { ...book, regulations }, { name: userName })
+      await saveBookSettings(schoolId, book, regulations, { uid: user.uid, name: userName, schoolName })
+      const n = await publishPublicBook(schoolId, { ...book, regulations }, { name: userName, schoolName })
       setMsg({ type: 'success', text: `저장했습니다.${n ? ` 외부 공개 규정 ${n}개를 공개 사본에 반영했습니다.` : ''}` })
     } catch (e) { setMsg({ type: 'error', text: `저장하지 못했습니다: ${e.message}` }) }
     setSaving(false)

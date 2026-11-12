@@ -53,7 +53,7 @@ function guessMeta(cover, fileName) {
 
 /** 규정집 가져오기 — 원본 hwpx를 읽어 규정별로 검수한 뒤 적재(관리자) */
 export default function ImportPage() {
-  const { schoolId, user, userName } = useAuth()
+  const { schoolId, schoolName, user, userName } = useAuth()
   const { book } = useBook(schoolId)
   const navigate = useNavigate()
   const [fileName, setFileName] = useState('')
@@ -93,7 +93,7 @@ export default function ImportPage() {
     setSaving(true); setErr('')
     try {
       const picked = regs.filter((r) => r.include && r.title.trim())
-      await importBook({ schoolId, title: meta.title, effectiveDate: meta.date, sourceFileName: fileName, regs: picked.map((r) => ({ ...r, title: r.title.trim() })), user: { uid: user.uid, name: userName }, existingBook: book })
+      await importBook({ schoolId, schoolName, title: meta.title, effectiveDate: meta.date, sourceFileName: fileName, regs: picked.map((r) => ({ ...r, title: r.title.trim() })), user: { uid: user.uid, name: userName }, existingBook: book })
       navigate('/')
     } catch (e) { setErr(`적재하지 못했습니다: ${e.message}`); setSaving(false) }
   }

@@ -1,12 +1,15 @@
 /**
  * 학교 규정집(Codex-Edu) 테마 — 남색 바탕의 차분한 문서 화면.
  * 타이포·간격은 ClassFlow·ExamCore와 같은 기준(Pretendard, 0.5rem 단위)을 쓴다.
+ * (2026-11-12 먹·한지 색·명조 제목을 시험했다가 이 남색으로 되돌림)
  */
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 import './global.css'
 
 export const BRAND = '#1e3a8a'
+/** 왼쪽 목차 바탕 — 본문(흰색)과 구분되는 연한 남색 */
+export const SIDEBAR_BG = '#f1f4fa'
 
 const theme = createTheme({
   palette: {
