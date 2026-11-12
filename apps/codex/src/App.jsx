@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -10,6 +11,18 @@ import { useAuth } from '@shared/contexts/AuthContext'
 import { PORTAL_URL } from './lib/links'
 import Handoff from './pages/Handoff'
 import Home from './pages/Home'
+import RegulationPage from './pages/RegulationPage'
+import SearchPage from './pages/SearchPage'
+
+// 열람 화면은 바로, 관리·편집·공개 화면은 필요할 때 불러온다
+const HistoryPage = lazy(() => import('./pages/HistoryPage'))
+const AmendmentsPage = lazy(() => import('./pages/AmendmentsPage'))
+const AmendmentEditor = lazy(() => import('./pages/AmendmentEditor'))
+const AdminHome = lazy(() => import('./pages/AdminHome'))
+const ImportPage = lazy(() => import('./pages/ImportPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const ManagersPage = lazy(() => import('./pages/ManagersPage'))
+const PublicApp = lazy(() => import('./pages/PublicApp'))
 
 const STAFF_ROLES = ['teacher', 'admin', 'school_admin', 'principal', 'headmaster']
 
@@ -21,14 +34,19 @@ function Center({ children }) {
   )
 }
 
-/** 로그인 → 교직원 확인 → 규정집. 열람은 교직원 전원, 개정 화면은 안에서 권한(useRegulationRole)으로 거른다 */
+const wait = <Center><CircularProgress /></Center>
+
+/** 로그인 → 교직원 확인 → 규정집. 공개 화면(/public/…)은 로그인 없이. 개정·관리는 안에서 권한으로 거른다 */
 export default function App() {
   const { user, role, schoolId, isSuperAdmin, loading, login, logout } = useAuth()
   const { pathname } = useLocation()
 
+  if (pathname.startsWith('/public/')) {
+    return <Suspense fallback={wait}><Routes><Route path="/public/:schoolId/*" element={<PublicApp />} /></Routes></Suspense>
+  }
   // 스마트교무실에서 넘어오는 길(로그인 전에 처리해야 한다)
   if (pathname === '/auth/handoff') return <Handoff />
-  if (loading) return <Center><CircularProgress /></Center>
+  if (loading) return wait
 
   if (!user) {
     return (
@@ -64,9 +82,20 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={wait}>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/search" element={<SearchPage />} />
+        <Route path="/r/:regId" element={<RegulationPage />} />
+        <Route path="/r/:regId/history" element={<HistoryPage />} />
+        <Route path="/amendments" element={<AmendmentsPage />} />
+        <Route path="/amendments/:id" element={<AmendmentEditor />} />
+        <Route path="/admin" element={<AdminHome />} />
+        <Route path="/admin/import" element={<ImportPage />} />
+        <Route path="/admin/settings" element={<SettingsPage />} />
+        <Route path="/admin/managers" element={<ManagersPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   )
 }
