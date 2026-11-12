@@ -166,3 +166,28 @@ export function highlight(text, terms) {
   }
   return out
 }
+
+// ── AI(벡터 검색)용 청크 ─────────────────────────────────────────
+
+/**
+ * 조 단위 청크 — 벡터 검색(regulationChunks/{규정id}_{조id}, embedding 필드 + Firestore findNearest)의 원본.
+ * 조문 하나(항·호·표 포함)를 한 덩어리로, 앞에 「규정명 제n조(제목)」을 붙여 임베딩해도 출처가 남게 한다.
+ * 임베딩 공급자를 정하면 확정·적재 때 이 결과에 embedding만 더해 쓰면 된다(색인 줄과 같은 id 체계).
+ * @returns {{ id, r, a, title, path, text, effectiveDate, versionId }[]}
+ */
+export function buildRegulationChunks({ regId, regTitle, nodes, effectiveDate = '', versionId = '' }, { maxChars = 3000 } = {}) {
+  const entries = buildSearchEntries(regId, nodes)
+  const units = new Map()
+  for (const e of entries) {
+    if (!units.has(e.a)) units.set(e.a, [])
+    units.get(e.a).push(e)
+  }
+  const out = []
+  for (const [a, list] of units) {
+    const head = list[0]
+    let text = list.map((e) => e.t).join('\n')
+    if (text.length > maxChars) text = `${text.slice(0, maxChars)}…`
+    out.push({ id: `${regId}_${a}`, r: regId, a, title: regTitle, path: head.p, text: `「${regTitle}」 ${head.p}\n${text}`, effectiveDate, versionId })
+  }
+  return out
+}

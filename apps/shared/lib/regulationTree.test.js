@@ -166,3 +166,12 @@ test('편집: 글자 참조를 고정 링크로 바꾸면 번호가 밀려도 �
   // (이 조각에서는 ③④가 ①②가 되므로 「제3항」 → 「제1항」, 제57조제7항 → 제1조제1항)
   assert.match(rowsToText(rows), /제\{\+1\+\}항에 따른 면담 결과는 제\{\+1\+\}조제\{\+1\+\}항/)
 })
+
+test('AI 청크: 조 단위로 묶고 출처를 앞에 붙인다', async () => {
+  const { buildRegulationChunks } = await import('./regulationSearch.js')
+  const chunks = buildRegulationChunks({ regId: 'rLife', regTitle: '학생생활지도 규정', nodes: life(), effectiveDate: '2026-06-24', versionId: 'v1' })
+  const c63 = chunks.find((c) => c.a === 'a63')
+  assert.equal(c63.id, 'rLife_a63')
+  assert.match(c63.text, /^「학생생활지도 규정」 제63조\n제63조\(벌점의 활용\)\n벌점의 누적/)
+  assert.equal(c63.text.split('\n').length, 5) // 머리 + 조 제목 + 항 3개
+})

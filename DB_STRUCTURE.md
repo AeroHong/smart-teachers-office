@@ -1010,9 +1010,21 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
     가장 큰 규정(학업성적 관리 규정)이 약 110KB라 문서 한 건에 들어간다
 - `regulationAmendments/{amdId}` — 개정안 `{regId, baseVersionId, nodes, reason, status(draft→review→applied|discarded), 심의일, 시행일, createdBy}`
   - `log/{id}` — 작업 기록 `{uid, action(add|modify|delete|move), nodeId, at, …}` — 쌓기만 한다
-- `regulationSearch/{id}` — 검색 색인 묶음(확정할 때 다시 만든다). 클라이언트가 캐시해 전문 검색
+- `regulationSearch/main_{n}` — 검색 색인 묶음 `{entries[{r, n, a(조 id), p(위치), t(글), h?(장·절 제목줄)}], part}`.
+  가져오기·확정 때 다시 쓰고(바이트 기준 80만 바이트씩 — 실제 규정집은 1묶음), 화면은 목차 문서의 `searchStamp`가 같으면 IndexedDB 캐시를 쓴다
+- 목차 문서(`regulationBooks/main`) 필드: `title`, `effectiveDate`, `sourceFileName`, `regulations[{id, title, no, reference, category,
+  order, currentVersionId, effectiveDate, public, articleCount, toc[{id, type, num, branch?, title, deleted?}]}]`,
+  `citations{'규정id/노드id': ['규정id/조id', …]}`(「이 조를 인용하는 곳」, 고정 링크 + 찾을 수 있는 글자 참조), `recent[]`(최근 개정 12건),
+  `searchParts`, `searchStamp`, `updatedAt`, `updatedByName`
+- 노드의 `hist[{kind(신설|개정|삭제), date}]` — 확정할 때 바뀐 노드에 붙는다(화면의 「<개정 2026.6.24.>」). 본문 안 고정 링크는 `{{ref:규정id/노드id}}`
+- `regulationAiUsage/{YYYY-MM-DD}_{uid}` — AI 답변 하루 사용 횟수 `{uid, count}`. Cloud Function만 쓴다(규칙 없음 = 클라이언트 불가)
+- (예정) `regulationChunks/{규정id}_{조id}` — 벡터 검색용 조 단위 청크 `{r, a, title, path, text, effectiveDate, versionId, embedding}`.
+  모양은 `buildRegulationChunks`(apps/shared/lib/regulationSearch.js)로 정해 두었고, 임베딩 공급자를 정하면 확정 때 함께 쓴다
+- **외부 공개 사본** 최상위 `publicRegulationBooks/{schoolId}`(목차 — 공개 규정만) · `/regulations/{regId}`(`{title, nodes, effectiveDate, kind}`) ·
+  `/search/{n}` — 「외부 공개」 규정만, 목차 설정 저장·개정 확정 때 Codex-Edu가 다시 쓴다. 로그인 없이 `/public/{schoolId}` 화면이 읽는다
 
 **접근 권한:** 열람(목차·규정·버전·색인) — 교직원 전원(교장 포함), 학생·외부는 불가(외부 공개는 추후 별도 공개 사본).
+외부 공개 사본은 누구나 읽기, 그 학교 관리자 동급만 쓰기.
 쓰기 — 현행본은 관리자 동급(`isHubAdmin`), 버전은 만든 뒤 고치거나 지우지 않는다. 개정안은 규정 담당자(StudentHub 담당자 지정
 `regulation`, 관리자·교감은 지정 없이)가 본인 이름으로 만들고 고친다, 확정(`applied`)은 관리자만, 확정된 안은 고정. 작업 기록은 본인 이름으로 쌓기만.
 
@@ -1306,6 +1318,11 @@ ExamCore(2026-10, 고사 업무 앱 — StudentHub에서 옮김)가 저장할 �
   (`functions/evaluationPlanParser.js`)
 - **neisSchedule** (onCall) - 나이스 교육정보 개방 포털에서 학교 찾기·학사일정 가져오기(`functions/neisSchedule.js`).
   인증키는 Secret Manager `neis-api-key`(없으면 키 없이 5건만)
+
+### `functions/regulationAi.js`
+- **askRegulation** (onCall) - 규정집 도우미 AI 답변. 브라우저가 찾은 조문 id(hints)로 DB 색인에서 원문을 다시 꺼내 근거로 주고
+  Claude(`claude-opus-5-5`, effort low, 거절 시 서버 fallbacks)가 [n] 근거 표시를 단 한국어 답을 쓴다. 교직원만, 하루 30회.
+  키는 Secret Manager `anthropic-api-key`(없으면 failed-precondition 안내)
 
 ### `functions/studentHub.js`
 - **issueHubHandoffToken** (onCall) - 교직원 본인 uid의 custom token 발급 → StudentHub가 재로그인 없이 진입

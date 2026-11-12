@@ -605,3 +605,6 @@ function buildChecklistHtml(submission) {
 </body>
 </html>`
 }
+
+// 학교 규정집(Codex-Edu) 도우미 AI 답변 — 근거는 DB 색인의 조문만(functions/regulationAi.js)
+exports.askRegulation = require('./regulationAi').askRegulation
