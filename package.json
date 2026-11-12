@@ -21,6 +21,9 @@
     "dev:classflow": "vite --config apps/classflow/vite.config.js",
     "build:classflow": "vite build --config apps/classflow/vite.config.js",
     "deploy:classflow": "npm run build:classflow && firebase deploy --only hosting:classflow",
+    "dev:codex": "vite --config apps/codex/vite.config.js",
+    "build:codex": "vite build --config apps/codex/vite.config.js",
+    "deploy:codex": "npm run build:codex && firebase deploy --only hosting:codex",
     "dev:desktop": "npm --prefix apps/desktop run dev",
     "build:desktop": "npm --prefix apps/desktop run dist",
     "release:desktop": "npm --prefix apps/desktop run release && firebase deploy --only hosting:desktop-updates"

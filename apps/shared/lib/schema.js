@@ -188,6 +188,12 @@ export const COL = {
   HUB_DASHBOARDS: 'studentHubDashboards',
   // StudentHub 메타 — 고정 ID 문서. 'roster': 나이스 명렬 마지막 업로드(학적 기준일 계산용)
   HUB_META: 'studentHubMeta',
+
+  // 학교 규정집(Codex-Edu, 2026-11) — DB_STRUCTURE.md 「규정집」. 조문은 번호와 무관한 고정 nodeId를 쓴다
+  REGULATION_BOOKS: 'regulationBooks',             // 규정집 목차 한 문서(사이드바) — 확정 함수만 쓴다
+  REGULATIONS: 'regulations',                      // 규정 메타 + versions/{verId} 전문 스냅샷
+  REGULATION_AMENDMENTS: 'regulationAmendments',   // 개정안 + log/{id} 작업 기록
+  REGULATION_SEARCH: 'regulationSearch',           // 검색 색인 묶음 — 확정 함수만 쓴다
 }
 
 /** studentHubMeta 고정 문서 ID */
@@ -205,6 +211,7 @@ export const HUB_ROLES = {
   ABSENCE: 'absence',       // 결시 현황 확정
   ELECTIVE: 'elective',     // 선택과목 결과 업로드
   CSAT: 'csat',             // 수능 시험장 양식(CSAT-Docs) — 감독관 명단·명찰·출근부·시감표
+  REGULATION: 'regulation', // 학교 규정집(Codex-Edu) — 개정안 작성. 확정은 관리자
 }
 
 /**

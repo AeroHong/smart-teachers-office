@@ -1,10 +1,10 @@
 // 업무분장 결재 첨부 — 원본(선유고 2026 업무분장 hwpx)과 같은 두 부분:
 //   ① 'YYYY학년도 부서별 업무분장 (YYYY.3.1.)' — 구분 · 부서(번호) · 성명 · 담임 · 업무 · 주요 업무 내용, 끝줄 인원 요약
 //   ② 'YYYY학년도 부장교사 및 담임교사 명단' — 부장교사 / 담임·부담임 / 교과부장
-// 한글(hwpx)은 공용 작성기(lib/hwpx/hwpxWriter.js), 인쇄·PDF는 검·인정도서 서식 엔진(textbook/textbookPrint.js)을 쓴다.
+// 한글(hwpx)은 공용 작성기(apps/shared/lib/hwpx/hwpxWriter.js), 인쇄·PDF는 검·인정도서 서식 엔진(textbook/textbookPrint.js)을 쓴다.
 // 표의 행·병합은 순수 함수(approvalRows 등, apps/shared/lib/dutyPlan.js)가 정하고, 여기서는 그리기만 한다.
 import { approvalRows, headRoster, homeroomSlots, nameWithSubject, summarizeStaff, summaryLine } from '@shared/lib/dutyPlan'
-import { ALIGN, CHAR, buildHwpxBlob, downloadBlob, para, run, sectionXml, table, tablePara } from '../../lib/hwpx/hwpxWriter'
+import { ALIGN, CHAR, buildHwpxBlob, downloadBlob, para, run, sectionXml, table, tablePara } from '@shared/lib/hwpx/hwpxWriter'
 import { downloadFormsPdf, printForms } from '../textbook/textbookPrint'
 
 // 구분 8 · 부서 15 · 번호 13 · 성명 13 · 담임 9 · 업무 22 · 내용 100 = 180mm (원본 비율)

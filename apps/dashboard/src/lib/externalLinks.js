@@ -43,4 +43,10 @@ export const EXTERNAL_LINKS = [
     href: portalLink('/csat-docs'),
     hint: '명찰 · 출근부 · 시감표',
   },
+  {
+    // Codex-Edu(학교 규정집)도 같은 중간 페이지 방식(/codex)
+    label: '학교 규정집',
+    href: portalLink('/codex'),
+    hint: '학칙 · 규정 검색 · 신구대조표',
+  },
 ]

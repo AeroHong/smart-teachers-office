@@ -4,6 +4,7 @@
  *  · ExamCore(고사 업무) — C:\Claude code\ExamCore (2026-10, StudentHub의 고사 기능을 옮겼다)
  *  · ClassFlow(선택과목 분반 배정) — 이 저장소 apps/classflow (2026-11)
  *  · CSAT-Docs(수능 시험장 학교 양식) — C:\Claude code\CSAT-docs (2026-11, 감독관 명단은 브라우저에서 암호화)
+ *  · Codex-Edu(학교 규정집) — 이 저장소 apps/codex (2026-11)
  *
  * 호스팅 사이트가 달라 로그인 세션이 공유되지 않는다. 그래서 여기서 issueHubHandoffToken으로
  * 본인 uid의 custom token을 받아 #token=…으로 넘기고, 받는 앱이 그 토큰으로 로그인한다
@@ -16,6 +17,7 @@ export const STUDENT_HUB_URL = import.meta.env.VITE_STUDENT_HUB_URL || 'https://
 export const EXAM_CORE_URL = import.meta.env.VITE_EXAM_CORE_URL || 'https://smart-examcore.web.app'
 export const CLASS_FLOW_URL = import.meta.env.VITE_CLASS_FLOW_URL || 'https://smart-class-flow.web.app'
 export const CSAT_DOCS_URL = import.meta.env.VITE_CSAT_DOCS_URL || 'https://smart-csat-docs.web.app'
+export const CODEX_EDU_URL = import.meta.env.VITE_CODEX_EDU_URL || 'https://smart-codex-edu.web.app'
 
 /**
  * @param {string} appUrl 받는 앱 주소
@@ -36,3 +38,4 @@ export const openStudentHub = (next = '/') => openApp(STUDENT_HUB_URL, next)
 export const openExamCore = (next = '/') => openApp(EXAM_CORE_URL, next)
 export const openClassFlow = (next = '/') => openApp(CLASS_FLOW_URL, next)
 export const openCsatDocs = (next = '/') => openApp(CSAT_DOCS_URL, next)
+export const openCodexEdu = (next = '/') => openApp(CODEX_EDU_URL, next)

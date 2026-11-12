@@ -64,6 +64,17 @@ const SERVICES = [
     statusColor: 'warning',
   },
   {
+    icon: '⚖️',
+    title: '학교 규정집',
+    description: '학칙·학업성적관리규정·학생생활규정 등 학교 규정을 검색하고 조문끼리 따라가며 읽습니다. 개정하면 신구대조표가 자동으로 만들어집니다.',
+    // Codex-Edu — 중간 페이지(/codex)가 재로그인 없이 넘겨준다. 열람은 교직원 전원, 개정은 규정 담당자(regulation)·관리자
+    path: '/codex',
+    color: '#1e3a8a',
+    bgColor: '#eff6ff',
+    status: '개발중',
+    statusColor: 'warning',
+  },
+  {
     icon: '🎓',
     title: '수능 시험장 양식',
     description: '수능 시험장 학교의 명찰·출근부·인장등록대장·패찰·시감표를 원본 양식 그대로 만듭니다. 감독관 명단은 암호화해 보관합니다.',

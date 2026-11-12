@@ -25,6 +25,7 @@
   ├─ 대시보드 academicCalendar · dashboardModules · academicPlanYears · academicPlans(학사일정 제작)
   ├─ 업무분장 dutyPlanYears/{year}/{plans,wishes} · dutyCatalog/{dutyKey}/notes
   ├─ 분반배정 sectioningProjects/{id}/versions (smart-class-flow)
+  ├─ 규정집   regulationBooks · regulations/{id}/versions · regulationAmendments/{id}/log · regulationSearch (smart-codex-edu)
   ├─ 성취평가 asaSubjects · asaSubmissions · asaResults · asaCutoffs ·
   │           asaNeisImports · asaPrincipalSignature · minAchievementResults
   └─ 평가계획 evaluationPlans · evaluationPlanManagers
@@ -992,6 +993,28 @@ UI에서는 매칭 실패한 과목이 주황색 외곽선 Chip으로 표시된�
 **계산:** `functions-python` `sectioning_solve`(HTTP, OR-Tools CP-SAT) — 학번·과목명만 받아 계산하고 저장하지 않는다(staff 클레임 필요). 해가 없으면 `diagnose`가 미배정 최소 해 + 완화 대안 + **학생 과목 조정 제안**(`studentSuggestions[{id, subjects, from, to, block, quick, verified, remaining, worstSpread}]` — 같은 칸막이 안에서 과목 하나 바꾸기, 다시 풀어 확인)을 돌려준다
 
 **StudentHub 연동(2026-11-04):** StudentHub 선택과목 「분반 배정에서 가져오기」가 이 문서를 읽어 `students.electiveSubjects` 초안을 만든다(수강신청 당시 학번 → 그 학년도 자리, 분반 기호 = 그룹 글자, 같은 그룹 2분반이면 `A1`·`A2`). 나이스 업로드 파일은 StudentHub가 저장된 `electiveSubjects`로 만든다
+
+#### 학교 규정집 — Codex-Edu (2026-11 신설, smart-codex-edu.web.app, `apps/codex`)
+
+법령정보센터처럼 규정을 검색·열람하고, 조문끼리 잇고, 개정하면 신구대조표(hwpx)와 연혁이 남는다. 처음 적재는 규정집 hwpx를
+`apps/shared/lib/regulationParse.js`(순수 로직·테스트)로 읽어 관리자가 검수한 뒤 넣는다.
+**조문마다 번호와 무관한 고정 id(nodeId)** 를 둔다 — 조 번호가 바뀌어도 상호 참조·연혁·(추후) AI 청크가 그대로 따라간다.
+
+- **노드**(평평한 목록, 문서 순서 + `parent`) — `{id, parent|null, type, num?, branch?(제n조의m의 m), title?, text?, rows?, date?, box?}`
+  - `type`: `chapter`(장) `section`(절) `article`(조) `paragraph`(항 ①, num은 숫자) `item`(호 1.) `subitem`(목 가.) `line`(1)·가) 등)
+    `text`(번호 없는 문단·※) `table`(표) `addendum`(부칙, date는 원문 괄호 안) `appendix`(별지·서식 등 첨부)
+  - 표: `rows[{cells[{text, colSpan, rowSpan}]}]` — Firestore가 배열 안 배열을 못 담아 행을 맵으로 감싼다
+- `regulationBooks/{bookId}` — 규정집 목차 한 문서(사이드바는 이것 1건 읽기). 현행본은 `main`
+- `regulations/{regId}` — 규정 메타(제목·분류·순서·참고자료 여부·제개정 이력 `history[{kind, date}]`·`currentVersionId`)
+  - `versions/{verId}` — 그 시점 전문 스냅숏 `{nodes[], effectiveDate, kind(제정|일부개정|전부개정|폐지|최초적재), amendmentId?}`.
+    가장 큰 규정(학업성적 관리 규정)이 약 110KB라 문서 한 건에 들어간다
+- `regulationAmendments/{amdId}` — 개정안 `{regId, baseVersionId, nodes, reason, status(draft→review→applied|discarded), 심의일, 시행일, createdBy}`
+  - `log/{id}` — 작업 기록 `{uid, action(add|modify|delete|move), nodeId, at, …}` — 쌓기만 한다
+- `regulationSearch/{id}` — 검색 색인 묶음(확정할 때 다시 만든다). 클라이언트가 캐시해 전문 검색
+
+**접근 권한:** 열람(목차·규정·버전·색인) — 교직원 전원(교장 포함), 학생·외부는 불가(외부 공개는 추후 별도 공개 사본).
+쓰기 — 현행본은 관리자 동급(`isHubAdmin`), 버전은 만든 뒤 고치거나 지우지 않는다. 개정안은 규정 담당자(StudentHub 담당자 지정
+`regulation`, 관리자·교감은 지정 없이)가 본인 이름으로 만들고 고친다, 확정(`applied`)은 관리자만, 확정된 안은 고정. 작업 기록은 본인 이름으로 쌓기만.
 
 ### 교수학습 및 평가 운영 계획 (2026-08-18 신설)
 

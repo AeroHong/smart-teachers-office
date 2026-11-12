@@ -1466,6 +1466,55 @@ service cloud.firestore {
         }
       }
 
+      // 학교 규정집(smart-codex-edu, 2026-11) — DB_STRUCTURE.md 「규정집」
+      //  · 열람은 교직원 전원(교장 포함). 학생·외부 공개는 나중에 별도 공개 사본(publicRegulationBooks)으로 — 이 경로는 열지 않는다
+      //  · 현행본(목차·규정·버전·검색 색인)은 관리자 동급(isHubAdmin)만 쓴다 — 가져오기와 개정 확정
+      //  · 버전은 그 시점 전문 스냅숏이라 만든 뒤 고치거나 지우지 않는다(연혁의 근거)
+      //  · 개정안은 규정 담당자('regulation', 관리자·교감은 지정 없이)가 만들고 고친다. 확정(applied)은 관리자만,
+      //    확정된 안은 고치지도 지우지도 않는다. 작업 기록(log)은 쌓기만 한다
+      function canEditRegulation(schoolId) {
+        return hasHubRole(schoolId, 'regulation');
+      }
+      function canReadRegulation(schoolId) {
+        return isSuperAdmin() || isTeacher(schoolId);
+      }
+      match /regulationBooks/{bookId} {
+        allow read: if canReadRegulation(schoolId);
+        allow write: if isHubAdmin(schoolId);
+      }
+      match /regulationSearch/{indexId} {
+        allow read: if canReadRegulation(schoolId);
+        allow write: if isHubAdmin(schoolId);
+      }
+      match /regulations/{regId} {
+        allow read: if canReadRegulation(schoolId);
+        allow write: if isHubAdmin(schoolId);
+
+        match /versions/{verId} {
+          allow read: if canReadRegulation(schoolId);
+          allow create: if isHubAdmin(schoolId);
+          allow update, delete: if false;
+        }
+      }
+      match /regulationAmendments/{amdId} {
+        allow read: if canEditRegulation(schoolId) || isHeadmaster(schoolId);
+        allow create: if canEditRegulation(schoolId) &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.status == 'draft';
+        allow update: if canEditRegulation(schoolId) &&
+          resource.data.status != 'applied' &&
+          request.resource.data.createdBy == resource.data.createdBy &&
+          (request.resource.data.status != 'applied' || isHubAdmin(schoolId));
+        allow delete: if canEditRegulation(schoolId) && resource.data.status != 'applied' &&
+          (resource.data.createdBy == request.auth.uid || isHubAdmin(schoolId));
+
+        match /log/{logId} {
+          allow read: if canEditRegulation(schoolId) || isHeadmaster(schoolId);
+          allow create: if canEditRegulation(schoolId) && request.resource.data.uid == request.auth.uid;
+          allow update, delete: if false;
+        }
+      }
+
       // 선택과목 분반 배정(smart-class-flow, 2026-11) — 학기별 작업 하나가 문서 하나(학번·과목·배정)
       //  · 쓰기(만들기·저장·버전)는 선택과목 담당자 — StudentHub 담당자 지정의 'elective'(관리자·교감은 지정 없이, hasHubRole)
       //  · 읽기는 담당자 + 교장(열람). 그 밖의 교직원은 볼 수 없다(분리 규칙 메모 등)

@@ -1912,3 +1912,61 @@ test('CSAT 섹션: 암호문 필드만, 버전은 정확히 1씩, 쓴 사람은 
   await assertFails(deleteDoc(ref(B)))
   await assertSucceeds(deleteDoc(ref(A)))
 })
+
+// ── 학교 규정집(Codex-Edu) ────────────────────────────────────────
+// A: 규정 담당자(regulation) / B: 담당자 아님 / ADMIN: 학교 관리자 / RH: 교장
+const RH = 'headmaster-reg'
+async function seedRegulation() {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, 'users', RH), { role: 'headmaster', schoolId: SCHOOL })
+    await setDoc(doc(db, 'users', 'student-r'), { role: 'student', schoolId: SCHOOL })
+    await setDoc(doc(db, ...path('studentHubManagers', A)), { roles: ['regulation'] })
+    await setDoc(doc(db, ...path('regulationBooks', 'main')), { title: '규정집', regulations: [] })
+    await setDoc(doc(db, ...path('regulations', 'r1')), { title: '학칙', currentVersionId: 'v1' })
+    await setDoc(doc(db, ...path('regulations', 'r1', 'versions', 'v1')), { nodes: [] })
+    await setDoc(doc(db, ...path('regulationAmendments', 'done')), { regId: 'r1', status: 'applied', createdBy: A })
+  })
+}
+
+test('규정집 열람: 교직원·교장은 읽고, 학생·다른 학교는 못 읽는다', async () => {
+  await seedRegulation()
+  for (const uid of [A, B, RH, ADMIN]) {
+    await assertSucceeds(getDoc(doc(as(uid), ...path('regulationBooks', 'main'))))
+    await assertSucceeds(getDoc(doc(as(uid), ...path('regulations', 'r1', 'versions', 'v1'))))
+  }
+  await assertFails(getDoc(doc(as('student-r'), ...path('regulationBooks', 'main'))))
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), ...path('regulations', 'r1'))))
+  await assertFails(getDoc(doc(as('outsider'), ...path('regulations', 'r1'))))
+})
+
+test('규정집 현행본: 관리자만 쓰고, 버전은 만든 뒤 고치거나 지울 수 없다', async () => {
+  await seedRegulation()
+  await assertFails(setDoc(doc(as(A), ...path('regulations', 'r2')), { title: 'x' }))        // 담당자도 현행본 직접 쓰기 불가
+  await assertFails(setDoc(doc(as(B), ...path('regulationBooks', 'main')), { title: 'x' }))
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...path('regulations', 'r2')), { title: 'x' }))
+  await assertSucceeds(setDoc(doc(as(ADMIN), ...path('regulations', 'r1', 'versions', 'v2')), { nodes: [] }))
+  await assertFails(updateDoc(doc(as(ADMIN), ...path('regulations', 'r1', 'versions', 'v1')), { nodes: [1] }))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...path('regulations', 'r1', 'versions', 'v1'))))
+})
+
+test('규정 개정안: 담당자가 만들고 고치며, 확정은 관리자만, 확정된 안은 그대로 둔다', async () => {
+  await seedRegulation()
+  const amd = (uid, over = {}) => ({ regId: 'r1', status: 'draft', createdBy: uid, ...over })
+  await assertFails(setDoc(doc(as(B), ...path('regulationAmendments', 'a1')), amd(B)))           // 담당자 아님
+  await assertFails(setDoc(doc(as(A), ...path('regulationAmendments', 'a1')), amd(B)))           // 만든 사람은 본인
+  await assertFails(setDoc(doc(as(A), ...path('regulationAmendments', 'a1')), amd(A, { status: 'applied' })))
+  await assertSucceeds(setDoc(doc(as(A), ...path('regulationAmendments', 'a1')), amd(A)))
+  await assertFails(getDoc(doc(as(B), ...path('regulationAmendments', 'a1'))))                   // 작업 중인 안은 담당자·교장만
+  await assertSucceeds(getDoc(doc(as(RH), ...path('regulationAmendments', 'a1'))))
+  await assertSucceeds(updateDoc(doc(as(A), ...path('regulationAmendments', 'a1')), { status: 'review' }))
+  await assertFails(updateDoc(doc(as(A), ...path('regulationAmendments', 'a1')), { status: 'applied' }))
+  await assertSucceeds(updateDoc(doc(as(ADMIN), ...path('regulationAmendments', 'a1')), { status: 'applied' }))
+  await assertFails(updateDoc(doc(as(ADMIN), ...path('regulationAmendments', 'done')), { status: 'draft' }))
+  await assertFails(deleteDoc(doc(as(ADMIN), ...path('regulationAmendments', 'done'))))
+  // 작업 기록 — 본인 이름으로 쌓기만
+  const log = (uid) => ({ uid, action: 'modify', nodeId: 'n1', at: serverTimestamp() })
+  await assertFails(setDoc(doc(as(A), ...path('regulationAmendments', 'a1', 'log', 'l1')), log(B)))
+  await assertSucceeds(setDoc(doc(as(A), ...path('regulationAmendments', 'a1', 'log', 'l1')), log(A)))
+  await assertFails(updateDoc(doc(as(A), ...path('regulationAmendments', 'a1', 'log', 'l1')), { action: 'add' }))
+})

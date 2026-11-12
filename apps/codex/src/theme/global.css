@@ -1,0 +1,10 @@
+/* StudentHub·ExamCore·ClassFlow와 같은 기준 — 화면 폭에 비례하는 글자 크기(1920px ≈ 16px, 4K ≈ 26px, 휴대폰 14px 하한) */
+html { font-size: clamp(14px, calc(0.52vw + 6px), 28px); }
+body { -webkit-font-smoothing: antialiased; }
+input, select, textarea, button { font-family: inherit; }
+@media print { .no-print { display: none !important; } }
+/* 조문 본문 — 줄 간격을 넉넉히, 한국어는 어절 단위로 줄바꿈 */
+.cx-body { line-height: 1.85; word-break: keep-all; overflow-wrap: anywhere; }
+@media print {
+  @page { size: A4 portrait; margin: 15mm; }
+}

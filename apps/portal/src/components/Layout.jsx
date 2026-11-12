@@ -86,6 +86,16 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    // 별도 앱(Codex-Edu, 2026-11) — 학교 규정집. /codex 중간 페이지가 재로그인 없이 넘겨준다
+    key: 'codex',
+    label: '학교 규정집',
+    icon: '⚖️',
+    prefix: '/codex',
+    items: [
+      { label: '규정집 보기', path: '/codex', icon: '◈', exact: true },
+    ],
+  },
+  {
     key: 'duty-plan',
     label: '업무분장',
     icon: '🗂️',

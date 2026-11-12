@@ -1,7 +1,7 @@
 // 학교운영위원회 제출 자료를 한글(hwpx) 파일로 만든다(2026-10-02).
 //
 // hwpx = ZIP + XML(OWPML). 글꼴·문단·테두리 정의(header.xml)와 용지 설정은 한컴오피스 한글이
-// 직접 저장한 파일에서 떼어 온 템플릿(lib/hwpx/template/)을 그대로 쓰고, 본문(section0.xml)의 제목·
+// 직접 저장한 파일에서 떼어 온 템플릿(apps/shared/lib/hwpx/template/)을 그대로 쓰고, 본문(section0.xml)의 제목·
 // 요약·표만 여기서 만든다. 표는 하나로 만들고 머리행 반복(repeatHeader)을 켜 두면 쪽 나눔은
 // 한글이 알아서 한다(표를 '글자처럼 취급'하면 쪽을 못 넘겨 잘리므로 treatAsChar=0). 줄 배치 정보(linesegarray)는 넣지 않는다 — 한글이 열 때 다시 계산한다.
 //
@@ -9,10 +9,10 @@
 //   charPr  0=10pt  1=9pt  2=16pt 굵게  4=9pt  5=9pt 굵게  6=8pt  7=8pt 회색(#444)
 //   paraPr  0=가운데  2=왼쪽
 //   borderFill  3=실선 0.12mm  4=실선 + 회색 채움(#E4E4E4)
-// 문단·셀·zip 묶기는 공용 작성기(lib/hwpx/hwpxWriter.js) — 템플릿도 그쪽으로 옮겼다(2026-10-28, 업무분장 결재 첨부와 공유).
-import { BODY_WIDTH_MM, MM, buildHwpxBlob, cell, downloadBlob, para, run } from '../../lib/hwpx/hwpxWriter'
-import sectionHead from '../../lib/hwpx/template/sectionHead.xml?raw'
-import secPrRun from '../../lib/hwpx/template/secPrRun.xml?raw'
+// 문단·셀·zip 묶기는 공용 작성기(apps/shared/lib/hwpx/hwpxWriter.js) — 템플릿도 그쪽으로 옮겼다(2026-10-28, 업무분장 결재 첨부와 공유).
+import { BODY_WIDTH_MM, MM, buildHwpxBlob, cell, downloadBlob, para, run } from '@shared/lib/hwpx/hwpxWriter'
+import sectionHead from '@shared/lib/hwpx/template/sectionHead.xml?raw'
+import secPrRun from '@shared/lib/hwpx/template/secPrRun.xml?raw'
 
 /** buildReportRows(TextbookCommitteeReport.jsx) 결과로 section0.xml을 만든다. */
 export function buildReportSectionXml({ title, summary, rows }) {

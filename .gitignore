@@ -32,6 +32,9 @@ venv/
 tools/docs/
 kiosk/assets/
 classflow/assets/
+codex/assets/
+# Codex-Edu 원본 규정집 hwpx(가져오기 원본) — 저장소에는 올리지 않는다
+codex-edu/docs/
 
 # 파일 동기화 도구(iCloud/Dropbox 등)가 충돌 시 만드는 사본.
 # "TargetPicker 2.jsx"처럼 이름 끝에 공백과 숫자가 붙는다. import는 원본으로 걸리므로

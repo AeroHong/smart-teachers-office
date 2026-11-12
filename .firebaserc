@@ -31,6 +31,9 @@
         ],
         "csatdocs": [
           "smart-csat-docs"
+        ],
+        "codex": [
+          "smart-codex-edu"
         ]
       }
     }
