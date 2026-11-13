@@ -9,9 +9,10 @@ import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
 import TableRow from '@mui/material/TableRow'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
-import { articleHeading, circled, indexNodes, nodeRefLabel, refText, resolvePlain, splitRefs, unitOf } from '@shared/lib/regulationTree'
+import { articleHeading, circled, indexNodes, nodePreview, nodeRefLabel, plainText, refText, resolvePlain, splitRefs, unitOf } from '@shared/lib/regulationTree'
 import { highlight } from '@shared/lib/regulationSearch'
 import { useAuth } from '@shared/contexts/AuthContext'
 import { getCurrentNodes, makeFindReg } from '../lib/data'
@@ -21,22 +22,79 @@ export const nodeHref = (base, regId, nodeId) => `${base}/r/${regId}${nodeId ? `
 
 const histLabel = (h) => `<${h.kind} ${h.date.replace(/-/g, '.').replace(/\.0/g, '.')}.>`
 
+// 다른 규정 노드 색인 — 미리보기·고정 링크가 같은 규정을 여러 번 읽지 않게(버전 캐시 위에 한 번 더)
+const foreignIndex = new Map()
+function loadIndex(loadNodes, regId) {
+  if (!foreignIndex.has(regId)) {
+    foreignIndex.set(regId, Promise.resolve(loadNodes(regId)).then((nodes) => (nodes ? indexNodes(nodes) : null)).catch(() => { foreignIndex.delete(regId); return null }))
+  }
+  return foreignIndex.get(regId)
+}
+
+/** 미리보기 창 내용 */
+function PreviewBox({ title, preview }) {
+  return (
+    <Box sx={{ maxWidth: 420 }}>
+      <Typography variant="caption" fontWeight={800} color="primary" display="block" sx={{ mb: 0.5 }}>{title}</Typography>
+      {!preview ? <Typography variant="body2" color="text.secondary">불러오는 중…</Typography> : (
+        <>
+          {preview.lines.map((l, i) => (
+            <Typography key={i} variant="body2" sx={{ pl: `${Math.min(l.depth, 4) * 0.9}rem`, lineHeight: 1.6, wordBreak: 'keep-all', ...(l.focus ? { bgcolor: '#fef9c3' } : {}) }}>
+              {l.text}
+            </Typography>
+          ))}
+          {preview.more && <Typography variant="caption" color="text.secondary">… 눌러서 전체 보기</Typography>}
+        </>
+      )}
+    </Box>
+  )
+}
+
+const tipSx = { bgcolor: 'background.paper', color: 'text.primary', border: '1px solid', borderColor: 'divider', boxShadow: '0 6px 20px rgba(20,39,94,0.16)', p: 1.25, maxWidth: 440 }
+
+/**
+ * 조문 링크 + 미리보기 — 마우스를 잠깐 올리면(휴대폰은 길게 누르면) 그 조문이 작은 창으로 뜬다.
+ * 같은 규정은 이미 있는 색인으로, 다른 규정은 창이 열릴 때 그 규정 노드를 불러온다.
+ */
+function RefLink({ regId, nodeId, ctx, children }) {
+  const same = regId === ctx.regId
+  const [loaded, setLoaded] = useState(null)
+  const index = same ? ctx.index : loaded
+  const reg = ctx.book?.regulations?.find((r) => r.id === regId)
+  const preview = useMemo(() => {
+    if (!index) return null
+    const textOf = (t) => plainText(t, { regId, regTitle: () => '', byIdOf: (r) => (r === regId ? index.byId : null) })
+    return nodePreview(index, nodeId, { textOf })
+  }, [index, nodeId, regId])
+  const onOpen = () => { if (!index && ctx.loadNodes) loadIndex(ctx.loadNodes, regId).then(setLoaded) }
+  const title = `${same ? ctx.regTitle : reg?.title || ''} ${preview?.title || ''}`.trim()
+  return (
+    <Tooltip
+      title={<PreviewBox title={title} preview={preview} />}
+      onOpen={onOpen}
+      enterDelay={350} enterNextDelay={200} leaveDelay={80} enterTouchDelay={450}
+      placement="bottom-start"
+      componentsProps={{ tooltip: { sx: tipSx } }}
+    >
+      <Link component={RouterLink} to={nodeHref(ctx.base, regId, nodeId)} underline="hover">{children}</Link>
+    </Tooltip>
+  )
+}
+
 /** 다른 규정의 고정 링크 — 그 규정 노드를 불러 지금 번호로 */
-function ForeignRef({ refInfo, book, base, loadNodes }) {
+function ForeignRef({ refInfo, ctx }) {
   const [label, setLabel] = useState(null)
-  const reg = book?.regulations?.find((r) => r.id === refInfo.regId)
+  const reg = ctx.book?.regulations?.find((r) => r.id === refInfo.regId)
   useEffect(() => {
     let alive = true
-    if (!reg || !loadNodes) return undefined
-    loadNodes(refInfo.regId).then((nodes) => {
-      if (!alive || !nodes) return
-      const { byId } = indexNodes(nodes)
-      setLabel(byId.has(refInfo.nodeId) ? nodeRefLabel(byId, refInfo.nodeId) : null)
-    }).catch(() => {})
+    if (!reg || !ctx.loadNodes) return undefined
+    loadIndex(ctx.loadNodes, refInfo.regId).then((idx) => {
+      if (alive && idx) setLabel(idx.byId.has(refInfo.nodeId) ? nodeRefLabel(idx.byId, refInfo.nodeId) : null)
+    })
     return () => { alive = false }
-  }, [reg, loadNodes, refInfo.regId, refInfo.nodeId])
+  }, [reg, ctx.loadNodes, refInfo.regId, refInfo.nodeId])
   if (!reg) return <span>(없어진 규정)</span>
-  return <Link component={RouterLink} to={nodeHref(base, refInfo.regId, refInfo.nodeId)}>「{reg.title}」 {label || '…'}</Link>
+  return <RefLink regId={refInfo.regId} nodeId={refInfo.nodeId} ctx={ctx}>「{reg.title}」 {label || '…'}</RefLink>
 }
 
 /** 글 + 참조 링크 + 검색어 강조 */
@@ -47,14 +105,14 @@ export function RefText({ text, ctx }) {
       if (s.ref.regId === ctx.regId) {
         const ok = ctx.byId.has(s.ref.nodeId)
         return ok
-          ? <Link key={i} component={RouterLink} to={nodeHref(ctx.base, ctx.regId, s.ref.nodeId)}>{refText(s.ref, { regId: ctx.regId, regTitle: () => '', byIdOf: () => ctx.byId, fromArticleId: ctx.articleId })}</Link>
+          ? <RefLink key={i} regId={ctx.regId} nodeId={s.ref.nodeId} ctx={ctx}>{refText(s.ref, { regId: ctx.regId, regTitle: () => '', byIdOf: () => ctx.byId, fromArticleId: ctx.articleId })}</RefLink>
           : <span key={i}>(없어진 조문)</span>
       }
-      return <ForeignRef key={i} refInfo={s.ref} book={ctx.book} base={ctx.base} loadNodes={ctx.loadNodes} />
+      return <ForeignRef key={i} refInfo={s.ref} ctx={ctx} />
     }
     if (s.plain && ctx.findReg) {
       const to = resolvePlain(s.plain, ctx)
-      if (to) return <Link key={i} component={RouterLink} to={nodeHref(ctx.base, to.regId, to.nodeId)} underline="hover">{s.text}</Link>
+      if (to) return <RefLink key={i} regId={to.regId} nodeId={to.nodeId} ctx={ctx}>{s.text}</RefLink>
     }
     return <Marked key={i} text={s.text} terms={ctx.terms} />
   })
@@ -155,7 +213,8 @@ const NodeRow = memo(function NodeRow({ node, depth, ctx, focused }) {
 export default function RegulationBody({ regId, regTitle, nodes, book, base = '', terms, focusId, readOnlyMenu = false, loadNodes: loadNodesProp }) {
   const { schoolId } = useAuth()
   const loadNodes = useMemo(() => loadNodesProp || ((id) => getCurrentNodes(schoolId, book, id)), [loadNodesProp, schoolId, book])
-  const { byId } = useMemo(() => indexNodes(nodes), [nodes])
+  const index = useMemo(() => indexNodes(nodes), [nodes])
+  const { byId } = index
   const depth = useMemo(() => {
     const m = new Map()
     for (const n of nodes) m.set(n.id, n.parent ? (m.get(n.parent) ?? 0) + 1 : 0)
@@ -163,7 +222,7 @@ export default function RegulationBody({ regId, regTitle, nodes, book, base = ''
   }, [nodes])
   const findReg = useMemo(() => makeFindReg(book), [book])
   const ctx = useMemo(() => ({
-    regId, regTitle, byId, book, base, terms, findReg, loadNodes, readOnlyMenu,
+    regId, regTitle, byId, index, book, base, terms, findReg, loadNodes, readOnlyMenu,
     articleOf: (id) => { const u = unitOf(byId, id); return u?.type === 'article' ? u.id : null },
     citedBy: (nodeId) => (book?.citations?.[`${regId}/${nodeId}`] || []).map((s) => {
       const [r, n] = s.split('/')
@@ -171,7 +230,7 @@ export default function RegulationBody({ regId, regTitle, nodes, book, base = ''
       const t = reg?.toc?.find((x) => x.id === n)
       return { key: s, regId: r, nodeId: n, regTitle: reg?.title || '', label: t ? `제${t.num}조${t.branch ? `의${t.branch}` : ''}${t.title ? `(${t.title})` : ''}` : '' }
     }),
-  }), [regId, regTitle, byId, book, base, terms, findReg, loadNodes, readOnlyMenu])
+  }), [regId, regTitle, byId, index, book, base, terms, findReg, loadNodes, readOnlyMenu])
   return (
     <Box>
       {nodes.map((n) => <NodeRow key={n.id} node={n} depth={depth.get(n.id) || 0} ctx={ctx} focused={focusId === n.id} />)}

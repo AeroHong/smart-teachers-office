@@ -232,3 +232,18 @@ test('목차: 조문 없는 안내형 문서는 머리 줄(□·1.)로', () => {
   ]
   assert.deepEqual(tocOf(nodes).map((t) => [t.id, t.type, t.title]), [['t1', 'heading', '재직기간 별 연가 일수 (국가공무원 복무규정 제15조)'], ['t3', 'heading', '1. 목적']])
 })
+
+test('참조 미리보기: 조를 가리키면 조 전체, 항을 가리키면 조 머리 + 그 항, 넘치면 자른다', async () => {
+  const { nodePreview } = await import('./regulationTree.js')
+  const idx = indexNodes(life())
+  const art = nodePreview(idx, 'a57')
+  assert.equal(art.title, '제57조')
+  assert.deepEqual(art.lines.map((l) => [l.depth, l.text.slice(0, 6)]), [[0, '제57조(시'], [1, '⑦ 담임교사'], [1, '⑧ 20점 '], [1, '⑨ 상을 받']])
+  const para = nodePreview(idx, 'a63p3')
+  assert.equal(para.title, '제63조제3항')
+  assert.deepEqual(para.lines.map((l) => [l.depth, l.text.slice(0, 7), !!l.focus]), [[0, '제63조(벌점', false], [1, '③ 부과된 누', true]])
+  const cut = nodePreview(idx, 'a57', { maxLines: 2 })
+  assert.equal(cut.lines.length, 2)
+  assert.equal(cut.more, true)
+  assert.equal(nodePreview(idx, 'nope'), null)
+})

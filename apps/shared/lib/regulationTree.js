@@ -326,3 +326,43 @@ export function collectRefs(regId, nodes, findReg) {
   }
   return out
 }
+
+// ── 참조 미리보기 ───────────────────────────────────────────────
+
+/**
+ * 조문 미리보기 줄 — 링크에 마우스를 올렸을 때 뜨는 작은 창.
+ * 가리킨 노드가 조 안이면 그 조 머리 줄 + 가리킨 노드와 그 하위만, 조 자체면 조 전체(항·호). 표는 「[표]」 한 줄로.
+ * @param {{ byId: Map, children: Map }} index indexNodes 결과
+ * @param {{ maxLines?: number, maxChars?: number, textOf?: (text) => string }} [opts] textOf는 고정 링크를 글자로 푸는 함수
+ * @returns {{ title: string, lines: {depth, text, focus?}[], more: boolean } | null}
+ */
+export function nodePreview(index, nodeId, { maxLines = 12, maxChars = 900, textOf = (t) => t } = {}) {
+  const { byId, children } = index
+  const target = byId.get(nodeId)
+  if (!target) return null
+  const unit = unitOf(byId, nodeId) || target
+  const lines = []
+  let chars = 0
+  let more = false
+  const line = (n) => (n.type === 'table' ? '[표]' : nodeLine({ ...n, text: n.text ? textOf(n.text) : n.text }))
+  const push = (n, depth, focus) => {
+    if (more) return
+    const text = line(n)
+    if (lines.length >= maxLines || chars + text.length > maxChars) { more = true; return }
+    lines.push({ depth, text, ...(focus ? { focus: true } : {}) })
+    chars += text.length
+  }
+  const walk = (n, depth, focus) => {
+    push(n, depth, focus)
+    for (const c of children.get(n.id) || []) walk(c, depth + 1, focus)
+  }
+  if (unit.type === 'article' && unit.id !== target.id) {
+    // 조 머리만 보이고, 가리킨 항·호를 하위째
+    push({ ...unit, text: '' }, 0, false)
+    const depthOf = (n) => { let d = 0; let p = n; while (p && p.id !== unit.id) { d++; p = p.parent ? byId.get(p.parent) : null } return d }
+    walk(target, depthOf(target), true)
+  } else {
+    walk(target, 0, false)
+  }
+  return { title: nodeRefLabel(byId, nodeId), lines, more }
+}
